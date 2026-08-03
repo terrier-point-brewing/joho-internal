@@ -91,7 +91,7 @@ export default function DemandCalendarTab() {
         <p className="text-sm text-muted">
           12-week cold storage BBL projection per recipe. Click a recipe row to see per-channel breakdown.
         </p>
-        <button onClick={() => refetch()} className="px-3 py-1.5 border border-line-strong hover:border-line-subtle text-body text-sm rounded transition-colors">
+        <button onClick={() => refetch()} className="btn-secondary">
           Refresh
         </button>
       </div>

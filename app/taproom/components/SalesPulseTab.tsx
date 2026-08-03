@@ -10,6 +10,7 @@ import TimezoneLabel from "@/app/components/TimezoneLabel";
 import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
 import { todayLocalDate, mondayOf, addDaysStr } from "@/lib/utils/datetime";
 import { buildSalesWeekView, weekLabel, DAY_LABELS } from "@/lib/reports/salesPulseWeek";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 
 const SalesPulseChart = dynamic(() => import("./SalesPulseChart"), {
   ssr: false,
@@ -122,11 +123,6 @@ const KPI_OPTIONS: { value: KpiMetric; label: string }[] = [
   { value: "guest_count", label: "Guest Count"         },
 ];
 
-
-const toggleBtn = (active: boolean) =>
-  `px-3 py-1.5 text-xs font-medium transition-colors ${
-    active ? "bg-surface-high text-primary" : "bg-surface-mid text-secondary hover:text-strong"
-  }`;
 
 export default function SalesPulseTab() {
   const { timezone } = useBreweryTimezone();
@@ -270,22 +266,17 @@ export default function SalesPulseTab() {
             {/* Mobile: 2×2 grid */}
             <div className="sm:hidden grid grid-cols-2 gap-1 flex-1">
               {KPI_OPTIONS.map(({ value, label }) => (
-                <button key={value} onClick={() => setChartMetric(value)}
-                  className={`px-2 py-1.5 text-xs font-medium rounded border transition-colors ${
-                    chartMetric === value
-                      ? "bg-surface-high text-primary border-line-subtle"
-                      : "bg-surface-mid text-secondary border-line-strong hover:text-strong"
-                  }`}>
+                <ToggleChip key={value} active={chartMetric === value} onClick={() => setChartMetric(value)}>
                   {label}
-                </button>
+                </ToggleChip>
               ))}
             </div>
             {/* Desktop: horizontal strip */}
-            <div className="hidden sm:flex rounded overflow-hidden border border-line-strong">
+            <div className="hidden sm:flex items-center gap-1">
               {KPI_OPTIONS.map(({ value, label }) => (
-                <button key={value} onClick={() => setChartMetric(value)} className={toggleBtn(chartMetric === value)}>
+                <ToggleChip key={value} active={chartMetric === value} onClick={() => setChartMetric(value)}>
                   {label}
-                </button>
+                </ToggleChip>
               ))}
             </div>
           </div>
@@ -303,29 +294,18 @@ export default function SalesPulseTab() {
         {/* Day-of-week filter */}
         <div className="flex items-center gap-1.5 mb-4 overflow-x-auto scrollbar-none pb-0.5">
           <span className="text-xs text-faint mr-1">Day</span>
-          <button
-            onClick={() => setCatDayFilter(null)}
-            className={`shrink-0 px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
-              catDayFilter === null
-                ? "border-accent-border bg-accent-muted/20 text-accent-soft"
-                : "border-line-strong text-muted hover:text-body hover:border-line-subtle"
-            }`}
-          >
+          <ToggleChip active={catDayFilter === null} onClick={() => setCatDayFilter(null)} className="shrink-0">
             All
-          </button>
+          </ToggleChip>
           {dayPills.map(({ label, index, isFuture }) => (
-            <button
+            <ToggleChip
               key={index}
+              active={catDayFilter === index}
               onClick={() => !isFuture && setCatDayFilter(index)}
-              disabled={isFuture}
-              className={`shrink-0 px-2.5 py-1 rounded text-xs font-medium border transition-colors disabled:opacity-25 disabled:cursor-not-allowed ${
-                catDayFilter === index
-                  ? "border-accent-border bg-accent-muted/20 text-accent-soft"
-                  : "border-line-strong text-muted hover:text-body hover:border-line-subtle"
-              }`}
+              className={`shrink-0 ${isFuture ? "opacity-25 pointer-events-none" : ""}`}
             >
               {label}
-            </button>
+            </ToggleChip>
           ))}
           {catDayLoading && <span className="text-xs text-faint ml-1">Loading…</span>}
         </div>

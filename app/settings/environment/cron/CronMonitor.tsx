@@ -146,16 +146,16 @@ export default function CronMonitor() {
                         <span className="text-sm font-medium text-strong font-mono">{job.job}</span>
                         <Badge tone={statusTone}>{statusLabel}</Badge>
                         {overdue && <Badge tone="accent">Overdue · {Math.round(ageHours!)}h</Badge>}
-                        {last && <span className="text-[11px] text-faint">{timeAgo(last.started_at)}</span>}
+                        {last && <span className="text-2xs text-faint">{timeAgo(last.started_at)}</span>}
                       </div>
                       <p className="text-xs text-muted mt-1">{job.description}</p>
-                      <p className="text-[11px] text-faint mt-1">
+                      <p className="text-2xs text-faint mt-1">
                         {job.scheduleLabel}{job.schedule ? ` · ${job.schedule}` : ""}{job.path !== "—" ? ` · ${job.path}` : ""}
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       {jobRuns.length > 0 && (
-                        <button onClick={() => toggle(job.job)} className="text-[11px] text-muted hover:text-body">
+                        <button onClick={() => toggle(job.job)} className="btn-secondary">
                           {isOpen ? "Hide runs" : `${jobRuns.length} run${jobRuns.length === 1 ? "" : "s"}`}
                         </button>
                       )}
@@ -167,7 +167,7 @@ export default function CronMonitor() {
                   </div>
 
                   {last && (
-                    <div className="mt-2 text-[11px] text-secondary">
+                    <div className="mt-2 text-2xs text-secondary">
                       {last.status === "error"
                         ? <span className="text-danger">{last.error ?? "Error"}</span>
                         : <span className="text-muted">{detailSummary(last.detail) || "ok"}</span>}
@@ -178,7 +178,7 @@ export default function CronMonitor() {
                 {isOpen && jobRuns.length > 0 && (
                   <div className="border-t border-line divide-y divide-line/50">
                     {jobRuns.slice(0, 15).map((r) => (
-                      <div key={r.id} className="px-4 py-2 flex items-start gap-3 text-[11px]">
+                      <div key={r.id} className="px-4 py-2 flex items-start gap-3 text-2xs">
                         <span className={`shrink-0 w-14 ${r.status === "success" ? "text-success" : "text-danger"}`}>
                           {r.status === "success" ? "✓ ok" : "✕ error"}
                         </span>
@@ -197,7 +197,7 @@ export default function CronMonitor() {
             );
           })}
 
-          <p className="text-[10px] text-faint mt-1">
+          <p className="text-2xs text-faint mt-1">
             Runs are recorded by the jobs themselves. A job with no runs has either never fired or predates run logging.
             Vercel triggers these on the schedules in <span className="font-mono">vercel.json</span>.
             Running a job here does exactly what the schedule does, and is recorded in the same history.

@@ -375,7 +375,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
                       <button
                         onClick={() => saveRow(row)}
                         disabled={savingRow === row.employee_id}
-                        className="btn-secondary btn-xxs"
+                        className="btn-secondary"
                       >
                         {savingRow === row.employee_id ? "…" : "Save"}
                       </button>

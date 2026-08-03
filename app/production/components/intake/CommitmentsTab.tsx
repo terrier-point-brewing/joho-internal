@@ -20,6 +20,7 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
 import SortableTh from "@/app/components/ui/SortableTh";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig } from "@/lib/table/types";
 
 const STATUS_META: Record<ContractRequestStatus, { label: string; cls: string }> = {
@@ -118,7 +119,7 @@ function InvoicingCell({
           {a.square_deposit_invoice_id && (
             <button type="button" onClick={() => onViewInSquare(a.id)}
               disabled={actionLoading === a.id}
-              className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+              className="btn-secondary btn-xxs whitespace-nowrap">
               View in Square ↗
             </button>
           )}
@@ -129,18 +130,18 @@ function InvoicingCell({
                 <button type="button"
                   onClick={() => onPreview({ ...a, commitments: { volume_bbl: commitment.volume_bbl } })}
                   disabled={actionLoading === a.id}
-                  className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                  className="btn-primary btn-xxs whitespace-nowrap">
                   Generate Invoice
                 </button>
               )}
               {a.invoice_generated_at && !a.invoice_sent_at && (
                 <>
                   <button type="button" onClick={() => onSend(a.id)} disabled={actionLoading === a.id}
-                    className="text-[10px] text-accent-emphasis hover:text-accent border border-accent-border/50 hover:border-accent-border rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    className="btn-primary btn-xxs whitespace-nowrap">
                     {actionLoading === a.id ? "Sending…" : "Send Invoice"}
                   </button>
                   <button type="button" onClick={() => onDelete(a.id, false)} disabled={actionLoading === a.id}
-                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    className="btn-danger btn-xxs whitespace-nowrap">
                     Delete
                   </button>
                 </>
@@ -148,11 +149,11 @@ function InvoicingCell({
               {a.invoice_sent_at && (
                 <>
                   <button type="button" onClick={() => onSync(a.id)} disabled={actionLoading === a.id}
-                    className="text-[10px] text-muted hover:text-body border border-line-strong rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    className="btn-secondary btn-xxs whitespace-nowrap">
                     {actionLoading === a.id ? "Syncing…" : "Sync Status"}
                   </button>
                   <button type="button" onClick={() => onDelete(a.id, true)} disabled={actionLoading === a.id}
-                    className="text-[10px] text-danger hover:text-danger border border-danger-border/50 hover:border-danger-border rounded px-1.5 py-0.5 transition-colors disabled:opacity-40 whitespace-nowrap">
+                    className="btn-danger btn-xxs whitespace-nowrap">
                     Delete
                   </button>
                 </>
@@ -316,12 +317,11 @@ function CommitmentModal({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Channel selector */}
         <Field label="Channel" required>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="flex gap-2">
             {(["contract_brewing", "distribution", "wholesale"] as CommitmentChannel[]).map((c) => (
-              <button key={c} type="button" onClick={() => set("channel", c)}
-                className={`px-3 py-2 rounded border text-sm transition-colors ${form.channel === c ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"}`}>
+              <ToggleChip key={c} active={form.channel === c} onClick={() => set("channel", c)}>
                 {CHANNEL_META[c].label}
-              </button>
+              </ToggleChip>
             ))}
           </div>
         </Field>
@@ -349,12 +349,11 @@ function CommitmentModal({
         {isDistribution ? (
           <>
             <Field label="Cadence" required>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="flex gap-2">
                 {(["one_time", "recurring"] as const).map((c) => (
-                  <button key={c} type="button" onClick={() => set("cadence", c)}
-                    className={`px-3 py-2 rounded border text-sm transition-colors ${form.cadence === c ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"}`}>
+                  <ToggleChip key={c} active={form.cadence === c} onClick={() => set("cadence", c)}>
                     {c === "one_time" ? "One-time" : "Recurring"}
-                  </button>
+                  </ToggleChip>
                 ))}
               </div>
             </Field>
@@ -421,12 +420,12 @@ function CommitmentModal({
                     value={row.qty} onChange={(e) => setPackagingRow(i, { qty: e.target.value })} />
                   <span className="text-xs text-muted tabular-nums text-right">{bbl != null ? `${bbl.toFixed(2)} BBL` : ""}</span>
                   <button type="button" onClick={() => removePackagingRow(i)} disabled={form.packaging.length === 1}
-                    className="text-faint hover:text-danger disabled:opacity-30 text-sm leading-none">✕</button>
+                    className="btn-danger btn-xxs">✕</button>
                 </div>
               );
             })}
           </div>
-          <button type="button" onClick={addPackagingRow} className="text-xs text-accent-emphasis hover:text-accent transition-colors">
+          <button type="button" onClick={addPackagingRow} className="btn-secondary">
             + Add another preference
           </button>
         </div>
@@ -728,9 +727,9 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                     <div className="max-w-[160px] truncate" title={q.notes ?? undefined}>{q.notes ?? "—"}</div>
                   </td>
                   <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-3 whitespace-nowrap">
-                      <button onClick={() => setEditing(q)} className="text-xs text-secondary hover:text-strong">Edit</button>
-                      <button onClick={() => handleDelete(q.id)} className="text-xs text-danger/80 hover:text-danger">Delete</button>
+                    <div className="flex items-center gap-1 whitespace-nowrap">
+                      <button onClick={() => setEditing(q)} className="btn-secondary btn-xxs">Edit</button>
+                      <button onClick={() => handleDelete(q.id)} className="btn-danger btn-xxs">Delete</button>
                     </div>
                   </td>
                 </tr>

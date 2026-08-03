@@ -163,10 +163,10 @@ function OutstandingRow({
             aria-label={`Balance for ${task.accountName}`}
           />
         </div>
-        <button type="button" className="btn-primary btn-xxs" disabled={busy} onClick={save}>
+        <button type="button" className="btn-primary" disabled={busy} onClick={save}>
           {busy ? "Saving…" : "Save balance"}
         </button>
-        <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={onSkip}>
+        <button type="button" className="btn-secondary" disabled={busy} onClick={onSkip}>
           No balance this month
         </button>
       </div>
@@ -291,7 +291,7 @@ export default function PeriodClosePanel({
                 {canManage && (
                   <button
                     type="button"
-                    className="underline text-accent-soft"
+                    className="btn-secondary btn-xxs"
                     onClick={() =>
                       postJson("/api/finance/balance-close", { action: "reopen", taskId: t.id })
                         .then(refresh)

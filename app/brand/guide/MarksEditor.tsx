@@ -262,7 +262,7 @@ function MarkKindEditor({
                 placeholder="Describe the image for a screen reader…"
               />
             </Field>
-            <button type="submit" className="btn-primary btn-xxs" disabled={!file || busy}>
+            <button type="submit" className="btn-primary" disabled={!file || busy}>
               {busy ? "Working…" : "Upload"}
             </button>
           </div>

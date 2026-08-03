@@ -377,17 +377,17 @@ function ConnectionField({
 
         <div className="flex items-center gap-2 flex-wrap">
           {field.connect === "authorize" ? (
-            <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={startAuthorize}>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={startAuthorize}>
               {field.satisfied ? "Reconnect" : "Sign in and connect"}
             </button>
           ) : (
-            <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={loadCandidates}>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={loadCandidates}>
               {field.satisfied ? "Change account" : "Choose an account"}
             </button>
           )}
 
           {field.satisfied && capability?.canCheck && (
-            <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={runCheck}>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={runCheck}>
               Test it
             </button>
           )}
@@ -477,7 +477,7 @@ function OperatorBalanceField({
           className="inp-sm w-28 text-right font-mono"
           aria-label="Balance"
         />
-        <button type="button" className="btn-primary btn-xxs" disabled={busy || amount === ""} onClick={save}>
+        <button type="button" className="btn-primary" disabled={busy || amount === ""} onClick={save}>
           {busy ? "Saving…" : "Save balance"}
         </button>
       </div>
@@ -580,7 +580,7 @@ function ConfigField({
             aria-label={field.label}
           />
         )}
-        <button type="button" className="btn-primary btn-xxs" disabled={busy || value === ""} onClick={save}>
+        <button type="button" className="btn-primary" disabled={busy || value === ""} onClick={save}>
           {busy ? "Saving…" : "Save"}
         </button>
       </div>

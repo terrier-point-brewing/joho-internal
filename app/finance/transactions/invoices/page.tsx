@@ -11,6 +11,8 @@ import SortableTh from "@/app/components/ui/SortableTh";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
+import ToggleChip from "@/app/components/ui/ToggleChip";
+import Badge from "@/app/components/ui/Badge";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
 import AccountSelect from "../../AccountSelect";
@@ -179,19 +181,19 @@ function InvoiceExpandableRow({
           {inv.contract_brewing_partners?.company_name ?? inv.customer_name ?? "—"}
         </td>
         <td className="px-4 py-2">
-          <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${SOURCE_CLS[inv.source] ?? SOURCE_CLS.other}`}>
+          <Badge tone="none" className={SOURCE_CLS[inv.source] ?? SOURCE_CLS.other}>
             {SOURCE_LABEL[inv.source] ?? inv.source}
-          </span>
+          </Badge>
         </td>
         <td className="px-4 py-2">
-          <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${TYPE_CLS[(inv as InvoiceRow).invoice_type] ?? TYPE_CLS.standard}`}>
+          <Badge tone="none" className={TYPE_CLS[(inv as InvoiceRow).invoice_type] ?? TYPE_CLS.standard}>
             {TYPE_LABEL[(inv as InvoiceRow).invoice_type] ?? (inv as InvoiceRow).invoice_type}
-          </span>
+          </Badge>
         </td>
         <td className="px-4 py-2">
-          <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${STATUS_CLS[inv.status] ?? STATUS_CLS.unknown}`}>
+          <Badge tone="none" className={STATUS_CLS[inv.status] ?? STATUS_CLS.unknown}>
             {inv.status}
-          </span>
+          </Badge>
         </td>
         <td className="px-4 py-2">
           <div className="flex flex-col gap-1">
@@ -403,13 +405,14 @@ function BatchLinkEditor({
           {links.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
               {links.map((link) => (
-                <div key={link.id} className="flex items-center gap-1.5 bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs">
+                <div key={link.id} className="flex items-center gap-1.5 bg-surface-mid border border-line-strong rounded px-2 py-0.5 text-xs">
                   <span className="text-body">
                     {link.brew_batches?.batch_number != null ? `#${link.brew_batches.batch_number} · ` : ""}
                     {link.brew_batches?.beer_name ?? "Unknown batch"}
                   </span>
                   <button onClick={() => handleRemove(link.id)}
-                    className="text-faint hover:text-danger transition-colors ml-1">×</button>
+                    aria-label={`Remove link to ${link.brew_batches?.beer_name ?? "batch"}`}
+                    className="btn-danger btn-xxs">×</button>
                 </div>
               ))}
             </div>
@@ -584,11 +587,9 @@ export default function InvoicesPage() {
             value={filters.gl?.[0] ?? null}
             onChange={(id) => setFilter("gl", id ? [id] : [])}
           />
-          <button
-            onClick={() => setShowVoided((v) => !v)}
-            className={`btn-secondary whitespace-nowrap ${showVoided ? "text-body" : "text-faint"}`}>
+          <ToggleChip active={showVoided} onClick={() => setShowVoided((v) => !v)} className="whitespace-nowrap">
             {showVoided ? "Hide voided" : "Show voided"}
-          </button>
+          </ToggleChip>
           <SyncPanel<InvoiceSyncResult>
             year={new Date(to).getFullYear()}
             cronJob="finance-sync"

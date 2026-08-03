@@ -230,7 +230,7 @@ function IdentityFieldInput({
             value={value}
             onChange={(e) => onChange(e.target.value)}
           />
-          <button type="button" className="btn-secondary btn-xxs shrink-0" onClick={onToggleReveal} disabled={revealing}>
+          <button type="button" className="btn-secondary shrink-0" onClick={onToggleReveal} disabled={revealing}>
             {revealing ? "Loading…" : visible ? "Hide" : "Unmask"}
           </button>
         </div>

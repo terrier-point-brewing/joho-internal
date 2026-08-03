@@ -215,6 +215,18 @@ Rules:
   `performance/`, `targets/`, and finance sub-sections so the `PageHeader` + dual-`SubNav`
   shell and description strings are defined once, not copy-pasted per leaf page.
 - **No `<h1>`/`<h2>` hand-rolled headers** — always `<PageHeader>`.
+- **The frozen header holds title → description → the page's one subtab bar, and nothing
+  else.** Action buttons, selects, and status text all live in the scrollable content below,
+  even when they'd naturally sit beside the title. Page-level actions go at the top of that
+  content as `flex justify-end gap-2 mb-4`. `SettingsHeader` deliberately has **no** `actions`
+  prop — don't re-add one or a lookalike escape hatch on `StickyHeader`. *Named exceptions,
+  granted explicitly: Financials' DataQualityPanel + year select + Refresh, and the payroll
+  period-detail `PeriodSelector`.*
+- **`StickyHeader` `divider` prop:** a page whose header has no subtab bar underneath has
+  nothing to draw the border a `TabBar`/`SubNav` supplies for free — pass `divider` so the
+  frozen header still reads as distinct from the content below.
+- **A page-local view switcher nested under a real subtab bar is a `<ButtonGroup>`**, never a
+  second `TabBar` — two stacked underline rows read as a nav level that doesn't exist.
 - **Container width:** full-bleed by default (production convention). Where a max-width is
   wanted, use a single shared constant `max-w-5xl` — not a per-tab grab bag.
 - Finance's `flex flex-col h-full` family migrates to the `<main>` template unless the
@@ -240,15 +252,50 @@ button is `py-1 px-2.5 text-xs font-medium`, transparent fill, 1px outline.
 | `.btn-danger` | danger outline — `border-danger-border text-danger`, hover danger wash | destructive (Delete, Remove) |
 
 **Size:** one modifier only — `.btn-xxs` (`py-0.5 px-1.5`, 10px), which composes with any
-tier (`btn-primary btn-xxs`). Use it **only** in dense inline/tile contexts where the compact
-default overflows — table action rows and floorplan/keg tiles (e.g. BatchLog invoice-action
-row, BrewStatus tank tiles). It is not a general small button; do not reach for it to make a
+tier (`btn-primary btn-xxs`). Use it **only** where *every* control in the same row is also
+10px — in practice that means button-only rows: a table's action column and floorplan/keg
+tile action strips. It is not a general small button; do not reach for it to make a
 page/toolbar button smaller.
 
 All share `:disabled → opacity-40`, `:focus-visible → 2px accent outline`. There is **no
 `.btn-amber`/`.btn-ghost`/`.btn-sm`/`.btn-xs` and no md size** — do not hand-roll bordered or
-filled `<button>` boxes; use a tier class. Filter/toggle chips, inline text-link table
-actions (`Edit`/`Delete` as text), and tabs are separate patterns, not buttons.
+filled `<button>` boxes; use a tier class. Filter/toggle chips and tabs are separate patterns,
+not buttons. A text-link that performs an action **is** a button and takes a tier — there is no
+untiered "just text" action, and no fourth informal amber-link tier.
+
+**Geometry:** the tier owns the button's padding and height — never override them. The only
+width utility allowed on a `.btn-*` is `w-full`, for a full-width form submit (modal footers,
+login). No `w-32`, `min-w-*`, `max-w-*`, `h-*`, `px-*`, `py-*`, or inline `style` padding: a
+button sizes to its label, so a fixed width pads short labels with dead space and makes the
+same action look different from page to page. Enforced by `eslint.config.mjs`
+(`no-restricted-syntax`); if you genuinely need an exception, disable it on the line with a
+comment saying why.
+
+#### Adjacency (the rule that governs size)
+This overrides the per-role defaults below whenever they conflict. Within one flex row:
+
+- **Button vs button** — must share a size tier. Never mix default with `.btn-xxs`.
+- **Button vs `.inp-sm` or `ToggleChip` (12px)** — the button is **default** size. A 10px
+  `.btn-xxs` beside a 12px control is the most common defect in this codebase; it is always wrong.
+- **Button vs `.inp` (14px)** — a default 12px button is **correct**. This is the sanctioned
+  one-tier-below pairing (there is no 14px button). Do not "fix" it.
+
+The ladder, so adjacency is checkable: `.inp` 14px → `.btn-*` default / `.inp-sm` / `ToggleChip`
+12px → `.btn-xxs` 10px. There is no 10px input, which is why `.btn-xxs` is rare.
+
+#### Role → canonical treatment
+| Role | Treatment |
+|---|---|
+| Page-level action (New, Refresh, Upload) | Top of **scrollable content**, `flex justify-end gap-2 mb-4`, default `.btn-*`, exactly **one** `.btn-primary` per row. Never in the frozen header (§4). |
+| Toolbar / section / card-header / panel-footer action | Default-size `.btn-*` |
+| Table row action (inside a `<td>`) | `.btn-xxs` + tier, grouped `flex gap-1` (no `·` separators). If the cell also holds an `.inp-sm`, use default size instead. |
+| Dense tile action (floorplan/keg/equipment) | `.btn-xxs` + tier |
+| Repeated editor row | Default size — these rows contain `.inp-sm`, so adjacency forces 12px. A list's footer "Add …" matches the row buttons it terminates. |
+| Modal footer | `<ModalActions>`; else `flex justify-end gap-2`, cancel **first** (`.btn-secondary`), confirm **last**. Both default size. |
+| Page-local view switcher under a subtab bar | `<ButtonGroup>` |
+| Any other inline exclusive choice (mode, metric, segmented row) | `<ToggleChip>` row — never a `<select>`, a hand-rolled bordered row, or a second `TabBar` |
+| Filter controls | `FilterBar` + `SearchInput` / `FilterChips` / `FilterSelect` |
+| Non-interactive status pill | `<Badge>` (category colors via `className`) |
 
 There is no success/info button tier: any colored *action* button folds into `.btn-secondary`
 (or `.btn-primary` if it is the page's main action). This does not apply to status-encoding
@@ -256,11 +303,15 @@ controls — a toggle whose color shows active/inactive, or a status badge — w
 buttons and keep their status color.
 
 ### Inputs (`globals.css`)
-- `.inp` is the **only** input/select/textarea style (`py-1.5 px-2 text-sm`, surface-mid bg,
-  border-strong, amber focus ring). Delete every local `inputCls`/`selectCls` const and the
-  hand-rolled `px-2 py-1 text-xs` micro-inputs; pass `.inp` to `FormattedInput` and fix
-  `SquareCatalogSelect` to use it. A dense `.inp-sm` (`py-1 px-2 text-xs`) MAY be added for
-  table-embedded inputs if needed — one class, not per-file consts.
+- `.inp` (`py-1.5 px-2 text-sm`, surface-mid bg, border-strong, amber focus ring) for form and
+  modal fields; `.inp-sm` (`py-1 px-2 text-xs`) for table-embedded inputs, filter bars, and
+  dense repeated rows. These two are the **only** input/select/textarea styles. Delete every
+  local `inputCls`/`selectCls` const and every hand-rolled `px-2 py-1 text-xs` micro-input.
+- **Never `inp` + a font-size override.** `inp text-xs` is a hand-made `.inp-sm` — use the real
+  one. Likewise never stack `inp inp-sm` (only CSS source order makes that work), and never
+  restate a primitive's own size (`inp text-sm`).
+- Checkboxes and `<input type="color">` have no primitive; style them inline and consistently
+  (see `PaletteFacet` for the color-swatch sizing).
 
 ### Cards
 `<Card>` component → `bg-surface border border-line rounded-lg`, padding via prop
@@ -306,7 +357,13 @@ border border-danger-border/50 rounded px-3 py-2 text-sm`. Replaces ~12 copies.
 | 7× report table chrome + `tdCls` + `currency()` | `<ReportTable>` + `formatCurrency` util |
 | 3× CoA account picker (`CoASelect`/`AccountSelect`) | shared `<AccountSelect>` (finance) |
 | 3× statement table machinery, 4× `MONTH_NAMES`, 2× batch-color hex cycle | shared finance utils / shared constants |
-| `<select>`-based view switchers | `<SubNav>`/`<TabBar>` |
+| `<select>`-based view switchers | `<SubNav>`/`<TabBar>`, or `<ButtonGroup>` when nested under an existing subtab bar |
+| Untiered text-link row actions (`Adjust · Edit · Del`) | `.btn-xxs` + tier, grouped `flex gap-1` |
+| Bare amber link buttons (`text-xs text-accent-emphasis hover:text-accent`) | `.btn-secondary` (or `.btn-primary` if it is that card's main act) |
+| Hand-rolled segmented/bordered exclusive-choice rows | `<ToggleChip>` row |
+| `inp text-xs` / `inp inp-sm` / `inp text-sm` | `.inp-sm` / `.inp` |
+| Action buttons or selects inside `StickyHeader`/`SettingsHeader` | move into the scrollable content (§4) |
+| Width/padding/height overrides on a `.btn-*` (`min-w-32`, `px-3 py-1.5`, `h-8`) | let the tier own the geometry; only `w-full` is allowed |
 | Per-section copy-pasted shells + desc strings | section `layout.tsx` |
 
 ### Exempt (documented, not migrated)
@@ -316,6 +373,18 @@ may use sub-`xs` type. Their **shared color constants** (batch-color cycle) shou
 centralized. Additionally, the fixed nav micro-labels in `NavBar` (mobile bottom-nav item
 labels and the account role caption) may keep `text-[10px]` — bumping them risks wrapping
 the compact bottom bar.
+
+The **brand read-only guide surface** — `app/brand/guide/blocks/**` and the `app/brand/guide/
+*View.tsx` read views — is also exempt. It renders the brand's own skin through a deliberate
+parallel `font-brand-*` / `border-brand-line` / `text-brand-content` system scoped by
+`.brand-surface`, so its chips, copy buttons and download links are intentionally not `.btn-*`.
+Mixing ops tiers in would break the skin. This exemption covers the read surface only — the
+brand **editors** (`canon/**`, `releases/**`, `templates/**`, `guide/MarksEditor.tsx`) are
+ordinary ops UI and follow §5 in full.
+
+Also not migrated, because no primitive fits and forcing one breaks layout: "row-as-button"
+accordion disclosures, image-tile pickers, in-chip micro-actions, and two-line "choice cards"
+(a bold label plus a hint line, e.g. the inventory adjustment-type pickers).
 
 ## Search / Filter / Sort (strict)
 

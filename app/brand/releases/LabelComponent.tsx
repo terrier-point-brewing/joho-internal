@@ -52,7 +52,7 @@ function LabelEditor({ ctx }: { ctx: ReleaseComponentContext }) {
       <div className="flex flex-col gap-2">
         <p className="text-sm text-secondary">This release has no label record yet.</p>
         <button
-          className="btn-primary btn-xxs self-start"
+          className="btn-primary self-start"
           disabled={createLabel.isPending}
           onClick={() => createLabel.mutate({ release_id: release.id, name: release.name })}
         >
@@ -148,7 +148,7 @@ function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: Bran
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-secondary">Request to the artist</span>
             <button
-              className="btn-secondary btn-xxs"
+              className="btn-secondary"
               onClick={() => setIll({ request_brief: composedBrief })}
               title="Compose from the brand guide and this release's card"
             >
@@ -312,14 +312,15 @@ function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: Bran
                   next[i] = { ...c, hex: e.target.value };
                   setPalette(next);
                 }}
+                className="h-8 w-8 shrink-0 rounded border border-line-strong bg-transparent cursor-pointer"
               />
               <input className="inp-sm" placeholder="Name" value={c.name} onChange={(e) => { const n = [...draft.tier2_palette.colors]; n[i] = { ...c, name: e.target.value }; setPalette(n); }} />
               <input className="inp-sm" placeholder="Note" value={c.note ?? ""} onChange={(e) => { const n = [...draft.tier2_palette.colors]; n[i] = { ...c, note: e.target.value }; setPalette(n); }} />
-              <button className="btn-danger btn-xxs" onClick={() => setPalette(draft.tier2_palette.colors.filter((_, j) => j !== i))}>Remove</button>
+              <button className="btn-danger" onClick={() => setPalette(draft.tier2_palette.colors.filter((_, j) => j !== i))}>Remove</button>
             </div>
           ))}
           <button
-            className="btn-secondary btn-xxs self-start"
+            className="btn-secondary self-start"
             onClick={() => setPalette([...draft.tier2_palette.colors, { name: "", hex: "#26355d" }])}
           >
             Add color
@@ -337,7 +338,7 @@ function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: Bran
 
       {updateLabel.error && <Banner tone="danger">{(updateLabel.error as Error).message}</Banner>}
       <button
-        className="btn-primary btn-xxs self-start"
+        className="btn-primary self-start"
         disabled={updateLabel.isPending}
         onClick={() =>
           updateLabel.mutate({

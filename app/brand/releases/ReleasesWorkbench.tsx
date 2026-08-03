@@ -87,7 +87,7 @@ export default function ReleasesWorkbench({
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
             />
-            <button type="submit" className="btn-primary btn-xxs" disabled={createRelease.isPending}>
+            <button type="submit" className="btn-primary" disabled={createRelease.isPending}>
               Add
             </button>
           </form>
@@ -186,12 +186,12 @@ function ReleaseFrame({
           <span className={`text-xs ${readyCount === RELEASE_COMPONENTS.length ? "text-success" : "text-muted"}`}>
             {readyCount}/{RELEASE_COMPONENTS.length} components ready
           </span>
-          <button className="btn-secondary btn-xxs" onClick={() => archiveRelease.mutate(release.id)}>
+          <button className="btn-secondary" onClick={() => archiveRelease.mutate(release.id)}>
             Archive
           </button>
           {release.status === "draft" && (
             <button
-              className="btn-primary btn-xxs"
+              className="btn-primary"
               disabled={!ready || markReleased.isPending}
               onClick={() => markReleased.mutate(release.id)}
               title={ready ? undefined : `Outstanding: ${outstanding.join(", ")}`}

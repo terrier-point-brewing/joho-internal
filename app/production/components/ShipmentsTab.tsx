@@ -612,7 +612,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                     {isShipmentEditable(group.rows) && (
                       <button
                         onClick={() => setEditing(group)}
-                        className="btn-secondary btn-xxs"
+                        className="btn-secondary"
                       >
                         Edit
                       </button>
@@ -828,7 +828,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                   id="mp-source"
                   value={mpSource}
                   onChange={(e) => setMpSource(e.target.value as "quickbooks" | "other")}
-                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
+                  className="inp w-full"
                 >
                   <option value="quickbooks">QuickBooks</option>
                   <option value="other">Other</option>
@@ -844,7 +844,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                   value={mpRef}
                   onChange={(e) => setMpRef(e.target.value)}
                   placeholder={mpSource === "quickbooks" ? "e.g. INV-1042" : "e.g. check #1234"}
-                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
+                  className="inp w-full"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -857,7 +857,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                     type="date"
                     value={mpPaidAt}
                     onChange={(e) => setMpPaidAt(e.target.value)}
-                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
+                    className="inp w-full"
                   />
                 </div>
                 <div className="space-y-1">
@@ -872,7 +872,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                     value={mpAmount}
                     onChange={(e) => setMpAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
+                    className="inp w-full"
                   />
                 </div>
               </div>

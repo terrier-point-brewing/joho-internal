@@ -175,7 +175,7 @@ export default function RecipeVariationPicker({
             type="button"
             onClick={toggleAllFiltered}
             disabled={filteredIds.length === 0}
-            className="text-accent hover:text-accent-soft disabled:text-disabled disabled:hover:text-disabled"
+            className="btn-secondary"
           >
             {allFilteredSelected ? "Deselect shown" : `Select shown (${filteredIds.length})`}
           </button>

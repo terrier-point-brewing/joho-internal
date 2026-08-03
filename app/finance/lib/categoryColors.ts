@@ -10,7 +10,13 @@
 //
 // See docs/UI_STANDARD.md §2 (off-palette data-category colors must be centralized).
 
-/** Invoice status pill (`bg + text`). */
+/**
+ * Invoice status pill (`bg + text`). `!`-prefixed so these values win over
+ * <Badge>'s own default-tone bg/text when passed through its `className` —
+ * Tailwind resolves same-property utility conflicts by generated stylesheet
+ * order (not by className string order), so an un-prefixed override here is
+ * not reliably guaranteed to beat Badge's own classes.
+ */
 export const INVOICE_STATUS_CLS: Record<string, string> = {
   paid:    "bg-success-surface/40 text-success",
   open:    "bg-accent-muted/40 text-accent",

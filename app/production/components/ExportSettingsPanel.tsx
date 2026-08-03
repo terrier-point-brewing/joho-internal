@@ -66,7 +66,7 @@ export function PartnerOverridePicker({ partners, excludeIds, onAdd }: {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-xs text-accent-emphasis hover:text-accent transition-colors">
+      <button onClick={() => setOpen(true)} className="btn-secondary">
         + Add partner override
       </button>
     );
@@ -75,19 +75,19 @@ export function PartnerOverridePicker({ partners, excludeIds, onAdd }: {
   return (
     <div className="flex items-center gap-2">
       <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)}
-        className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong">
+        className="inp-sm w-auto">
         <option value="">— select partner —</option>
         {available.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
       </select>
+      <button onClick={() => { setOpen(false); setPartnerId(""); }} className="btn-secondary">
+        Cancel
+      </button>
       <button
         onClick={() => { if (partnerId) { onAdd(partnerId); setOpen(false); setPartnerId(""); } }}
         disabled={!partnerId}
         className="btn-primary"
       >
         Add
-      </button>
-      <button onClick={() => { setOpen(false); setPartnerId(""); }} className="text-xs text-muted hover:text-body">
-        Cancel
       </button>
     </div>
   );
@@ -543,7 +543,7 @@ function InvoiceTermsSection() {
           max={365}
           value={draft !== "" ? draft : days}
           onChange={(e) => setDraft(e.target.value)}
-          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-20"
+          className="inp-sm w-20"
         />
         <span className="text-xs text-muted">days</span>
         <button onClick={save} disabled={saving} className="btn-primary">

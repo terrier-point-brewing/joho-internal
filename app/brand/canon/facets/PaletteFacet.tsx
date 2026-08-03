@@ -70,7 +70,7 @@ export default function PaletteFacet({
             color follow edits made here.
           </p>
         </div>
-        <button type="button" className="btn-secondary btn-xxs shrink-0" onClick={addColor}>
+        <button type="button" className="btn-secondary shrink-0" onClick={addColor}>
           Add color
         </button>
       </div>
@@ -124,7 +124,7 @@ export default function PaletteFacet({
               title="Derived from the hex — edit the hex to change it"
               placeholder="CMYK"
             />
-            <button type="button" className="btn-danger btn-xxs shrink-0" onClick={() => removeColor(i)}>
+            <button type="button" className="btn-danger shrink-0" onClick={() => removeColor(i)}>
               Remove
             </button>
             </div>

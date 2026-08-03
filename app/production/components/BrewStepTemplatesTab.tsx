@@ -50,28 +50,28 @@ function StepRow({
   return (
     <tr className={`border-b border-line/60 ${index % 2 !== 0 ? "bg-surface/20" : ""}`}>
       <td className="px-3 py-1.5">
-        <input className="inp text-xs w-full" placeholder="e.g. Mash in" value={step.activity}
+        <input className="inp-sm w-full" placeholder="e.g. Mash in" value={step.activity}
           onChange={(e) => set("activity", e.target.value)} />
       </td>
       <td className="px-2 py-1.5 w-20">
-        <input type="number" step="1" className="inp text-xs text-right w-full" placeholder="0"
+        <input type="number" step="1" className="inp-sm text-right w-full" placeholder="0"
           value={step.time_label} onChange={(e) => set("time_label", e.target.value)} />
       </td>
       <td className="px-2 py-1.5 w-20">
-        <input type="number" step="0.1" className="inp text-xs text-right w-full" placeholder="152"
+        <input type="number" step="0.1" className="inp-sm text-right w-full" placeholder="152"
           value={step.temp} onChange={(e) => set("temp", e.target.value)} />
       </td>
       <td className="px-2 py-1.5 w-20">
-        <input type="number" step="0.01" className="inp text-xs text-right w-full" placeholder="0"
+        <input type="number" step="0.01" className="inp-sm text-right w-full" placeholder="0"
           value={step.amount} onChange={(e) => set("amount", e.target.value)} />
       </td>
       <td className="px-2 py-1.5 w-20">
-        <input type="number" step="0.1" className="inp text-xs text-right w-full" placeholder="0"
+        <input type="number" step="0.1" className="inp-sm text-right w-full" placeholder="0"
           value={step.vsp} onChange={(e) => set("vsp", e.target.value)} />
       </td>
       <td className="px-3 py-1.5 text-center">
         <button type="button" onClick={onRemove}
-          className="text-faint hover:text-danger transition-colors">×</button>
+          className="btn-danger btn-xxs">×</button>
       </td>
     </tr>
   );
@@ -172,7 +172,7 @@ function TemplateModal({
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs text-secondary">Steps</label>
             <button type="button" onClick={addStep}
-              className="text-xs text-accent-emphasis hover:text-accent transition-colors">+ Add step</button>
+              className="btn-secondary">+ Add step</button>
           </div>
           <div className="rounded border border-line overflow-x-auto">
             <table className="w-full text-sm min-w-[480px]">
@@ -390,15 +390,15 @@ export default function BrewStepTemplatesTab() {
 
                     <div className="flex gap-3 px-4 py-2.5 border-t border-line bg-surface/30">
                       <button onClick={() => setEditingTemplate(t)}
-                        className="text-xs text-secondary hover:text-strong transition-colors">
+                        className="btn-secondary">
                         Edit
                       </button>
                       <button onClick={() => setApplyingTemplate(t)}
-                        className="text-xs text-accent-emphasis hover:text-accent transition-colors">
+                        className="btn-primary">
                         Apply to Recipe
                       </button>
                       <button onClick={() => handleDelete(t)}
-                        className="text-xs text-faint hover:text-danger transition-colors">
+                        className="btn-danger">
                         Delete
                       </button>
                     </div>

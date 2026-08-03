@@ -9,6 +9,8 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import { TRANSFER_TYPE_BADGE } from "@/app/production/lib/categoryColors";
 import PageHeader from "@/app/components/PageHeader";
 import StickyHeader from "@/app/components/StickyHeader";
+import FilterBar from "@/app/components/ui/FilterBar";
+import FilterSelect from "@/app/components/ui/FilterSelect";
 
 type TransferType = "transfer" | "kegging" | "canning" | "conversion" | "export" | "brewing";
 
@@ -88,35 +90,32 @@ export default function TransferLogPage() {
       </StickyHeader>
 
       <div className="mt-4 pb-4 sm:pb-8 space-y-4">
-        <div className="flex flex-wrap gap-2 items-end">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted">From date</label>
-            <input type="date" className="inp" value={filters.from}
+        <FilterBar
+          activeCount={[applied.from, applied.to, applied.type, applied.batch_id].filter(Boolean).length}
+          onClear={clear}
+        >
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+            From
+            <input type="date" className="inp-sm w-auto" value={filters.from}
               onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted">To date</label>
-            <input type="date" className="inp" value={filters.to}
+          </label>
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+            To
+            <input type="date" className="inp-sm w-auto" value={filters.to}
               onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted">Type</label>
-            <select className="inp" value={filters.type}
-              onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}>
-              <option value="">All types</option>
-              {(Object.keys(TYPE_LABELS) as TransferType[]).map((t) => (
-                <option key={t} value={t}>{TYPE_LABELS[t]}</option>
-              ))}
-            </select>
-          </div>
+          </label>
+          <FilterSelect
+            label="Type"
+            options={(Object.keys(TYPE_LABELS) as TransferType[]).map((t) => ({ value: t, label: TYPE_LABELS[t] }))}
+            value={filters.type ? [filters.type] : []}
+            onChange={(v) => setFilters((f) => ({ ...f, type: v[0] ?? "" }))}
+            allLabel="All types"
+          />
           <button onClick={apply} className="btn-primary">Apply</button>
-          {(applied.from || applied.to || applied.type || applied.batch_id) && (
-            <button onClick={clear} className="btn-secondary">Clear</button>
-          )}
-          <span className="ml-auto text-xs text-muted self-end">
-            {isLoading ? "Loading…" : `${rows.length} record${rows.length !== 1 ? "s" : ""}`}
-          </span>
-        </div>
+        </FilterBar>
+        <p className="text-xs text-muted">
+          {isLoading ? "Loading…" : `${rows.length} record${rows.length !== 1 ? "s" : ""}`}
+        </p>
 
         {isError && (
           <p className="text-danger text-sm">Failed to load transfer log.</p>

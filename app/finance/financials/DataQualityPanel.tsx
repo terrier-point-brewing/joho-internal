@@ -51,11 +51,11 @@ function BucketRow({
       </div>
       <div className="flex flex-col items-end gap-1.5 shrink-0">
         {onShowInTable && (
-          <button type="button" onClick={onShowInTable} className="btn-secondary btn-xxs">
+          <button type="button" onClick={onShowInTable} className="btn-secondary">
             Show in table
           </button>
         )}
-        <a href={href} className="btn-secondary btn-xxs">
+        <a href={href} className="btn-secondary">
           Review in Transactions
         </a>
       </div>
@@ -85,7 +85,7 @@ export default function DataQualityPanel({
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="btn-secondary btn-xxs whitespace-nowrap">
+      <button type="button" onClick={() => setOpen(true)} className="btn-secondary whitespace-nowrap">
         ⚑ {issueBucketCount} to review
       </button>
       {open && (
@@ -114,7 +114,7 @@ export default function DataQualityPanel({
                   </Badge>
                   <span className="text-xs text-muted">missing excise detail</span>
                 </div>
-                <a href={summary.exciseCoverage.href} className="btn-secondary btn-xxs shrink-0">
+                <a href={summary.exciseCoverage.href} className="btn-secondary shrink-0">
                   Review in Transactions
                 </a>
               </Card>
@@ -129,7 +129,7 @@ export default function DataQualityPanel({
                   </Badge>
                   <span className="text-xs text-muted">no configured balance source</span>
                 </div>
-                <a href={summary.unsourcedAccounts.href} className="btn-secondary btn-xxs shrink-0">
+                <a href={summary.unsourcedAccounts.href} className="btn-secondary shrink-0">
                   Configure sources
                 </a>
               </Card>

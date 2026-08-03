@@ -139,10 +139,10 @@ export default function AccountSelect({
       <button
         type="button"
         onClick={handleOpen}
-        className={`w-full flex items-center justify-between gap-1 border rounded px-2 py-1 text-xs text-left focus:outline-none transition-colors ${
+        className={`inp-sm flex items-center justify-between gap-1 text-left transition-colors ${
           prefilled && !selected
             ? "bg-accent-muted/10 border-accent-border/40 hover:border-accent-emphasis"
-            : "bg-surface-mid border-line-strong hover:border-line-subtle focus:border-accent-border"
+            : "hover:border-line-subtle focus:border-accent-border"
         }`}
         title={selected && shortLabel ? fullLabel(selected) : undefined}
       >
@@ -165,7 +165,7 @@ export default function AccountSelect({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQuery(""); } }}
               placeholder="Search accounts…"
-              className="w-full bg-surface-mid rounded px-2 py-1 text-xs text-strong placeholder-faint focus:outline-none"
+              className="inp-sm placeholder-faint"
             />
           </div>
 

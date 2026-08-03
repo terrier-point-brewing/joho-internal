@@ -115,7 +115,7 @@ export default function ThemeFacet({
         </div>
         <button
           type="button"
-          className="btn-secondary btn-xxs shrink-0"
+          className="btn-secondary shrink-0"
           onClick={applySuggestions}
           disabled={snapCount === 0}
           title="Bind every dark role that has a close palette match"

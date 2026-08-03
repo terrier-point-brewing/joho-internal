@@ -304,7 +304,7 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
       {/* Action buttons */}
       <div className="flex justify-end gap-2 mb-4">
         {kind === "contract" && (
-          <button onClick={openSquareImport} className="btn-primary">
+          <button onClick={openSquareImport} className="btn-secondary">
             ↓ Import from Square
           </button>
         )}
@@ -361,12 +361,12 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
                       </td>
                     )}
                     <td className="px-4 py-2.5">
-                      <div className="flex gap-3 justify-end items-center">
+                      <div className="flex gap-1 justify-end items-center">
                         {isContract && (
                           cp.square_customer_id ? (
                             <button
                               onClick={() => handleUnlinkSquare(cp)}
-                              className="text-xs text-faint hover:text-accent transition-colors"
+                              className="btn-secondary btn-xxs"
                               title="Unlink Square contact"
                             >
                               Unlink
@@ -374,7 +374,7 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
                           ) : (
                             <button
                               onClick={() => openSquareLink(cp)}
-                              className="text-xs text-muted hover:text-accent transition-colors"
+                              className="btn-secondary btn-xxs"
                               title="Link a Square contact"
                             >
                               Link Square
@@ -382,11 +382,11 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
                           )
                         )}
                         {isContract && cp.square_customer_id ? (
-                          <span className="text-xs text-disabled cursor-default" title="Unlink from Square to edit manually">Edit</span>
+                          <button type="button" disabled className="btn-secondary btn-xxs" title="Unlink from Square to edit manually">Edit</button>
                         ) : (
-                          <button onClick={() => openEdit(p)} className="text-xs text-muted hover:text-body transition-colors">Edit</button>
+                          <button onClick={() => openEdit(p)} className="btn-secondary btn-xxs">Edit</button>
                         )}
-                        <button onClick={() => handleDelete(p.id, p.company_name)} className="text-xs text-faint hover:text-danger transition-colors">Delete</button>
+                        <button onClick={() => handleDelete(p.id, p.company_name)} className="btn-danger btn-xxs">Delete</button>
                       </div>
                     </td>
                   </tr>

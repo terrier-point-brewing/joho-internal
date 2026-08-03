@@ -5,6 +5,7 @@ import { formatCurrencyCents } from "@/lib/format";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
+import Badge from "@/app/components/ui/Badge";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -324,9 +325,7 @@ export default function EventsTab() {
                   >
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-primary">{ev.event_name}</span>
-                      <span className="text-xs text-muted border border-line-strong rounded px-1.5 py-0.5">
-                        {ev.event_host}
-                      </span>
+                      <Badge tone="neutral">{ev.event_host}</Badge>
                     </div>
                     <p className="text-xs text-muted mt-0.5">
                       {fmtDisplay(ev.event_start)} – {fmtDisplay(ev.event_end)}
@@ -337,7 +336,7 @@ export default function EventsTab() {
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => { setEditingId(isEditing ? null : ev.id); setFormError(null); }}
-                      className="text-xs text-muted hover:text-body px-2 py-1 rounded hover:bg-surface-mid transition-colors"
+                      className="btn-secondary btn-xxs"
                     >
                       {isEditing ? "Cancel" : "Edit"}
                     </button>
@@ -345,14 +344,14 @@ export default function EventsTab() {
                       <>
                         <button
                           onClick={() => deleteMutation.mutate(ev.id)}
-                          className="text-xs text-danger hover:text-danger px-2 py-1 rounded hover:bg-surface-mid transition-colors"
+                          className="btn-danger btn-xxs"
                           disabled={deleteMutation.isPending}
                         >
                           Confirm
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(null)}
-                          className="text-xs text-faint hover:text-secondary px-2 py-1"
+                          className="btn-secondary btn-xxs"
                         >
                           ✕
                         </button>
@@ -360,7 +359,7 @@ export default function EventsTab() {
                     ) : (
                       <button
                         onClick={() => setDeleteConfirm(ev.id)}
-                        className="text-xs text-disabled hover:text-danger px-2 py-1 rounded hover:bg-surface-mid transition-colors"
+                        className="btn-danger btn-xxs"
                       >
                         Delete
                       </button>

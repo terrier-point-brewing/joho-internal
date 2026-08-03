@@ -6,6 +6,8 @@ import { fetchJson, useContractPartnersQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { fmtUsd } from "@/lib/utils/formatting";
 import Banner from "@/app/components/ui/Banner";
+import FilterBar from "@/app/components/ui/FilterBar";
+import FilterSelect from "@/app/components/ui/FilterSelect";
 
 interface DepositBreakdownLine {
   id: string; ingredient_name: string; unit: string;
@@ -127,28 +129,41 @@ export default function DepositInvoicesTab() {
   const openTotal = filtered.filter((inv) => inv.status === "open" || inv.status === "draft").reduce((s, inv) => s + inv.total_cents, 0);
   const grandTotal = filtered.reduce((s, inv) => s + inv.total_cents, 0);
 
+  const filterActiveCount = (customerFilter !== "all" ? 1 : 0) + (statusFilter !== "all" ? 1 : 0) + (yearFilter !== "all" ? 1 : 0);
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="dep-customer" className="sr-only">Filter by customer</label>
-        <select id="dep-customer" value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} className="inp-sm w-auto">
-          <option value="all">All Customers</option>
-          {partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
-        </select>
-        <label htmlFor="dep-status" className="sr-only">Filter by status</label>
-        <select id="dep-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="inp-sm w-auto">
-          <option value="all">All Statuses</option>
-          <option value="draft">Draft</option>
-          <option value="open">Sent / Open</option>
-          <option value="paid">Paid</option>
-          <option value="voided">Voided</option>
-        </select>
-        <label htmlFor="dep-year" className="sr-only">Filter by year</label>
-        <select id="dep-year" value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} className="inp-sm w-auto">
-          <option value="all">All Years</option>
-          {years.map((y) => <option key={y} value={y}>{y}</option>)}
-        </select>
-      </div>
+      <FilterBar
+        activeCount={filterActiveCount}
+        onClear={() => { setCustomerFilter("all"); setStatusFilter("all"); setYearFilter("all"); }}
+      >
+        <FilterSelect
+          label="Customer"
+          options={partners.map((p) => ({ value: p.id, label: p.company_name }))}
+          value={customerFilter !== "all" ? [customerFilter] : []}
+          onChange={(v) => setCustomerFilter(v[0] ?? "all")}
+          allLabel="All Customers"
+        />
+        <FilterSelect
+          label="Status"
+          options={[
+            { value: "draft", label: "Draft" },
+            { value: "open", label: "Sent / Open" },
+            { value: "paid", label: "Paid" },
+            { value: "voided", label: "Voided" },
+          ]}
+          value={statusFilter !== "all" ? [statusFilter] : []}
+          onChange={(v) => setStatusFilter(v[0] ?? "all")}
+          allLabel="All Statuses"
+        />
+        <FilterSelect
+          label="Year"
+          options={years.map((y) => ({ value: y, label: y }))}
+          value={yearFilter !== "all" ? [yearFilter] : []}
+          onChange={(v) => setYearFilter(v[0] ?? "all")}
+          allLabel="All Years"
+        />
+      </FilterBar>
 
       <div className="flex items-center gap-6 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
         <span className="text-secondary">{filtered.length} invoice{filtered.length !== 1 ? "s" : ""}</span>

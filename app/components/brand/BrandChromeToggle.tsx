@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 
 // Admin control: apply the brand palette to the whole internal app (on) or use
 // the default zinc/amber system (off). App-wide setting; a reload shows the new
@@ -36,17 +37,10 @@ export default function BrandChromeToggle({ initialEnabled }: { initialEnabled: 
 
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={saving}
-        aria-pressed={enabled}
-        className={`btn-xxs ${enabled ? "btn-primary" : "btn-secondary"}`}
-        title="Apply the brand palette to the whole internal app"
-      >
+      <ToggleChip active={enabled} onClick={toggle} disabled={saving}>
         {saving ? "Saving…" : enabled ? "Brand skin: on" : "Brand skin: off"}
-      </button>
-      {error && <span className="text-2xs text-danger">{error}</span>}
+      </ToggleChip>
+      {error && <span className="text-xs text-danger">{error}</span>}
     </div>
   );
 }

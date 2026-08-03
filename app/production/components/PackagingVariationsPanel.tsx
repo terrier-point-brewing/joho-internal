@@ -300,8 +300,10 @@ export default function PackagingVariationsPanel() {
                     <td className="px-3 py-2.5">{breaksIntoName ? <ComponentPill name={`→ ${breaksIntoName}`} type="breaksInto" /> : <span className="text-faint">—</span>}</td>
                     <td className="px-3 py-2.5 text-secondary text-xs">{v.contract_brewing_partners?.company_name ?? "Generic"}</td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                      <button onClick={() => openEdit(v)} className="text-xs text-secondary hover:text-strong mr-3">Edit</button>
-                      <button onClick={() => handleDelete(v)} aria-label="Delete variation" className="text-xs text-faint hover:text-danger">Delete</button>
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => openEdit(v)} className="btn-secondary btn-xxs">Edit</button>
+                        <button onClick={() => handleDelete(v)} aria-label="Delete variation" className="btn-danger btn-xxs">Delete</button>
+                      </div>
                     </td>
                   </tr>
                 );

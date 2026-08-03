@@ -5,6 +5,7 @@ import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/l
 import { defaultYearRange } from "@/lib/finance/dateRange";
 import { ORDER_STATUS_CLS } from "../../lib/categoryColors";
 import SaveHint from "@/app/components/ui/SaveHint";
+import Badge from "@/app/components/ui/Badge";
 import AccountSelect from "../../AccountSelect";
 import SyncPanel from "../components/SyncPanel";
 import MappingFilter from "../components/MappingFilter";
@@ -275,9 +276,9 @@ function OrderRow({
         <td className="px-4 py-2"><CategoryBadges items={orderCategories(lineItems)} /></td>
         <td className="px-4 py-2">
           {status && (
-            <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${ORDER_STATUS_CLS[status] ?? "bg-surface-mid text-muted"}`}>
+            <Badge tone="none" className={ORDER_STATUS_CLS[status] ?? "bg-surface-mid text-muted border-line-strong"}>
               {status}
-            </span>
+            </Badge>
           )}
         </td>
         <td className="px-4 py-2">

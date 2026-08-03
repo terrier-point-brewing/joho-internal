@@ -10,6 +10,7 @@ import { Field } from "../shared";
 import { fetchJson, useBatchScheduleQuery, type ScheduleEntry } from "../../hooks/queries";
 import type { SchedulerRecommendation } from "@/app/api/production/batch-scheduler/route";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 
 interface PendingAllocation {
   id: string; // local key only
@@ -229,7 +230,7 @@ function EquipmentSection({
         <div className="flex items-center gap-3">
           {hasConflict && <span className="text-xs text-danger">⚠ Schedule conflicts detected</span>}
           <button type="button" onClick={autoFillDates} disabled={!row.brew_date}
-            className="text-xs text-accent-emphasis hover:text-accent disabled:opacity-30">
+            className="btn-secondary">
             Auto-fill dates from brew date
           </button>
         </div>
@@ -257,7 +258,7 @@ function EquipmentSection({
                 )}
               </div>
               <button type="button" onClick={() => addTankForStage(stage)}
-                className="text-xs text-muted hover:text-body border border-line-strong hover:border-line-subtle px-2 py-0.5 rounded transition-colors">
+                className="btn-secondary">
                 + Add tank
               </button>
             </div>
@@ -278,7 +279,7 @@ function EquipmentSection({
                     </div>
                     {stageSlots.length > 1 && (
                       <button type="button" onClick={() => removeSlotAt(stage, slotIdx)}
-                        className="text-xs text-danger/60 hover:text-danger">Remove</button>
+                        className="btn-danger btn-xxs">Remove</button>
                     )}
                   </div>
                   <div className="grid grid-cols-3 gap-2">
@@ -389,12 +390,12 @@ function AllocationPlanSection({
         <div className="flex items-center gap-2 shrink-0">
           {recipeCommitments.length > 0 && (
             <button type="button" onClick={autoFill}
-              className="text-xs text-accent-emphasis hover:text-accent">
+              className="btn-secondary">
               ↻ Reset from commitments
             </button>
           )}
           <button type="button" onClick={addAlloc}
-            className="text-xs text-muted hover:text-body border border-line-strong hover:border-line-subtle px-2 py-0.5 rounded transition-colors">
+            className="btn-secondary">
             + Add row
           </button>
         </div>
@@ -429,7 +430,7 @@ function AllocationPlanSection({
             <div key={a.id} className={`grid gap-2 items-center px-3 py-2 border-b border-line/40 last:border-b-0 ${rowBg}`}
               style={{ gridTemplateColumns: ALLOC_COLS }}>
               {/* Channel */}
-              <select className="inp text-xs py-1" value={a.channel}
+              <select className="inp-sm" value={a.channel}
                 onChange={(e) => setAlloc(a.id, { channel: e.target.value as AllocationChannel, contract_request_id: "", partner_id: "" })}>
                 {CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -438,7 +439,7 @@ function AllocationPlanSection({
               {isTaproom ? (
                 <span className="text-xs text-faint italic px-1 truncate">— taproom stock —</span>
               ) : (
-                <select className="inp text-xs py-1 min-w-0" value={a.contract_request_id}
+                <select className="inp-sm min-w-0" value={a.contract_request_id}
                   onChange={(e) => handleCommitmentChange(a.id, e.target.value)}>
                   <option value="">— select —</option>
                   {channelCommitments.length === 0
@@ -474,7 +475,7 @@ function AllocationPlanSection({
               {/* Percentage input */}
               <div className="flex items-center gap-0.5">
                 <input type="number" step="0.1" min="0" max="100"
-                  className="inp w-full text-xs text-right py-1"
+                  className="inp-sm w-full text-right"
                   placeholder="0" value={a.percentage}
                   onChange={(e) => setAlloc(a.id, { percentage: e.target.value })} />
                 <span className="text-[10px] text-faint shrink-0">%</span>
@@ -487,7 +488,7 @@ function AllocationPlanSection({
 
               {/* Remove */}
               <button onClick={() => removeAlloc(a.id)}
-                className="text-disabled hover:text-danger text-xs leading-none justify-self-center">✕</button>
+                className="btn-danger btn-xxs justify-self-center">✕</button>
             </div>
           );
         })}
@@ -789,11 +790,11 @@ export default function BatchSchedulerTab({
         <p className="text-sm text-muted">
           Batches sorted by urgency. Review demand and equipment for each, then commit one at a time.
         </p>
-        <div className="flex gap-2">
-          <button onClick={() => refetch()} className="px-3 py-1.5 border border-line-strong hover:border-line-subtle text-body text-sm rounded">
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => refetch()} className="btn-secondary">
             Refresh
           </button>
-          <button onClick={addManualRow} className="px-3 py-1.5 border border-line-strong hover:border-line-subtle text-body text-sm rounded">
+          <button onClick={addManualRow} className="btn-primary">
             + Add Batch
           </button>
         </div>
@@ -829,19 +830,16 @@ export default function BatchSchedulerTab({
       {queue.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
           {queue.map((row, i) => (
-            <button
+            <ToggleChip
               key={row.id}
+              active={row.id === (activeRow?.id)}
               onClick={() => setActiveId(row.id)}
-              className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg border text-xs text-left transition-colors ${
-                row.id === (activeRow?.id)
-                  ? "border-accent-border bg-accent-muted/20 text-strong"
-                  : "border-line hover:border-line-subtle text-muted"
-              }`}
+              className="shrink-0 flex items-center gap-2 text-left"
             >
               <span className="text-faint font-mono">#{i + 1}</span>
               {urgencyBadge(row)}
               <span className="font-medium text-body max-w-[120px] truncate">{row.style}</span>
-            </button>
+            </ToggleChip>
           ))}
         </div>
       )}
@@ -948,7 +946,7 @@ export default function BatchSchedulerTab({
                 <button
                   onClick={() => suggestEquipment(activeRow)}
                   disabled={suggesting}
-                  className="mt-2 text-xs text-accent-emphasis hover:text-accent disabled:opacity-50"
+                  className="btn-secondary mt-2"
                 >
                   {suggesting ? "Getting suggestions…" : "↻ Re-suggest equipment"}
                 </button>
@@ -976,7 +974,7 @@ export default function BatchSchedulerTab({
             <div className="flex items-center justify-between pt-2 border-t border-line">
               <button
                 onClick={() => removeRow(activeRow.id)}
-                className="text-xs text-faint hover:text-danger transition-colors"
+                className="btn-danger"
               >
                 Remove from queue
               </button>

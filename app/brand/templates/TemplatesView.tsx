@@ -124,7 +124,7 @@ export default function TemplatesView() {
                   </option>
                 ))}
               </select>
-              <button type="submit" className="btn-primary btn-xxs" disabled={createTemplate.isPending}>
+              <button type="submit" className="btn-primary" disabled={createTemplate.isPending}>
                 Add template
               </button>
             </form>
@@ -207,7 +207,7 @@ export default function TemplatesView() {
                 placeholder="Season name — e.g. Season 1"
                 aria-label="Season name"
               />
-              <button type="submit" className="btn-primary btn-xxs" disabled={createSeason.isPending}>
+              <button type="submit" className="btn-primary" disabled={createSeason.isPending}>
                 Add season
               </button>
             </form>

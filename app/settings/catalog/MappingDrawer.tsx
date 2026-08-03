@@ -59,7 +59,7 @@ function VariationCombobox({
       <div className="relative">
         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none text-xs">⌕</span>
         <input
-          className="inp text-sm w-full pl-6"
+          className="inp w-full pl-6"
           value={open ? query : displayName}
           placeholder="Search Square variations…"
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
@@ -289,7 +289,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                     <button
                       onClick={() => handleRemove(v)}
                       disabled={isBusy}
-                      className="text-xs text-faint hover:text-danger transition-colors disabled:opacity-30 ml-3 shrink-0"
+                      className="btn-danger ml-3 shrink-0"
                     >
                       Remove
                     </button>
@@ -300,7 +300,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                     <button
                       onClick={() => handleUnignore(v)}
                       disabled={isBusy}
-                      className="text-xs text-faint hover:text-accent transition-colors disabled:opacity-30 ml-3 shrink-0"
+                      className="btn-secondary ml-3 shrink-0"
                     >
                       Require mapping
                     </button>

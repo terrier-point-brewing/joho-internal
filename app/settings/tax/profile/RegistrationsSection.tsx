@@ -269,7 +269,7 @@ export default function RegistrationsSection() {
                         />
                         <button
                           type="button"
-                          className="btn-secondary btn-xxs"
+                          className="btn-secondary"
                           onClick={() => removeOtherRow(authority.key, index)}
                         >
                           Remove
@@ -280,7 +280,7 @@ export default function RegistrationsSection() {
                       <p className="text-xs text-faint">No other registrations for this authority.</p>
                     )}
                   </div>
-                  <button type="button" className="btn-secondary btn-xxs" onClick={() => addOtherRow(authority.key)}>
+                  <button type="button" className="btn-secondary" onClick={() => addOtherRow(authority.key)}>
                     + Add registration
                   </button>
                 </div>

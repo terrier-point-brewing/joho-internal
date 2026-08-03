@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Equipment, BrewBatch, PackagingVariation, Recipe, RecipePackagingVariation, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import { EQ } from "../equipmentMeta";
 import { fmtBbl2 as fmtBbl } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
@@ -345,15 +346,13 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
 
         {/* Mode toggle — shown for fermenters/brite, which can also draw a conversion */}
         {canConvert && (
-          <div className="flex gap-2">
-            <button type="button" onClick={() => handleModeChange("transfer")}
-              className={`px-3 py-1.5 text-sm rounded border transition-colors ${mode === "transfer" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
+          <div className="flex gap-1">
+            <ToggleChip active={mode === "transfer"} onClick={() => handleModeChange("transfer")}>
               Transfer
-            </button>
-            <button type="button" onClick={() => handleModeChange("convert")}
-              className={`px-3 py-1.5 text-sm rounded border transition-colors ${mode === "convert" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
+            </ToggleChip>
+            <ToggleChip active={mode === "convert"} onClick={() => handleModeChange("convert")}>
               Convert
-            </button>
+            </ToggleChip>
           </div>
         )}
 
@@ -410,15 +409,13 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             {/* ── Convert mode fields ── */}
             {mode === "convert" && (
               <>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setConvertTarget("existing")}
-                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${convertTarget === "existing" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
+                <div className="flex gap-1">
+                  <ToggleChip active={convertTarget === "existing"} onClick={() => setConvertTarget("existing")}>
                     Existing batch
-                  </button>
-                  <button type="button" onClick={() => setConvertTarget("new")}
-                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${convertTarget === "new" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
+                  </ToggleChip>
+                  <ToggleChip active={convertTarget === "new"} onClick={() => setConvertTarget("new")}>
                     New batch
-                  </button>
+                  </ToggleChip>
                 </div>
 
                 {convertTarget === "existing" ? (
@@ -465,15 +462,13 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             {/* ── Regular transfer: full / partial ── */}
             {mode === "transfer" && !isPackagingForm && (
               <Field label="Volume">
-                <div className="flex gap-2 mb-2">
-                  <button type="button" onClick={() => setVolumeMode("full")}
-                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "full" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
+                <div className="flex gap-1 mb-2">
+                  <ToggleChip active={volumeMode === "full"} onClick={() => setVolumeMode("full")}>
                     Full transfer
-                  </button>
-                  <button type="button" onClick={() => setVolumeMode("partial")}
-                    className={`px-3 py-1.5 text-sm rounded border transition-colors ${volumeMode === "partial" ? "border-accent-border bg-accent-muted/30 text-accent-soft" : "border-line-strong bg-surface-mid text-secondary hover:text-strong"}`}>
+                  </ToggleChip>
+                  <ToggleChip active={volumeMode === "partial"} onClick={() => setVolumeMode("partial")}>
                     Partial
-                  </button>
+                  </ToggleChip>
                 </div>
                 {volumeMode === "partial" && (
                   <div className="flex items-center gap-2">
@@ -522,7 +517,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs text-secondary">{showKegDetail ? "Kegs" : "Cans"}</label>
               <button type="button" onClick={() => setPackagingLines((l) => [...l, { variation_id: "", quantity: "" }])}
-                className="text-xs text-accent-emphasis hover:text-accent">+ Add line</button>
+                className="btn-secondary">+ Add line</button>
             </div>
             {(showKegDetail ? kegVariations : canVariations).length === 0 && (
               <p className="text-xs text-faint">
@@ -544,7 +539,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                     onChange={(e) => setPackagingLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
                   {packagingLines.length > 1
                     ? <button type="button" onClick={() => setPackagingLines((ls) => ls.filter((_, idx) => idx !== i))}
-                        className="text-faint hover:text-danger text-lg leading-none">×</button>
+                        className="btn-danger btn-xxs">×</button>
                     : <span />}
                 </div>
               ))}

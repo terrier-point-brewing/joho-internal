@@ -14,18 +14,23 @@ export default function ToggleChip({
   onClick,
   children,
   className = "",
+  disabled = false,
 }: {
   active: boolean;
   onClick: () => void;
   children: ReactNode;
   className?: string;
+  /** Matches `.btn-*`'s `:disabled` treatment, so an in-flight or unavailable
+   *  choice doesn't have to be hand-rolled as `pointer-events-none`. */
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+      disabled={disabled}
+      className={`text-xs px-2 py-0.5 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
         active
           ? "border-accent-border bg-accent-muted/40 text-accent-soft"
           : "border-line-strong text-secondary hover:border-line-subtle hover:text-body"

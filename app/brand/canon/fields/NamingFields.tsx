@@ -105,7 +105,7 @@ export default function NamingFields({
         </div>
         {criteria.map((criterion, i) => (
           <div key={i} className="flex items-start gap-2">
-            <span className="inp-sm w-8 shrink-0 grid place-items-center text-muted">{i + 1}</span>
+            <span className="text-xs w-8 shrink-0 grid place-items-center text-muted">{i + 1}</span>
             <input
               className="inp-sm flex-1"
               value={criterion}

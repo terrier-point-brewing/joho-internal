@@ -14,6 +14,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig } from "@/lib/table/types";
 
 const PKG_ADJ_TYPES: { value: PackagingAdjustmentType; label: string; hint: string; sign: "positive" | "negative" | "count" }[] = [
@@ -233,10 +234,10 @@ export default function PackagingTab() {
         </FilterBar>
         <div className="flex gap-2 shrink-0">
           {canOperate && (
-            <button onClick={() => setShowBulkReceive(true)} className="btn-primary min-w-32" disabled={packaging.length === 0}>Bulk Receive</button>
+            <button onClick={() => setShowBulkReceive(true)} className="btn-secondary" disabled={packaging.length === 0}>Bulk Receive</button>
           )}
           {canEditMaster && (
-            <button onClick={openNew} className="btn-primary min-w-32">+ Add Item</button>
+            <button onClick={openNew} className="btn-primary">+ Add Item</button>
           )}
         </div>
       </div>
@@ -314,17 +315,11 @@ export default function PackagingTab() {
                             {/* Writes is_default through the manage-gated PATCH,
                                 so it is an edit affordance, not a view toggle. */}
                             {canEditMaster ? (
-                              <button
-                                onClick={() => toggleDefault(item)}
-                                title={item.is_default ? "Remove default" : "Set as default"}
-                                className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
-                                  item.is_default
-                                    ? "border-accent-border bg-accent-muted/30 text-accent-soft"
-                                    : "border-line-strong text-faint hover:border-line-subtle hover:text-secondary"
-                                }`}
-                              >
-                                {item.is_default ? "★" : "☆"}
-                              </button>
+                              <span title={item.is_default ? "Remove default" : "Set as default"}>
+                                <ToggleChip active={item.is_default} onClick={() => toggleDefault(item)}>
+                                  {item.is_default ? "★" : "☆"}
+                                </ToggleChip>
+                              </span>
                             ) : (
                               <span className={`text-xs ${item.is_default ? "text-accent-soft" : "text-disabled"}`}>
                                 {item.is_default ? "★" : "☆"}
@@ -332,15 +327,13 @@ export default function PackagingTab() {
                             )}
                           </td>
                           <td className="px-3 py-2.5">
-                            <div className="flex gap-1.5 justify-end items-center whitespace-nowrap text-disabled">
+                            <div className="flex gap-1 justify-end items-center whitespace-nowrap">
                               {canOperate && (
-                              <button onClick={() => openAdj(item)} className="text-xs text-accent-emphasis hover:text-accent transition-colors font-medium">Adjust</button>
+                              <button onClick={() => openAdj(item)} className="btn-primary btn-xxs">Adjust</button>
                               )}
                               {canEditMaster && (<>
-                              {canOperate && <span aria-hidden>·</span>}
-                              <button onClick={() => openEdit(item)} className="text-xs text-muted hover:text-strong transition-colors">Edit</button>
-                              <span aria-hidden>·</span>
-                              <button onClick={() => handleDelete(item)} className="text-xs text-faint hover:text-danger transition-colors">Del</button>
+                              <button onClick={() => openEdit(item)} className="btn-secondary btn-xxs">Edit</button>
+                              <button onClick={() => handleDelete(item)} className="btn-danger btn-xxs">Del</button>
                               </>)}
                             </div>
                           </td>
@@ -361,16 +354,14 @@ export default function PackagingTab() {
             <Field label="Type" required>
               <div className="flex flex-wrap gap-2">
                 {TYPES.map((t) => (
-                  <button key={t} type="button"
+                  <ToggleChip
+                    key={t}
+                    active={form.type === t}
                     onClick={() => setForm((f) => ({ ...f, type: t, volume_fl_oz: "", can_count: "" }))}
-                    className={`px-3 py-1.5 rounded border text-xs font-medium transition-colors ${
-                      form.type === t
-                        ? `border-current ${TYPE_META[t].color}`
-                        : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"
-                    }`}
+                    className={form.type === t ? `border-current ${TYPE_META[t].color}` : ""}
                   >
                     {TYPE_META[t].label}
-                  </button>
+                  </ToggleChip>
                 ))}
               </div>
             </Field>

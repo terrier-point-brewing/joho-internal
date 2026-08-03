@@ -1,6 +1,7 @@
 "use client";
 
 import { shortAccountName } from "../../AccountSelect";
+import Badge from "@/app/components/ui/Badge";
 
 // ── Shared table shell + header cells for the Transactions subtabs ─────────────
 // One row-per-transaction ledger with an expandable detail drawer. Sorting now
@@ -75,9 +76,12 @@ export function LedgerTable({
  * past a laptop's viewport; the full value stays available via the `title` tooltip.
  */
 export function CategoryBadge({ children, title }: { children: React.ReactNode; title?: string }) {
+  // `title` sits on a wrapping span rather than on <Badge> itself (which has
+  // no title prop) — a native title tooltip still resolves to the nearest
+  // ancestor that has one, so the truncated full value stays available on hover.
   return (
-    <span title={title} className="inline-block max-w-[200px] truncate align-middle px-1.5 py-0.5 rounded text-2xs font-medium bg-surface-mid text-secondary">
-      {children}
+    <span title={title}>
+      <Badge className="max-w-[200px] truncate align-middle">{children}</Badge>
     </span>
   );
 }

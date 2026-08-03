@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
+import Badge from "@/app/components/ui/Badge";
 import Card from "@/app/components/ui/Card";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import GrantMatrix from "./GrantMatrix";
@@ -29,14 +30,6 @@ const ROLES: UserRole[] = ["viewer", "brewer", "manager", "admin", "custom"];
  */
 type EditableRole = "viewer" | "brewer" | "manager";
 const EDITABLE_ROLES: EditableRole[] = ["viewer", "brewer", "manager"];
-
-const ROLE_COLORS: Record<UserRole, string> = {
-  viewer:  "text-secondary bg-surface-mid",
-  brewer:  "text-info bg-info-surface/40",
-  manager: "text-accent bg-accent-muted/30",
-  admin:   "text-danger bg-danger-surface/40",
-  custom:  "text-accent-emphasis bg-accent-muted/50",
-};
 
 const QUERY_KEY = ["admin", "users"] as const;
 
@@ -185,10 +178,10 @@ export default function UserManagement() {
                       <select
                         value={u.role}
                         onChange={(e) => handleRoleChange(u.id, e.target.value as UserRole)}
-                        className={`text-xs font-medium rounded px-2 py-1 border-0 outline-none cursor-pointer ${ROLE_COLORS[u.role]} bg-opacity-100`}
+                        className="inp-sm w-auto"
                       >
                         {ROLES.map((r) => (
-                          <option key={r} value={r} className="bg-surface text-primary">
+                          <option key={r} value={r}>
                             {r}
                           </option>
                         ))}
@@ -196,13 +189,11 @@ export default function UserManagement() {
                     </td>
                     <td className="px-4 py-3">
                       {u.email_confirmed ? (
-                        <span className="text-xs font-medium text-success bg-success-surface/40 px-2 py-0.5 rounded">
-                          Confirmed
-                        </span>
+                        <Badge tone="success">Confirmed</Badge>
                       ) : (
                         <button
                           onClick={() => handleConfirmEmail(u.id)}
-                          className="text-xs font-medium text-accent bg-accent-muted/30 hover:bg-accent-muted/50 px-2 py-0.5 rounded transition-colors"
+                          className="btn-primary btn-xxs"
                         >
                           Confirm
                         </button>
@@ -216,7 +207,7 @@ export default function UserManagement() {
                         {u.role === "custom" && (
                           <button
                             onClick={() => setGrantsUserId(u.id)}
-                            className="text-xs text-muted hover:text-strong transition-colors"
+                            className="btn-secondary btn-xxs"
                             title="Edit grants"
                           >
                             Grants
@@ -224,14 +215,14 @@ export default function UserManagement() {
                         )}
                         <button
                           onClick={() => { setPwUserId(u.id); setPwValue(""); setPwError(null); setApiError(null); }}
-                          className="text-xs text-muted hover:text-strong transition-colors"
+                          className="btn-secondary btn-xxs"
                           title="Set password"
                         >
                           Set pwd
                         </button>
                         <button
                           onClick={() => handleDeleteUser(u.id)}
-                          className="text-faint hover:text-danger transition-colors"
+                          className="btn-danger btn-xxs"
                           title="Delete user"
                         >
                           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -265,7 +256,7 @@ export default function UserManagement() {
                   key={role}
                   type="button"
                   onClick={() => setGrantsRole(role)}
-                  className="btn-secondary btn-xxs capitalize"
+                  className="btn-secondary capitalize"
                 >
                   {role}
                 </button>

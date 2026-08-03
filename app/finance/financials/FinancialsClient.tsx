@@ -29,6 +29,7 @@ import Card from "@/app/components/ui/Card";
 import TabBar, { type TabDef } from "@/app/components/TabBar";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
@@ -117,19 +118,13 @@ function KpiStrip({ data }: { data: FinancialsResponse | undefined }) {
 
 /** Exclusive-choice chip group for Measure -- same visual language as FilterChips (app/components/ui/FilterChips.tsx) but with no "All"/off state, since exactly one measure is always active. */
 function MeasureChips({ value, onChange }: { value: Measure; onChange: (v: Measure) => void }) {
-  const chip = (selected: boolean) =>
-    `text-xs px-2 py-0.5 rounded border transition-colors ${
-      selected
-        ? "border-accent-border bg-accent-muted/40 text-accent-soft"
-        : "border-line-strong text-secondary hover:border-line-subtle hover:text-body"
-    }`;
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       <span className="text-xs text-muted mr-0.5">Measure:</span>
       {MEASURE_OPTIONS.map((o) => (
-        <button key={o.value} type="button" onClick={() => onChange(o.value)} className={chip(value === o.value)}>
+        <ToggleChip key={o.value} active={value === o.value} onClick={() => onChange(o.value)}>
           {o.label}
-        </button>
+        </ToggleChip>
       ))}
     </div>
   );

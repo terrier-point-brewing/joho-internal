@@ -45,7 +45,7 @@ function RecipeEditor({ ctx }: { ctx: ReleaseComponentContext }) {
           </select>
         </Field>
         <button
-          className="btn-primary btn-xxs self-start"
+          className="btn-primary self-start"
           disabled={!pickedId || updateRelease.isPending}
           onClick={() => updateRelease.mutate({ id: release.id, patch: { recipe_id: pickedId } })}
         >
@@ -112,11 +112,11 @@ function RecipeEditor({ ctx }: { ctx: ReleaseComponentContext }) {
         and they update here.
       </p>
       <div className="flex items-center gap-2 flex-wrap">
-        <Link className="btn-secondary btn-xxs" href={productionHref(release.recipe_id)}>
+        <Link className="btn-secondary" href={productionHref(release.recipe_id)}>
           Edit in Production →
         </Link>
         <button
-          className="btn-secondary btn-xxs"
+          className="btn-secondary"
           disabled={updateRelease.isPending}
           onClick={() => updateRelease.mutate({ id: release.id, patch: { recipe_id: null } })}
         >

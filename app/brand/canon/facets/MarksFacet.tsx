@@ -50,7 +50,7 @@ function StringList({
           />
           <button
             type="button"
-            className="btn-danger btn-xxs shrink-0"
+            className="btn-danger shrink-0"
             onClick={() => onChange(list.filter((_, idx) => idx !== i))}
           >
             Remove
@@ -59,7 +59,7 @@ function StringList({
       ))}
       <button
         type="button"
-        className="btn-secondary btn-xxs self-start"
+        className="btn-secondary self-start"
         onClick={() => onChange([...list, ""])}
       >
         Add line
@@ -110,13 +110,13 @@ export default function MarksFacet({
           {marks.length === 0 && (seedCanon.marks?.length ?? 0) > 0 && (
             <button
               type="button"
-              className="btn-secondary btn-xxs"
+              className="btn-secondary"
               onClick={() => setMarks(seedCanon.marks ?? [])}
             >
               Load seed spec
             </button>
           )}
-          <button type="button" className="btn-secondary btn-xxs" onClick={addMark}>
+          <button type="button" className="btn-secondary" onClick={addMark}>
             Add mark
           </button>
         </div>
@@ -157,7 +157,7 @@ export default function MarksFacet({
             </label>
             <button
               type="button"
-              className="btn-danger btn-xxs"
+              className="btn-danger"
               onClick={() => setMarks(marks.filter((_, i) => i !== mi))}
             >
               Remove mark
@@ -237,7 +237,7 @@ export default function MarksFacet({
                   </label>
                   <button
                     type="button"
-                    className="btn-danger btn-xxs"
+                    className="btn-danger"
                     onClick={() =>
                       patchMark(mi, { variants: mark.variants.filter((_, i) => i !== vi) })
                     }
@@ -287,7 +287,7 @@ export default function MarksFacet({
                       />
                       <button
                         type="button"
-                        className="btn-danger btn-xxs shrink-0"
+                        className="btn-danger shrink-0"
                         onClick={() =>
                           patchVariant(mi, vi, {
                             specs: variant.specs.filter((_, idx) => idx !== ri),
@@ -300,7 +300,7 @@ export default function MarksFacet({
                   ))}
                   <button
                     type="button"
-                    className="btn-secondary btn-xxs self-start"
+                    className="btn-secondary self-start"
                     onClick={() =>
                       patchVariant(mi, vi, { specs: [...variant.specs, { key: "", value: "" }] })
                     }
@@ -312,7 +312,7 @@ export default function MarksFacet({
             ))}
             <button
               type="button"
-              className="btn-secondary btn-xxs self-start"
+              className="btn-secondary self-start"
               onClick={() =>
                 patchMark(mi, { variants: [...mark.variants, { code: "", specs: [] }] })
               }
@@ -394,7 +394,7 @@ export default function MarksFacet({
                 />
                 <button
                   type="button"
-                  className="btn-danger btn-xxs shrink-0"
+                  className="btn-danger shrink-0"
                   onClick={() =>
                     patchMark(mi, { colors: (mark.colors ?? []).filter((_, idx) => idx !== ci) })
                   }
@@ -405,7 +405,7 @@ export default function MarksFacet({
             ))}
             <button
               type="button"
-              className="btn-secondary btn-xxs self-start"
+              className="btn-secondary self-start"
               onClick={() =>
                 patchMark(mi, { colors: [...(mark.colors ?? []), { name: "", hex: "#000000" }] })
               }

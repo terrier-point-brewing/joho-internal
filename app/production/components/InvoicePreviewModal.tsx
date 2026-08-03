@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Modal } from "./shared";
 import Banner from "@/app/components/ui/Banner";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import PackagingMaterialsBreakdownModal from "./PackagingMaterialsBreakdownModal";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
 import { useInvoicePreview, useExportSquareCatalogQuery } from "../hooks/queries";
@@ -255,23 +256,13 @@ export default function InvoicePreviewModal({
       ) : (
         <div className="space-y-4">
           {/* ── Mode toggle ─────────────────────────────────────────────────── */}
-          <div className="flex gap-1 p-0.5 bg-surface-mid rounded-lg w-fit">
-            <button
-              onClick={() => setInvoiceMode("square")}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                invoiceMode === "square" ? "bg-surface-high text-primary" : "text-secondary hover:text-strong"
-              }`}
-            >
+          <div className="flex gap-1">
+            <ToggleChip active={invoiceMode === "square"} onClick={() => setInvoiceMode("square")}>
               Via Square
-            </button>
-            <button
-              onClick={() => setInvoiceMode("manual")}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                invoiceMode === "manual" ? "bg-surface-high text-primary" : "text-secondary hover:text-strong"
-              }`}
-            >
+            </ToggleChip>
+            <ToggleChip active={invoiceMode === "manual"} onClick={() => setInvoiceMode("manual")}>
               Manual
-            </button>
+            </ToggleChip>
           </div>
 
           {/* ── Bill-as channel override ────────────────────────────────────── */}
@@ -321,7 +312,7 @@ export default function InvoicePreviewModal({
                 <select
                   value={manualSource}
                   onChange={(e) => setManualSource(e.target.value as "quickbooks" | "other")}
-                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
+                  className="inp w-full"
                 >
                   <option value="quickbooks">QuickBooks</option>
                   <option value="other">Other</option>
@@ -336,7 +327,7 @@ export default function InvoicePreviewModal({
                   value={manualRef}
                   onChange={(e) => setManualRef(e.target.value)}
                   placeholder={manualSource === "quickbooks" ? "e.g. INV-1042" : "e.g. PO-5678"}
-                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
+                  className="inp w-full"
                 />
               </div>
               <div className="space-y-1">
@@ -345,7 +336,7 @@ export default function InvoicePreviewModal({
                   type="date"
                   value={manualDate}
                   onChange={(e) => setManualDate(e.target.value)}
-                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
+                  className="inp w-full"
                 />
               </div>
             </div>
@@ -364,7 +355,7 @@ export default function InvoicePreviewModal({
                   <button onClick={applyDefaultDiscountToAll} className="btn-secondary">
                     Apply to all
                   </button>
-                  <button onClick={clearAllDiscounts} className="text-xs text-secondary hover:text-strong">
+                  <button onClick={clearAllDiscounts} className="btn-secondary">
                     Clear all
                   </button>
                 </span>
@@ -409,7 +400,7 @@ export default function InvoicePreviewModal({
                     </div>
                     <button
                       onClick={() => removeLine(li.id)}
-                      className="text-sm text-faint hover:text-danger shrink-0"
+                      className="btn-danger btn-xxs shrink-0"
                       aria-label="Remove line item"
                     >
                       ×

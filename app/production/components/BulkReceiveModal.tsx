@@ -135,7 +135,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
                   <tr key={idx} className="border-b border-line/60 last:border-0">
                     <td className="px-2 py-1.5">
                       <select
-                        className="inp text-sm w-full"
+                        className="inp-sm w-full"
                         value={row.itemId}
                         onChange={(e) => updateRow(idx, { itemId: e.target.value })}
                       >
@@ -149,7 +149,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
                     </td>
                     <td className="px-2 py-1.5">
                       <input
-                        type="number" step="0.001" min="0" className="inp text-sm w-full text-right tabular-nums"
+                        type="number" step="0.001" min="0" className="inp-sm w-full text-right tabular-nums"
                         placeholder="0" value={row.quantity}
                         onChange={(e) => updateRow(idx, { quantity: e.target.value })}
                       />
@@ -159,7 +159,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
                     </td>
                     <td className="px-2 py-1.5">
                       <input
-                        type="number" step="0.01" min="0" className="inp text-sm w-full text-right tabular-nums"
+                        type="number" step="0.01" min="0" className="inp-sm w-full text-right tabular-nums"
                         placeholder="0.00" value={row.totalCost}
                         onChange={(e) => updateRow(idx, { totalCost: e.target.value })}
                       />
@@ -179,7 +179,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
                     <td className="px-2 py-1.5 text-right">
                       <button
                         type="button" onClick={() => removeRow(idx)} disabled={rows.length === 1}
-                        className="text-xs text-faint hover:text-danger transition-colors disabled:opacity-30"
+                        className="btn-danger btn-xxs"
                       >
                         Remove
                       </button>
@@ -193,7 +193,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
 
         <button
           type="button" onClick={addRow}
-          className="text-xs text-accent-emphasis hover:text-accent transition-colors font-medium"
+          className="btn-secondary"
         >
           + Add item
         </button>

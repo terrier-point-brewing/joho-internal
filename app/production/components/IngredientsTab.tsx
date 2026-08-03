@@ -220,14 +220,14 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="px-3 py-1.5 text-xs rounded border border-line-strong bg-surface-mid text-body hover:text-primary transition-colors"
+            className="btn-secondary"
           >
             Choose CSV file…
           </button>
           <button
             type="button"
             onClick={() => { setCsvText(TEMPLATE_CSV); setParsed(false); setRows([]); }}
-            className="text-xs text-faint hover:text-secondary transition-colors"
+            className="btn-secondary"
           >
             Load example
           </button>
@@ -250,7 +250,7 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
             type="button"
             onClick={handleParse}
             disabled={!csvText.trim()}
-            className="px-3 py-1.5 text-sm rounded border border-line-strong bg-surface-mid text-body hover:text-primary disabled:opacity-40 transition-colors"
+            className="btn-secondary"
           >
             Preview
           </button>
@@ -587,8 +587,8 @@ export default function IngredientsTab() {
         <div className="flex gap-2 shrink-0">
           {bulkEditMode ? (
             <>
-              <button onClick={() => setBulkEditMode(false)} className="btn-secondary min-w-32" disabled={bulkSaving}>Cancel</button>
-              <button onClick={saveBulkEdit} className="btn-primary min-w-32" disabled={bulkSaving}>
+              <button onClick={() => setBulkEditMode(false)} className="btn-secondary" disabled={bulkSaving}>Cancel</button>
+              <button onClick={saveBulkEdit} className="btn-primary" disabled={bulkSaving}>
                 {bulkSaving ? "Saving…" : "Save All"}
               </button>
             </>
@@ -599,14 +599,14 @@ export default function IngredientsTab() {
                   manage-level gate as the per-row Edit/Del below. Bulk Receive
                   is a stock movement and stays at operate — a brewer's day job. */}
               {canEditMaster && (<>
-                <button onClick={enterBulkEdit} className="btn-secondary min-w-32" disabled={ingredients.length === 0}>Bulk Edit</button>
-                <button onClick={() => setShowBulkModal(true)} className="btn-secondary min-w-32">↑ Bulk Upload</button>
+                <button onClick={enterBulkEdit} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Edit</button>
+                <button onClick={() => setShowBulkModal(true)} className="btn-secondary">↑ Bulk Upload</button>
               </>)}
               {canOperate && (
-                <button onClick={() => setShowBulkReceive(true)} className="btn-primary min-w-32" disabled={ingredients.length === 0}>Bulk Receive</button>
+                <button onClick={() => setShowBulkReceive(true)} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Receive</button>
               )}
               {canEditMaster && (
-                <button onClick={openNew} className="btn-primary min-w-32">+ New Ingredient</button>
+                <button onClick={openNew} className="btn-primary">+ New Ingredient</button>
               )}
             </>
           )}
@@ -679,18 +679,18 @@ export default function IngredientsTab() {
                           return (
                             <tr key={ing.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
                               <td className="px-2 py-1.5">
-                                <input className="inp text-sm w-full" value={bulkRow.name}
+                                <input className="inp-sm w-full" value={bulkRow.name}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, name: e.target.value } : r))} />
                               </td>
                               <td className="px-2 py-1.5 text-secondary truncate">{ing.suppliers?.company_name ?? "—"}</td>
                               <td className="px-2 py-1.5 text-secondary truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
                               <td className="px-3 py-2.5 text-faint text-xs text-right">—</td>
                               <td className="px-2 py-1.5">
-                                <input className="inp text-sm w-full" value={bulkRow.unit}
+                                <input className="inp-sm w-full" value={bulkRow.unit}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, unit: e.target.value } : r))} />
                               </td>
                               <td className="px-2 py-1.5">
-                                <input type="number" step="0.0001" min="0" className="inp text-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit}
+                                <input type="number" step="0.0001" min="0" className="inp-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, cost_per_unit: e.target.value } : r))} />
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums">
@@ -726,15 +726,13 @@ export default function IngredientsTab() {
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-body whitespace-nowrap">{fmtValue(totalValue)}</td>
                             <td className="px-3 py-2.5">
-                              <div className="flex gap-2 justify-end w-full">
+                              <div className="flex gap-1 justify-end w-full">
                                 {canOperate && (
-                                <button onClick={() => openAdj(ing)} className="text-xs text-accent-emphasis hover:text-accent transition-colors font-medium whitespace-nowrap">Adjust</button>
+                                <button onClick={() => openAdj(ing)} className="btn-primary btn-xxs whitespace-nowrap">Adjust</button>
                                 )}
                                 {canEditMaster && (<>
-                                {canOperate && <span className="text-disabled">·</span>}
-                                <button onClick={() => openEdit(ing)} className="text-xs text-muted hover:text-body transition-colors whitespace-nowrap">Edit</button>
-                                <span className="text-disabled">·</span>
-                                <button onClick={() => handleDelete(ing.id, ing.name)} className="text-xs text-faint hover:text-danger transition-colors whitespace-nowrap">Del</button>
+                                <button onClick={() => openEdit(ing)} className="btn-secondary btn-xxs whitespace-nowrap">Edit</button>
+                                <button onClick={() => handleDelete(ing.id, ing.name)} className="btn-danger btn-xxs whitespace-nowrap">Del</button>
                                 </>)}
                               </div>
                             </td>

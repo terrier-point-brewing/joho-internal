@@ -7,6 +7,7 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { queryKeys } from "@/lib/query-keys";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 
 type Tier = "baseline" | "recovery" | "target" | "stretch";
 
@@ -76,10 +77,6 @@ function emptyGrid(): GridState {
 
 // Shared `.inp` primitive + numeric alignment; callers append left-padding.
 const inputCls = "inp text-right font-mono";
-
-const selectCls =
-  "bg-surface-mid border border-line-subtle rounded px-3 py-2 text-sm text-primary " +
-  "focus:outline-none focus:ring-2 focus:ring-accent";
 
 // ---------------------------------------------------------------------------
 
@@ -200,25 +197,18 @@ export default function TargetSettingTab() {
         {/* Year tabs + Edit button inline */}
         <div className="flex items-center gap-2">
           {[currentYear - 1, currentYear, currentYear + 1].map((y) => (
-            <button
+            <ToggleChip
               key={y}
+              active={year === y}
               onClick={() => { populatedYearRef.current = null; setYear(y); }}
-              className={`px-4 py-1.5 rounded text-sm font-medium border transition-colors ${
-                year === y
-                  ? "border-accent-border bg-accent-muted/20 text-accent-soft"
-                  : "border-line-strong text-secondary hover:text-strong hover:border-line-subtle"
-              }`}
             >
               {y}
-            </button>
+            </ToggleChip>
           ))}
           {canEdit && (
             <>
               <div className="w-px h-5 bg-surface-high mx-1" />
-              <button
-                onClick={handleEnterEdit}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-line-strong text-sm text-secondary hover:text-primary hover:border-line-subtle transition-colors"
-              >
+              <button onClick={handleEnterEdit} className="btn-secondary">
                 <span>✎</span> Edit
               </button>
             </>
@@ -300,7 +290,7 @@ export default function TargetSettingTab() {
         <select
           value={year}
           onChange={(e) => { populatedYearRef.current = null; setYear(Number(e.target.value)); }}
-          className={selectCls}
+          className="inp w-auto"
         >
           {[currentYear - 1, currentYear, currentYear + 1].map((y) => (
             <option key={y} value={y}>{y}</option>
@@ -400,7 +390,7 @@ function AllYearsSummary({
             )}
             <button
               onClick={() => onSelectYear(y)}
-              className="text-xs text-accent hover:text-accent"
+              className="btn-secondary btn-xxs"
             >
               View →
             </button>

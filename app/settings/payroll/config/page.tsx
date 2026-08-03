@@ -3,6 +3,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState, useEffect } from "react";
 import Banner from "@/app/components/ui/Banner";
+import Badge from "@/app/components/ui/Badge";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import { queryKeys } from "@/lib/query-keys";
@@ -206,13 +208,13 @@ export default function PayrollSettingsPage() {
         <div className="flex items-center gap-3 mb-4">
           <h3 className="text-sm font-semibold text-strong">Pay Schedule</h3>
           {config?.id ? (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-success-surface/40 text-success">
+            <Badge tone="success">
               Active — {config.pay_period_frequency}, due {config.due_date_days_after_end}d after period end
-            </span>
+            </Badge>
           ) : (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-accent-muted/30 text-accent">
+            <Badge tone="accent">
               Not configured — save settings below to activate
-            </span>
+            </Badge>
           )}
         </div>
         <div className="grid grid-cols-2 gap-4 mb-4">
@@ -459,21 +461,17 @@ export default function PayrollSettingsPage() {
                     {emp.square_team_member_id?.slice(0, 12) ?? "—"}
                   </td>
                   <td className="py-2 px-3 text-center">
-                    <button
+                    <ToggleChip
+                      active={emp.active}
                       onClick={() => emp.active ? setDeactivating(emp) : toggleEmployee.mutate({ id: emp.id, active: true })}
-                      className={`text-xs px-2 py-0.5 rounded ${
-                        emp.active
-                          ? "bg-success-surface/40 text-success hover:bg-danger-surface/40 hover:text-danger"
-                          : "bg-surface-mid text-muted hover:bg-success-surface/40 hover:text-success"
-                      }`}
                     >
                       {emp.active ? "Active" : "Inactive"}
-                    </button>
+                    </ToggleChip>
                   </td>
                   <td className="py-2 px-3 text-center">
                     <button
                       onClick={() => editingId === emp.id ? setEditingId(null) : startEdit(emp)}
-                      className="text-xs text-muted hover:text-body"
+                      className="btn-secondary btn-xxs"
                     >
                       {editingId === emp.id ? "Cancel" : "Edit"}
                     </button>
