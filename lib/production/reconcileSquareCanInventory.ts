@@ -102,7 +102,19 @@ export function planCanReconciliation(input: {
     if (Math.abs(raw - coldStorageCans) > INT_EPS) {
       plan.warnings.push(`${fam.recipeId} ${fam.baseVariationName ?? fam.baseSquareVariationId}: fractional loose-equivalent ${raw.toFixed(3)} rounded to ${coldStorageCans}`);
     }
-    const squareCansBefore = input.squareCountByVar[fam.baseSquareVariationId] ?? 0;
+    // ABSENT IS NOT ZERO. Square returns no count row for a variation it does not
+    // track — or does not have at all. Reading that as 0 is what invented a
+    // permanent -158 drift against a deleted variation and drove 1,040 writes
+    // that could never converge. An unknown count is not a measurement, so there
+    // is nothing to correct toward and the family is skipped.
+    const squareCansBefore = input.squareCountByVar[fam.baseSquareVariationId];
+    if (squareCansBefore === undefined) {
+      plan.skips.push({
+        recipeId: fam.recipeId,
+        reason: `Square returned no count for ${fam.baseVariationName ?? fam.baseSquareVariationId} — unknown, not zero`,
+      });
+      continue;
+    }
     const drift = squareCansBefore - coldStorageCans;
     if (Math.abs(drift) >= threshold) {
       plan.writes.push({
@@ -215,11 +227,16 @@ export async function reconcileSquareCanInventory(
 
       let base: ItemVariation | null = null;
       if (itemId) {
+        // Live variations only. The mirror keeps rows for variations Square has
+        // deleted so their mappings stay inspectable, but a ghost must never be
+        // a candidate for the base variation — Wiggo! IPA's item carries three
+        // deleted rows alongside its live ones.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: itemVars } = await (supabase as any)
           .from("square_catalog_variations")
           .select("square_variation_id, variation_name, volume_fl_oz_per_unit, track_inventory")
-          .eq("square_item_id", itemId);
+          .eq("square_item_id", itemId)
+          .eq("is_deleted", false);
         base = pickBaseVariation({
           itemVariations: ((itemVars ?? []) as Record<string, unknown>[]).map((v) => ({
             squareVariationId: v.square_variation_id as string,
@@ -246,8 +263,13 @@ export async function reconcileSquareCanInventory(
   // 3. Read current Square counts for the base variations we might write.
   const baseVarIds = [...new Set(families.map((f) => f.baseSquareVariationId).filter((x): x is string => !!x))];
   const counts = baseVarIds.length ? await fetchCurrentCounts(baseVarIds) : new Map<string, number>();
+  // Only ids Square actually answered for. A missing key means "unknown" and the
+  // planner skips it; see the ABSENT IS NOT ZERO note in planCanReconciliation.
   const squareCountByVar: Record<string, number> = {};
-  for (const id of baseVarIds) squareCountByVar[id] = counts.get(id) ?? 0;
+  for (const id of baseVarIds) {
+    const c = counts.get(id);
+    if (c !== undefined) squareCountByVar[id] = c;
+  }
 
   // 4. Plan, then execute writes (cold storage trumps) + journal each correction.
   const plan = planCanReconciliation({ families, squareCountByVar });
@@ -271,6 +293,21 @@ export async function reconcileSquareCanInventory(
     if (!PUSH_TO_SQUARE_ENABLED) continue;
     try {
       await setPhysicalCount(w.baseSquareVariationId, w.coldStorageCans, occurredAt);
+
+      // VERIFY THE WRITE LANDED. Square accepts a PHYSICAL_COUNT against a
+      // variation it does not have and returns no error, so "the POST did not
+      // fail" says nothing about whether anything changed. Read the count back
+      // and insist it matches before claiming the correction was applied.
+      const after = await fetchCurrentCounts([w.baseSquareVariationId]);
+      const observed = after.get(w.baseSquareVariationId);
+      if (observed === undefined || Math.abs(observed - w.coldStorageCans) > INT_EPS) {
+        plan.warnings.push(
+          `write NOT verified for ${w.baseVariationName ?? w.baseSquareVariationId}: ` +
+          `wrote ${w.coldStorageCans}, Square reports ${observed ?? "no count"}`,
+        );
+        continue;
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (supabase as any).from("square_inventory_reconciliations").insert({
         recipe_id: w.recipeId,
