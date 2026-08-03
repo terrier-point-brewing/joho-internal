@@ -58,20 +58,23 @@ export default function TemplatesView() {
   const actionError = templateAction.error ?? createTemplate.error ?? activateSeason.error;
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8 flex flex-col gap-4">
-      <PageHeader
-        title="Templates"
-        description="Layouts, their slots, and the season every motif resolves against."
-      />
-
-      <TabBar
-        tabs={[
-          { key: "templates", label: "Templates" },
-          { key: "seasons", label: "Seasons" },
-        ]}
-        activeKey={tab}
-        onSelect={(k) => setTab(k as "templates" | "seasons")}
-      />
+    <div className="flex flex-col h-full min-h-0">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
+        <PageHeader
+          title="Templates"
+          description="Layouts, their slots, and the season every motif resolves against."
+        />
+        <TabBar
+          tabs={[
+            { key: "templates", label: "Templates" },
+            { key: "seasons", label: "Seasons" },
+          ]}
+          activeKey={tab}
+          onSelect={(k) => setTab(k as "templates" | "seasons")}
+          className="mb-0"
+        />
+      </div>
+      <div className="flex-1 overflow-auto px-4 sm:px-6 pb-4 sm:pb-8 pt-4 flex flex-col gap-4">
 
       {error && <Banner tone="danger">{(error as Error).message}</Banner>}
       {actionError && <Banner tone="danger">{(actionError as Error).message}</Banner>}
@@ -251,6 +254,7 @@ export default function TemplatesView() {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }

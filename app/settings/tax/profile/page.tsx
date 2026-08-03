@@ -6,8 +6,7 @@ import { LEGAL_REPRESENTATIVE_SCHEMA } from "@/lib/tax/legalRepresentative";
 import { BANK_ACCOUNT_SCHEMA } from "@/lib/tax/bankAccount";
 import IdentityForm from "@/app/settings/tax/filing/IdentityForm";
 import RegistrationsSection from "./RegistrationsSection";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 
 /**
  * Finance → Settings → Tax Profile: the brewery's own filer identity
@@ -20,12 +19,10 @@ export default function TaxProfileSettingsPage() {
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6">
-        <StickyHeader>
-          <PageHeader
-            title="Tax Profile"
-            description="Business identity, the legal representative who signs filings, the bank account filings are paid from, and the account/license numbers registered with each tax authority."
-          />
-        </StickyHeader>
+        <SettingsHeader
+          title="Tax Profile"
+          description="Business identity, the legal representative who signs filings, the bank account filings are paid from, and the account/license numbers registered with each tax authority."
+        />
       </div>
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">
         <section className="flex flex-col gap-2">

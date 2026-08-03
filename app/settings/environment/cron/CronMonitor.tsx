@@ -4,8 +4,7 @@ import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import RunJobButton from "@/app/components/RunJobButton";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 
 interface CronJobMeta {
   job: string;
@@ -112,14 +111,15 @@ export default function CronMonitor() {
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
     <div className="max-w-3xl">
-      <StickyHeader>
-        <div className="flex items-center justify-between gap-4">
-          <PageHeader title="Cron Jobs" description="Scheduled jobs and their recent run history. Schedules run in UTC." />
+      <SettingsHeader
+        title="Cron Jobs"
+        description="Scheduled jobs and their recent run history. Schedules run in UTC."
+        actions={
           <button onClick={load} disabled={loading} className="btn-secondary">
             {loading ? "Loading…" : "Refresh"}
           </button>
-        </div>
-      </StickyHeader>
+        }
+      />
       <div className="pb-4 sm:pb-8">
 
       {error && <Banner className="mb-3">{error}</Banner>}

@@ -39,8 +39,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { EM_DASH, formatBalanceCents } from "@/lib/format";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
@@ -552,16 +551,15 @@ export default function BalanceSheetAccountsPage() {
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6">
-        <StickyHeader>
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <PageHeader
-              title="Balance Sheet Accounts"
-              description="Pick how each account is worked out, then finish whatever that choice needs — all on this screen. Dollar values live in Finance → Transactions."
-            />
-            <button type="button" className="btn-secondary btn-xxs mt-4" disabled={recomputing} onClick={handleRecompute}>
+        <SettingsHeader
+          title="Balance Sheet Accounts"
+          description="Pick how each account is worked out, then finish whatever that choice needs — all on this screen. Dollar values live in Finance → Transactions."
+          actions={
+            <button type="button" className="btn-secondary btn-xxs" disabled={recomputing} onClick={handleRecompute}>
               {recomputing ? "Recomputing…" : "Recompute last month"}
             </button>
-          </div>
+          }
+        >
           <p className="text-sm text-muted pb-2">
             {accounts.length > 0
               ? `${calculating} of ${relevantAccounts.length} balance-sheet accounts are calculating` +
@@ -569,7 +567,7 @@ export default function BalanceSheetAccountsPage() {
                 (excludedCount > 0 ? ` · ${excludedCount} excluded` : "")
               : "Balance-sheet accounts appear here once the chart of accounts is mapped."}
           </p>
-        </StickyHeader>
+        </SettingsHeader>
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}

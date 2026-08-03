@@ -7,8 +7,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useTaxPartiesQuery } from "@/app/finance/tax/hooks/useTaxData";
 import IdentityForm from "./IdentityForm";
 import ReferenceDisclosure from "./ReferenceDisclosure";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 
 /**
  * Finance → Settings → Tax Filing: one pane per tax-filing MODULE (party
@@ -29,12 +28,10 @@ export default function TaxFilingSettingsPage() {
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6">
-        <StickyHeader>
-          <PageHeader
-            title="Tax Filing"
-            description="Per-module Square mappings and the statutory rate tables each filing worksheet relies on."
-          />
-        </StickyHeader>
+        <SettingsHeader
+          title="Tax Filing"
+          description="Per-module Square mappings and the statutory rate tables each filing worksheet relies on."
+        />
       </div>
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">
         {partiesQuery.isLoading && <p className="text-sm text-faint">Loading…</p>}

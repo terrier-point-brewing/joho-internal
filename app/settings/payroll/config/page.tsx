@@ -4,8 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState, useEffect } from "react";
 import Banner from "@/app/components/ui/Banner";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 import { queryKeys } from "@/lib/query-keys";
 import type { Employee, PayrollConfig } from "@/lib/payroll/types";
 
@@ -197,12 +196,10 @@ export default function PayrollSettingsPage() {
   return (
     <>
       <div className="flex-1 overflow-auto px-4 sm:px-6 max-w-3xl">
-      <StickyHeader>
-        <PageHeader
-          title="Payroll Config"
-          description="Pay periods, tip pool frequency, and per-employee job title, wage, and employment type."
-        />
-      </StickyHeader>
+      <SettingsHeader
+        title="Payroll Config"
+        description="Pay periods, tip pool frequency, and per-employee job title, wage, and employment type."
+      />
       <div className="pb-4 sm:pb-8">
       {/* ── Pay Schedule ─────────────────────────────────────────────────── */}
       <section className="mt-6 mb-10">

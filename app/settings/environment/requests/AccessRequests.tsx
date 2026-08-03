@@ -1,8 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
@@ -39,9 +38,7 @@ export default function AccessRequests() {
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
       <div className="max-w-4xl">
-      <StickyHeader>
-        <PageHeader title="Access Requests" />
-      </StickyHeader>
+      <SettingsHeader title="Access Requests" />
       <div className="pb-4 sm:pb-8">
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
       {(error || action.error) && (

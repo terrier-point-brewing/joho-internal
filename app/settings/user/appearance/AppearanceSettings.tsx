@@ -1,5 +1,4 @@
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 import ThemeToggle from "@/app/components/brand/ThemeToggle";
 import BrandChromeToggle from "@/app/components/brand/BrandChromeToggle";
 
@@ -18,9 +17,7 @@ export default function AppearanceSettings({
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
     <div className="max-w-md">
-      <StickyHeader>
-        <PageHeader title="Appearance" description="Theme and skin for the internal app." />
-      </StickyHeader>
+      <SettingsHeader title="Appearance" description="Theme and skin for the internal app." />
 
       <div className="flex flex-col gap-4 mt-4 pb-4 sm:pb-8">
         <div className="flex flex-col gap-1">

@@ -6,9 +6,7 @@ import { ContractBrewingPartner, Supplier } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import SearchInput from "@/app/components/ui/SearchInput";
 import { useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
-import TabBar, { type TabDef } from "@/app/components/TabBar";
-
-type PartnerKind = "contract" | "supplier";
+import type { PartnerKind } from "../partners/page";
 
 const PARTNER_EMPTY = {
   company_name: "",
@@ -203,9 +201,8 @@ function SquareImportModal({ linkingPartner, onClose, onDone }: SquareImportModa
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function PartnersTab() {
+export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setKind: (k: PartnerKind) => void }) {
   const qc = useQueryClient();
-  const [kind, setKind] = useState<PartnerKind>("contract");
   const { data: contractPartners = [] } = useContractPartnersQuery();
   const { data: suppliers = [] } = useSuppliersQuery();
   const loadContracts = () => qc.invalidateQueries({ queryKey: productionKeys.contractPartners });
@@ -302,31 +299,8 @@ export default function PartnersTab() {
 
   const kindLabel = kind === "contract" ? "Contract Brewing Partner" : "Supplier";
 
-  const kindTabs: TabDef<PartnerKind>[] = [
-    {
-      key: "contract",
-      label: (
-        <>
-          Contract Brewing{" "}
-          <span className="ml-1.5 text-xs text-faint">({contractPartners.length})</span>
-        </>
-      ),
-    },
-    {
-      key: "supplier",
-      label: (
-        <>
-          Suppliers{" "}
-          <span className="ml-1.5 text-xs text-faint">({suppliers.length})</span>
-        </>
-      ),
-    },
-  ];
-
   return (
     <>
-      <TabBar tabs={kindTabs} activeKey={kind} onSelect={setKind} />
-
       {/* Action buttons */}
       <div className="flex justify-end gap-2 mb-4">
         {kind === "contract" && (

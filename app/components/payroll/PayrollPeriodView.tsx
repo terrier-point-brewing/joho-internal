@@ -10,7 +10,6 @@ import { GustoUploadPanel } from "./GustoUploadPanel";
 import { ShiftTimeline } from "./ShiftTimeline";
 import { AdjustmentsPanel } from "./AdjustmentsPanel";
 import { queryKeys } from "@/lib/query-keys";
-import TabBar from "@/app/components/TabBar";
 import Badge from "@/app/components/ui/Badge";
 import { Modal } from "@/app/components/ui/Modal";
 import { usePermissions } from "@/lib/hooks/useUserRole";
@@ -18,7 +17,7 @@ import { CAP } from "@/lib/auth/capabilities"; // NOT "@/lib/auth" — barrel pu
 
 export type PayrollTab = "summary" | "shifts" | "adjustments" | "gusto" | "gustoUpload";
 
-const TAB_LABELS: Record<PayrollTab, string> = {
+export const PAYROLL_TAB_LABELS: Record<PayrollTab, string> = {
   summary: "Summary",
   shifts: "Shifts",
   adjustments: "Adjustments",
@@ -26,23 +25,36 @@ const TAB_LABELS: Record<PayrollTab, string> = {
   gustoUpload: "Gusto Upload",
 };
 
+/** Default subtabs for a page that doesn't pass its own list, in order. */
+export const DEFAULT_PAYROLL_TABS: PayrollTab[] = ["summary", "shifts", "adjustments"];
+
 interface Props {
   periodId: string;
   editable: boolean;
-  /** Which subtabs to expose, in order. First entry is the default. */
-  tabs?: PayrollTab[];
+  /** Which subtab is active — owned by the page so it can live in the frozen header's TabBar. */
+  activeTab: PayrollTab;
 }
 
-export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shifts", "adjustments"] }: Props) {
+export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
   const { data: preview, isLoading, error } = usePayrollPeriod(periodId);
   const qc = useQueryClient();
   const [locking, setLocking] = useState(false);
   const [showLockConfirm, setShowLockConfirm] = useState(false);
-  const [activeTab, setActiveTab] = useState<PayrollTab>(tabs[0]);
   const [overrideMode, setOverrideMode] = useState(false);
   const [cashView, setCashView] = useState<"actual" | "reported">("actual");
   const { can } = usePermissions();
   const canDayOverride = can(CAP.payrollDayOverride);
+
+  // Mirrors the old TabBar onSelect side-effect: leaving Summary/Shifts drops
+  // an in-progress override so it can't be left silently armed on another
+  // tab. Adjusted during render (React's documented pattern for resetting
+  // state when a prop changes) rather than in an effect, which would fire a
+  // second, avoidable render.
+  const [prevActiveTab, setPrevActiveTab] = useState(activeTab);
+  if (activeTab !== prevActiveTab) {
+    setPrevActiveTab(activeTab);
+    if (activeTab !== "summary" && activeTab !== "shifts") setOverrideMode(false);
+  }
 
   async function handleLock() {
     setLocking(true);
@@ -119,15 +131,6 @@ export function PayrollPeriodView({ periodId, editable, tabs = ["summary", "shif
         )}
       </div>
 
-      {/* Tabs */}
-      <TabBar
-        tabs={tabs.map((key) => ({ key, label: TAB_LABELS[key] }))}
-        activeKey={activeTab}
-        onSelect={(tab) => {
-          setActiveTab(tab);
-          if (tab !== "summary" && tab !== "shifts") setOverrideMode(false);
-        }}
-      />
 
       {/* Lock confirmation modal */}
       {showLockConfirm && (

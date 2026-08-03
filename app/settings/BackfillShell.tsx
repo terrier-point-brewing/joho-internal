@@ -21,8 +21,7 @@
 import { useState, type ReactNode } from "react";
 import Card from "@/app/components/ui/Card";
 import Banner from "@/app/components/ui/Banner";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "./SettingsHeader";
 
 export interface BackfillShellProps<T> {
   title: string;
@@ -99,9 +98,7 @@ export default function BackfillShell<T>({
 
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
-      <StickyHeader>
-        <PageHeader title={title} />
-      </StickyHeader>
+      <SettingsHeader title={title} />
       <div className="pb-4 sm:pb-8">
       <Card className="max-w-4xl">
         <p className="text-xs text-secondary">{what}</p>

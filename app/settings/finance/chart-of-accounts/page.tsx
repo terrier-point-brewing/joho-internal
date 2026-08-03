@@ -1,8 +1,7 @@
 "use client";
 import { Fragment, useState, useCallback, useEffect } from "react";
 import TabBar, { type TabDef } from "@/app/components/TabBar";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 import { ACCOUNT_TYPE_SECTION, type StatementSection } from "@/lib/finance/accountSections";
 import { parseCoaCsv, type ParsedCoaRow } from "@/lib/finance/coaCsv";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
@@ -647,29 +646,29 @@ export default function ChartOfAccountsPage() {
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6">
-        <StickyHeader>
-          <div className="flex items-start justify-between gap-4">
-            <PageHeader
-              title="Chart of Accounts"
-              description={uploadedAt && !loading ? `${accounts.length} accounts · last uploaded ${fmt(uploadedAt)}` : undefined}
-            />
-            <div className="flex items-center gap-2 shrink-0 mt-4">
-              {step === "idle" && (
-                <>
-                  <button
-                    onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
-                    className="btn-secondary">
-                    {showAddForm ? "Cancel" : "Add Account"}
-                  </button>
-                  <label className="btn-primary cursor-pointer">
-                    Upload CSV
-                    <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
-                  </label>
-                </>
-              )}
-            </div>
-          </div>
-        </StickyHeader>
+        <SettingsHeader
+          title="Chart of Accounts"
+          description={uploadedAt && !loading ? `${accounts.length} accounts · last uploaded ${fmt(uploadedAt)}` : undefined}
+          actions={
+            step === "idle" && (
+              <>
+                <button
+                  onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
+                  className="btn-secondary">
+                  {showAddForm ? "Cancel" : "Add Account"}
+                </button>
+                <label className="btn-primary cursor-pointer">
+                  Upload CSV
+                  <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
+                </label>
+              </>
+            )
+          }
+        >
+          {!loading && !error && accounts.length > 0 && step === "idle" && (
+            <TabBar tabs={CoA_VIEW_TABS} activeKey={viewMode} onSelect={setViewMode} />
+          )}
+        </SettingsHeader>
       </div>
 
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-4xl space-y-6">
@@ -906,9 +905,6 @@ export default function ChartOfAccountsPage() {
           </div>
         ) : step === "idle" ? (
           <>
-            {/* View toggle */}
-            <TabBar tabs={CoA_VIEW_TABS} activeKey={viewMode} onSelect={setViewMode} />
-
             {viewMode === "statement" ? (
               <div className="bg-surface border border-line rounded-lg overflow-hidden">
                 {/* P&L */}
