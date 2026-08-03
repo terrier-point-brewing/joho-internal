@@ -22,3 +22,18 @@ export const PUSH_TO_SQUARE_ENABLED = false;
 
 /** Drift below this is left alone — rounding and in-flight sales, not a real gap. */
 export const DRIFT_THRESHOLD = 0.5;
+
+/**
+ * Whether a Square-raised invoice may drain cold storage on its own.
+ *
+ * OFF as of 2026-08-03, for a different reason than the push above: this one
+ * writes to the APP's ledger, not Square's. Booking a shipment that never
+ * happened removes stock that is still on the shelf, and unlike a Square count
+ * there is no second system to notice.
+ *
+ * Every invoice in prod carrying beer lines currently has an Export Bay shipment
+ * behind it, so there is nothing waiting to be booked and nothing lost by
+ * leaving this shut. Turn it on once a real case has appeared and a person has
+ * confirmed the guards caught it correctly.
+ */
+export const INVOICE_WRITEBACK_ENABLED = false;

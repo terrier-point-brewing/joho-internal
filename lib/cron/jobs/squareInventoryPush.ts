@@ -15,13 +15,27 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { pushInventoryToSquare } from "@/lib/production/pushInventoryToSquare";
+import { writeBackInvoiceInventory } from "@/lib/production/invoiceInventoryWriteback";
 
 export async function runSquareInventoryPushJob(supabase: SupabaseClient) {
   const result = await pushInventoryToSquare(supabase);
+
+  // The opposite direction, and the one case the push cannot cover: an invoice
+  // raised directly in Square takes stock the app never shipped, so Square is
+  // right and cold storage is stale. Best-effort — a failure here must not lose
+  // the push's own result.
+  let invoiceWriteback;
+  try {
+    invoiceWriteback = await writeBackInvoiceInventory(supabase);
+  } catch (e) {
+    invoiceWriteback = { error: e instanceof Error ? e.message : String(e) };
+  }
+
   return {
     ...result,
     // Planned-but-not-applied is the normal state while the gate is shut; make
     // that legible in the cron monitor rather than looking like a failed run.
     plannedCount: result.planned.length,
+    invoiceWriteback,
   };
 }

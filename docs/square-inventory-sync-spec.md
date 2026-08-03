@@ -118,6 +118,9 @@ and BBA Groundhog — all at zero stock.
 
 ### W2 — Push on production creation (app → Square)
 
+**Built 2026-08-03, gate shut.** Own cron job (`square-inventory-push`, daily
+07:15 UTC) plus triggers on canning/kegging and export ship. Kegs covered.
+
 Nothing writes to Square on any cold-storage creation path today.
 
 1. **Own job, not a side effect.** The only push that exists runs inside the
@@ -141,6 +144,10 @@ Nothing writes to Square on any cold-storage creation path today.
 
 ### W3 — Invoice-driven writeback (Square → app)
 
+**Built 2026-08-03, gate shut.** Currently a guard, not a repair: every invoice
+in prod carrying beer lines has an Export Bay shipment behind it, so there is
+nothing waiting to be booked.
+
 App-generated invoices need nothing (see ownership model). The gap is an invoice
 created **directly in Square** carrying mapped keg/can SKUs: Square deducts, the
 app never hears about it.
@@ -160,6 +167,8 @@ app never hears about it.
    `export_transactions` ledger, with a `source_ref` that makes it idempotent.
 
 ### W4 — Taproom sales writeback (Square → app)
+
+**Done 2026-08-03.**
 
 This direction exists and works; the mapping layer is what's broken.
 
@@ -268,16 +277,30 @@ to *notice* them — never to mirror them back.
 
 ---
 
-## Sequencing
+## Sequencing — all code landed 2026-08-03
 
-1. **W1 + X3/X4** — mapping integrity, absent-vs-zero, write verification. Every
-   other workstream reads or writes through this layer, and all of them fail
-   silently when it's stale.
-2. **Data repairs** — re-map, then correct Epic Hazy.
-3. **W5** — the drift view, so the remaining work is observable while it's built.
-4. **W4** — unmapped-sale discrepancies.
-5. **W2** — production push, kegs included.
-6. **W3** — invoice writeback.
+1. ✅ **W1 + X3/X4** — mapping integrity, absent-vs-zero, write verification.
+2. ✅ **Data repairs** — all 18 links re-mapped; Epic Hazy correction dropped.
+3. ✅ **W5** — the drift view.
+4. ✅ **W4** — unmapped-sale discrepancies.
+5. ✅ **W2** — production push, kegs included. **Gate shut.**
+6. ✅ **W3** — invoice writeback. **Gate shut.**
+
+### The two gates
+
+Both live in `lib/square/pushGate.ts` and both are off. They are off for
+different reasons, and should be opened by different evidence:
+
+- `PUSH_TO_SQUARE_ENABLED` — makes cold storage overwrite Square. Open it once
+  the drift view shows the two sides agreeing, or once someone has decided which
+  side is right where they don't. 19 of 51 keg SKUs currently disagree.
+- `INVOICE_WRITEBACK_ENABLED` — lets a Square-raised invoice drain cold storage.
+  This writes to the app's own ledger, where a wrong deduction removes stock
+  that is still on the shelf and no second system will notice. Open it after a
+  real case has appeared and the guards have been seen to catch it.
+
+Everything downstream of both gates is built and tested. A unit test asserts
+each is shut, so opening one is a deliberate act.
 
 ## Open questions
 
