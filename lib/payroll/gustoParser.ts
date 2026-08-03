@@ -6,12 +6,16 @@
  * "First Name", ...), followed by one block per employee. Each employee's
  * own row (non-blank Last Name) carries their Regular/Salary `Amount` and
  * pre-summed `Employer Taxes`. It may be followed by blank-Last-Name
- * sub-rows carrying additional pay-type breakdowns — a Bonus (real wage
- * expense, must be added to gross), Paycheck Tips (a balance-sheet
- * pass-through — captured separately, never folded into gross wages), Cash
- * Tips (never moves company money, so it is discarded entirely), and a
- * "Gross" subtotal (sum of the above, would double-count if included). The
- * label for these sub-rows lives in the
+ * sub-rows carrying additional pay-type breakdowns — Bonus, Commission and
+ * Additional Earnings (all real wage expense, must be added to gross),
+ * Paycheck Tips (a balance-sheet pass-through — captured separately, never
+ * folded into gross wages), Cash Tips (never moves company money, so it is
+ * discarded entirely), and a "Gross" subtotal (sum of the above, would
+ * double-count if included). Those seven labels — Regular on the employee's
+ * own row plus those six sub-row labels — are the complete set observed
+ * across every export in the payroll-gl-reports bucket as of 2026-08-03; an
+ * unrecognised label is dropped, so a new Gusto pay type has to be added
+ * here deliberately. The label for these sub-rows lives in the
  * "Pay Type" column position (index 7) — verified directly against the
  * real export; the first sub-row of a block also carries the literal
  * "Totals" in the "Job" column position (index 6), which is not used here.
@@ -115,6 +119,23 @@ export interface ParsedGustoReport {
   employees: ParsedGustoEmployee[];
   /** departments seen with no entry in payrollDepartmentGlMappings — surfaced, never silently dropped */
   unmappedDepartments: string[];
+  /**
+   * Every blank-Last-Name sub-row label folded into gross wages, with its
+   * company-wide total. Itemises WHICH pay types make up the part of gross that
+   * does not come from the employee row's own Regular `Amount`.
+   *
+   * This exists so a consumer comparing a fresh parse against previously stored
+   * totals can attribute a difference to a specific pay type instead of reading
+   * it as unexplained drift — see the backfill screen's write gate, which blocks
+   * on any wage movement it cannot itemise.
+   */
+  wageSubRowTotals: WageSubRowTotal[];
+}
+
+/** One sub-row pay-type label and the gross wages it contributed, company-wide. */
+export interface WageSubRowTotal {
+  label: string;
+  amountCents: number;
 }
 
 // ── CSV row splitting ──────────────────────────────────────────────────────
@@ -202,6 +223,7 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
   }
 
   const employees: ParsedGustoEmployee[] = [];
+  const wageSubRowCents = new Map<string, number>();
 
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i];
@@ -235,8 +257,14 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
     if (!current) continue; // stray sub-row before any employee block — ignore
 
     const label = cell(row, COL.payType);
-    if (label === "Bonus") {
-      current.grossAmountCents += parseAmountCents(cell(row, COL.amount));
+    // Bonus / Commission / Additional Earnings are all compensation Gusto
+    // reports outside the employee row's Regular `Amount`, and all three are
+    // already inside Check Amount / Employee Taxes / Employer Taxes — so they
+    // belong in gross wages, and folding them in changes no expected debit.
+    if (label === "Bonus" || label === "Commission" || label === "Additional Earnings") {
+      const amountCents = parseAmountCents(cell(row, COL.amount));
+      current.grossAmountCents += amountCents;
+      wageSubRowCents.set(label, (wageSubRowCents.get(label) ?? 0) + amountCents);
     } else if (label === "Paycheck Tips") {
       current.paycheckTipsCents += parseAmountCents(cell(row, COL.amount));
     }
@@ -253,6 +281,7 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
     payDay,
     employees,
     unmappedDepartments: [],
+    wageSubRowTotals: Array.from(wageSubRowCents.entries()).map(([label, amountCents]) => ({ label, amountCents })),
   };
 }
 

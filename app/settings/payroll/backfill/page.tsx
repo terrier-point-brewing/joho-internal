@@ -57,16 +57,49 @@ function recoveredCents(r: BackfillPeriodResult): number {
 }
 
 /**
- * A non-tip delta is ACCOUNTED FOR when it equals the wages recovered from
- * accounts the stored totals never had — the signature of a report uploaded
- * before its department was mapped, whose gross `computeGlBucketTotals` then
- * silently skipped. That is the backfill correcting a real understatement, so
- * it warns rather than blocks. Any other movement still blocks: an unexplained
- * change means the re-parse and the stored totals disagree for a reason nobody
- * has established.
+ * Sub-row pay types the stored totals cannot contain, because the parser that
+ * wrote them folded only "Bonus" sub-rows into gross and dropped these two
+ * entirely — neither adding them to gross nor tracking them anywhere. That was
+ * a real understatement of payroll expense ($257.21 across three 2026 periods,
+ * all of it in Taproom Staff Wages), fixed in gustoParser on 2026-08-03.
+ *
+ * Listed here rather than in the parser so the parser stays free of its own
+ * history: this is the write gate's knowledge of what the PREVIOUS parser could
+ * and could not have recorded. Once every active report has been re-parsed,
+ * these amounts are inside the stored totals, the deltas go to zero, and this
+ * set stops mattering — it is not a permanent exemption.
+ */
+const LABELS_THE_OLD_PARSER_DROPPED = new Set(["Commission", "Additional Earnings"]);
+
+/** Cents of the delta attributable to pay types the parser used to drop. */
+function newlyRecognisedCents(r: BackfillPeriodResult): number {
+  return (r.wageSubRowTotals ?? [])
+    .filter((t) => LABELS_THE_OLD_PARSER_DROPPED.has(t.label))
+    .reduce((s, t) => s + t.amountCents, 0);
+}
+
+/** Every cause that can legitimately raise non-tip payroll on a re-parse. */
+function explainedCents(r: BackfillPeriodResult): number {
+  return recoveredCents(r) + newlyRecognisedCents(r);
+}
+
+/**
+ * A non-tip delta is ACCOUNTED FOR when it equals, to the cent, the sum of the
+ * causes this screen can itemise:
+ *
+ *  - wages recovered from accounts the stored totals never had — the signature
+ *    of a report uploaded before its department was mapped, whose gross
+ *    `computeGlBucketTotals` then silently skipped; and
+ *  - wages from pay types the parser that wrote those totals did not recognise.
+ *
+ * Both are the backfill correcting a real understatement, so they warn rather
+ * than block. Any other movement still blocks, including a delta that merely
+ * falls short of or overshoots the itemised total: an unexplained change means
+ * the re-parse and the stored totals disagree for a reason nobody has
+ * established, and no partial match is evidence that they don't.
  */
 function isExplained(r: BackfillPeriodResult): boolean {
-  return nonTips(r.after) - nonTips(r.before) === recoveredCents(r) && recoveredCents(r) > 0;
+  return nonTips(r.after) - nonTips(r.before) === explainedCents(r) && explainedCents(r) > 0;
 }
 
 function blockers(rows: BackfillPeriodResult[]): string[] {
@@ -85,12 +118,24 @@ function blockers(rows: BackfillPeriodResult[]): string[] {
 
 /** Readable, non-blocking notes about periods whose delta IS accounted for. */
 function notes(rows: BackfillPeriodResult[]): string[] {
-  return rows
-    .filter(isExplained)
-    .map(
-      (r) =>
-        `Period ${r.payPeriodId.slice(0, 8)}: non-tip payroll rises ${formatCurrencyCents(recoveredCents(r))} because ${r.recoveredAccounts.length} wage account(s) present in the CSV were missing from the stored totals — the report was uploaded before that department was mapped, so its wages were dropped. The backfill restores them.`,
-    );
+  return rows.filter(isExplained).map((r) => {
+    const causes: string[] = [];
+    if (recoveredCents(r) > 0) {
+      causes.push(
+        `${formatCurrencyCents(recoveredCents(r))} from ${r.recoveredAccounts.length} wage account(s) present in the CSV but missing from the stored totals — the report was uploaded before that department was mapped, so its wages were dropped`,
+      );
+    }
+    if (newlyRecognisedCents(r) > 0) {
+      const labels = (r.wageSubRowTotals ?? [])
+        .filter((t) => LABELS_THE_OLD_PARSER_DROPPED.has(t.label))
+        .map((t) => `${t.label} ${formatCurrencyCents(t.amountCents)}`)
+        .join(", ");
+      causes.push(
+        `${formatCurrencyCents(newlyRecognisedCents(r))} from pay types the parser used to drop (${labels})`,
+      );
+    }
+    return `Period ${r.payPeriodId.slice(0, 8)}: non-tip payroll rises ${formatCurrencyCents(explainedCents(r))} — ${causes.join("; and ")}. The backfill restores it.`;
+  });
 }
 
 export default function PayrollBackfillPage() {
@@ -186,7 +231,7 @@ export default function PayrollBackfillPage() {
                       <Badge tone="danger">{r.error}</Badge>
                     ) : isExplained(r) ? (
                       <Badge tone="info">
-                        {mode === "applied" ? "Wages restored" : `Restores ${formatCurrencyCents(recoveredCents(r))}`}
+                        {mode === "applied" ? "Wages restored" : `Restores ${formatCurrencyCents(explainedCents(r))}`}
                       </Badge>
                     ) : nonTips(r.before) !== nonTips(r.after) ? (
                       <Badge tone="danger">Non-tip payroll changed</Badge>
@@ -200,12 +245,13 @@ export default function PayrollBackfillPage() {
               ))}
             </LedgerTable>
             <p className="text-xs text-muted mt-2">
-              &ldquo;Non-tip before&rdquo; and &ldquo;Non-tip after&rdquo; must match on every row.
-              Tips are a <em>new</em> bucket — they were never in these totals, because the Gusto
-              parser has always excluded paycheck tips as a pass-through — so the grand total is
-              expected to grow by exactly the Tips column. What must not move is wages plus employer
-              tax: the backfill may split a lump &ldquo;wages&rdquo; row into its two parts, but it
-              cannot change what they sum to.
+              &ldquo;Non-tip before&rdquo; and &ldquo;Non-tip after&rdquo; must match on every row,
+              unless the difference is itemised in a note above — wages the upload dropped before
+              the department was mapped, or a pay type the parser did not yet recognise. Anything
+              else blocks the write. Tips sit in their own bucket, so the grand total is expected to
+              grow by the Tips column on any period that predates it. What must not move on its own
+              is wages plus employer tax: the backfill may split a lump &ldquo;wages&rdquo; row into
+              its two parts, but it cannot change what they sum to.
             </p>
           </>
         )
