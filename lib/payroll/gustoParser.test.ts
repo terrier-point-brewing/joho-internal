@@ -72,6 +72,23 @@ const CASH_TIPS_ONLY_CSV = `"Last Name","First Name","Department","Work Address"
 "","","","","","","Totals","Cash Tips","","","0.54","","","","","","","","","","","","","","","",""
 `;
 
+// One employee carrying every sub-row pay type the real exports contain:
+// Commission and Additional Earnings (wage expense, folded into gross
+// alongside Bonus), Cash Tips (discarded), Paycheck Tips (tracked separately),
+// and the "Gross" subtotal (excluded — it would double-count). Amounts are
+// internally consistent so the debits/GL tie-back below holds:
+//   Regular 500 + Commission 100 + Additional Earnings 50 = 650 gross
+//   650 gross + 40 Paycheck Tips + 60 employer tax = 750
+//   = Check Amount 640 + (50 employee tax + 60 employer tax) − 0 reimbursements
+const ALL_PAY_TYPES_CSV = `"Last Name","First Name","Department","Work Address","Employee Type","Payment","Job","Pay Type","Hours","Rate","Amount","Employee Taxes","Federal Income Tax (Employee)","Social Security (Employee)","Medicare (Employee)","Additional Medicare (Employee)","NC State Tax (Employee)","Employer Taxes","Social Security (Employer)","Medicare (Employer)","FUTA (Employer)","NC Unemployment Tax (Employer)","Net Pay","Reimbursements","Donations","Check Amount","Employer Cost"
+"Ashford","Casey","Production","140 Thomas Mill Rd, Holly Springs, NC 27540","Paid by the hour","Direct Deposit","Brewer","Regular","50.00","10.00","500.00","50.00","20.00","20.00","10.00","0.00","0.00","60.00","30.00","20.00","5.00","5.00","640.00","0.00","0.00","640.00","710.00"
+"","","","","","","Totals","Commission","","","100.00","","","","","","","","","","","","","","","",""
+"","","","","","","","Additional Earnings","","","50.00","","","","","","","","","","","","","","","",""
+"","","","","","","","Cash Tips","","","3.00","","","","","","","","","","","","","","","",""
+"","","","","","","","Paycheck Tips","","","40.00","","","","","","","","","","","","","","","",""
+"","","","","","","","Gross","","","693.00","","","","","","","","","","","","","","","",""
+`;
+
 const PRODUCTION_COA_ID = "coa-production";
 const FOH_COA_ID = "coa-foh";
 const TAXES_COA_ID = "coa-payroll-taxes";
@@ -163,6 +180,47 @@ describe("parseGustoPayrollJournal", () => {
       expect(emp?.grossAmountCents).toBe(0);
       expect(emp?.employerTaxCents).toBe(0);
     }
+  });
+
+  /** Commission and Additional Earnings used to be dropped on the floor —
+   *  neither added to gross nor tracked anywhere — which understated payroll
+   *  expense in the P&L by $257.21 across three 2026 periods. */
+  it("folds Commission and Additional Earnings into gross wages alongside Bonus", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    expect(parsed.employees).toHaveLength(1);
+    // 500.00 Regular + 100.00 Commission + 50.00 Additional Earnings = 650.00.
+    // Cash Tips, Paycheck Tips and the Gross subtotal stay out.
+    expect(parsed.employees[0].grossAmountCents).toBe(65000);
+    expect(parsed.employees[0].paycheckTipsCents).toBe(4000);
+  });
+
+  it("leaves the expected debits untouched when Commission and Additional Earnings are present", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    const debits = computeExpectedDebits(parsed);
+
+    // Check Amount / Employee Taxes / Employer Taxes are per-employee totals
+    // already inclusive of every pay type, and live only on the employee's own
+    // row — so amount matching must be unaffected by the gross-wage fix.
+    expect(debits.netPayCents).toBe(64000);
+    expect(debits.taxCents).toBe(11000);
+    expect(debits.reimbursementsCents).toBe(0);
+  });
+
+  it("ties debits back to gross + tips + employer tax once Commission and Additional Earnings are in gross", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    const debits = computeExpectedDebits(parsed);
+    const employee = parsed.employees[0];
+
+    expect(debits.netPayCents + debits.taxCents - debits.reimbursementsCents).toBe(
+      employee.grossAmountCents + employee.paycheckTipsCents + employee.employerTaxCents,
+    );
+  });
+
+  it("ignores an unrecognised sub-row pay type rather than guessing at it", () => {
+    const withUnknown = ALL_PAY_TYPES_CSV.replace(`"Commission"`, `"Some New Gusto Pay Type"`);
+    const parsed = parseGustoPayrollJournal(withUnknown);
+    // 650.00 − the 100.00 that is no longer a recognised wage label.
+    expect(parsed.employees[0].grossAmountCents).toBe(55000);
   });
 
   it("throws a clear error on empty input", () => {
