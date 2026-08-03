@@ -7,7 +7,7 @@
 // Same injected-client pattern as the other lib/brand modules: callers pass
 // createSupabaseAdminClient() in production, a fake client in tests.
 
-import type { NamingCheck } from "./labels";
+import { labelComponentStatus, type BrandLabel, type NamingCheck } from "./labels";
 
 export interface BrandRelease {
   id: string;
@@ -25,44 +25,89 @@ export interface BrandRelease {
 
 export type ComponentStatus = "not_started" | "in_progress" | "done";
 
+/**
+ * The facts about the liquid that make a release sellable. Owned by Production
+ * → Recipes; read here, never written.
+ */
+export interface RecipeFacts {
+  style: string | null;
+  abv: number | null;
+}
+
+/**
+ * One of the linked recipe's sellable containers. Structurally a subset of
+ * Production's `RecipePackagingVariation` so callers can pass those rows
+ * straight in — lib/brand stays free of app imports.
+ */
+export interface ReleaseContainer {
+  product_code: string | null;
+  packaging_variations?: { container?: { type: string | null } | null } | null;
+}
+
 // ── Pure component rollups ───────────────────────────────────────────────────
 // The frame's card chips. Each component declares its own "done"; the frame
 // only aggregates. Adding a future component (apparel, merch, marketing) means
 // adding a status function like these next to its own table — nothing here
 // changes shape.
 
-/** Beer Recipe card: done once a Production recipe is linked. */
-export function recipeComponentStatus(release: Pick<BrandRelease, "recipe_id">): ComponentStatus {
-  return release.recipe_id ? "done" : "not_started";
+/**
+ * What Production still owes a linked recipe before this release could pour.
+ * One list, in the order a brewer would fill it in, so the card summary and
+ * the publish gate can never name different gaps.
+ */
+export function recipeGaps(
+  recipe: RecipeFacts | null | undefined,
+  containers: ReleaseContainer[],
+): string[] {
+  const gaps: string[] = [];
+  if (!recipe?.style) gaps.push("beer style");
+  if (recipe?.abv == null) gaps.push("ABV");
+  if (!containers.some((c) => c.packaging_variations?.container?.type === "can")) {
+    gaps.push("a can variation");
+  }
+  return gaps;
+}
+
+/**
+ * Beer Recipe card: linking a recipe STARTS this card, it doesn't finish it.
+ * Ready means the liquid is genuinely specifiable and sellable — Production
+ * knows its style and its ABV, and there is at least one can to pour it into.
+ * A bare link used to read as "Ready", which made the whole rollup untrustworthy
+ * as a publish gate: a release could go live pointing at a recipe with no ABV
+ * and nothing to sell it in.
+ */
+export function recipeComponentStatus(
+  release: Pick<BrandRelease, "recipe_id">,
+  recipe: RecipeFacts | null | undefined,
+  containers: ReleaseContainer[],
+): ComponentStatus {
+  if (!release.recipe_id) return "not_started";
+  return recipeGaps(recipe, containers).length === 0 ? "done" : "in_progress";
 }
 
 /**
  * Release Card card: done when the card reads like the guide's template —
- * name, story line, menu description, a place in a season (S# | E#) — and
- * every naming criterion passes. criteria is the published canon's list, so
- * a check that predates a new criterion correctly drops back to in-progress.
+ * name, story line, menu description, a place in a season (S# | E#).
+ *
+ * The naming criteria are NOT a gate here. They were, as a five-checkbox form
+ * on the card, and nobody filled it in — which left the card permanently
+ * in-progress. The gates are a writer's test, not a data field, so they now
+ * render as the guide's own text beside the fields (see lib/brand/releaseGuide.ts).
+ * `naming_check` stays on the row, unread and unwritten, with the data it
+ * already holds — same posture as the legacy label columns.
  */
 export function cardComponentStatus(
   release: Pick<
     BrandRelease,
-    "name" | "story_line" | "menu_description" | "season_id" | "episode" | "naming_check"
+    "name" | "story_line" | "menu_description" | "season_id" | "episode"
   >,
-  criteria: string[],
 ): ComponentStatus {
-  const passByCriterion = new Map(
-    (release.naming_check?.results ?? []).map((r) => [r.criterion, r.pass]),
-  );
-  const namingDone = criteria.length > 0 && criteria.every((c) => passByCriterion.get(c) === true);
   const fieldsDone = Boolean(
     release.name && release.story_line && release.menu_description && release.season_id && release.episode,
   );
-  if (fieldsDone && namingDone) return "done";
+  if (fieldsDone) return "done";
   const touched = Boolean(
-    release.story_line ||
-      release.menu_description ||
-      release.season_id ||
-      release.episode ||
-      (release.naming_check?.results ?? []).some((r) => r.pass || r.note),
+    release.story_line || release.menu_description || release.season_id || release.episode,
   );
   return touched ? "in_progress" : "not_started";
 }
@@ -81,6 +126,54 @@ export function codesComponentStatus(
   const coded = containers.filter((c) => c.product_code).length;
   if (coded === containers.length) return "done";
   return coded > 0 ? "in_progress" : "not_started";
+}
+
+// ── Readiness ────────────────────────────────────────────────────────────────
+// Publishing a release is gated on every component being ready. The rollup
+// lives here, not in the workbench, because two callers have to agree on it:
+// the button that disables itself and the API route that refuses the flip. A
+// stale tab or a direct PATCH must not be able to publish a half-built release.
+
+/** The components that make up a release, and what the frame calls each one. */
+export const RELEASE_COMPONENT_TITLES = {
+  recipe: "Beer Recipe",
+  card: "Release Card",
+  codes: "Product Codes",
+  label: "Label",
+} as const;
+
+export type ReleaseComponentKey = keyof typeof RELEASE_COMPONENT_TITLES;
+
+/** Everything the four status functions need, gathered from four tables. */
+export interface ReleaseReadinessInput {
+  release: BrandRelease;
+  recipe: RecipeFacts | null;
+  containers: ReleaseContainer[];
+  label: BrandLabel | null;
+}
+
+export function releaseComponentStatuses(
+  input: ReleaseReadinessInput,
+): Record<ReleaseComponentKey, ComponentStatus> {
+  const { release, recipe, containers, label } = input;
+  return {
+    recipe: recipeComponentStatus(release, recipe, containers),
+    card: cardComponentStatus(release),
+    codes: codesComponentStatus(Boolean(release.recipe_id), containers),
+    label: labelComponentStatus(label),
+  };
+}
+
+/** `outstanding` is the titles of the components that aren't ready, in card order. */
+export function releaseReadiness(input: ReleaseReadinessInput): {
+  ready: boolean;
+  outstanding: string[];
+} {
+  const statuses = releaseComponentStatuses(input);
+  const outstanding = (Object.keys(RELEASE_COMPONENT_TITLES) as ReleaseComponentKey[])
+    .filter((key) => statuses[key] !== "done")
+    .map((key) => RELEASE_COMPONENT_TITLES[key]);
+  return { ready: outstanding.length === 0, outstanding };
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
@@ -161,6 +254,13 @@ export async function updateRelease(
 
 // Like labels, releases are not singleton — many released rows coexist, so
 // these are plain status flips.
+//
+// The wire value stays `released` (the table's check constraint owns it); the
+// UI calls this state "Published". Don't "fix" one to match the other without
+// a migration.
+//
+// No readiness check here: this writes one row, and the gate needs four tables.
+// Callers run `releaseReadiness` first — see app/api/brand/releases/[id]/route.ts.
 export async function markReleased(client: SupabaseLikeClient, id: string): Promise<void> {
   const { error } = await client
     .from(TABLE)

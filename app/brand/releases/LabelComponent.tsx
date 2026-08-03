@@ -30,6 +30,8 @@ import { useAssets } from "../assets/useAssets";
 import type { ReleaseComponentContext, ReleaseComponentDef } from "./componentDef";
 import { useCreateLabel, useUpdateLabel } from "./useLabels";
 import { COMPONENT_STATUS_META, Field } from "./bits";
+import GuidePanel from "./GuidePanel";
+import { RELEASE_COMPONENT_TITLES } from "@/lib/brand/releases";
 
 type FacetKey = "illustration" | "regulatory" | "print" | "palette" | "chop";
 const FACETS: { key: FacetKey; label: string }[] = [
@@ -63,7 +65,7 @@ function LabelEditor({ ctx }: { ctx: ReleaseComponentContext }) {
 }
 
 function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: BrandLabel }) {
-  const { release, brief } = ctx;
+  const { release, guide, homage } = ctx;
   const updateLabel = useUpdateLabel();
   const { data: seasons = [] } = useSeasons();
   const { data: recipes = [] } = useRecipesQuery();
@@ -108,8 +110,10 @@ function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: Bran
       recipe ? `Beer style: ${recipe.style ?? recipe.beer_name}` : null,
       season?.cultural_lean ? `Season's cultural lean: ${season.cultural_lean}` : null,
       "",
-      brief.chassisNarrative ? `From our brand guide: ${brief.chassisNarrative}` : null,
-      brief.homage || null,
+      // The chassis narrative the guide panel above shows, quoted into the
+      // commission so the artist reads the same words the founder published.
+      guide.label.intro ? `From our brand guide: ${guide.label.intro}` : null,
+      homage || null,
       "",
       "Requirements:",
       "- The illustration lives inside a bordered art window; compose for that frame.",
@@ -117,7 +121,7 @@ function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: Bran
       "- Illustrate the single moment the release's name points to.",
     ].filter((l): l is string => l !== null);
     return lines.join("\n");
-  }, [release, season, recipe, brief]);
+  }, [release, season, recipe, guide, homage]);
 
   const stageChips: { label: string; status: StageStatus }[] = [
     { label: "Illustration", status: illustrationStatus(draft.illustration) },
@@ -127,6 +131,7 @@ function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: Bran
 
   return (
     <div className="flex flex-col gap-3">
+      <GuidePanel entry={guide.label} />
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <TabBar tabs={FACETS} activeKey={facet} onSelect={setFacet} />
         <div className="flex items-center gap-2 shrink-0">
@@ -429,7 +434,7 @@ function ChopPicker({
 
 export const labelComponent: ReleaseComponentDef = {
   key: "label",
-  title: "Label",
+  title: RELEASE_COMPONENT_TITLES.label,
   blurb: "Illustration, regulatory approval, print order.",
   status: (ctx) => labelComponentStatus(ctx.label),
   summary: (ctx) => {

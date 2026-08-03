@@ -11,8 +11,12 @@ import PageHeader from "@/app/components/PageHeader";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
-import type { BrandRelease } from "@/lib/brand/releases";
-import { useRecipePackagingVariationsQuery } from "@/app/production/hooks/queries";
+import { releaseReadiness, type BrandRelease } from "@/lib/brand/releases";
+import type { ReleaseGuide } from "@/lib/brand/releaseGuide";
+import {
+  useRecipePackagingVariationsQuery,
+  useRecipesQuery,
+} from "@/app/production/hooks/queries";
 import { useSeasons } from "../templates/useTemplates";
 import { useLabels } from "./useLabels";
 import {
@@ -21,12 +25,12 @@ import {
   useMarkReleased,
   useReleases,
 } from "./useReleases";
-import type { BriefContext, ReleaseComponentContext, ReleaseComponentDef } from "./componentDef";
+import type { ReleaseComponentContext, ReleaseComponentDef } from "./componentDef";
 import { recipeComponent } from "./RecipeComponent";
 import { cardComponent } from "./CardComponent";
 import { codesComponent } from "./CodesComponent";
 import { labelComponent } from "./LabelComponent";
-import { RELEASE_STATUS_TONE, StatusChip } from "./bits";
+import { ReleaseStatusBadge, StatusChip } from "./bits";
 
 // The release formula, in the order a release is made: prove the liquid,
 // write the card, register the codes, make the label. New components append
@@ -39,11 +43,13 @@ const RELEASE_COMPONENTS: ReleaseComponentDef[] = [
 ];
 
 export default function ReleasesWorkbench({
-  criteria,
-  brief,
+  guide,
+  description,
+  homage,
 }: {
-  criteria: string[];
-  brief: BriefContext;
+  guide: ReleaseGuide;
+  description: string;
+  homage: string;
 }) {
   const { data: releases = [], isLoading, error } = useReleases();
   const createRelease = useCreateRelease();
@@ -58,10 +64,7 @@ export default function ReleasesWorkbench({
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8 pb-4 border-b border-line">
-        <PageHeader
-          title="Releases"
-          description="Everything a release needs to ship: recipe, release card, and label — one frame per beer."
-        />
+        <PageHeader title="Releases" description={description} />
       </div>
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-4 sm:pb-8 pt-4">
       <div className="grid grid-cols-1 lg:grid-cols-[18rem_1fr] gap-4">
@@ -103,7 +106,7 @@ export default function ReleasesWorkbench({
                 <Card padding="p-3">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm text-primary truncate">{release.name}</span>
-                    <Badge tone={RELEASE_STATUS_TONE[release.status]}>{release.status}</Badge>
+                    <ReleaseStatusBadge status={release.status} />
                   </div>
                   {release.season_id && release.episode && (
                     <p className="text-2xs text-muted truncate">
@@ -121,7 +124,7 @@ export default function ReleasesWorkbench({
 
         {/* Frame */}
         {selected ? (
-          <ReleaseFrame key={selected.id} release={selected} criteria={criteria} brief={brief} />
+          <ReleaseFrame key={selected.id} release={selected} guide={guide} homage={homage} />
         ) : (
           <Card>
             <p className="text-sm text-secondary">Select a release, or add one to begin.</p>
@@ -135,30 +138,38 @@ export default function ReleasesWorkbench({
 
 function ReleaseFrame({
   release,
-  criteria,
-  brief,
+  guide,
+  homage,
 }: {
   release: BrandRelease;
-  criteria: string[];
-  brief: BriefContext;
+  guide: ReleaseGuide;
+  homage: string;
 }) {
   const { data: labels = [] } = useLabels();
   const { data: seasons = [] } = useSeasons();
   const { data: allVariationLinks = [] } = useRecipePackagingVariationsQuery();
+  // The frame reads the recipe too, not just the Recipe editor: its style and
+  // ABV decide that card's chip, and therefore whether this release can publish.
+  const { data: recipes = [] } = useRecipesQuery();
   const markReleased = useMarkReleased();
   const archiveRelease = useArchiveRelease();
   const [activeKey, setActiveKey] = useState<string>(RELEASE_COMPONENTS[0].key);
 
   const label = labels.find((l) => l.release_id === release.id) ?? null;
   const season = seasons.find((s) => s.id === release.season_id) ?? null;
+  const recipe = recipes.find((r) => r.id === release.recipe_id) ?? null;
   const containers = release.recipe_id
     ? allVariationLinks.filter((l) => l.recipe_id === release.recipe_id)
     : [];
 
-  const ctx: ReleaseComponentContext = { release, label, criteria, brief, containers };
+  const ctx: ReleaseComponentContext = { release, label, recipe, guide, homage, containers };
   const statuses = RELEASE_COMPONENTS.map((c) => c.status(ctx));
   const readyCount = statuses.filter((s) => s === "done").length;
   const active = RELEASE_COMPONENTS.find((c) => c.key === activeKey) ?? RELEASE_COMPONENTS[0];
+
+  // The same pure rollup the API route runs before it will flip the status, so
+  // the disabled button and the server's refusal can never disagree.
+  const { ready, outstanding } = releaseReadiness({ release, recipe, containers, label });
 
   return (
     <div className="flex flex-col gap-3 min-w-0">
@@ -166,7 +177,7 @@ function ReleaseFrame({
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
           <h2 className="text-base font-medium text-primary truncate">{release.name}</h2>
-          <Badge tone={RELEASE_STATUS_TONE[release.status]}>{release.status}</Badge>
+          <ReleaseStatusBadge status={release.status} />
           {season && release.episode && (
             <Badge tone="neutral">{season.name} · E{release.episode}</Badge>
           )}
@@ -181,15 +192,17 @@ function ReleaseFrame({
           {release.status === "draft" && (
             <button
               className="btn-primary btn-xxs"
-              disabled={markReleased.isPending}
+              disabled={!ready || markReleased.isPending}
               onClick={() => markReleased.mutate(release.id)}
-              title={readyCount < RELEASE_COMPONENTS.length ? "Components are still outstanding — releasing is your call." : undefined}
+              title={ready ? undefined : `Outstanding: ${outstanding.join(", ")}`}
             >
-              Mark released
+              Publish release
             </button>
           )}
         </div>
       </div>
+
+      {markReleased.error && <Banner tone="danger">{(markReleased.error as Error).message}</Banner>}
 
       {/* Component cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">

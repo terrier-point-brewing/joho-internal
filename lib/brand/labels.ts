@@ -163,6 +163,19 @@ export async function getLabel(client: SupabaseLikeClient, id: string): Promise<
   return data && data.length > 0 ? data[0] : null;
 }
 
+/**
+ * The one label component belonging to a release. The workbench finds it by
+ * scanning the full list client-side; a server-side caller (the publish gate)
+ * wants the single row. `brand_labels_one_per_release` guarantees at most one.
+ */
+export async function getLabelByRelease(
+  client: SupabaseLikeClient,
+  releaseId: string,
+): Promise<BrandLabel | null> {
+  const { data } = await client.from(TABLE).select("*").eq("release_id", releaseId).limit(1);
+  return data && data.length > 0 ? data[0] : null;
+}
+
 export async function createLabel(
   client: SupabaseLikeClient,
   row: { release_id: string; name: string },

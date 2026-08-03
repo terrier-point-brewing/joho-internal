@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
+import { useSearchParams } from "next/navigation";
 import { formatCurrency } from "@/lib/format";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
@@ -120,7 +121,12 @@ export default function RecipesTab() {
   const [activityLines, setActivityLines] = useState<ActivityFormLine[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  // `?recipe=<id>` opens that recipe straight away — Brand → Releases links
+  // here to edit the liquid a release pours. Read once on mount and never
+  // written back on toggle, following the gl-mapping `?tab=` precedent.
+  const searchParams = useSearchParams();
+  const deepLinkedId = searchParams.get("recipe");
+  const [expanded, setExpanded] = useState<string | null>(deepLinkedId);
 
   const yieldBbl = parseFloat(form.expected_yield_bbl) || 1;
 
@@ -305,6 +311,15 @@ export default function RecipesTab() {
   const { rows: visibleRecipes, search, filters, sort, setSearch, setFilter, setSort, reset, activeCount } =
     useTableControls(recipes, RECIPE_CONTROLS, { prefix: "rec_" });
 
+  // Bring a deep-linked recipe into view once its row has rendered. `center`,
+  // not `start`: the page wears a StickyHeader, which would sit on top of a
+  // row scrolled flush to the viewport top.
+  const deepLinkedRendered = Boolean(deepLinkedId && visibleRecipes.some((r) => r.id === deepLinkedId));
+  useEffect(() => {
+    if (!deepLinkedRendered || !deepLinkedId) return;
+    document.getElementById(`recipe-${deepLinkedId}`)?.scrollIntoView({ block: "center" });
+  }, [deepLinkedRendered, deepLinkedId]);
+
   const partnerOptions = useMemo(() => {
     const names = new Set<string>();
     let hasHouse = false;
@@ -366,7 +381,7 @@ export default function RecipesTab() {
             const costPerBblYield = r.expected_yield_bbl ? costPerTurn / r.expected_yield_bbl : null;
 
             return (
-              <div key={r.id} className="rounded-lg border border-line overflow-hidden">
+              <div key={r.id} id={`recipe-${r.id}`} className="rounded-lg border border-line overflow-hidden">
                 {/* Header row */}
                 <button
                   type="button"
