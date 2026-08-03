@@ -11,7 +11,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/paginate";
+import { fetchAllRows, PAGE_SIZE } from "@/lib/supabase/paginate";
 import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
 import { applyExpenseStatementFilters } from "./expenseFilters";
 import { loadBankLedgerInclusion, INCLUSION_COLUMNS } from "@/lib/finance/bankLedgerInclusion";
@@ -146,7 +146,20 @@ export async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
   }));
 }
 
-export async function fetchPos(supabase: SupabaseClient, range: DateRange): Promise<PosLineRecord[]> {
+/**
+ * `opts.pageConcurrency` changes only the REQUEST PATTERN, never the rows: it
+ * is handed straight to fetchAllRows, which reassembles the same disjoint
+ * `.range()` windows in the same order. Defaulted so the P&L and cash-flow
+ * statements page exactly as they always have; the balance sheet's
+ * retainedEarnings provider (lib/finance/balances/providers/retainedEarnings.ts)
+ * opts in because its range runs from inception, where the sequential round
+ * trips dominate everything else it does.
+ */
+export async function fetchPos(
+  supabase: SupabaseClient,
+  range: DateRange,
+  opts: { pageConcurrency?: number } = {},
+): Promise<PosLineRecord[]> {
   const rows = await fetchAllRows<{
     id: string;
     net_sales_cents: number | null;
@@ -167,7 +180,7 @@ export async function fetchPos(supabase: SupabaseClient, range: DateRange): Prom
       .order("id", { ascending: true });
     if (range.start) q = q.gte("square_orders.transaction_date", range.start);
     return q;
-  });
+  }, PAGE_SIZE, opts.pageConcurrency ?? 1);
 
   // Account-mapping prefill + category id, joined via square_catalog_variations
   // -> square_catalog_items (mirrors app/api/finance/transactions/route.ts).
