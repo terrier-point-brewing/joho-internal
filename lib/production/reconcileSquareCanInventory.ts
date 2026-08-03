@@ -75,8 +75,30 @@ export interface ReconcileWrite {
   drift: number; // squareCansBefore - coldStorageCans
 }
 
+/**
+ * What the two sides say for one can family, whether or not they disagree enough
+ * to be worth a write.
+ *
+ * `components` is the decomposition: the per-tier on-hand and how many loose cans
+ * each tier is worth, which multiply and sum to `coldStorageCans`. A variance you
+ * cannot break into the slices that produce it is not reviewable, so the drift
+ * view is given the slices rather than just the total.
+ */
+export interface FamilyMeasurement {
+  recipeId: string;
+  baseSquareVariationId: string;
+  baseVariationName: string | null;
+  coldStorageCans: number;
+  squareCans: number;
+  drift: number; // squareCans - coldStorageCans
+  components: { variationId: string; cansEach: number; onHand: number }[];
+}
+
 export interface ReconcilePlan {
+  /** Families whose drift clears the threshold — the subset worth writing. */
   writes: ReconcileWrite[];
+  /** EVERY family both sides could be read for, drift or not. Feeds the drift view. */
+  measurements: FamilyMeasurement[];
   skips: { recipeId: string; reason: string }[];
   warnings: string[];
 }
@@ -87,7 +109,7 @@ export function planCanReconciliation(input: {
   threshold?: number;
 }): ReconcilePlan {
   const threshold = input.threshold ?? DRIFT_THRESHOLD;
-  const plan: ReconcilePlan = { writes: [], skips: [], warnings: [] };
+  const plan: ReconcilePlan = { writes: [], measurements: [], skips: [], warnings: [] };
 
   for (const fam of input.families) {
     if (!fam.baseSquareVariationId) {
@@ -116,6 +138,24 @@ export function planCanReconciliation(input: {
       continue;
     }
     const drift = squareCansBefore - coldStorageCans;
+
+    // Recorded for every family, not just the ones over threshold: a family that
+    // ties is exactly as interesting to a reader checking whether the two systems
+    // agree as one that does not.
+    plan.measurements.push({
+      recipeId: fam.recipeId,
+      baseSquareVariationId: fam.baseSquareVariationId,
+      baseVariationName: fam.baseVariationName,
+      coldStorageCans,
+      squareCans: squareCansBefore,
+      drift,
+      components: Object.entries(fam.cansEachByVar).map(([variationId, cansEach]) => ({
+        variationId,
+        cansEach,
+        onHand: fam.onHandByVar[variationId] ?? 0,
+      })),
+    });
+
     if (Math.abs(drift) >= threshold) {
       plan.writes.push({
         recipeId: fam.recipeId,

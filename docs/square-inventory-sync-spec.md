@@ -190,23 +190,30 @@ problems:
 
 Changes:
 
-1. **Fetch Square's on-hand** for every mapped keg/can SKU and carry it into the
-   grid alongside cold storage.
-2. **Show both numbers and the delta per SKU**, with a clear zero state. Follow
-   the reconciliation-column rule in `docs/UI_STANDARD.md`: a variance must
-   decompose into the slices that sum to it.
-3. **Exclude the ship-to-payment window** from drift, or label it distinctly —
+1. ✅ **Fetch Square's on-hand** for every mapped keg/can SKU —
+   `/api/taproom/inventory/drift`, split from the on-hand grid so the grid never
+   waits on Square round-trips.
+2. ✅ **Show both numbers and the delta per SKU**, decomposed into the slices
+   that sum to the compared total.
+
+   The grain is **one Square variation**, not one mapping — Square holds a single
+   count per SKU while several cold-storage rows can feed it. True for cans
+   (Square derives packs from one loose pool) and, less obviously, for kegs:
+   Vienna Lager keeps a house "1/6 Keg" and a contract-branded
+   "Fortnight - 1/6 Keg" pointed at the same Square SKU. Comparing per mapping
+   produced two rows against one Square number and both were wrong.
+3. ⏳ **Exclude the ship-to-payment window** from drift, or label it distinctly —
    see the timing note above. A shipped-but-unpaid distribution order is not
-   drift.
-4. **Show dead links as their own state**, not as zero stock. "Not mapped in
-   Square" and "0 on hand" must never render the same.
-5. **Show unmapped-sale discrepancies** from W4 — beer that sold with nowhere to
-   book it.
-6. **Replace the reconciliation footnote** with something honest: last successful
-   push per SKU, and any failed or unverified writes. Once W2's verification
-   lands, `applied` means the value actually stuck.
-7. Keep the tab read-only. Corrections belong in Stock Adjustments, per the
-   settings-vs-finance separation.
+   drift. **Not yet done**; some of the 19 drifting kegs are probably this.
+4. ✅ **Dead links render as their own state**, in their own banner, explicitly
+   labelled unmeasurable rather than shown as zero stock.
+5. ⏳ **Show unmapped-sale discrepancies** — lands with W4, which produces them.
+6. ✅ **The reconciliation footnote is gone.** It read the
+   `square_inventory_reconciliations` feed, which recorded every *attempted*
+   correction as an applied one — so a SKU whose writes had never landed showed
+   as freshly reconciled, 1,040 rows deep for one beer. Replaced by live
+   measurement.
+7. ✅ Read-only. Corrections stay in Stock Adjustments.
 
 ---
 
@@ -227,8 +234,11 @@ Decisions taken 2026-08-03.
    ones remain. Wiggo! is the clearest case: the mirror holds three dead
    variations and is missing two live ones. This is X2 and is the first task of
    W1.
-4. **Epic Hazy IPA: Square's 111 is authoritative.** Cold storage is corrected
-   down from 158. **Still outstanding.**
+4. ~~**Epic Hazy IPA: Square's 111 is authoritative.**~~ **Dropped 2026-08-03.**
+   No correction will be booked. The two sides stay apart (Square 111, cold
+   storage 158) and the drift view built in W5 will show it rather than hide it.
+   Nothing downstream depends on the correction — the push is observe-only, so
+   neither number is being propagated to the other.
 
    ⚠️ 111 is not reachable by removing whole packages from 2 loose / 3 four-packs
    / 6 cases — 47 cans is neither a whole number of cases nor of available

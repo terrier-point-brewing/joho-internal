@@ -14,23 +14,22 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
 
   try {
-    const [grid, coldStorage, draftSellThrough, reconResp] = await Promise.all([
+    // No longer reads square_inventory_reconciliations. That feed reported every
+    // attempted correction as an applied one, so a SKU whose writes had never
+    // landed showed as freshly reconciled — 1,040 rows of it for a single beer,
+    // which also swamped the 50-row window. Square-vs-cold-storage now lives in
+    // the drift view (/api/taproom/inventory/drift), measured live.
+    const [grid, coldStorage, draftSellThrough] = await Promise.all([
       fetchMappingGrid(supabase),
       fetchColdStorageOnHand(supabase),
       fetchSellThrough(supabase, { packaging: "draft" }),
-      supabase
-        .from("square_inventory_reconciliations")
-        .select("recipe_id, base_variation_name, cold_storage_cans, square_cans_before, drift, occurred_at")
-        .order("occurred_at", { ascending: false })
-        .limit(50),
     ]);
 
     const draftByLinkId: InventorySources["draftByLinkId"] = new Map(
       draftSellThrough.map((l) => [l.link_id, { currentQty: l.current_qty, currentBbl: l.current_bbl }]),
     );
 
-    const inventory = buildInventoryGrid(grid, { coldStorage, draftByLinkId });
-    return NextResponse.json({ ...inventory, reconciliations: reconResp.data ?? [] });
+    return NextResponse.json(buildInventoryGrid(grid, { coldStorage, draftByLinkId }));
   } catch (err) {
     return apiError(err);
   }

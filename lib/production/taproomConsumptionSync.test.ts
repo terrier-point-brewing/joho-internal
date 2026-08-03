@@ -229,7 +229,7 @@ function fakeSupabaseSwaps(
 beforeEach(() => {
   derive.mockReset(); record.mockReset(); recount.mockReset(); fetchCounts.mockReset();
   reconcile.mockReset(); loadPourVars.mockReset(); pourSales.mockReset();
-  reconcile.mockResolvedValue({ writes: [], skips: [], warnings: [], applied: 0 });
+  reconcile.mockResolvedValue({ writes: [], measurements: [], skips: [], warnings: [], applied: 0 });
   // Default: no pour variations configured, so measurement falls back to the
   // Square on-hand read. Tests that exercise the pour sum call `armPourSum`.
   loadPourVars.mockResolvedValue(new Map());
