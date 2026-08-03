@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { computePayrollEntries, mergeAdjustments, GuaranteeBucket } from "../calculations";
+import { computePeriodBasis, type BasisEntry } from "../periodSummary";
 import type { Employee, PayrollConfig } from "../types";
 
 const config: PayrollConfig = {
@@ -146,6 +147,81 @@ describe("computePayrollEntries", () => {
     const results = computePayrollEntries(employees, buckets, config);
     expect(results[0].bonus_cents).toBe(0);
     expect(results[0].paycheck_tips_cents).toBe(10000);
+  });
+});
+
+/**
+ * Regression guard for the two base-pay rounding models that used to disagree:
+ * computePayrollEntries once summed per-bucket rounded base pay, while
+ * computePeriodBasis rounds once on the employee's summed period hours. Over a
+ * period that drifted a cent or two, so the Finance → Payroll periods table and
+ * the period detail view reported different money for the same period.
+ * Period-total rounding is canonical (Gusto pays on period totals).
+ */
+describe("base-pay rounding agrees across the preview and rollup paths", () => {
+  // $16.33/hr base, $22.00/hr guaranteed: a rate whose cents make per-bucket
+  // rounding visibly diverge from period-total rounding.
+  const rateCfg: PayrollConfig = { ...config, base_rate_cents: 1633, guaranteed_rate_cents: 2200 };
+
+  // Three weekly guarantee buckets inside one period, two tipped employees.
+  const buckets: GuaranteeBucket[] = Array.from({ length: 3 }, () => ({
+    shifts: new Map([["sq1", 7.35], ["sq2", 6.35]]),
+    paycheckTipsCents: new Map([["sq1", 4000], ["sq2", 3300]]),
+    cashTipsCents: new Map([["sq1", 900], ["sq2", 700]]),
+  }));
+
+  const employees = [mkEmployee("e1", "sq1"), mkEmployee("e2", "sq2")];
+  const entries = computePayrollEntries(employees, buckets, rateCfg);
+
+  it("rounds base pay once per employee, on period-total hours", () => {
+    const e1 = entries.find((r) => r.employee_id === "e1")!;
+    const e2 = entries.find((r) => r.employee_id === "e2")!;
+    // e1: 3 × 7.35h = 22.05h → round(22.05 × 1633) = round(36007.65) = 36008.
+    //     Per-bucket rounding gave round(12002.55) × 3 = 12003 × 3 = 36009.
+    expect(e1.base_pay_cents).toBe(36008);
+    // e2: 3 × 6.35h = 19.05h → round(19.05 × 1633) = round(31108.65) = 31109.
+    //     Per-bucket rounding gave round(10369.55) × 3 = 10370 × 3 = 31110.
+    // Both employees drift the SAME direction on purpose, so the agreement
+    // assertion below can't pass on two errors cancelling out.
+    expect(e2.base_pay_cents).toBe(31109);
+  });
+
+  it("agrees with computePeriodBasis on the snapshot the lock route writes", () => {
+    // app/api/payroll/periods/[id]/lock/route.ts snapshots the effective_*
+    // values into payroll_entries; with no adjustments those are the computed
+    // ones, and computePeriodBasis re-derives base pay from hours_worked.
+    const snapshot: BasisEntry[] = entries.map((e) => ({
+      hours_worked: e.hours_worked,
+      paycheck_tips_cents: e.paycheck_tips_cents,
+      cash_tips_cents: e.cash_tips_cents,
+      bonus_cents: e.bonus_cents,
+    }));
+    const basis = computePeriodBasis(snapshot, rateCfg.base_rate_cents)!;
+
+    const previewWages = entries.reduce(
+      (s, e) => s + e.base_pay_cents + e.paycheck_tips_cents + e.bonus_cents, 0);
+    const previewTotal = entries.reduce((s, e) => s + e.total_compensation_cents, 0);
+
+    expect(basis.wagesCents).toBe(previewWages);
+    expect(basis.totalCompCents).toBe(previewTotal);
+  });
+
+  it("keeps the guarantee bonus evaluated per bucket, not on period totals", () => {
+    const e1 = entries.find((r) => r.employee_id === "e1")!;
+    // Per bucket: guaranteed round(7.35 × 2200) = 16170, base round(7.35 × 1633)
+    // = 12003, tips 4000 + 900 → bonus 16170 - 12003 - 4900 = -733 → 0.
+    expect(e1.bonus_cents).toBe(0);
+
+    // Halve the hours in one bucket and only that bucket tops up — proof the
+    // guarantee still reads bucket hours, not the period sum.
+    const short: GuaranteeBucket[] = [
+      { shifts: new Map([["sq1", 2]]), paycheckTipsCents: new Map(), cashTipsCents: new Map() },
+      { shifts: new Map([["sq1", 7.35]]), paycheckTipsCents: new Map([["sq1", 20000]]), cashTipsCents: new Map() },
+    ];
+    const r = computePayrollEntries([mkEmployee("e1", "sq1")], short, rateCfg);
+    // Bucket 1: round(2 × 2200) = 4400 - round(2 × 1633) = 3266 - 0 tips → 1134.
+    // Bucket 2: 16170 - 12003 - 20000 → 0 (tips more than cover it).
+    expect(r[0].bonus_cents).toBe(1134);
   });
 });
 

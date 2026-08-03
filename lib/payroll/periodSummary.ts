@@ -33,7 +33,11 @@ export interface BasisEntry {
  * - wages     = Σ round(hours × baseRate) + paycheck tips + bonus   (what Gusto disburses)
  * - totalComp = wages + cash tips                                    (cash tips aren't disbursed by Gusto)
  * Returns null when the period has no snapshot rows (i.e. not locked yet).
- * Base pay is rounded per-entry to mirror the lock-time per-employee snapshot.
+ *
+ * Base pay is rounded ONCE per entry, on that employee's summed period hours —
+ * the canonical model, because Gusto pays on period totals. calculations.ts
+ * rounds the same way, so this rollup and the period detail view agree to the
+ * cent; see the base-pay note in computePayrollEntries before changing either.
  */
 export function computePeriodBasis(
   entries: BasisEntry[],
