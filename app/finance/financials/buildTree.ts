@@ -122,7 +122,10 @@ function sumRows(
   let table = "";
   for (const r of rows) {
     bblCoverage = worstCoverage(bblCoverage, r.bblCoverage);
-    ids.push(...r.sourceRef.ids);
+    // Absent over the wire (toWireResponse strips it) but present when this
+    // runs server-side or in a test, so roll up whatever is actually there
+    // rather than assuming either.
+    ids.push(...(r.sourceRef.ids ?? []));
     if (!table) table = r.sourceRef.table;
   }
   return {

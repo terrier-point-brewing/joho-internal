@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { apiError } from "@/lib/utils/api";
-import { buildFinancials } from "@/lib/finance/financials";
+import { buildFinancials, toWireResponse } from "@/lib/finance/financials";
 import { parseFinancialsParams } from "@/lib/finance/financials/parseParams";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const result = await buildFinancials({ statement: parsed.statement, year: parsed.year });
-    return NextResponse.json(result);
+    return NextResponse.json(toWireResponse(result));
   } catch (err) {
     return apiError(err);
   }

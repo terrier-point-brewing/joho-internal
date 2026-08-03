@@ -27,7 +27,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { monthEnd } from "@/lib/finance/manualEntries";
 import { todayLocalDate } from "@/lib/utils/datetime";
-import { getProvider } from "./registry";
+import { getProvider, createSharedComputeCache } from "./registry";
+import type { BalanceContext } from "./registry";
 import { getMethod, runMethod } from "./methods/registry";
 import { mostRecentlyEndedMonthEnd } from "./periods";
 import { readPeriodClose } from "./periodCloseState";
@@ -166,6 +167,13 @@ function stepsDependOnCurrentState(stepKeys: string[]): boolean {
  * half as if it were the whole balance -- GL 2220 stored as -297,509 rather
  * than 97,974, with nothing on screen to say it is half an answer. A
  * stale-but-correct row beats a fresh-but-partial one.
+ *
+ * ── Accounts resolve concurrently ────────────────────────────────────────────
+ * They used to resolve one after another, and the balance sheet took six
+ * seconds to draw because of it: thirteen accounts, no two of which read each
+ * other's output, queued behind one another for 6.2s of the ~6.9s the whole
+ * statement cost. Each account's answer depends only on its own declared
+ * source, so they are all started at once and folded together below.
  */
 export async function expandSources(
   supabase: AdminClient,
@@ -174,62 +182,113 @@ export async function expandSources(
   /** True when `periodEnd` is older than the month currently being closed. */
   historical = false,
 ): Promise<ExpandedSources> {
+  // One cache for the whole pass. Running the accounts concurrently is what
+  // makes it necessary as well as possible: taxAccrual's collections scan is
+  // the same 9.7k rows for GL 2220 and GL 2250, and without this both would now
+  // run that scan simultaneously rather than merely twice.
+  const shared = createSharedComputeCache();
+
+  const outcomes = await Promise.all(
+    declared.map((source) =>
+      resolveDeclaredSource(
+        { supabase, periodEnd, coaId: source.coaId, config: source.config, shared },
+        source,
+        historical,
+      ),
+    ),
+  );
+
+  // Folded in DECLARATION order, never completion order. `sources` fixes the
+  // key order of gl_account_balances.contributions, and `errors`/`excluded` are
+  // compared verbatim by expandSources.test.ts -- all three would otherwise
+  // reshuffle with whichever provider happened to answer first.
   const sources: { coaId: string; providerKey: string }[] = [];
   const results = new Map<string, number | null>();
   const failedAccounts = new Set<string>();
   const errors: string[] = [];
   const excluded: string[] = [];
 
-  for (const source of declared) {
-    const ctx = { supabase, periodEnd, coaId: source.coaId, config: source.config };
+  declared.forEach((source, i) => {
+    const outcome = outcomes[i];
+    switch (outcome.kind) {
+      case "excluded":
+        excluded.push(source.coaId);
+        failedAccounts.add(source.coaId);
+        break;
+      case "failed":
+        errors.push(...outcome.errors);
+        failedAccounts.add(source.coaId);
+        break;
+      case "empty":
+        break;
+      case "steps":
+        for (const step of outcome.steps) {
+          sources.push({ coaId: source.coaId, providerKey: step.providerKey });
+          results.set(`${source.coaId}:${step.providerKey}`, step.cents);
+        }
+        break;
+    }
+  });
 
+  return { sources, results, failedAccounts, errors, excluded: Array.from(new Set(excluded)) };
+}
+
+/** One declared source's verdict, in the shape expandSources folds. */
+type SourceOutcome =
+  | { kind: "steps"; steps: { providerKey: string; cents: number | null }[] }
+  | { kind: "empty" }
+  | { kind: "excluded" }
+  | { kind: "failed"; errors: string[] };
+
+/**
+ * Resolves ONE declared source. Never rejects: `Promise.all` fails fast, so a
+ * rejection here would throw away the twelve healthy accounts that finished
+ * alongside the broken one -- which is the opposite of the per-account
+ * isolation the caller's doc promises.
+ */
+async function resolveDeclaredSource(
+  ctx: BalanceContext,
+  source: DeclaredSource,
+  historical: boolean,
+): Promise<SourceOutcome> {
+  try {
     const method = getMethod(source.providerKey);
     if (method) {
       // Checked before the method runs, not after: the point is not to ask.
       if (historical && stepsDependOnCurrentState(method.steps.map((s) => s.providerKey))) {
-        excluded.push(source.coaId);
-        failedAccounts.add(source.coaId);
-        continue;
+        return { kind: "excluded" };
       }
       const outcome = await runMethod(method, ctx);
       if (outcome.status === "failed") {
-        errors.push(...outcome.errors.map((e) => `${e} (account ${source.coaId})`));
-        failedAccounts.add(source.coaId);
-        continue;
+        return { kind: "failed", errors: outcome.errors.map((e) => `${e} (account ${source.coaId})`) };
       }
-      if (outcome.status === "empty") continue;
-      for (const [key, cents] of Object.entries(outcome.breakdown)) {
-        sources.push({ coaId: source.coaId, providerKey: key });
-        results.set(`${source.coaId}:${key}`, cents);
-      }
-      continue;
+      if (outcome.status === "empty") return { kind: "empty" };
+      return {
+        kind: "steps",
+        steps: Object.entries(outcome.breakdown).map(([providerKey, cents]) => ({ providerKey, cents })),
+      };
     }
 
     // Legacy: a bare provider key from before the method migration.
     const provider = getProvider(source.providerKey);
     if (!provider) {
-      errors.push(`Unknown balance method or provider "${source.providerKey}" for account ${source.coaId}`);
-      failedAccounts.add(source.coaId);
-      continue;
+      return {
+        kind: "failed",
+        errors: [`Unknown balance method or provider "${source.providerKey}" for account ${source.coaId}`],
+      };
     }
-    if (historical && provider.dependsOnCurrentState) {
-      excluded.push(source.coaId);
-      failedAccounts.add(source.coaId);
-      continue;
-    }
-    try {
-      const value = await provider.compute(ctx);
-      sources.push({ coaId: source.coaId, providerKey: source.providerKey });
-      results.set(`${source.coaId}:${source.providerKey}`, value);
-    } catch (err) {
-      errors.push(
-        `Provider "${source.providerKey}" failed for account ${source.coaId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      failedAccounts.add(source.coaId);
-    }
-  }
+    if (historical && provider.dependsOnCurrentState) return { kind: "excluded" };
 
-  return { sources, results, failedAccounts, errors, excluded: Array.from(new Set(excluded)) };
+    const value = await provider.compute(ctx);
+    return { kind: "steps", steps: [{ providerKey: source.providerKey, cents: value }] };
+  } catch (err) {
+    return {
+      kind: "failed",
+      errors: [
+        `Provider "${source.providerKey}" failed for account ${source.coaId}: ${err instanceof Error ? err.message : String(err)}`,
+      ],
+    };
+  }
 }
 
 /** Reads every active balance_sheet_account_sources row. */

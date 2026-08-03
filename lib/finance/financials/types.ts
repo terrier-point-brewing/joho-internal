@@ -21,7 +21,15 @@ export interface FinancialsRow {
   bblByMonth: Record<string, number>;
   bblCoverage: BblCoverage;
   mappingSource: MappingSource;
-  sourceRef: { table: string; ids: string[] };
+  /**
+   * Which table a row's postings came from, and which of its rows.
+   *
+   * `ids` is server-side provenance and is OPTIONAL because the API strips it
+   * before responding -- see toWireResponse. It was 74% of a 295 KB P&L payload
+   * (5,732 UUIDs, 3,589 of them on a single row) and nothing in the browser has
+   * ever read it. `table` stays: manualAdjustment.ts discriminates on it.
+   */
+  sourceRef: { table: string; ids?: string[] };
 }
 
 // KPI health-strip + data-quality/reconciliation summary shapes, built by
