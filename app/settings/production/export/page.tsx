@@ -6,14 +6,12 @@ import ExportSettingsPanel from "@/app/production/components/ExportSettingsPanel
 export default function ProductionExportSettingsPage() {
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
-      <div className="max-w-3xl">
-        <SettingsHeader
-          title="Export Settings"
-          description="Package formats and per-partner overrides for distribution exports."
-        />
-        <div className="pb-4 sm:pb-8">
-          <ExportSettingsPanel />
-        </div>
+      <SettingsHeader
+        title="Export Settings"
+        description="Package formats and per-partner overrides for distribution exports."
+      />
+      <div className="pb-4 sm:pb-8 max-w-3xl">
+        <ExportSettingsPanel />
       </div>
     </div>
   );

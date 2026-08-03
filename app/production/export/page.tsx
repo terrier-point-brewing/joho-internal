@@ -34,7 +34,7 @@ export default function ExportPage() {
         />
         <TabBar tabs={TOP_TABS} activeKey={tab} onSelect={setTab} className="mb-0" />
       </StickyHeader>
-      <div className="mt-4 pb-4 sm:pb-8">
+      <div className="mt-6 pb-4 sm:pb-8">
         <ExportTab tab={tab} highlightInvoiceId={highlightInvoiceId} onNavigateToInvoice={navigateToInvoice} />
       </div>
     </main>

@@ -210,7 +210,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   if (taskQuery.isLoading || partiesQuery.isLoading) {
     return (
       <main className="px-4 sm:px-6">
-        <StickyHeader>
+        <StickyHeader divider>
           <FinanceNav mobile />
           <BackLink href="/finance/tax" label="Tax" />
         </StickyHeader>
@@ -222,7 +222,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   if (taskQuery.isError || !task) {
     return (
       <main className="px-4 sm:px-6">
-        <StickyHeader>
+        <StickyHeader divider>
           <FinanceNav mobile />
           <BackLink href="/finance/tax" label="Tax" />
         </StickyHeader>
@@ -239,7 +239,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
 
   return (
     <main className="px-4 sm:px-6">
-      <StickyHeader>
+      <StickyHeader divider>
         <FinanceNav mobile />
         <BackLink href="/finance/tax" label="Tax" />
         <PageHeader

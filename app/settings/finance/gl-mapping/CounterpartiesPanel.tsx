@@ -36,7 +36,7 @@
  * loss. Switching the counterparty off leaves the transactions imported and
  * visible, and takes them out of the reports.
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import Badge from "@/app/components/ui/Badge";
 import SaveHint from "@/app/components/ui/SaveHint";
@@ -94,7 +94,7 @@ function rowKey(r: { source: string; counterparty_key: string }): string {
   return `${r.source} ${r.counterparty_key}`;
 }
 
-export default function CounterpartiesPanel() {
+export default function CounterpartiesPanel({ selector }: { selector?: ReactNode }) {
   const { accounts, rows, setRows, loading, error, setError } =
     useMappingData<RuleRow>(RULES_URL, "Failed to load counterparty accounts.");
   const feedRules = useBankFeedRules();
@@ -214,6 +214,7 @@ export default function CounterpartiesPanel() {
 
   return (
     <MappingFrame
+      selector={selector}
       loading={loading}
       error={error}
       hasAccounts={accounts.length > 0}

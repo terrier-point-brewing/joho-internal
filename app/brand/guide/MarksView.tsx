@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandSeason } from "@/lib/brand/seasons";
@@ -274,6 +275,7 @@ export default function MarksView({
   grounds,
   intro,
   chop,
+  topRight,
 }: {
   /** Canon mark specs — the written rules, keyed by kind. */
   specs: MarkSpec[];
@@ -288,6 +290,7 @@ export default function MarksView({
   intro: string;
   /** The chop's narrative and specification — the law every chop is cut to. */
   chop?: BrandCanon["chop"];
+  topRight?: ReactNode;
 }) {
   const variations = groupVariations(wordmarks);
   const chopGroups = groupChopsBySeason(chops, seasons);
@@ -297,7 +300,7 @@ export default function MarksView({
   const chopRows = (chop?.specs ?? []).map((s) => ({ label: s.key, value: s.value }));
 
   return (
-    <GuideSection section="marks" intro={intro}>
+    <GuideSection section="marks" intro={intro} topRight={topRight}>
       <div className="flex flex-col gap-8">
         <section>
           <SubHead

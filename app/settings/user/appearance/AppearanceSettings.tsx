@@ -16,10 +16,9 @@ export default function AppearanceSettings({
 }) {
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
-    <div className="max-w-md">
       <SettingsHeader title="Appearance" description="Theme and skin for the internal app." />
 
-      <div className="flex flex-col gap-4 mt-4 pb-4 sm:pb-8">
+      <div className="flex flex-col gap-4 mt-4 pb-4 sm:pb-8 max-w-md">
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-secondary">Theme</span>
           <div>
@@ -44,7 +43,6 @@ export default function AppearanceSettings({
           </div>
         )}
       </div>
-    </div>
     </div>
   );
 }

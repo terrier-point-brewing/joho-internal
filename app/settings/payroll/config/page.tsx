@@ -195,12 +195,12 @@ export default function PayrollSettingsPage() {
 
   return (
     <>
-      <div className="flex-1 overflow-auto px-4 sm:px-6 max-w-3xl">
+      <div className="flex-1 overflow-auto px-4 sm:px-6">
       <SettingsHeader
         title="Payroll Config"
         description="Pay periods, tip pool frequency, and per-employee job title, wage, and employment type."
       />
-      <div className="pb-4 sm:pb-8">
+      <div className="pb-4 sm:pb-8 max-w-3xl">
       {/* ── Pay Schedule ─────────────────────────────────────────────────── */}
       <section className="mt-6 mb-10">
         <div className="flex items-center gap-3 mb-4">

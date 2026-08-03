@@ -9,7 +9,7 @@
  * level and per-variation POS/Invoice split overrides, not a flat table. The
  * shared frame would have had to grow a second shape to hold it.
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import AccountSelect from "@/app/finance/AccountSelect";
 import Banner from "@/app/components/ui/Banner";
 import type { Tone } from "@/app/components/ui/tone";
@@ -431,7 +431,7 @@ function BulkExcluder({
   );
 }
 
-export default function RevenuePanel() {
+export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
   const [accounts, setAccounts] = useState<CoAAccount[]>([]);
   const [variations, setVariations] = useState<VariationRow[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -781,6 +781,7 @@ export default function RevenuePanel() {
   return (
     <>
       <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex items-start justify-between gap-4">
+        {selector}
         <Banner tone={summaryTone} className="flex-1">
           {totalVariations === 0
             ? "Sync the catalog first to load variations."

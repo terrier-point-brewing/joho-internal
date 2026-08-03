@@ -37,9 +37,8 @@ export default function AccessRequests() {
 
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
-      <div className="max-w-4xl">
       <SettingsHeader title="Access Requests" />
-      <div className="pb-4 sm:pb-8">
+      <div className="pb-4 sm:pb-8 max-w-4xl">
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
       {(error || action.error) && (
         <Banner tone="danger" className="mb-4">
@@ -105,7 +104,6 @@ export default function AccessRequests() {
           </table>
         </Card>
       )}
-      </div>
       </div>
     </div>
   );

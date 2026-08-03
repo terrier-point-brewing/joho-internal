@@ -41,6 +41,7 @@ export default function MappingFrame({
   emptyRows,
   headers,
   footer,
+  selector,
   children,
 }: {
   loading: boolean;
@@ -55,13 +56,16 @@ export default function MappingFrame({
   emptyRows: { title: string; hint: ReactNode };
   headers: string[];
   footer: ReactNode;
+  /** The panel-picker ButtonGroup, rendered in line with this panel's own summary/actions row. */
+  selector?: ReactNode;
   /** The panel's own `<tr>` rows. */
   children: ReactNode;
 }) {
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2">
-        <Banner tone={summaryTone}>{summary}</Banner>
+      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex items-start gap-4">
+        {selector}
+        <Banner tone={summaryTone} className="flex-1">{summary}</Banner>
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}

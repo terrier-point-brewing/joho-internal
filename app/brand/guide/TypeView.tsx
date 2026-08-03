@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { BrandCanon, FontRole } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { sourceOf } from "@/lib/brand/fontRegistry";
@@ -37,7 +38,7 @@ const MEDIA: { key: string; title: string }[] = [
  * "48pt poster title" is something you see rather than a claim you take on
  * trust.
  */
-export default function TypeView({ canon }: { canon: BrandCanon }) {
+export default function TypeView({ canon, topRight }: { canon: BrandCanon; topRight?: ReactNode }) {
   const fontByRole = new Map(canon.fonts.map((f) => [f.role, f]));
   const useCases = canon.typeUseCases ?? [];
 
@@ -47,7 +48,7 @@ export default function TypeView({ canon }: { canon: BrandCanon }) {
   })).filter((g) => g.rows.length > 0);
 
   return (
-    <GuideSection section="type" intro={resolveGuideIntro(canon, "type")}>
+    <GuideSection section="type" intro={resolveGuideIntro(canon, "type")} topRight={topRight}>
       <section className="mb-8">
         <SubHead
           title="Faces"

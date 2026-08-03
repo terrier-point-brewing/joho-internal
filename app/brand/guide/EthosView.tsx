@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import GuideSection from "./GuideSection";
@@ -10,9 +11,9 @@ import SpecCard from "./blocks/SpecCard";
  * what it costs. They used to be asymmetric: only the cost carried a label, so
  * the meaning read as unlabelled prose and the pairing wasn't obvious.
  */
-export default function EthosView({ canon }: { canon: BrandCanon }) {
+export default function EthosView({ canon, topRight }: { canon: BrandCanon; topRight?: ReactNode }) {
   return (
-    <GuideSection section="ethos" intro={resolveGuideIntro(canon, "ethos")}>
+    <GuideSection section="ethos" intro={resolveGuideIntro(canon, "ethos")} topRight={topRight}>
       {canon.values?.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2">
           {canon.values.map((v) => (

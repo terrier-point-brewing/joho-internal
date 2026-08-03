@@ -30,7 +30,7 @@ export default function IntakePage() {
         />
         <TabBar tabs={SUBTABS} activeKey={sub} onSelect={setSub} className="mb-0" />
       </StickyHeader>
-      <div className="mt-4 pb-4 sm:pb-8"><IntakeTab sub={sub} /></div>
+      <div className="mt-6 pb-4 sm:pb-8"><IntakeTab sub={sub} /></div>
     </main>
   );
 }

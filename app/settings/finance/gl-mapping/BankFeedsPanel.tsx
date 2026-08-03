@@ -14,7 +14,7 @@
  * that reason. "Include Chase" is a very different act when it means eleven
  * transactions from last week than when it means two years and four thousand.
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import Badge from "@/app/components/ui/Badge";
 import type { Tone } from "@/app/components/ui/tone";
@@ -22,7 +22,7 @@ import MappingFrame from "./MappingFrame";
 import { useBankFeedRules, type FeedRule } from "./useBankFeedRules";
 import { feedName, transactionCount, dateSpan } from "./bankFeeds";
 
-export default function BankFeedsPanel() {
+export default function BankFeedsPanel({ selector }: { selector?: ReactNode }) {
   const { feeds, setFeeds, loading, error, save } = useBankFeedRules();
   const [savingSource, setSavingSource] = useState<string | null>(null);
 
@@ -43,6 +43,7 @@ export default function BankFeedsPanel() {
 
   return (
     <MappingFrame
+      selector={selector}
       loading={loading}
       error={error ?? null}
       // A feed switch is a yes/no about a bank account, so unlike every other

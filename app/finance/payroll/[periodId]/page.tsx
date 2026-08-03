@@ -31,10 +31,12 @@ export default function FinancePayrollPeriodPage() {
     <main className="px-4 sm:px-6">
       <StickyHeader>
         <FinanceNav mobile />
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-start justify-between gap-4">
           <PageHeader title="Payroll" description="Hours, tips, and Gusto reporting by pay period" />
           {periods && (
-            <PeriodSelector periods={periods} currentId={periodId} basePath="/finance/payroll" />
+            <div className="shrink-0 mt-4">
+              <PeriodSelector periods={periods} currentId={periodId} basePath="/finance/payroll" />
+            </div>
           )}
         </div>
         <TabBar

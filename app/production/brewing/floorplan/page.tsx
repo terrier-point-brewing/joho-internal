@@ -13,7 +13,7 @@ export default function FloorplanPage() {
         <PageHeader title="Brewing" description="Batch tracking, fermentation monitoring, and equipment scheduling" />
         <SubNav entries={BREWING_NAV} />
       </StickyHeader>
-      <div className="mt-4 pb-4 sm:pb-8"><BrewStatusTab /></div>
+      <div className="mt-6 pb-4 sm:pb-8"><BrewStatusTab /></div>
     </main>
   );
 }

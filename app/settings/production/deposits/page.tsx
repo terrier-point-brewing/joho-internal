@@ -6,14 +6,12 @@ import DepositSettingsPanel from "@/app/production/components/DepositSettingsPan
 export default function DepositSettingsPage() {
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
-      <div className="max-w-3xl">
-        <SettingsHeader
-          title="Deposit Settings"
-          description="Deposit terms and the Square item deposit invoices bill against."
-        />
-        <div className="pb-4 sm:pb-8">
-          <DepositSettingsPanel />
-        </div>
+      <SettingsHeader
+        title="Deposit Settings"
+        description="Deposit terms and the Square item deposit invoices bill against."
+      />
+      <div className="pb-4 sm:pb-8 max-w-3xl">
+        <DepositSettingsPanel />
       </div>
     </div>
   );

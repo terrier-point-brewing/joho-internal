@@ -65,16 +65,9 @@ export default function FinancePayrollPage() {
 
   return (
     <main className="px-4 sm:px-6">
-      <StickyHeader>
+      <StickyHeader divider>
         <FinanceNav mobile />
-        <div className="flex items-center justify-between gap-4">
-          <PageHeader title="Payroll" description="Pay periods, payroll basis, and Gusto reconciliation." />
-          {!showForm && (
-            <button onClick={() => setShowForm(true)} className="btn-secondary">
-              + New Period
-            </button>
-          )}
-        </div>
+        <PageHeader title="Payroll" description="Pay periods, payroll basis, and Gusto reconciliation." />
       </StickyHeader>
 
       <div className="mt-4 pb-4 sm:pb-8">
@@ -105,14 +98,21 @@ export default function FinancePayrollPage() {
         </div>
       )}
 
-      <FilterBar className="mt-4 mb-3" activeCount={controls.activeCount} onClear={controls.reset}>
-        <FilterSelect
-          label="Status"
-          options={STATUS_OPTIONS}
-          value={controls.filters.status ?? []}
-          onChange={(v) => controls.setFilter("status", v)}
-        />
-      </FilterBar>
+      <div className="flex items-center justify-between gap-3 mt-4 mb-3">
+        <FilterBar activeCount={controls.activeCount} onClear={controls.reset}>
+          <FilterSelect
+            label="Status"
+            options={STATUS_OPTIONS}
+            value={controls.filters.status ?? []}
+            onChange={(v) => controls.setFilter("status", v)}
+          />
+        </FilterBar>
+        {!showForm && (
+          <button onClick={() => setShowForm(true)} className="btn-secondary shrink-0">
+            + New Period
+          </button>
+        )}
+      </div>
 
       {isLoading ? (
         <p className="text-muted text-sm">Loading…</p>

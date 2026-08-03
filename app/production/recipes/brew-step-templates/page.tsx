@@ -13,7 +13,7 @@ export default function BrewStepTemplatesPage() {
         <PageHeader title="Recipes" description="Beer recipes, packaging variations, and brew step templates" />
         <SubNav entries={RECIPES_NAV} />
       </StickyHeader>
-      <div className="mt-4 pb-4 sm:pb-8"><BrewStepTemplatesTab /></div>
+      <div className="mt-6 pb-4 sm:pb-8"><BrewStepTemplatesTab /></div>
     </main>
   );
 }

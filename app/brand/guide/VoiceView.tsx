@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import GuideSection from "./GuideSection";
@@ -17,12 +18,12 @@ import ComparisonCard from "./blocks/ComparisonCard";
  * rather than register — it now closes the Release Design tab instead, beside
  * the chassis its cards are poured into.
  */
-export default function VoiceView({ canon }: { canon: BrandCanon }) {
+export default function VoiceView({ canon, topRight }: { canon: BrandCanon; topRight?: ReactNode }) {
   const { sliders, leanOnWords, neverWords, rewrites } = canon.voice;
   const hasVocabulary = leanOnWords.length > 0 || neverWords.length > 0;
 
   return (
-    <GuideSection section="voice" intro={resolveGuideIntro(canon, "voice")}>
+    <GuideSection section="voice" intro={resolveGuideIntro(canon, "voice")} topRight={topRight}>
       {sliders.length > 0 && (
         <section className="mb-8">
           <SubHead

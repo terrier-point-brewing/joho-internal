@@ -145,9 +145,8 @@ export default function UserManagement() {
 
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
-    <div className="max-w-4xl">
       <SettingsHeader title="Users" />
-      <div className="pb-4 sm:pb-8">
+      <div className="pb-4 sm:pb-8 max-w-4xl">
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
       {displayError && (
         <Banner tone="danger" className="mb-4">{displayError}</Banner>
@@ -369,7 +368,6 @@ export default function UserManagement() {
         </Modal>
       )}
       </div>
-    </div>
     </div>
   );
 }

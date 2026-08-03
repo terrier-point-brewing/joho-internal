@@ -554,20 +554,20 @@ export default function BalanceSheetAccountsPage() {
         <SettingsHeader
           title="Balance Sheet Accounts"
           description="Pick how each account is worked out, then finish whatever that choice needs — all on this screen. Dollar values live in Finance → Transactions."
-          actions={
-            <button type="button" className="btn-secondary btn-xxs" disabled={recomputing} onClick={handleRecompute}>
-              {recomputing ? "Recomputing…" : "Recompute last month"}
-            </button>
-          }
-        >
-          <p className="text-sm text-muted pb-2">
-            {accounts.length > 0
-              ? `${calculating} of ${relevantAccounts.length} balance-sheet accounts are calculating` +
-                (unfinished > 0 ? ` · ${unfinished} chosen but not finished` : "") +
-                (excludedCount > 0 ? ` · ${excludedCount} excluded` : "")
-              : "Balance-sheet accounts appear here once the chart of accounts is mapped."}
-          </p>
-        </SettingsHeader>
+        />
+      </div>
+
+      <div className="flex items-start justify-between gap-4 px-4 sm:px-6 pt-3">
+        <p className="text-sm text-muted">
+          {accounts.length > 0
+            ? `${calculating} of ${relevantAccounts.length} balance-sheet accounts are calculating` +
+              (unfinished > 0 ? ` · ${unfinished} chosen but not finished` : "") +
+              (excludedCount > 0 ? ` · ${excludedCount} excluded` : "")
+            : "Balance-sheet accounts appear here once the chart of accounts is mapped."}
+        </p>
+        <button type="button" className="btn-secondary btn-xxs shrink-0" disabled={recomputing} onClick={handleRecompute}>
+          {recomputing ? "Recomputing…" : "Recompute last month"}
+        </button>
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}

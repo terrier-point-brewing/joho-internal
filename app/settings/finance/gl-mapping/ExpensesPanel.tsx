@@ -12,7 +12,7 @@ import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { Tone } from "@/app/components/ui/tone";
 import MappingFrame from "./MappingFrame";
 import { useMappingData } from "./useMappingData";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 const RULES_URL = "/api/finance/expense-mappings";
 
@@ -30,7 +30,7 @@ interface RuleRow {
   chart_of_accounts: CoaJoin | null;
 }
 
-export default function ExpensesPanel() {
+export default function ExpensesPanel({ selector }: { selector?: ReactNode }) {
   const { accounts, rows, setRows, loading, error, setError } =
     useMappingData<RuleRow>(RULES_URL, "Failed to load expense accounts.");
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -83,6 +83,7 @@ export default function ExpensesPanel() {
 
   return (
     <MappingFrame
+      selector={selector}
       loading={loading}
       error={error}
       hasAccounts={accounts.length > 0}

@@ -73,22 +73,21 @@ export default function AssetsView() {
 
   const mutationError = upload.error ?? approve.error ?? archive.error;
 
-  if (isLoading)
-    return (
-      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8">
-        <p className="text-sm text-muted">Loading…</p>
-      </div>
-    );
-  if (loadError)
-    return (
-      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8">
-        <Banner tone="danger">{(loadError as Error).message}</Banner>
-      </div>
-    );
-
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8 flex flex-col gap-6">
-      <PageHeader title="Assets" description="Logos, wordmarks, and artwork for the Joho brand." />
+    <div className="flex flex-col h-full">
+      {/* Fixed header region — mirrors the app-wide page shell. No subtabs here, so the
+          border does the job a TabBar/SubNav row would otherwise draw for free. */}
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8 pb-4 border-b border-line">
+        <PageHeader title="Assets" description="Logos, wordmarks, and artwork for the Joho brand." />
+      </div>
+
+      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8 flex flex-col gap-6">
+        {isLoading ? (
+          <p className="text-sm text-muted">Loading…</p>
+        ) : loadError ? (
+          <Banner tone="danger">{(loadError as Error).message}</Banner>
+        ) : (
+          <>
       {mutationError && <Banner tone="danger">{(mutationError as Error).message}</Banner>}
 
       <Card>
@@ -219,6 +218,9 @@ export default function AssetsView() {
       {assets && assets.length === 0 && (
         <p className="text-sm text-muted">No assets uploaded yet.</p>
       )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

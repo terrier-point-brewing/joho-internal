@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, cloneElement, isValidElement, type ReactNode } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import PageHeader from "@/app/components/PageHeader";
 import TabBar from "@/app/components/TabBar";
@@ -82,45 +82,52 @@ export default function BrandGuideTabs({
   // History has no editor; keep it in View regardless of the toggle.
   const showCanonEditor = editing && isCanonSection(active);
 
+  // Rendered inside each subtab's own intro card (top-right corner) rather
+  // than once above all of them — admin-only, and never on History, which
+  // has no editor for the toggle to switch into.
+  const modeToggle = isAdmin ? (
+    <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Mode">
+      {(["view", "edit"] as Mode[]).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => setModeSafe(m)}
+          aria-pressed={mode === m}
+          className={`btn-xxs ${mode === m ? "btn-primary" : "btn-secondary"}`}
+        >
+          {m === "view" ? "View" : "Edit"}
+        </button>
+      ))}
+    </div>
+  ) : undefined;
+
+  /** Injects the mode toggle into an already-built view element as its `topRight` prop. */
+  function withModeToggle(view: ReactNode): ReactNode {
+    return modeToggle && isValidElement(view) ? cloneElement(view, { topRight: modeToggle } as object) : view;
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Fixed header + subtab region — mirrors the app-wide page shell */}
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
         <PageHeader
           title="Brand Guide"
-          description="Terrier Point's living brand canon — ethos, voice, color, type, and marks."
+          description="The living brand canon — ethos, voice, color, type, and marks."
         />
-        <div className="flex items-end justify-between gap-4 mt-2">
-          <TabBar tabs={tabs} activeKey={active} onSelect={setActive} className="flex-1 mb-0" />
-          {isAdmin && active !== "history" && (
-            <div className="flex items-center gap-1 pb-2 shrink-0" role="group" aria-label="Mode">
-              {(["view", "edit"] as Mode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setModeSafe(m)}
-                  aria-pressed={mode === m}
-                  className={`btn-xxs ${mode === m ? "btn-primary" : "btn-secondary"}`}
-                >
-                  {m === "view" ? "View" : "Edit"}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <TabBar tabs={tabs} activeKey={active} onSelect={setActive} className="mt-2 mb-0" />
       </div>
 
       {/* Scrollable content region */}
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-8 pt-4">
         {/* View mode — each tab's rendered content */}
-        <div className={!editing && active === "ethos" ? "" : "hidden"}>{views.ethos}</div>
-        <div className={!editing && active === "voice" ? "" : "hidden"}>{views.voice}</div>
-        <div className={!editing && active === "visual" ? "" : "hidden"}>{views.visual}</div>
-        <div className={!editing && active === "color" ? "" : "hidden"}>{views.color}</div>
-        <div className={!editing && active === "type" ? "" : "hidden"}>{views.type}</div>
-        <div className={!editing && active === "marks" ? "" : "hidden"}>{views.marks}</div>
-        <div className={!editing && active === "release" ? "" : "hidden"}>{views.release}</div>
-        <div className={!editing && active === "agent" ? "" : "hidden"}>{views.agent}</div>
+        <div className={!editing && active === "ethos" ? "" : "hidden"}>{withModeToggle(views.ethos)}</div>
+        <div className={!editing && active === "voice" ? "" : "hidden"}>{withModeToggle(views.voice)}</div>
+        <div className={!editing && active === "visual" ? "" : "hidden"}>{withModeToggle(views.visual)}</div>
+        <div className={!editing && active === "color" ? "" : "hidden"}>{withModeToggle(views.color)}</div>
+        <div className={!editing && active === "type" ? "" : "hidden"}>{withModeToggle(views.type)}</div>
+        <div className={!editing && active === "marks" ? "" : "hidden"}>{withModeToggle(views.marks)}</div>
+        <div className={!editing && active === "release" ? "" : "hidden"}>{withModeToggle(views.release)}</div>
+        <div className={!editing && active === "agent" ? "" : "hidden"}>{withModeToggle(views.agent)}</div>
 
         {/* Edit mode — canon editor (kept mounted once opened) */}
         {isAdmin && editorMounted && (

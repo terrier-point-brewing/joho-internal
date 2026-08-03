@@ -19,6 +19,8 @@ interface TaskListProps {
   tasks: TaxTask[];
   schedules: TaxSchedule[];
   parties: TaxPartyMeta[];
+  /** Which bucket this instance renders — one per subtab, so Open and Closed never share a scroll. */
+  status: "open" | "closed";
 }
 
 const URGENCY_RANK: Record<TaskUrgency, number> = { overdue: 0, "due-soon": 1, open: 2 };
@@ -30,7 +32,7 @@ function formatIsoDate(iso: string): string {
   return new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function TaskList({ tasks, schedules, parties }: TaskListProps) {
+export default function TaskList({ tasks, schedules, parties, status }: TaskListProps) {
   const partyLabel = useMemo(() => new Map(parties.map((p) => [p.key, p.label])), [parties]);
   const scheduleById = useMemo(() => new Map(schedules.map((s) => [s.id, s])), [schedules]);
 
@@ -82,9 +84,8 @@ export default function TaskList({ tasks, schedules, parties }: TaskListProps) {
         )}
       </FilterBar>
 
-      <section>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-faint mb-2">Open</h3>
-        {openRows.length === 0 ? (
+      {status === "open" ? (
+        openRows.length === 0 ? (
           <p className="text-sm text-faint px-1">
             {activeCount > 0 ? "No open tasks match your filters." : "Nothing open — all caught up."}
           </p>
@@ -102,26 +103,25 @@ export default function TaskList({ tasks, schedules, parties }: TaskListProps) {
               ))}
             </ul>
           </Card>
-        )}
-      </section>
-
-      {doneRows.length > 0 && (
-        <section>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-faint mb-2">Completed</h3>
-          <Card padding="">
-            <ul className="divide-y divide-line/60">
-              {doneRows.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  label={partyLabel.get(task.party_key) ?? task.party_key}
-                  tone={task.status === "completed" ? "success" : "neutral"}
-                  statusLabel={task.status === "completed" ? "Completed" : "Skipped"}
-                />
-              ))}
-            </ul>
-          </Card>
-        </section>
+        )
+      ) : doneRows.length === 0 ? (
+        <p className="text-sm text-faint px-1">
+          {activeCount > 0 ? "No closed tasks match your filters." : "Nothing closed yet."}
+        </p>
+      ) : (
+        <Card padding="">
+          <ul className="divide-y divide-line/60">
+            {doneRows.map((task) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                label={partyLabel.get(task.party_key) ?? task.party_key}
+                tone={task.status === "completed" ? "success" : "neutral"}
+                statusLabel={task.status === "completed" ? "Completed" : "Skipped"}
+              />
+            ))}
+          </ul>
+        </Card>
       )}
     </div>
   );

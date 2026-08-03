@@ -15,7 +15,7 @@
  * excluded here while a live return still computes tax owed from it — the
  * filing says money is due, the balance sheet says it was never collected.
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import SaveHint from "@/app/components/ui/SaveHint";
 import ToggleChip from "@/app/components/ui/ToggleChip";
@@ -67,7 +67,7 @@ function FilingsCell({ row }: { row: TaxRow }) {
   );
 }
 
-export default function SalesTaxPanel() {
+export default function SalesTaxPanel({ selector }: { selector?: ReactNode }) {
   const { accounts, rows, setRows, loading, error, setError } =
     useMappingData<TaxRow>(TAXES_URL, "Failed to load sales tax accounts.");
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -123,6 +123,7 @@ export default function SalesTaxPanel() {
 
   return (
     <MappingFrame
+      selector={selector}
       loading={loading}
       error={error}
       hasAccounts={accounts.length > 0}
