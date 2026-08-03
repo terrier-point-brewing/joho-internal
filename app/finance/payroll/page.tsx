@@ -75,11 +75,11 @@ export default function FinancePayrollPage() {
         <div className="mt-4 mb-6 p-4 bg-surface border border-line-strong rounded-lg flex flex-wrap items-end gap-3">
           <label className="block">
             <span className="block text-secondary text-xs mb-1">Start date</span>
-            <input type="date" value={newStart} onChange={(e) => setNewStart(e.target.value)} className="inp inp-sm" />
+            <input type="date" value={newStart} onChange={(e) => setNewStart(e.target.value)} className="inp-sm" />
           </label>
           <label className="block">
             <span className="block text-secondary text-xs mb-1">End date</span>
-            <input type="date" value={newEnd} onChange={(e) => setNewEnd(e.target.value)} className="inp inp-sm" />
+            <input type="date" value={newEnd} onChange={(e) => setNewEnd(e.target.value)} className="inp-sm" />
           </label>
           <button
             onClick={() => createPeriod.mutate({ start_date: newStart, end_date: newEnd })}
@@ -108,7 +108,7 @@ export default function FinancePayrollPage() {
           />
         </FilterBar>
         {!showForm && (
-          <button onClick={() => setShowForm(true)} className="btn-secondary shrink-0">
+          <button onClick={() => setShowForm(true)} className="btn-primary shrink-0">
             + New Period
           </button>
         )}

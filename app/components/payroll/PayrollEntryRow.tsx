@@ -212,7 +212,7 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
             <button
               onClick={save}
               disabled={saving}
-              className="text-xs text-secondary hover:text-strong disabled:opacity-40 px-2 whitespace-nowrap"
+              className="btn-secondary whitespace-nowrap"
             >
               {saving ? "…" : "Save"}
             </button>

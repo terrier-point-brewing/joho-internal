@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import PageHeader from "@/app/components/PageHeader";
 import TabBar from "@/app/components/TabBar";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import CanonEditor, { type CanonSection } from "../canon/CanonEditor";
 import CanonHistory from "../canon/CanonHistory";
 
@@ -97,15 +98,9 @@ export default function BrandGuideTabs({
   const modeToggle = isAdmin ? (
     <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Mode">
       {(["view", "edit"] as Mode[]).map((m) => (
-        <button
-          key={m}
-          type="button"
-          onClick={() => setModeSafe(m)}
-          aria-pressed={mode === m}
-          className={`btn-xxs ${mode === m ? "btn-primary" : "btn-secondary"}`}
-        >
+        <ToggleChip key={m} active={mode === m} onClick={() => setModeSafe(m)}>
           {m === "view" ? "View" : "Edit"}
-        </button>
+        </ToggleChip>
       ))}
     </div>
   ) : undefined;

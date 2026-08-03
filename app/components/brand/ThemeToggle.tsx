@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { resolveThemeAttr, THEME_COOKIE, type ThemeChoice } from "@/lib/brand/theme";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 
 const OPTIONS: { choice: ThemeChoice; label: string }[] = [
   { choice: "light", label: "Light" },
@@ -48,15 +49,13 @@ export default function ThemeToggle() {
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Theme">
       {OPTIONS.map(({ choice: optionChoice, label }) => (
-        <button
+        <ToggleChip
           key={optionChoice}
-          type="button"
+          active={choice === optionChoice}
           onClick={() => applyThemeChoice(optionChoice)}
-          aria-pressed={choice === optionChoice}
-          className={`btn-xxs ${choice === optionChoice ? "btn-primary" : "btn-secondary"}`}
         >
           {label}
-        </button>
+        </ToggleChip>
       ))}
     </div>
   );

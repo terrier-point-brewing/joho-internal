@@ -178,7 +178,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
               type="number"
               min="0"
               max="12"
-              className="inp-sm w-16"
+              className="inp w-16"
               value={dueRule.monthOffset}
               onChange={(e) => {
                 setDueRuleTouched(true);
@@ -190,7 +190,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
               type="number"
               min="1"
               max="31"
-              className="inp-sm w-16"
+              className="inp w-16"
               disabled={dueRule.day === "last"}
               value={dueRule.day === "last" ? "" : dueRule.day}
               onChange={(e) => {
@@ -242,7 +242,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
                       <div className="flex items-center gap-1 shrink-0">
                         <input
                           type="number"
-                          className="inp-sm w-20"
+                          className="inp w-20"
                           min="0"
                           max="100"
                           step="0.01"

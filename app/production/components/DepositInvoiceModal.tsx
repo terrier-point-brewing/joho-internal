@@ -98,7 +98,7 @@ export function DepositInvoiceModal({
                 <select
                   value={mpSource}
                   onChange={(e) => setMpSource(e.target.value as "quickbooks" | "other")}
-                  className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
+                  className="inp w-full"
                 >
                   <option value="quickbooks">QuickBooks</option>
                   <option value="other">Other</option>
@@ -113,7 +113,7 @@ export function DepositInvoiceModal({
                     value={mpRef}
                     onChange={(e) => setMpRef(e.target.value)}
                     placeholder="e.g. INV-1042"
-                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
+                    className="inp w-full"
                   />
                 </div>
               )}
@@ -126,7 +126,7 @@ export function DepositInvoiceModal({
                     value={mpRef}
                     onChange={(e) => setMpRef(e.target.value)}
                     placeholder="e.g. check #1234"
-                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
+                    className="inp w-full"
                   />
                 </div>
               )}
@@ -138,7 +138,7 @@ export function DepositInvoiceModal({
                     type="date"
                     value={mpPaidAt}
                     onChange={(e) => setMpPaidAt(e.target.value)}
-                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong"
+                    className="inp w-full"
                   />
                 </div>
                 <div className="space-y-1">
@@ -150,7 +150,7 @@ export function DepositInvoiceModal({
                     value={mpAmount}
                     onChange={(e) => setMpAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full bg-surface-mid border border-line-strong rounded px-2 py-1.5 text-sm text-strong placeholder:text-faint"
+                    className="inp w-full"
                   />
                 </div>
               </div>
@@ -158,7 +158,7 @@ export function DepositInvoiceModal({
 
             <div className="flex gap-2 justify-between pt-2">
               <button type="button" onClick={() => setMode("generate")}
-                className="text-xs text-muted hover:text-body transition-colors">
+                className="btn-secondary">
                 ← Back
               </button>
               <div className="flex gap-2">
@@ -261,7 +261,7 @@ export function DepositInvoiceModal({
             <div className="flex gap-2 justify-between pt-2">
               {onMarkPaid && !alreadyPaid ? (
                 <button type="button" onClick={() => setMode("mark_paid")}
-                  className="text-xs text-muted hover:text-body underline underline-offset-2 transition-colors">
+                  className="btn-secondary">
                   Mark as paid externally
                 </button>
               ) : <span />}

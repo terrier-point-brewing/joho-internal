@@ -419,7 +419,7 @@ export default function ManualEntriesPage() {
           <YearSelect year={year} onChange={setYear} />
           <GlAccountFilter accounts={accounts} value={glFilter} onChange={setGlFilter} />
           {canManage && (
-            <button type="button" className="btn-primary btn-xxs" onClick={() => setModal({ mode: "add" })}>
+            <button type="button" className="btn-primary" onClick={() => setModal({ mode: "add" })}>
               + Add entry
             </button>
           )}

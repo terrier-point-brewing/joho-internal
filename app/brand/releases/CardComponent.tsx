@@ -95,7 +95,7 @@ function CardEditor({ ctx }: { ctx: ReleaseComponentContext }) {
 
       {updateRelease.error && <Banner tone="danger">{(updateRelease.error as Error).message}</Banner>}
       <button
-        className="btn-primary btn-xxs self-start"
+        className="btn-primary self-start"
         disabled={updateRelease.isPending}
         onClick={() =>
           updateRelease.mutate({

@@ -31,6 +31,7 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
 import SortableTh from "@/app/components/ui/SortableTh";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig, SortState } from "@/lib/table/types";
 
 const EquipmentScheduleSection = dynamic(
@@ -946,7 +947,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     <div className="flex items-center gap-1">
                       <input
                         type="number" step="0.1" min="0" max="100"
-                        className="w-16 bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-right tabular-nums text-strong focus:outline-none focus:border-accent-border disabled:opacity-40"
+                        className="inp-sm w-16 text-right tabular-nums"
                         value={pctVal}
                         onChange={e => setEditingPct(p => ({ ...p, [a.id]: e.target.value }))}
                         onBlur={() => savePct(a)}
@@ -966,7 +967,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                             <button type="button"
                               onClick={() => viewInvoiceInSquare(a)}
                               disabled={invoiceActionLoading === a.id}
-                              className="btn-secondary btn-xxs whitespace-nowrap">
+                              className="btn-secondary whitespace-nowrap">
                               View in Square ↗
                             </button>
                           )}
@@ -977,7 +978,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                 <button type="button"
                                   onClick={() => openInvoiceModal(a)}
                                   disabled={invoiceActionLoading === a.id}
-                                  className="btn-primary btn-xxs whitespace-nowrap">
+                                  className="btn-primary whitespace-nowrap">
                                   Generate Invoice
                                 </button>
                               )}
@@ -986,13 +987,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSendInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="btn-primary btn-xxs whitespace-nowrap">
+                                    className="btn-primary whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Sending…" : "Send Invoice"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, false)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="btn-danger btn-xxs whitespace-nowrap">
+                                    className="btn-danger whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -1002,13 +1003,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                                   <button type="button"
                                     onClick={() => handleSyncInvoice(a.id)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="btn-secondary btn-xxs whitespace-nowrap">
+                                    className="btn-secondary whitespace-nowrap">
                                     {invoiceActionLoading === a.id ? "Syncing…" : "Sync Status"}
                                   </button>
                                   <button type="button"
                                     onClick={() => handleDeleteInvoice(a.id, true)}
                                     disabled={invoiceActionLoading === a.id}
-                                    className="btn-danger btn-xxs whitespace-nowrap">
+                                    className="btn-danger whitespace-nowrap">
                                     Delete
                                   </button>
                                 </>
@@ -1016,7 +1017,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                               <button type="button"
                                 onClick={() => { setInvoiceModalMode("mark_paid"); setInvoiceModalAlloc(a); setInvoicePreview(null); }}
                                 disabled={invoiceActionLoading === a.id}
-                                className="btn-secondary btn-xxs whitespace-nowrap">
+                                className="btn-secondary whitespace-nowrap">
                                 Mark Paid (Ext.)
                               </button>
                             </>
@@ -1026,7 +1027,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     </div>
                     <AllocationStatusBadge allocation={a} />
                     <button type="button" onClick={() => handleDelete(a.id, !!a.invoice_paid_at)}
-                      className="text-faint hover:text-danger text-sm leading-none transition-colors px-1 justify-self-end">✕</button>
+                      className="btn-danger btn-xxs justify-self-end">✕</button>
                   </div>
                 </div>
 
@@ -1100,14 +1101,14 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                 const active = newChannel === o.value;
                 const c = CHANNEL_COLOR[o.value as AllocationChannel];
                 return (
-                  <button key={o.value} type="button" onClick={() => handleNewChannelChange(o.value as AllocationChannel)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                      active
-                        ? `${c.bg} ${c.text} border-white/10`
-                        : "bg-surface-mid text-muted border-line-strong hover:border-line-subtle hover:text-body"
-                    }`}>
+                  <ToggleChip
+                    key={o.value}
+                    active={active}
+                    onClick={() => handleNewChannelChange(o.value as AllocationChannel)}
+                    className={active ? `${c.bg} ${c.text} border-white/10` : ""}
+                  >
                     {o.label}
-                  </button>
+                  </ToggleChip>
                 );
               })}
             </div>
@@ -1120,7 +1121,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
               {newChannelCommitments.length === 0 ? (
                 <p className="text-xs text-faint italic">No open commitments for this recipe &amp; channel.</p>
               ) : (
-                <select className="inp text-xs w-full" value={newCommitmentId} onChange={e => handleNewCommitmentChange(e.target.value)}>
+                <select className="inp-sm w-full" value={newCommitmentId} onChange={e => handleNewCommitmentChange(e.target.value)}>
                   <option value="">— select commitment —</option>
                   {newChannelCommitments.map(c => (
                     <option key={c.id} value={c.id}>
@@ -1148,7 +1149,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
             <div className="flex-none">
               <label className="block text-xs text-muted mb-1">Allocation %</label>
               <div className="flex items-center gap-1">
-                <input type="number" step="0.1" min="0.1" max="100" className="inp w-24 text-xs text-right"
+                <input type="number" step="0.1" min="0.1" max="100" className="inp-sm w-24 text-right"
                   placeholder="0.0" value={newPct} onChange={e => setNewPct(e.target.value)} />
                 <span className="text-xs text-muted">%</span>
               </div>
@@ -1160,7 +1161,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
             )}
             {remaining > 0.1 && !newPct && (
               <button type="button" onClick={() => setNewPct(remaining.toFixed(1))}
-                className="pb-1 text-xs text-faint hover:text-secondary underline underline-offset-2 transition-colors">
+                className="btn-secondary">
                 Fill remaining ({remaining.toFixed(1)}%)
               </button>
             )}
@@ -1341,13 +1342,13 @@ function BatchTable({
                   <td className="px-4 py-2.5 text-secondary text-right">{b.turns}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={b.status} /></td>
                   <td className="px-4 py-2.5">
-                    <div className="flex gap-3 justify-end">
-                      <button onClick={() => onEdit(b)} className="text-xs text-muted hover:text-body transition-colors">Edit</button>
+                    <div className="flex gap-1 justify-end">
+                      <button onClick={() => onEdit(b)} className="btn-secondary btn-xxs">Edit</button>
                       {b.status !== "complete" && (
-                        <button onClick={() => onComplete(b.id, b.beer_name)} className="text-xs text-muted hover:text-accent transition-colors">Complete</button>
+                        <button onClick={() => onComplete(b.id, b.beer_name)} className="btn-secondary btn-xxs">Complete</button>
                       )}
                       {isAdmin && (
-                        <button onClick={() => onDelete(b.id, b.beer_name)} className="text-xs text-faint hover:text-danger transition-colors">Delete</button>
+                        <button onClick={() => onDelete(b.id, b.beer_name)} className="btn-danger btn-xxs">Delete</button>
                       )}
                     </div>
                   </td>
@@ -1557,7 +1558,7 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
         <p className="text-xs font-semibold text-secondary uppercase tracking-wide">Brew Activity Log</p>
         {hasDirty && (
           <button type="button" onClick={saveAll} disabled={saving}
-            className="text-xs text-accent-emphasis hover:text-accent disabled:opacity-50 transition-colors">
+            className="btn-secondary">
             {saving ? "Saving…" : "Save changes"}
           </button>
         )}
@@ -1581,24 +1582,24 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
                 <tr key={r.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""} ${r.dirty ? "bg-accent-muted/10" : ""}`}>
                   <td className="px-3 py-1.5 text-faint tabular-nums">{i + 1}</td>
                   <td className="px-3 py-1.5">
-                    <input className="inp text-xs" value={r.activity}
+                    <input className="inp-sm" value={r.activity}
                       onChange={(e) => markDirty(i, "activity", e.target.value)} />
                   </td>
                   <td className="px-3 py-1.5">
-                    <input className="inp text-xs" placeholder="e.g. 0:00" value={r.time_label}
+                    <input className="inp-sm" placeholder="e.g. 0:00" value={r.time_label}
                       onChange={(e) => markDirty(i, "time_label", e.target.value)} />
                   </td>
                   <td className="px-3 py-1.5">
-                    <input type="number" step="0.1" className="inp text-xs text-right" value={r.temp}
+                    <input type="number" step="0.1" className="inp-sm text-right" value={r.temp}
                       onChange={(e) => markDirty(i, "temp", e.target.value)} />
                   </td>
                   <td className="px-3 py-1.5">
-                    <input type="number" step="0.01" className="inp text-xs text-right" value={r.amount}
+                    <input type="number" step="0.01" className="inp-sm text-right" value={r.amount}
                       onChange={(e) => markDirty(i, "amount", e.target.value)} />
                   </td>
                   <td className="px-3 py-1.5 text-center">
                     <button type="button" onClick={() => deleteRow(r.id)}
-                      className="text-faint hover:text-danger transition-colors">×</button>
+                      className="btn-danger btn-xxs">×</button>
                   </td>
                 </tr>
               ))}
@@ -1611,22 +1612,22 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
       <div className="flex gap-2 items-end flex-wrap">
         <div className="flex-1 min-w-[140px]">
           <label className="block text-xs text-muted mb-1">Activity</label>
-          <input className="inp text-xs" placeholder="e.g. Mash in" value={newRow.activity}
+          <input className="inp-sm" placeholder="e.g. Mash in" value={newRow.activity}
             onChange={(e) => setNewRow((r) => ({ ...r, activity: e.target.value }))} />
         </div>
         <div className="w-24">
           <label className="block text-xs text-muted mb-1">Time</label>
-          <input className="inp text-xs" placeholder="e.g. 0:00" value={newRow.time_label}
+          <input className="inp-sm" placeholder="e.g. 0:00" value={newRow.time_label}
             onChange={(e) => setNewRow((r) => ({ ...r, time_label: e.target.value }))} />
         </div>
         <div className="w-24">
           <label className="block text-xs text-muted mb-1">Temp (°F)</label>
-          <input type="number" step="0.1" className="inp text-xs text-right" placeholder="152" value={newRow.temp}
+          <input type="number" step="0.1" className="inp-sm text-right" placeholder="152" value={newRow.temp}
             onChange={(e) => setNewRow((r) => ({ ...r, temp: e.target.value }))} />
         </div>
         <div className="w-24">
           <label className="block text-xs text-muted mb-1">Amount</label>
-          <input type="number" step="0.01" className="inp text-xs text-right" placeholder="0" value={newRow.amount}
+          <input type="number" step="0.01" className="inp-sm text-right" placeholder="0" value={newRow.amount}
             onChange={(e) => setNewRow((r) => ({ ...r, amount: e.target.value }))} />
         </div>
         <button type="button" onClick={addRow} disabled={saving || !newRow.activity.trim()}
@@ -1786,7 +1787,7 @@ function ShortfallBadge({ batchId, status, batchLabel }: { batchId: string; stat
         // Stop the click from also toggling the surrounding batch row.
         onClick={(e) => { e.stopPropagation(); setOpen(true); }}
         title="View what's missing"
-        className="ml-1.5 px-1.5 py-px rounded border border-danger-border/50 bg-danger-surface/40 text-danger text-[10px] font-normal whitespace-nowrap hover:bg-danger-surface/70"
+        className="btn-danger btn-xxs ml-1.5 whitespace-nowrap"
       >
         ⚠ {shortfalls.length} ingredient{shortfalls.length > 1 ? "s" : ""} short
       </button>
@@ -1846,7 +1847,7 @@ function ReassignTankSection({ batchId, equipment }: { batchId: string; equipmen
       <form onSubmit={handleReassign} className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
           <label className="text-xs text-muted">Correct Tank</label>
-          <select className="inp text-sm" value={tankId} required onChange={(e) => { setTankId(e.target.value); setDone(false); }}>
+          <select className="inp-sm" value={tankId} required onChange={(e) => { setTankId(e.target.value); setDone(false); }}>
             <option value="">— select tank —</option>
             {tanks.map((t) => (
               <option key={t.id} value={t.id}>
@@ -1857,7 +1858,7 @@ function ReassignTankSection({ batchId, equipment }: { batchId: string; equipmen
         </div>
         <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
           <label className="text-xs text-muted">Reason (optional)</label>
-          <input className="inp text-sm" placeholder="e.g. entered wrong tank" value={reason} onChange={(e) => { setReason(e.target.value); setDone(false); }} />
+          <input className="inp-sm" placeholder="e.g. entered wrong tank" value={reason} onChange={(e) => { setReason(e.target.value); setDone(false); }} />
         </div>
         <button type="submit" disabled={saving || !tankId}
           className="btn-danger">

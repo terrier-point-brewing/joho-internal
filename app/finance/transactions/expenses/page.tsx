@@ -200,9 +200,9 @@ function ExpenseRowView({
           <div className="flex items-center gap-1.5">
             <span className="truncate max-w-[240px]">{e.merchant_name ?? "—"}</span>
             {e.ramp_object !== "card" && (
-              <span className="shrink-0 px-1 py-0.5 rounded text-2xs font-medium bg-surface-mid text-muted uppercase tracking-wide">
+              <Badge className="shrink-0 uppercase tracking-wide">
                 {e.ramp_object === "bill" ? "Bill" : "Bank"}
-              </span>
+              </Badge>
             )}
           </div>
           {(e.memo || e.card_holder_name) && (
@@ -227,9 +227,9 @@ function ExpenseRowView({
         </td>
         <td className="px-4 py-2">
           {state && (
-            <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${EXPENSE_STATE_CLS[state] ?? "bg-surface-mid text-muted"}`}>
+            <Badge tone="none" className={EXPENSE_STATE_CLS[state] ?? "bg-surface-mid text-muted border-line-strong"}>
               {state}
-            </span>
+            </Badge>
           )}
         </td>
         <td className="px-4 py-2">

@@ -11,6 +11,7 @@ import { ShiftTimeline } from "./ShiftTimeline";
 import { AdjustmentsPanel } from "./AdjustmentsPanel";
 import { queryKeys } from "@/lib/query-keys";
 import Badge from "@/app/components/ui/Badge";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import { Modal } from "@/app/components/ui/Modal";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities"; // NOT "@/lib/auth" — barrel pulls server-only code
@@ -197,18 +198,12 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
           {/* Cash-tips basis toggle: actual (drives bonus) vs Gusto-reported (÷ ratio) */}
           <div className="mb-4 flex items-center gap-2">
             <span className="text-muted text-xs font-medium">Cash tips basis:</span>
-            <button
-              onClick={() => setCashView("actual")}
-              className={cashView === "actual" ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}
-            >
+            <ToggleChip active={cashView === "actual"} onClick={() => setCashView("actual")}>
               Actuals
-            </button>
-            <button
-              onClick={() => setCashView("reported")}
-              className={cashView === "reported" ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}
-            >
+            </ToggleChip>
+            <ToggleChip active={cashView === "reported"} onClick={() => setCashView("reported")}>
               Gusto-reported
-            </button>
+            </ToggleChip>
             <span className="text-faint text-xs">
               {cashView === "actual"
                 ? "Actual declared cash (drives bonus)"

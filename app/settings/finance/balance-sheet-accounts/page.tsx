@@ -565,7 +565,7 @@ export default function BalanceSheetAccountsPage() {
               (excludedCount > 0 ? ` · ${excludedCount} excluded` : "")
             : "Balance-sheet accounts appear here once the chart of accounts is mapped."}
         </p>
-        <button type="button" className="btn-secondary btn-xxs shrink-0" disabled={recomputing} onClick={handleRecompute}>
+        <button type="button" className="btn-secondary shrink-0" disabled={recomputing} onClick={handleRecompute}>
           {recomputing ? "Recomputing…" : "Recompute last month"}
         </button>
       </div>
@@ -695,7 +695,7 @@ export default function BalanceSheetAccountsPage() {
                                 <button
                                   type="button"
                                   onClick={() => setExplaining({ methodKey: chosen, accountId: account.id })}
-                                  className="btn-secondary btn-xxs"
+                                  className="btn-secondary"
                                 >
                                   Preview
                                 </button>
@@ -704,7 +704,7 @@ export default function BalanceSheetAccountsPage() {
                                 type="button"
                                 onClick={() => handleAdd(account)}
                                 disabled={!chosen}
-                                className="btn-primary btn-xxs"
+                                className="btn-primary"
                               >
                                 Add
                               </button>

@@ -163,18 +163,13 @@ function VariationMappingRow({
             excluded
           </ToggleChip>
           {!variation.excluded && (
-            <button
-              type="button"
+            <ToggleChip
+              active={hasSplit}
               onClick={() => setSplitOpen((o) => !o)}
-              title={splitOpen ? "Hide POS/Invoice overrides" : "Split by POS / Invoice source"}
-              className={`px-2 py-1 text-2xs rounded border transition-colors ${
-                hasSplit
-                  ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
-                  : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
-              }`}
+              className="whitespace-nowrap"
             >
               {splitOpen ? "▴ split" : "split ▾"}
-            </button>
+            </ToggleChip>
           )}
         </div>
       </div>
@@ -205,7 +200,7 @@ function VariationMappingRow({
           />
           </div>
           {hasSplit && (
-            <button type="button" onClick={handleClearSplit} className="self-end text-2xs text-faint hover:text-danger transition-colors">
+            <button type="button" onClick={handleClearSplit} className="btn-danger btn-xxs self-end">
               Clear overrides
             </button>
           )}
@@ -299,27 +294,20 @@ function BulkSourceMapper({
   return (
     <>
       {/* Toggle button */}
-      <button
-        type="button"
+      <ToggleChip
+        active={hasSplits}
         onClick={() => setOpen((o) => !o)}
-        className={`shrink-0 px-2 py-1 text-2xs rounded border transition-colors ${
-          open
-            ? "bg-info-surface/60 border-info-emphasis text-info"
-            : hasSplits
-            ? "bg-info-surface/40 border-info-border text-info hover:bg-info-surface/60"
-            : "bg-surface-mid border-line-strong text-muted hover:text-body hover:border-line-subtle"
-        }`}
-        title="Set POS vs Invoice source overrides in bulk"
+        className="shrink-0"
       >
         {hasSplits ? "✦ split" : "split"}
-      </button>
+      </ToggleChip>
 
       {/* Expanded panel — anchored below the row */}
       {open && (
         <div className="absolute top-full left-0 right-0 z-20 border-t border-info-border/40 bg-canvas px-4 py-2.5 flex flex-col gap-2 shadow-lg">
           <div className="flex items-center justify-between mb-0.5">
             <span className="text-2xs text-info font-medium uppercase tracking-wider">Source overrides</span>
-            <button type="button" onClick={() => setOpen(false)} className="text-2xs text-faint hover:text-body px-1">✕ close</button>
+            <button type="button" onClick={() => setOpen(false)} className="btn-secondary btn-xxs">✕ close</button>
           </div>
           {/* POS row */}
           <div className="flex items-center gap-3">
@@ -385,19 +373,14 @@ function BulkExcluder({
 
   return (
     <div className="flex items-center gap-1.5 shrink-0">
-      <button
-        type="button"
+      <ToggleChip
+        active={open}
         onClick={() => setOpen((o) => !o)}
         disabled={totalCount === 0}
-        title="Bulk exclude from mapping"
-        className={`px-2 py-1 text-2xs rounded border transition-colors ${
-          open
-            ? "bg-danger-surface/60 border-danger-border text-danger"
-            : "bg-surface border-line-strong text-muted hover:text-body hover:border-line-subtle"
-        }`}
+        className={open ? "border-danger-border bg-danger-surface/60 text-danger" : ""}
       >
         {open ? "▴ exclude" : "exclude ▾"}
-      </button>
+      </ToggleChip>
       {open && (
         <>
           <button

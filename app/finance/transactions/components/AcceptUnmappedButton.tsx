@@ -29,13 +29,13 @@ export default function AcceptUnmappedButton({
 
   if (accepted) {
     return (
-      <button onClick={handleClick} className="text-2xs text-faint hover:text-info hover:underline disabled:opacity-50" disabled={saving}>
+      <button onClick={handleClick} className="btn-secondary btn-xxs" disabled={saving}>
         undo
       </button>
     );
   }
   return (
-    <button onClick={handleClick} className="text-2xs text-accent-emphasis hover:underline disabled:opacity-50" disabled={saving}>
+    <button onClick={handleClick} className="btn-primary btn-xxs" disabled={saving}>
       Accept
     </button>
   );

@@ -25,6 +25,10 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
   unknown: "Unknown",
 };
 
+// `!`-prefixed so these win over <Badge>'s own default-tone bg/text/border
+// when passed through its `className` — Tailwind resolves same-property
+// utility conflicts by generated stylesheet order, not by className string
+// order, so an un-prefixed override is not reliably guaranteed to win.
 export const CHANNEL_COLOR: Record<Channel, { bg: string; text: string; border: string }> = {
   taproom:          { bg: "bg-[var(--cat-blue-bg)]",    text: "text-[var(--cat-blue-fg)]",    border: "border-[var(--cat-blue-bd)]" },
   events:           { bg: "bg-[var(--cat-teal-bg)]",    text: "text-[var(--cat-teal-fg)]",    border: "border-[var(--cat-teal-bd)]" },

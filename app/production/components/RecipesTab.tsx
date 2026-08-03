@@ -600,7 +600,7 @@ export default function RecipesTab() {
                       ) : (
                         <p className="text-xs text-faint mb-2">No packaging variations linked yet.</p>
                       )}
-                      <button onClick={() => setManagingFor(r.id)} className="text-xs text-accent hover:text-accent-soft">
+                      <button onClick={() => setManagingFor(r.id)} className="btn-secondary">
                         {variationsFor(r.id).length > 0 ? "Manage variations" : "+ Link variations"}
                       </button>
                     </div>
@@ -616,19 +616,19 @@ export default function RecipesTab() {
                     <div className="flex gap-3 px-4 py-2.5 border-t border-line bg-surface/30">
                       <button
                         onClick={() => openEdit(r)}
-                        className="text-xs text-secondary hover:text-strong transition-colors"
+                        className="btn-secondary"
                       >
                         Edit recipe
                       </button>
                       <button
                         onClick={() => openClone(r)}
-                        className="text-xs text-secondary hover:text-strong transition-colors"
+                        className="btn-secondary"
                       >
                         Clone
                       </button>
                       <button
                         onClick={() => handleDelete(r.id, r.beer_name)}
-                        className="text-xs text-faint hover:text-danger transition-colors"
+                        className="btn-danger"
                       >
                         Delete
                       </button>
@@ -738,7 +738,7 @@ export default function RecipesTab() {
                   <span className="text-xs text-faint">(qty per turn)</span>
                 </div>
                 <button type="button" onClick={addIngredientLine}
-                  className="text-xs text-accent-emphasis hover:text-accent transition-colors shrink-0">
+                  className="btn-secondary shrink-0">
                   + Add ingredient
                 </button>
               </div>
@@ -763,11 +763,11 @@ export default function RecipesTab() {
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs text-muted font-medium">Ingredient {i + 1}</span>
                             <button type="button" onClick={() => removeIngredientLine(i)}
-                              className="text-faint hover:text-danger transition-colors text-sm">× Remove</button>
+                              className="btn-danger btn-xxs">× Remove</button>
                           </div>
                           <div>
                             <label className="text-xs text-muted mb-1 block">Category</label>
-                            <select className="inp" value={line.category}
+                            <select className="inp-sm" value={line.category}
                               onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i
                                 ? { ...l, category: e.target.value as IngredientCategory | "", ingredient_id: "" }
                                 : l))}>
@@ -849,7 +849,7 @@ export default function RecipesTab() {
                         return (
                           <tr key={i} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
                             <td className="px-3 py-1.5">
-                              <select className="inp" value={line.category}
+                              <select className="inp-sm" value={line.category}
                                 onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i
                                   ? { ...l, category: e.target.value as IngredientCategory | "", ingredient_id: "" }
                                   : l))}>
@@ -860,7 +860,7 @@ export default function RecipesTab() {
                               </select>
                             </td>
                             <td className="px-3 py-1.5 w-64">
-                              <select className="inp w-full" value={line.ingredient_id} disabled={!line.category}
+                              <select className="inp-sm w-full" value={line.ingredient_id} disabled={!line.category}
                                 onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, ingredient_id: e.target.value } : l))}>
                                 <option value="">{line.category ? "— select —" : "— pick category first —"}</option>
                                 {filteredIngs.map((ing) => (
@@ -878,7 +878,7 @@ export default function RecipesTab() {
                                 type="text"
                                 inputMode="decimal"
                                 placeholder="qty/turn"
-                                className="inp text-right w-full"
+                                className="inp-sm text-right w-full"
                                 value={line.quantity_per_turn}
                                 onChange={(e) => {
                                   const raw = e.target.value.replace(/,/g, "");
@@ -903,7 +903,7 @@ export default function RecipesTab() {
                             </td>
                             <td className="px-3 py-1.5 text-center">
                               <button type="button" onClick={() => removeIngredientLine(i)}
-                                className="text-faint hover:text-danger transition-colors">×</button>
+                                className="btn-danger btn-xxs">×</button>
                             </td>
                           </tr>
                         );
@@ -924,7 +924,7 @@ export default function RecipesTab() {
                     <select
                       value=""
                       onChange={(e) => { if (e.target.value) loadFromTemplate(e.target.value); }}
-                      className="text-xs bg-surface-mid border border-line-strong rounded px-2 py-1 text-secondary hover:border-line-subtle focus:outline-none"
+                      className="inp-sm"
                     >
                       <option value="">Load from template…</option>
                       {stepTemplates.map((t) => (
@@ -933,7 +933,7 @@ export default function RecipesTab() {
                     </select>
                   )}
                   <button type="button" onClick={addActivityLine}
-                    className="text-xs text-accent-emphasis hover:text-accent transition-colors">
+                    className="btn-secondary">
                     + Add step
                   </button>
                 </div>
@@ -956,28 +956,28 @@ export default function RecipesTab() {
                       {activityLines.map((al, i) => (
                         <tr key={i} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
                           <td className="px-3 py-1.5">
-                            <input className="inp text-xs w-full" placeholder="e.g. Mash in" value={al.activity}
+                            <input className="inp-sm w-full" placeholder="e.g. Mash in" value={al.activity}
                               onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, activity: e.target.value } : l))} />
                           </td>
                           <td className="px-2 py-1.5 w-20">
-                            <input type="number" step="1" className="inp text-xs text-right w-full" placeholder="0" value={al.time_label}
+                            <input type="number" step="1" className="inp-sm text-right w-full" placeholder="0" value={al.time_label}
                               onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, time_label: e.target.value } : l))} />
                           </td>
                           <td className="px-2 py-1.5 w-20">
-                            <input type="number" step="0.1" className="inp text-xs text-right w-full" placeholder="152" value={al.temp}
+                            <input type="number" step="0.1" className="inp-sm text-right w-full" placeholder="152" value={al.temp}
                               onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, temp: e.target.value } : l))} />
                           </td>
                           <td className="px-2 py-1.5 w-20">
-                            <input type="number" step="0.01" className="inp text-xs text-right w-full" placeholder="0" value={al.amount}
+                            <input type="number" step="0.01" className="inp-sm text-right w-full" placeholder="0" value={al.amount}
                               onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, amount: e.target.value } : l))} />
                           </td>
                           <td className="px-2 py-1.5 w-20">
-                            <input type="number" step="0.1" className="inp text-xs text-right w-full" placeholder="0" value={al.vsp}
+                            <input type="number" step="0.1" className="inp-sm text-right w-full" placeholder="0" value={al.vsp}
                               onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, vsp: e.target.value } : l))} />
                           </td>
                           <td className="px-3 py-1.5 text-center">
                             <button type="button" onClick={() => removeActivityLine(i)}
-                              className="text-faint hover:text-danger transition-colors">×</button>
+                              className="btn-danger btn-xxs">×</button>
                           </td>
                         </tr>
                       ))}

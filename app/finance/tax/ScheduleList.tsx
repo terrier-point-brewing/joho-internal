@@ -70,7 +70,7 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
     <section>
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-faint">Schedules</h3>
-        <button className="btn-primary btn-xxs" onClick={() => setEditingSchedule(null)}>
+        <button className="btn-primary" onClick={() => setEditingSchedule(null)}>
           + New Schedule
         </button>
       </div>
@@ -99,14 +99,14 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
                     {schedule.active ? "Active" : "Inactive"}
                   </Badge>
                   <button
-                    className="text-xs text-muted hover:text-body transition-colors"
+                    className="btn-secondary btn-xxs"
                     onClick={() => setEditingSchedule(schedule)}
                   >
                     Edit
                   </button>
                   {schedule.active && (
                     <button
-                      className="text-xs text-faint hover:text-danger transition-colors disabled:opacity-50"
+                      className="btn-danger btn-xxs"
                       disabled={busyId === schedule.id}
                       onClick={() => setDeactivating(schedule)}
                     >

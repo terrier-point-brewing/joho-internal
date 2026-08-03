@@ -23,6 +23,7 @@ import {
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { STAGE_LABELS } from "./EquipmentSchedule/constants";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 
 
 const BATCH_EMPTY = {
@@ -466,7 +467,7 @@ export default function BrewStatusTab() {
         {/* Mobile: New Batch shortcut */}
         <button
           onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
-          className="md:hidden btn-primary text-xs"
+          className="md:hidden btn-primary"
         >
           + New Batch
         </button>
@@ -484,11 +485,8 @@ export default function BrewStatusTab() {
             <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={() => setEditMode((v) => !v)}
-                className={`px-3 py-1.5 text-sm font-medium rounded border transition-colors ${
-                  editMode
-                    ? "border-accent-border bg-accent-muted/30 text-accent-soft hover:bg-accent-muted/50"
-                    : "border-line-strong bg-surface-mid text-secondary hover:text-strong"
-                }`}
+                aria-pressed={editMode}
+                className="btn-secondary"
               >
                 {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
               </button>
@@ -504,24 +502,18 @@ export default function BrewStatusTab() {
       <div className="md:hidden">
         {/* Filter bar */}
         <div className="flex gap-2 mb-4 -mx-4 px-4 overflow-x-auto scrollbar-none pb-1">
-          <button
-            onClick={() => setMobileFilter("all")}
-            className={`text-xs px-3 py-1 rounded border whitespace-nowrap transition-colors ${
-              mobileFilter === "all" ? "border-line-subtle text-primary bg-surface-mid" : "border-line-strong text-muted"
-            }`}
-          >
+          <ToggleChip active={mobileFilter === "all"} onClick={() => setMobileFilter("all")} className="whitespace-nowrap">
             All
-          </button>
+          </ToggleChip>
           {EQ_TYPES.map(([type, meta]) => (
-            <button
+            <ToggleChip
               key={type}
+              active={mobileFilter === type}
               onClick={() => setMobileFilter(type)}
-              className={`text-xs px-3 py-1 rounded border whitespace-nowrap transition-colors ${
-                mobileFilter === type ? meta.badge : "border-line-strong text-muted"
-              }`}
+              className={`whitespace-nowrap ${mobileFilter === type ? meta.badge : ""}`}
             >
               {meta.label}
-            </button>
+            </ToggleChip>
           ))}
         </div>
 
@@ -743,9 +735,9 @@ export default function BrewStatusTab() {
                     {tank.capacity_bbl && <span className="text-xs text-faint">{tank.capacity_bbl} BBL</span>}
                     <span className="text-xs text-disabled">{tank.grid_width}×{tank.grid_height}</span>
                   </div>
-                  <div className="flex gap-3 mt-1">
-                    <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-xs text-faint hover:text-secondary transition-colors">Edit</button>
-                    <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-xs text-faint hover:text-danger transition-colors">Delete</button>
+                  <div className="flex gap-1 mt-1">
+                    <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="btn-secondary btn-xxs">Edit</button>
+                    <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="btn-danger btn-xxs">Delete</button>
                   </div>
                 </div>
               );
@@ -766,7 +758,7 @@ export default function BrewStatusTab() {
                 setGridCols(v);
                 saveGridSize(v, gridRows);
               }}
-              className="w-16 bg-surface-mid border border-line-strong rounded px-1.5 py-0.5 text-strong text-xs" />
+              className="inp-sm w-16" />
           </label>
           <label className="flex items-center gap-1.5">
             Rows
@@ -776,7 +768,7 @@ export default function BrewStatusTab() {
                 setGridRows(v);
                 saveGridSize(gridCols, v);
               }}
-              className="w-16 bg-surface-mid border border-line-strong rounded px-1.5 py-0.5 text-strong text-xs" />
+              className="inp-sm w-16" />
           </label>
           <span className="text-disabled">{gridCols * cell}×{gridRows * cell}px</span>
         </div>
@@ -1006,8 +998,7 @@ export default function BrewStatusTab() {
                                         <button
                                           onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(otherVol); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                           onMouseDown={(e) => e.stopPropagation()}
-                                          className="text-accent-emphasis hover:text-accent shrink-0"
-                                          style={{ fontSize: 8 }}
+                                          className="btn-primary btn-xxs shrink-0"
                                         >
                                           Transfer
                                         </button>
@@ -1172,9 +1163,9 @@ export default function BrewStatusTab() {
                     {/* Edit mode controls — brewer/admin only */}
                     {editMode && canEditEquipment && (
                       <div className="mt-auto pt-1 flex gap-1.5">
-                        <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="text-faint hover:text-body transition-colors" style={{ fontSize: 9 }}>Edit</button>
-                        <button onClick={() => removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="text-faint hover:text-accent transition-colors" style={{ fontSize: 9 }}>Unplace</button>
-                        {!assignment && <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="text-faint hover:text-danger transition-colors" style={{ fontSize: 9 }}>Del</button>}
+                        <button onClick={() => eqCrud.openEdit(tank)} onMouseDown={(e) => e.stopPropagation()} className="btn-secondary btn-xxs">Edit</button>
+                        <button onClick={() => removeFromGrid(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="btn-secondary btn-xxs">Unplace</button>
+                        {!assignment && <button onClick={() => eqCrud.handleDeleteEq(tank.id, tank.name)} onMouseDown={(e) => e.stopPropagation()} className="btn-danger btn-xxs">Del</button>}
                       </div>
                     )}
                   </div>
@@ -1213,21 +1204,18 @@ export default function BrewStatusTab() {
             <Field label="Type" required>
               <div className="grid grid-cols-3 gap-2">
                 {EQ_TYPES.map(([type, meta]) => (
-                  <button key={type} type="button"
+                  <ToggleChip
+                    key={type}
+                    active={eqCrud.eqForm.type === type}
                     onClick={() => eqCrud.setEqForm((f) => ({
                       ...f, type,
                       grid_width:  String(meta.defaultW),
                       grid_height: String(meta.defaultH),
                       capacity_bbl: UNCONSTRAINED_EQUIPMENT_TYPES.includes(type) ? "" : f.capacity_bbl,
                     }))}
-                    className={`px-2 py-2 rounded border text-xs font-medium transition-colors ${
-                      eqCrud.eqForm.type === type
-                        ? "border-accent-border bg-accent-muted/30 text-accent-soft"
-                        : "border-line-strong bg-surface-mid/50 text-secondary hover:border-line-subtle"
-                    }`}
                   >
                     {meta.label}
-                  </button>
+                  </ToggleChip>
                 ))}
               </div>
             </Field>
@@ -1314,7 +1302,7 @@ export default function BrewStatusTab() {
                   Blocked — {assign.assignShortfalls.length} ingredient
                   {assign.assignShortfalls.length > 1 ? "s" : ""} short.
                 </p>
-                <button type="button" className="btn-secondary btn-xxs"
+                <button type="button" className="btn-secondary"
                   onClick={() => setShortfallDetail({
                     shortfalls: assign.assignShortfalls!,
                     batchLabel: (() => {

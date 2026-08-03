@@ -99,7 +99,7 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
       {!readOnly && (
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex items-center gap-2 shrink-0">
-            <label className="btn-secondary btn-xxs cursor-pointer">
+            <label className="btn-secondary cursor-pointer">
               Choose File
               <input
                 ref={fileInputRef}
@@ -128,7 +128,7 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
           </div>
           <button
             type="button"
-            className="btn-secondary btn-xxs"
+            className="btn-secondary"
             onClick={handleUpload}
             disabled={!selectedFile || uploading}
           >

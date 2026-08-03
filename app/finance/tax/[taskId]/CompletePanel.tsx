@@ -66,7 +66,7 @@ export default function CompletePanel({ taskId, task }: { taskId: string; task: 
       <Card>
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-faint">Submission Confirmed</p>
-          <button type="button" className="btn-secondary btn-xxs" onClick={startEditing}>
+          <button type="button" className="btn-secondary" onClick={startEditing}>
             Edit
           </button>
         </div>

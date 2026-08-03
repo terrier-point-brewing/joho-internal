@@ -56,7 +56,7 @@ export default function ListField<T>({
         </div>
         <button
           type="button"
-          className="btn-secondary btn-xxs shrink-0"
+          className="btn-secondary shrink-0"
           onClick={() => onChange([...items, blank()])}
         >
           {addLabel}
@@ -71,7 +71,7 @@ export default function ListField<T>({
               <div className="flex flex-col gap-1 shrink-0">
                 <button
                   type="button"
-                  className="btn-secondary btn-xxs"
+                  className="btn-secondary"
                   disabled={i === 0}
                   onClick={() => move(i, -1)}
                   aria-label={`Move ${label} item ${i + 1} up`}
@@ -80,7 +80,7 @@ export default function ListField<T>({
                 </button>
                 <button
                   type="button"
-                  className="btn-secondary btn-xxs"
+                  className="btn-secondary"
                   disabled={i === items.length - 1}
                   onClick={() => move(i, 1)}
                   aria-label={`Move ${label} item ${i + 1} down`}
@@ -89,7 +89,7 @@ export default function ListField<T>({
                 </button>
                 <button
                   type="button"
-                  className="btn-danger btn-xxs"
+                  className="btn-danger"
                   onClick={() => remove(i)}
                   aria-label={`Remove ${label} item ${i + 1}`}
                 >

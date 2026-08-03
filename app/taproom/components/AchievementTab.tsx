@@ -11,6 +11,7 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 
 const AchievementChart = dynamic(() => import("./AchievementChart"), {
   ssr: false,
@@ -129,10 +130,6 @@ function buildWeekRange(start: string, end: string): Omit<Period,"net_sales_cent
   }
   return out;
 }
-
-const selectCls = "bg-surface-mid border border-line-subtle rounded px-1.5 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent";
-const toggleBtn = (active: boolean) =>
-  `px-2 py-1 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium transition-colors ${active ? "bg-surface-high text-primary" : "bg-surface-mid text-secondary hover:text-strong"}`;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -368,32 +365,32 @@ export default function AchievementTab() {
 
       {/* Controls — one row, no scroll */}
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex rounded overflow-hidden border border-line-strong">
+        <div className="flex items-center gap-1">
           {(["quarter","year"] as Scope[]).map((s) => (
-            <button key={s} onClick={() => setScope(s)} className={toggleBtn(scope === s)}>
+            <ToggleChip key={s} active={scope === s} onClick={() => setScope(s)}>
               {s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
+            </ToggleChip>
           ))}
         </div>
 
-        <select value={year} onChange={(e) => setYear(Number(e.target.value))} className={selectCls}>
+        <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="inp-sm w-auto">
           {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((y) => (
             <option key={y} value={y}>{y}</option>
           ))}
         </select>
 
         {scope === "quarter" && (
-          <select value={quarter} onChange={(e) => setQuarter(Number(e.target.value))} className={selectCls}>
+          <select value={quarter} onChange={(e) => setQuarter(Number(e.target.value))} className="inp-sm w-auto">
             {[1,2,3,4].map((q) => <option key={q} value={q}>Q{q}</option>)}
           </select>
         )}
 
-        <div className="flex rounded overflow-hidden border border-line-strong">
+        <div className="flex items-center gap-1">
           {([["monthly","Mo"],["weekly","Wk"]] as const).map(([g, lbl]) => (
-            <button key={g} onClick={() => setGrain(g as Grain)} className={toggleBtn(grain === g)}>
+            <ToggleChip key={g} active={grain === g} onClick={() => setGrain(g as Grain)}>
               <span className="sm:hidden">{lbl}</span>
               <span className="hidden sm:inline">{g.charAt(0).toUpperCase() + g.slice(1)}</span>
-            </button>
+            </ToggleChip>
           ))}
         </div>
 
@@ -411,12 +408,15 @@ export default function AchievementTab() {
                 : x.year === year && x.tier === t.value
             );
             return (
-              <button key={t.value} onClick={() => setActiveTier(t.value)} disabled={!has}
-                className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                  activeTier === t.value ? t.selected : "border-line-strong text-secondary hover:border-line-subtle hover:text-strong"
-                }`}>
+              <ToggleChip
+                key={t.value}
+                active={activeTier === t.value}
+                onClick={() => has && setActiveTier(t.value)}
+                disabled={!has}
+                className={activeTier === t.value ? t.selected : ""}
+              >
                 {t.label}
-              </button>
+              </ToggleChip>
             );
           })}
           {quarterTiers.length === 0 && (
@@ -565,14 +565,11 @@ export default function AchievementTab() {
                 ? `Net Sales per ${grain === "monthly" ? "Month" : "Week"}`
                 : `Cumulative Net Sales`}
             </div>
-            <div className="flex rounded overflow-hidden border border-line-strong self-start sm:self-auto">
+            <div className="flex items-center gap-1 self-start sm:self-auto">
               {([["per-period","Per Period"],["cumulative","Cumulative"]] as const).map(([v, lbl]) => (
-                <button key={v} onClick={() => setChartView(v)}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    chartView === v ? "bg-surface-high text-primary" : "bg-surface-mid text-secondary hover:text-strong"
-                  }`}>
+                <ToggleChip key={v} active={chartView === v} onClick={() => setChartView(v)}>
                   {lbl}
-                </button>
+                </ToggleChip>
               ))}
             </div>
           </div>

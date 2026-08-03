@@ -220,7 +220,7 @@ export default function MappingGrid({
                       {n > 0 && (
                         <button
                           onClick={() => fillColumn(col)}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-info-surface/40 border border-info-border/50 text-info hover:bg-info-surface/40 transition-colors w-fit"
+                          className="btn-secondary btn-xxs self-start"
                         >
                           Fill {n}
                         </button>

@@ -112,13 +112,13 @@ export default function ClosePeriodFooter({
 
         {canManage &&
           (isClosed ? (
-            <button type="button" className="btn-secondary btn-xxs" disabled={busy} onClick={() => setReopening(true)}>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => setReopening(true)}>
               Reopen {label}
             </button>
           ) : (
             <button
               type="button"
-              className="btn-primary btn-xxs"
+              className="btn-primary"
               disabled={busy || openCount > 0}
               onClick={closeMonth}
               // Said here rather than only on refusal: a disabled button with

@@ -365,7 +365,7 @@ function InvoiceExpandedPanel({
               const itemLabel = catName ?? storedName;
               const note = lineItemNote(li);
               const isEditing = editingId === li.id;
-              const inpCls = "bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong";
+              const inpCls = "inp-sm";
 
               if (isEditing) {
                 const liveQty = Number(editQty);
@@ -407,7 +407,7 @@ function InvoiceExpandedPanel({
                       <button
                         onClick={() => saveEdit(li.id)}
                         disabled={actionLoading}
-                        className="text-success hover:text-success/80 disabled:opacity-30 mr-1.5"
+                        className="btn-primary btn-xxs mr-1.5"
                         aria-label="Save line item"
                       >
                         {actionLoading ? "…" : "✓"}
@@ -415,7 +415,7 @@ function InvoiceExpandedPanel({
                       <button
                         onClick={cancelEdit}
                         disabled={actionLoading}
-                        className="text-faint hover:text-body disabled:opacity-30"
+                        className="btn-secondary btn-xxs"
                         aria-label="Cancel edit"
                       >
                         ×
@@ -443,7 +443,7 @@ function InvoiceExpandedPanel({
                       <button
                         onClick={() => startEdit(li)}
                         disabled={actionLoading || !!editingId}
-                        className="text-faint hover:text-accent disabled:opacity-30 mr-1.5"
+                        className="btn-secondary btn-xxs mr-1.5"
                         aria-label="Edit line item"
                       >
                         ✎
@@ -451,7 +451,7 @@ function InvoiceExpandedPanel({
                       <button
                         onClick={() => removeLineItem(li.id)}
                         disabled={actionLoading || !!editingId}
-                        className="text-faint hover:text-danger disabled:opacity-30"
+                        className="btn-danger btn-xxs"
                         aria-label="Remove line item"
                       >
                         ×
@@ -475,7 +475,7 @@ function InvoiceExpandedPanel({
             {!addOpen ? (
               <button
                 onClick={() => setAddOpen(true)}
-                className="text-xs text-accent-emphasis hover:text-accent transition-colors"
+                className="btn-secondary"
               >
                 + Add line item
               </button>
@@ -490,7 +490,7 @@ function InvoiceExpandedPanel({
                       setAddMappingId(e.target.value);
                       if (e.target.value) setAddNote("");
                     }}
-                    className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong flex-1"
+                    className="inp-sm flex-1"
                   >
                     <option value="">Custom line item</option>
                     {selectableMappings.map((m) => (
@@ -506,7 +506,7 @@ function InvoiceExpandedPanel({
                     placeholder="Item note / description"
                     value={addNote}
                     onChange={(e) => setAddNote(e.target.value)}
-                    className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong flex-1"
+                    className="inp-sm flex-1"
                   />
                   <label htmlFor="add-qty" className="sr-only">Quantity</label>
                   <input
@@ -516,7 +516,7 @@ function InvoiceExpandedPanel({
                     value={addQty}
                     min="1"
                     onChange={(e) => setAddQty(e.target.value)}
-                    className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-16"
+                    className="inp-sm w-16"
                   />
                   <label htmlFor="add-price" className="sr-only">Unit price</label>
                   <input
@@ -527,25 +527,25 @@ function InvoiceExpandedPanel({
                     min="0"
                     step="0.01"
                     onChange={(e) => setAddPrice(e.target.value)}
-                    className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-28"
+                    className="inp-sm w-28"
                   />
                 </div>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setAddOpen(false); setAddNote(""); setAddQty("1");
+                      setAddPrice(""); setAddMappingId("");
+                    }}
+                    className="btn-secondary"
+                  >
+                    Cancel
+                  </button>
                   <button
                     onClick={addLineItem}
                     disabled={actionLoading || (!addNote && !addMappingId) || !addPrice}
                     className="btn-secondary"
                   >
                     {actionLoading ? "Adding…" : "Add"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setAddOpen(false); setAddNote(""); setAddQty("1");
-                      setAddPrice(""); setAddMappingId("");
-                    }}
-                    className="text-xs text-muted hover:text-body"
-                  >
-                    Cancel
                   </button>
                 </div>
               </div>

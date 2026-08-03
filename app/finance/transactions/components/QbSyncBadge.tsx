@@ -1,5 +1,6 @@
 import { normalizeQbSyncStatus, qbSyncLabel, type RampObject } from "@/lib/finance/qbSyncStatus";
 import { QB_SYNC_CLS } from "../../lib/categoryColors";
+import Badge from "@/app/components/ui/Badge";
 
 /**
  * Compact pill showing whether Ramp has synced a row to QuickBooks. Renders
@@ -10,9 +11,9 @@ export default function QbSyncBadge({ status, rampObject }: { status: string | n
   const state = normalizeQbSyncStatus(status);
   if (state === "unknown") return null;
   return (
-    <span className={`px-1.5 py-0.5 rounded text-2xs font-medium ${QB_SYNC_CLS[state]}`}>
+    <Badge tone="none" className={QB_SYNC_CLS[state]}>
       {qbSyncLabel(status, rampObject)}
-    </span>
+    </Badge>
   );
 }
 

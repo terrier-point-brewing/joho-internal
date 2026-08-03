@@ -42,7 +42,7 @@ export default function ProductCodeInput({
     <label className="flex items-center gap-1.5">
       <span className="text-xs text-faint">Code</span>
       <input
-        className="inp text-xs w-32 py-1"
+        className="inp-sm w-32"
         placeholder="product code"
         value={value}
         disabled={saving}

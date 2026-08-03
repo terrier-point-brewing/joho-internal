@@ -99,7 +99,7 @@ export default function SafetyStockTab({
                     </td>
                     <td className="px-4 py-2.5">
                       <input
-                        type="number" step="0.1" min="0" className="inp max-w-[120px]"
+                        type="number" step="0.1" min="0" className="inp-sm max-w-[120px]"
                         placeholder="0.0"
                         value={draft}
                         onChange={(e) => setDrafts((d) => ({ ...d, [recipe.id]: e.target.value }))}
@@ -109,7 +109,7 @@ export default function SafetyStockTab({
                       <button
                         onClick={() => saveFloor(recipe.id)}
                         disabled={savingId === recipe.id || draft === ""}
-                        className="text-xs text-accent-emphasis hover:text-accent font-medium disabled:opacity-50"
+                        className="btn-primary btn-xxs"
                       >
                         {savingId === recipe.id ? "Saving…" : "Save"}
                       </button>

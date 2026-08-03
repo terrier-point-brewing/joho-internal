@@ -8,6 +8,7 @@ import { useTaxPartiesQuery } from "@/app/finance/tax/hooks/useTaxData";
 import IdentityForm from "./IdentityForm";
 import ReferenceDisclosure from "./ReferenceDisclosure";
 import SettingsHeader from "@/app/settings/SettingsHeader";
+import ButtonGroup from "@/app/components/ButtonGroup";
 
 /**
  * Finance → Settings → Tax Filing: one pane per tax-filing MODULE (party
@@ -31,7 +32,15 @@ export default function TaxFilingSettingsPage() {
         <SettingsHeader
           title="Tax Filing"
           description="Per-module Square mappings and the statutory rate tables each filing worksheet relies on."
-        />
+        >
+          {activeModule && parties.length >= 1 && (
+            <ButtonGroup
+              tabs={parties.map((p) => ({ key: p.key, label: p.label }))}
+              activeKey={activeModule.key}
+              onSelect={setSelectedKey}
+            />
+          )}
+        </SettingsHeader>
       </div>
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">
         {partiesQuery.isLoading && <p className="text-sm text-faint">Loading…</p>}
@@ -46,23 +55,6 @@ export default function TaxFilingSettingsPage() {
 
         {activeModule && (
           <>
-            {parties.length >= 1 && (
-              <label className="flex items-center gap-2 text-sm text-body">
-                Module
-                <select
-                  className="inp-sm w-auto"
-                  value={activeModule.key}
-                  onChange={(e) => setSelectedKey(e.target.value)}
-                >
-                  {parties.map((p) => (
-                    <option key={p.key} value={p.key}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
             {activeModule.settingsSchema.length > 0 && (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-primary">Square Mappings</h3>

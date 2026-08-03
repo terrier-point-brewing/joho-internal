@@ -113,7 +113,7 @@ function DepositInvoiceTermsSection() {
           max={365}
           value={draft !== "" ? draft : days}
           onChange={(e) => setDraft(e.target.value)}
-          className="bg-surface-mid border border-line-strong rounded px-2 py-1 text-xs text-strong w-20"
+          className="inp-sm w-20"
         />
         <span className="text-xs text-muted">days</span>
         <button onClick={save} disabled={saving} className="btn-primary">

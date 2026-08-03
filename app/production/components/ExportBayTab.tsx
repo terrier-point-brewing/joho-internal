@@ -217,7 +217,7 @@ function PhantomAlertRow({
             type="button"
             onClick={onResolve}
             disabled={!selectedLotKey || resolving}
-            className="btn-primary btn-xxs"
+            className="btn-primary"
           >
             {resolving ? "…" : "Resolve"}
           </button>
@@ -226,7 +226,7 @@ function PhantomAlertRow({
           type="button"
           onClick={onDismiss}
           disabled={dismissing}
-          className="btn-secondary btn-xxs"
+          className="btn-secondary"
         >
           {dismissing ? "…" : "Dismiss"}
         </button>
@@ -295,7 +295,7 @@ function PhantomAlertsPanel({
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="btn-secondary btn-xxs whitespace-nowrap">
+      <button type="button" onClick={() => setOpen(true)} className="btn-secondary whitespace-nowrap">
         ⚑ {alerts.length} draft swap{alerts.length !== 1 ? "s" : ""} recorded without cold-storage stock
       </button>
       {open && (
@@ -815,7 +815,7 @@ export default function ExportBayTab() {
                                           <button
                                             type="button"
                                             onClick={() => undoWriteOff(a)}
-                                            className="text-[10px] text-faint hover:text-secondary underline decoration-dotted"
+                                            className="btn-secondary btn-xxs"
                                           >
                                             Undo
                                           </button>
@@ -833,7 +833,7 @@ export default function ExportBayTab() {
                                             type="button"
                                             onClick={() => setWriteOffAlloc(a)}
                                             title="Forgive the remaining owed volume and mark this allocation fulfilled"
-                                            className="text-[10px] text-faint hover:text-secondary underline decoration-dotted"
+                                            className="btn-secondary btn-xxs"
                                           >
                                             Write off
                                           </button>
@@ -850,7 +850,7 @@ export default function ExportBayTab() {
                           <div className="px-3 py-2">
                             <button
                               onClick={() => toggleFulfilled(recipeId)}
-                              className="text-xs text-faint hover:text-secondary transition-colors"
+                              className="btn-secondary"
                             >
                               {showFulfilled ? "− Hide fulfilled" : `+ Show ${fulfilledCount} fulfilled`}
                             </button>
@@ -1086,7 +1086,7 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
           <div>
             <label className="text-xs text-secondary block mb-1">Look-back (days)</label>
             <input
-              type="number" min="1" max="120" className="inp w-24"
+              type="number" min="1" max="120" className="inp-sm w-24"
               value={days} onChange={(e) => setDays(e.target.value)}
             />
           </div>
@@ -1255,7 +1255,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs text-secondary">Packaging</label>
-              <button type="button" className="text-xs text-accent-emphasis hover:text-accent"
+              <button type="button" className="btn-secondary"
                 onClick={() => setShipLines((ls) => [...ls, { variation_id: "", quantity: "" }])}>
                 + Add line
               </button>
@@ -1266,7 +1266,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                 return (
                   <div key={i}>
                     <div className="grid items-center gap-2" style={{ gridTemplateColumns: "1fr 72px auto" }}>
-                      <select className="inp" value={line.variation_id}
+                      <select className="inp-sm" value={line.variation_id}
                         onChange={(e) => setShipLines((ls) => ls.map((l, idx) => idx === i ? { ...l, variation_id: e.target.value } : l))}>
                         <option value="">— select —</option>
                         {inventoryLines.map((l) => (
@@ -1275,11 +1275,11 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                           </option>
                         ))}
                       </select>
-                      <input type="number" min="0" step="1" className="inp" placeholder="qty"
+                      <input type="number" min="0" step="1" className="inp-sm" placeholder="qty"
                         value={line.quantity}
                         onChange={(e) => setShipLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
                       {shipLines.length > 1
-                        ? <button type="button" className="text-faint hover:text-danger text-lg leading-none"
+                        ? <button type="button" className="btn-danger btn-xxs"
                             onClick={() => setShipLines((ls) => ls.filter((_, idx) => idx !== i))}>×</button>
                         : <span />}
                     </div>

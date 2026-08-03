@@ -89,7 +89,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
           Taproom sell-through by recipe — BBL on hand, daily rate, and brew-by date to avoid stockout.
         </p>
         <button onClick={() => loadInventory()}
-          className="px-3 py-1.5 border border-line-strong hover:border-line-subtle text-body text-sm font-medium rounded transition-colors">
+          className="btn-secondary">
           Refresh
         </button>
       </div>
@@ -181,11 +181,7 @@ export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
                     <button
                       onClick={() => toggleRetire(row.recipe_id, row.is_retired)}
                       disabled={retiring === row.recipe_id}
-                      className={`text-xs px-2 py-1 rounded border transition-colors ${
-                        row.is_retired
-                          ? "border-line-subtle text-secondary hover:border-line-subtle hover:text-strong"
-                          : "border-line-strong text-faint hover:border-line-subtle hover:text-secondary"
-                      } disabled:opacity-50`}
+                      className="btn-secondary btn-xxs"
                     >
                       {retiring === row.recipe_id ? "…" : row.is_retired ? "Unretire" : "Retire"}
                     </button>

@@ -125,7 +125,7 @@ export function ManualSplitPanel({
           />
           <button
             type="button"
-            className="btn-secondary btn-xxs"
+            className="btn-secondary"
             onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
             disabled={lines.length <= 2}
           >
@@ -137,7 +137,7 @@ export function ManualSplitPanel({
       <div className="flex items-center gap-3">
         <button
           type="button"
-          className="btn-secondary btn-xxs"
+          className="btn-secondary"
           onClick={() => setLines((ls) => [...ls, { chartOfAccountsId: "", amountRaw: rawFromCents(remainder), amountCents: remainder, memo: "" }])}
         >
           Add line
@@ -147,14 +147,14 @@ export function ManualSplitPanel({
         </span>
         <div className="flex-1" />
         {existing.length > 0 && (
-          <button type="button" className="btn-danger btn-xxs" onClick={clear} disabled={saving}>
+          <button type="button" className="btn-danger" onClick={clear} disabled={saving}>
             Clear split
           </button>
         )}
-        <button type="button" className="btn-secondary btn-xxs" onClick={onCancel} disabled={saving}>
+        <button type="button" className="btn-secondary" onClick={onCancel} disabled={saving}>
           Cancel
         </button>
-        <button type="button" className="btn-primary btn-xxs" onClick={save} disabled={!validation.ok || saving}>
+        <button type="button" className="btn-primary" onClick={save} disabled={!validation.ok || saving}>
           Save split
         </button>
         <SaveHint saving={saving} />

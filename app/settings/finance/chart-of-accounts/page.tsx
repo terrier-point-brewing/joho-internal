@@ -199,25 +199,25 @@ function EditPanel({
         <div className="space-y-1">
           <label className="text-2xs uppercase tracking-wider text-muted">Account Name <span className="text-danger">*</span></label>
           <input required value={form.account_name} onChange={(e) => setForm((f) => ({ ...f, account_name: e.target.value }))}
-            className="inp inp-sm w-full" />
+            className="inp-sm w-full" />
         </div>
         <div className="space-y-1">
           <label className="text-2xs uppercase tracking-wider text-muted">Account Number</label>
           <input value={form.account_number} onChange={(e) => setForm((f) => ({ ...f, account_number: e.target.value }))}
             placeholder="e.g. 4100"
-            className="inp inp-sm w-full" />
+            className="inp-sm w-full" />
         </div>
         <div className="space-y-1">
           <label className="text-2xs uppercase tracking-wider text-muted">Account Type <span className="text-danger">*</span></label>
           <select required value={form.account_type} onChange={(e) => setForm((f) => ({ ...f, account_type: e.target.value }))}
-            className="inp inp-sm w-full">
+            className="inp-sm w-full">
             {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div className="space-y-1">
           <label className="text-2xs uppercase tracking-wider text-muted">Parent Account</label>
           <select value={form.parent_id} onChange={(e) => setForm((f) => ({ ...f, parent_id: e.target.value }))}
-            className="inp inp-sm w-full">
+            className="inp-sm w-full">
             <option value="">— none (top-level) —</option>
             {parentOptions.sort((a, b) => (a.account_number ?? "").localeCompare(b.account_number ?? "") || a.account_name.localeCompare(b.account_name))
               .map((a) => (
@@ -233,7 +233,7 @@ function EditPanel({
             <span className="ml-1 text-faint normal-case">(auto if blank)</span>
           </label>
           <select value={form.statement_section} onChange={(e) => setForm((f) => ({ ...f, statement_section: e.target.value }))}
-            className="inp inp-sm w-full">
+            className="inp-sm w-full">
             <option value="">— auto from account type —</option>
             <optgroup label="P&L">
               {PL_SECTIONS.map((s) => <option key={s} value={s}>{SECTION_LABELS[s]}</option>)}
@@ -247,13 +247,13 @@ function EditPanel({
           <label className="text-2xs uppercase tracking-wider text-muted">Detail Type</label>
           <input value={form.detail_type} onChange={(e) => setForm((f) => ({ ...f, detail_type: e.target.value }))}
             placeholder="e.g. Sales of Product Income"
-            className="inp inp-sm w-full" />
+            className="inp-sm w-full" />
         </div>
         <div className="space-y-1 sm:col-span-2">
           <label className="text-2xs uppercase tracking-wider text-muted">Description</label>
           <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             placeholder="Optional description"
-            className="inp inp-sm w-full" />
+            className="inp-sm w-full" />
         </div>
       </div>
       <div className="flex items-center justify-between">
@@ -684,20 +684,20 @@ export default function ChartOfAccountsPage() {
                 <input required value={addForm.account_name}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_name: e.target.value }))}
                   placeholder="e.g. Merchandise Sales"
-                  className="inp inp-sm w-full" />
+                  className="inp-sm w-full" />
               </div>
               <div className="space-y-1">
                 <label className="text-2xs uppercase tracking-wider text-muted">Account Number</label>
                 <input value={addForm.account_number}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_number: e.target.value }))}
                   placeholder="e.g. 4100"
-                  className="inp inp-sm w-full" />
+                  className="inp-sm w-full" />
               </div>
               <div className="space-y-1">
                 <label className="text-2xs uppercase tracking-wider text-muted">Account Type <span className="text-danger">*</span></label>
                 <select required value={addForm.account_type}
                   onChange={(e) => setAddForm((f) => ({ ...f, account_type: e.target.value }))}
-                  className="inp inp-sm w-full">
+                  className="inp-sm w-full">
                   <option value="">— select type —</option>
                   {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -706,7 +706,7 @@ export default function ChartOfAccountsPage() {
                 <label className="text-2xs uppercase tracking-wider text-muted">Parent Account</label>
                 <select value={addForm.parent_id}
                   onChange={(e) => setAddForm((f) => ({ ...f, parent_id: e.target.value }))}
-                  className="inp inp-sm w-full">
+                  className="inp-sm w-full">
                   <option value="">— none (top-level) —</option>
                   {/*
                     Rendered straight off `accounts`, which the API already
@@ -730,7 +730,7 @@ export default function ChartOfAccountsPage() {
                 </label>
                 <select value={addForm.statement_section}
                   onChange={(e) => setAddForm((f) => ({ ...f, statement_section: e.target.value }))}
-                  className="inp inp-sm w-full">
+                  className="inp-sm w-full">
                   <option value="">— auto from account type —</option>
                   <optgroup label="P&L">
                     {PL_SECTIONS.map((s) => <option key={s} value={s}>{SECTION_LABELS[s]}</option>)}
@@ -745,14 +745,14 @@ export default function ChartOfAccountsPage() {
                 <input value={addForm.detail_type}
                   onChange={(e) => setAddForm((f) => ({ ...f, detail_type: e.target.value }))}
                   placeholder="e.g. Sales of Product Income"
-                  className="inp inp-sm w-full" />
+                  className="inp-sm w-full" />
               </div>
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-2xs uppercase tracking-wider text-muted">Description</label>
                 <input value={addForm.description}
                   onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
                   placeholder="Optional description"
-                  className="inp inp-sm w-full" />
+                  className="inp-sm w-full" />
               </div>
             </div>
             <div className="flex items-center gap-3">

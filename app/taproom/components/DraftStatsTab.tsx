@@ -490,21 +490,14 @@ export default function DraftStatsTab() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => refetch()}
-            className="px-3 py-1.5 border border-line-strong hover:border-line-subtle text-body text-sm font-medium rounded transition-colors">
+          <button onClick={() => refetch()} className="btn-secondary">
             Refresh
           </button>
-          <button onClick={editingTaps ? saveTaps : startEditTaps} disabled={saving}
-            className={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
-              editingTaps
-                ? "bg-accent-emphasis hover:bg-accent text-canvas"
-                : "border border-line-strong hover:border-line-subtle text-body"
-            }`}>
+          <button onClick={editingTaps ? saveTaps : startEditTaps} disabled={saving} className="btn-primary">
             {saving ? "Saving…" : editingTaps ? "Save Taps" : "Configure Taps"}
           </button>
           {editingTaps && (
-            <button onClick={() => setEditingTaps(false)}
-              className="px-3 py-1.5 border border-line-strong text-muted text-sm rounded transition-colors hover:text-body">
+            <button onClick={() => setEditingTaps(false)} className="btn-secondary">
               Cancel
             </button>
           )}
@@ -556,7 +549,7 @@ export default function DraftStatsTab() {
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs text-secondary whitespace-nowrap">Restock item:</label>
             <select
-              className="inp text-xs w-56"
+              className="inp-sm w-56"
               value={restockItemId}
               onChange={(e) => setRestockItemId(e.target.value)}
             >
@@ -655,7 +648,7 @@ export default function DraftStatsTab() {
                     <div className="space-y-1">
                       <label className="block text-xs text-secondary">Beer on this tap</label>
                       <select
-                        className="inp text-xs w-full"
+                        className="inp-sm w-full"
                         value={edit.recipe_id}
                         onChange={(e) => setTapEdit(tapNum, "recipe_id", e.target.value)}
                       >
@@ -668,7 +661,7 @@ export default function DraftStatsTab() {
                     <div className="space-y-1">
                       <label className="block text-xs text-secondary">Tap label (optional)</label>
                       <input
-                        className="inp text-xs w-full"
+                        className="inp-sm w-full"
                         placeholder="e.g. House lager"
                         value={edit.label}
                         onChange={(e) => setTapEdit(tapNum, "label", e.target.value)}
@@ -677,7 +670,7 @@ export default function DraftStatsTab() {
                     <div className="space-y-1">
                       <label className="block text-xs text-secondary">Square “Draft Restock” line</label>
                       <select
-                        className="inp text-xs w-full disabled:opacity-40"
+                        className="inp-sm w-full disabled:opacity-40"
                         value={edit.restock_variation_id}
                         disabled={!restockItemId}
                         title={restockItemId ? "Square Draft Restock variation for this tap" : "Pick the restock item above first"}
@@ -700,7 +693,7 @@ export default function DraftStatsTab() {
                           <div className="space-y-1">
                             <label className="block text-xs text-secondary">Keg to drain on swap</label>
                             <select
-                              className="inp text-xs w-full disabled:opacity-40"
+                              className="inp-sm w-full disabled:opacity-40"
                               value={edit.swap_variation_id}
                               disabled={!edit.recipe_id}
                               title="Keg variation drained when this tap is swapped"
@@ -889,7 +882,7 @@ export default function DraftStatsTab() {
 
             <Field label="Beer going on" required>
               <select
-                className="inp text-xs w-full"
+                className="inp w-full"
                 value={swapRecipeId}
                 required
                 onChange={(e) => { setSwapRecipeId(e.target.value); setSwapKegId(""); }}
@@ -903,7 +896,7 @@ export default function DraftStatsTab() {
 
             <Field label="Keg to drain" required>
               <select
-                className="inp text-xs w-full disabled:opacity-40"
+                className="inp w-full disabled:opacity-40"
                 value={swapKegId}
                 required
                 disabled={!swapRecipeId}

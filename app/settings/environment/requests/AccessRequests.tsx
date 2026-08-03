@@ -77,14 +77,14 @@ export default function AccessRequests() {
                         <button
                           onClick={() => action.mutate({ id: r.id, status: "approved" })}
                           disabled={action.isPending}
-                          className="text-xs px-2 py-1 rounded bg-success-surface/40 text-success hover:bg-success-surface/60 transition-colors disabled:opacity-50"
+                          className="btn-primary btn-xxs"
                         >
                           Approve
                         </button>
                         <button
                           onClick={() => action.mutate({ id: r.id, status: "denied" })}
                           disabled={action.isPending}
-                          className="text-xs px-2 py-1 rounded bg-surface-mid text-muted hover:text-danger transition-colors disabled:opacity-50"
+                          className="btn-danger btn-xxs"
                         >
                           Deny
                         </button>
