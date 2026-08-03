@@ -33,13 +33,18 @@ function accountLabel(accounts: CoARef[], id: string) {
 
 interface Props {
   periodId: string;
+  /** The app's own wage expectation for shift-tracked staff (base + paycheck
+   *  tips + bonus), from the Summary tab's effective totals. Drives the taproom
+   *  check below; omit it and that block simply doesn't render. */
+  appTaproomWagesCents?: number | null;
 }
 
 // Upload/parse a Gusto payroll journal CSV for this pay period, and show the
 // audit trail (parsed employees, GL totals, unmapped-department warnings,
 // and reconciliation against expenses already matched to this period).
-export function GustoUploadPanel({ periodId }: Props) {
+export function GustoUploadPanel({ periodId, appTaproomWagesCents = null }: Props) {
   const [accounts, setAccounts] = useState<CoARef[]>([]);
+  const [taproomAccountId, setTaproomAccountId] = useState<string | null>(null);
   const [state, setState] = useState<GustoReportState | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -48,15 +53,19 @@ export function GustoUploadPanel({ periodId }: Props) {
 
   const loadAll = useCallback(async () => {
     try {
-      const [coaRes, reportRes] = await Promise.all([
+      const [coaRes, reportRes, settingsRes] = await Promise.all([
         fetch("/api/finance/chart-of-accounts"),
         fetch(`/api/payroll/periods/${periodId}/gusto-report`),
+        fetch("/api/finance/settings/payroll-department-mappings"),
       ]);
       const coa = await coaRes.json();
       const report = await reportRes.json();
       if (!reportRes.ok) throw new Error(report?.error ?? "Failed to load Gusto report.");
       setAccounts(Array.isArray(coa) ? coa : []);
       setState(report as GustoReportState);
+      // Best-effort: the taproom check is an extra, so a settings read that
+      // fails shouldn't take the upload panel down with it.
+      setTaproomAccountId(settingsRes.ok ? ((await settingsRes.json())?.taproomAccountId ?? null) : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load Gusto report.");
     } finally {
@@ -113,6 +122,25 @@ export function GustoUploadPanel({ periodId }: Props) {
   const hasReconciliation = report != null && matchedExpenses.length > 0;
   const varianceFlagged = hasReconciliation && Math.abs(varianceCents) > VARIANCE_FLAG_CENTS;
   const awaitingUploadCount = report == null ? matchedExpenses.length : 0;
+
+  // Taproom check: the app's expectation for shift-tracked staff against what
+  // Gusto actually paid them. Deliberately excludes the salaried wage buckets
+  // -- the app has no shift data behind those, so including them would produce
+  // a variance of several thousand dollars that means nothing. Paycheck tips
+  // count on both sides: Gusto disburses them and the app's tip pool predicts
+  // them, so a gap there is a real finding.
+  const gustoTaproomWagesCents = taproomAccountId
+    ? totals
+        .filter((t) => t.chart_of_accounts_id === taproomAccountId && t.bucket_kind !== "tips")
+        .reduce((s, t) => s + t.amount_cents, 0)
+    : null;
+  const gustoTipsCents = totals.filter((t) => t.bucket_kind === "tips").reduce((s, t) => s + t.amount_cents, 0);
+  const gustoTaproomTotalCents =
+    gustoTaproomWagesCents === null ? null : gustoTaproomWagesCents + gustoTipsCents;
+  const showTaproomCheck =
+    report != null && appTaproomWagesCents !== null && gustoTaproomTotalCents !== null;
+  const taproomVarianceCents = showTaproomCheck ? appTaproomWagesCents! - gustoTaproomTotalCents! : 0;
+  const taproomFlagged = Math.abs(taproomVarianceCents) > VARIANCE_FLAG_CENTS;
 
   return (
     <div className="space-y-4">
@@ -176,6 +204,40 @@ export function GustoUploadPanel({ periodId }: Props) {
               </tfoot>
             </table>
           </div>
+
+          {showTaproomCheck && (
+            <div>
+              <h3 className="text-sm font-semibold text-strong mb-2">Taproom check</h3>
+              <p className="text-xs text-muted mb-2">
+                What the app expects for staff who clock Square shifts, against what Gusto paid them. Salaried
+                wages are excluded on both sides — there are no shifts behind them to check.
+              </p>
+              <table className="w-full text-sm max-w-md">
+                <tbody>
+                  <tr className="border-b border-line">
+                    <td className="py-2 px-3 text-body">App expects (base + paycheck tips + bonus)</td>
+                    <td className="py-2 px-3 text-right font-mono text-body">{fmtCents(appTaproomWagesCents!)}</td>
+                  </tr>
+                  <tr className="border-b border-line">
+                    <td className="py-2 px-3 text-body">
+                      Gusto paid ({accountLabel(accounts, taproomAccountId!)} + tips)
+                    </td>
+                    <td className="py-2 px-3 text-right font-mono text-body">{fmtCents(gustoTaproomTotalCents!)}</td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-line-strong">
+                    <td className="py-2 px-3 text-muted text-xs font-medium">Difference</td>
+                    <td className="py-2 px-3 text-right">
+                      <Badge tone={taproomFlagged ? "danger" : "success"}>
+                        {taproomFlagged ? fmtCents(taproomVarianceCents) : "Balanced"}
+                      </Badge>
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
 
           <div>
             <h3 className="text-sm font-semibold text-strong mb-2">Parsed employees</h3>

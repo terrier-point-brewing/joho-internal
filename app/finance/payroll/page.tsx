@@ -20,8 +20,8 @@ const CONTROLS: ControlsConfig<PayPeriodSummary> = {
     columns: [
       { key: "period", accessor: (p) => p.start_date },
       { key: "due", accessor: (p) => p.due_date ?? "" },
-      { key: "basis", accessor: (p) => p.appWagesCents ?? -1 },
-      { key: "gusto", accessor: (p) => p.gustoWagesCents ?? -1 },
+      { key: "taproom", accessor: (p) => p.gustoTaproomWagesCents ?? -1 },
+      { key: "total", accessor: (p) => p.gustoTotalCents ?? -1 },
     ],
     default: { key: "period", dir: "desc" },
   },

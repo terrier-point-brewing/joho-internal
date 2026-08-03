@@ -49,27 +49,44 @@ export interface PayPeriod {
 
 /** A pay period enriched with the per-period rollups shown in the Finance →
  *  Payroll periods table (computed in lib/payroll/periodSummary.ts, no Square).
+ *
+ *  The four `gusto*` money fields are a partition of the uploaded report —
+ *  taproom + salaried + tips + employer tax = gustoTotalCents — so the table
+ *  can show the arithmetic instead of asking the reader to trust it. The two
+ *  variances each compare like with like:
+ *    taproomVarianceCents  app's expectation ↔ Gusto, for shift-tracked staff only
+ *    reconciliationCents   Gusto's total cost ↔ what actually left the bank
+ *
  *  Nullable money fields are `null` (not 0) when the underlying source is
- *  absent: app basis is null until the period is locked; Gusto/drift/recon are
- *  null until a Gusto report is uploaded and expenses are matched. */
+ *  absent: app basis is null until the period is locked; Gusto figures are
+ *  null until a report is uploaded; reconciliation until expenses are matched. */
 export interface PayPeriodSummary extends PayPeriod {
   entryCount: number;
   /** Total comp basis (wages + cash tips) from the lock-time snapshot; null if not locked. */
   appBasisCents: number | null;
-  /** Wage-only basis (excludes cash tips) — the figure comparable to Gusto wage buckets. */
+  /** Wage-only basis (base + paycheck tips + bonus, excludes cash tips); null if not locked. */
   appWagesCents: number | null;
   /** Cash tips portion of appBasisCents — kept by staff directly, never disbursed by Gusto. appWagesCents + appCashTipsCents = appBasisCents. */
   appCashTipsCents: number | null;
-  /** Σ of the active Gusto report's GL totals (wages + employer taxes); null if no report. */
+  /** Σ of the active Gusto report's GL totals (wages + tips + employer taxes); null if no report. */
   gustoTotalCents: number | null;
-  /** Gusto GL totals excluding the payroll-taxes account — comparable to appWagesCents. */
-  gustoWagesCents: number | null;
-  /** Employer payroll-tax total from the active Gusto report — the bucket excluded from gustoWagesCents; null if no report or no taxes account configured. */
+  /** Wages posted to the configured taproom account — the only wage bucket the
+   *  app has shift data to check. Null if no report or no taproom account configured. */
+  gustoTaproomWagesCents: number | null;
+  /** Every other wage bucket (salaried brewers, admin). Displayed so the total
+   *  adds up, never compared — the app has no independent basis for it. */
+  gustoSalariedWagesCents: number | null;
+  /** Paycheck tips from the active Gusto report — a balance-sheet pass-through,
+   *  but real money in the bank debit, so it belongs in the total. */
+  gustoTipsCents: number | null;
+  /** Employer payroll-tax total from the active Gusto report; null if no report or no taxes account configured. */
   gustoEmployerTaxCents: number | null;
   reportUploadedAt: string | null;
   reportFilename: string | null;
-  /** appWagesCents − gustoWagesCents; null if either side is missing. */
-  driftCents: number | null;
+  /** appWagesCents − (gustoTaproomWagesCents + gustoTipsCents); null if either
+   *  side is missing. Tips count on both sides — they're disbursed through the
+   *  paycheck and the app has its own tip-pool expectation for them. */
+  taproomVarianceCents: number | null;
   matchedCount: number;
   /** Σ|amount| of matched bank withdrawals. */
   matchedSumCents: number;

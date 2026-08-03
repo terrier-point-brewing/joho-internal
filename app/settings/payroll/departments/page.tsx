@@ -27,6 +27,7 @@ export default function PayrollDepartmentMappingsPage() {
   const [rows, setRows] = useState<DepartmentMappingRow[]>([]);
   const [payrollTaxesAccountId, setPayrollTaxesAccountId] = useState<string | null>(null);
   const [tipsAccountId, setTipsAccountId] = useState<string | null>(null);
+  const [taproomAccountId, setTaproomAccountId] = useState<string | null>(null);
   const [newDepartmentName, setNewDepartmentName] = useState("");
   const [newDepartmentAccountId, setNewDepartmentAccountId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,6 +56,7 @@ export default function PayrollDepartmentMappingsPage() {
       );
       setPayrollTaxesAccountId(map?.payrollTaxesAccountId ?? null);
       setTipsAccountId(map?.tipsAccountId ?? null);
+      setTaproomAccountId(map?.taproomAccountId ?? null);
     } catch {
       setError("Failed to load payroll department mappings.");
     } finally {
@@ -112,6 +114,7 @@ export default function PayrollDepartmentMappingsPage() {
           mappings: rows.map((r) => ({ departmentName: r.departmentName, chartOfAccountsId: r.chartOfAccountsId })),
           payrollTaxesAccountId,
           tipsAccountId,
+          taproomAccountId,
         }),
       });
       if (!res.ok) {
@@ -239,6 +242,24 @@ export default function PayrollDepartmentMappingsPage() {
               onChange={setTipsAccountId}
               accounts={tipsAccounts}
               placeholder="— select the tips liability account —"
+              shortLabel
+              className="w-full max-w-[360px]"
+            />
+          </Card>
+
+          <Card>
+            <h3 className="text-sm font-semibold text-strong">Shift-tracked wages account</h3>
+            <p className="text-xs text-muted mt-1 mb-2">
+              The one wage account whose staff clock shifts in Square, so the app can check what Gusto paid them
+              against its own hours and tip pool. Every other wage account is salaried payroll with no shift data
+              behind it — Finance → Payroll shows those figures but never checks them. Leave unset to turn the
+              taproom check off entirely.
+            </p>
+            <AccountSelect
+              value={taproomAccountId}
+              onChange={setTaproomAccountId}
+              accounts={accounts}
+              placeholder="— none, skip the taproom check —"
               shortLabel
               className="w-full max-w-[360px]"
             />

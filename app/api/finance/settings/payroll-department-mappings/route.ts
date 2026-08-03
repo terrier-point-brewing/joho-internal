@@ -6,8 +6,11 @@
  * employer tax across every department into one account), and by the tips
  * liability bucket (payroll_gl_settings.tips_chart_of_accounts_id, where
  * paycheck tips post as a balance-sheet pass-through instead of a wage
- * expense). GET reads all three; PUT replaces the full mapping set and
- * upserts the singleton settings row.
+ * expense), and by the taproom bucket
+ * (payroll_gl_settings.taproom_chart_of_accounts_id — the one wage account
+ * whose staff the app tracks via Square shifts, so lib/payroll/periodSummary.ts
+ * knows which wages it may check and which it may only display). GET reads all
+ * four; PUT replaces the full mapping set and upserts the singleton settings row.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
@@ -31,19 +34,27 @@ export async function GET() {
     const sb = createSupabaseAdminClient();
     const [mappingsResult, settingsResult] = await Promise.all([
       sb.from("payroll_department_gl_mappings").select("*").order("department_name", { ascending: true }),
-      sb.from("payroll_gl_settings").select("payroll_taxes_chart_of_accounts_id, tips_chart_of_accounts_id").maybeSingle(),
+      sb
+        .from("payroll_gl_settings")
+        .select("payroll_taxes_chart_of_accounts_id, tips_chart_of_accounts_id, taproom_chart_of_accounts_id")
+        .maybeSingle(),
     ]);
     if (mappingsResult.error) throw new Error(mappingsResult.error.message);
     if (settingsResult.error) throw new Error(settingsResult.error.message);
 
     const settings = settingsResult.data as
-      | { payroll_taxes_chart_of_accounts_id: string; tips_chart_of_accounts_id: string | null }
+      | {
+          payroll_taxes_chart_of_accounts_id: string;
+          tips_chart_of_accounts_id: string | null;
+          taproom_chart_of_accounts_id: string | null;
+        }
       | null;
 
     return NextResponse.json({
       mappings: (mappingsResult.data ?? []) as PayrollDepartmentGlMapping[],
       payrollTaxesAccountId: settings?.payroll_taxes_chart_of_accounts_id ?? null,
       tipsAccountId: settings?.tips_chart_of_accounts_id ?? null,
+      taproomAccountId: settings?.taproom_chart_of_accounts_id ?? null,
     });
   } catch (err) {
     return apiError(err);
@@ -58,6 +69,9 @@ export async function PUT(req: NextRequest) {
       mappings: { departmentName: string; chartOfAccountsId: string }[];
       payrollTaxesAccountId: string;
       tipsAccountId: string;
+      // Optional: an unset taproom account is a valid state — the periods
+      // table reports its taproom check as unavailable rather than guessing.
+      taproomAccountId?: string | null;
     };
     if (!body.payrollTaxesAccountId) return apiError("payrollTaxesAccountId required", 400);
     if (!body.tipsAccountId) return apiError("tipsAccountId required", 400);
@@ -90,6 +104,7 @@ export async function PUT(req: NextRequest) {
           id: true,
           payroll_taxes_chart_of_accounts_id: body.payrollTaxesAccountId,
           tips_chart_of_accounts_id: body.tipsAccountId,
+          taproom_chart_of_accounts_id: body.taproomAccountId ?? null,
         },
         { onConflict: "id" },
       );
@@ -105,6 +120,7 @@ export async function PUT(req: NextRequest) {
       mappings: (mappings ?? []) as PayrollDepartmentGlMapping[],
       payrollTaxesAccountId: body.payrollTaxesAccountId,
       tipsAccountId: body.tipsAccountId,
+      taproomAccountId: body.taproomAccountId ?? null,
     });
   } catch (err) {
     return apiError(err);
