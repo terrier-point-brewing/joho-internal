@@ -56,11 +56,14 @@ export default function ReleasesWorkbench({
   const seasonName = (id: string | null) => seasons.find((s) => s.id === id)?.name ?? null;
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-8 flex flex-col gap-4">
-      <PageHeader
-        title="Releases"
-        description="Everything a release needs to ship: recipe, release card, and label — one frame per beer."
-      />
+    <div className="flex flex-col h-full min-h-0">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
+        <PageHeader
+          title="Releases"
+          description="Everything a release needs to ship: recipe, release card, and label — one frame per beer."
+        />
+      </div>
+      <div className="flex-1 overflow-auto px-4 sm:px-6 pb-4 sm:pb-8">
       <div className="grid grid-cols-1 lg:grid-cols-[18rem_1fr] gap-4">
         {/* List + create */}
         <div className="flex flex-col gap-3">
@@ -124,6 +127,7 @@ export default function ReleasesWorkbench({
             <p className="text-sm text-secondary">Select a release, or add one to begin.</p>
           </Card>
         )}
+      </div>
       </div>
     </div>
   );

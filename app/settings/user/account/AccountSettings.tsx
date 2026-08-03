@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
 
 export default function AccountSettings() {
@@ -47,9 +46,7 @@ export default function AccountSettings() {
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
     <div className="max-w-md">
-      <StickyHeader>
-        <PageHeader title="Change Password" description="Set a new password for your account." />
-      </StickyHeader>
+      <SettingsHeader title="Change Password" description="Set a new password for your account." />
       <div className="pb-4 sm:pb-8">
       {error && <Banner tone="danger" className="mb-4">{error}</Banner>}
       {success && (

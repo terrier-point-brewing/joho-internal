@@ -1,17 +1,26 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import FinanceNav from "../../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
 import StickyHeader from "@/app/components/StickyHeader";
-import { PayrollPeriodView } from "@/app/components/payroll/PayrollPeriodView";
+import TabBar from "@/app/components/TabBar";
+import {
+  PayrollPeriodView,
+  PAYROLL_TAB_LABELS,
+  type PayrollTab,
+} from "@/app/components/payroll/PayrollPeriodView";
 import { PeriodSelector } from "@/app/components/payroll/PeriodSelector";
 import { queryKeys } from "@/lib/query-keys";
 import type { PayPeriod } from "@/lib/payroll/types";
 
+const TABS: PayrollTab[] = ["summary", "shifts", "adjustments", "gusto", "gustoUpload"];
+
 export default function FinancePayrollPeriodPage() {
   const { periodId } = useParams<{ periodId: string }>();
+  const [activeTab, setActiveTab] = useState<PayrollTab>(TABS[0]);
 
   const { data: periods } = useQuery<PayPeriod[]>({
     queryKey: queryKeys.payroll.periods(),
@@ -28,13 +37,15 @@ export default function FinancePayrollPeriodPage() {
             <PeriodSelector periods={periods} currentId={periodId} basePath="/finance/payroll" />
           )}
         </div>
+        <TabBar
+          tabs={TABS.map((key) => ({ key, label: PAYROLL_TAB_LABELS[key] }))}
+          activeKey={activeTab}
+          onSelect={setActiveTab}
+          className="mb-0"
+        />
       </StickyHeader>
       <div className="mt-4 pb-4 sm:pb-8">
-        <PayrollPeriodView
-          periodId={periodId}
-          editable
-          tabs={["summary", "shifts", "adjustments", "gusto", "gustoUpload"]}
-        />
+        <PayrollPeriodView periodId={periodId} editable activeTab={activeTab} />
       </div>
     </main>
   );

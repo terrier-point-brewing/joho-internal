@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import PageHeader from "@/app/components/PageHeader";
-import StickyHeader from "@/app/components/StickyHeader";
+import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
 import { queryKeys } from "@/lib/query-keys";
 import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
@@ -53,12 +52,10 @@ export default function BusinessSettings() {
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
     <div className="max-w-xl">
-      <StickyHeader>
-        <PageHeader
-          title="Business"
-          description="Location-wide settings that apply across every report and dashboard."
-        />
-      </StickyHeader>
+      <SettingsHeader
+        title="Business"
+        description="Location-wide settings that apply across every report and dashboard."
+      />
       <div className="pb-4 sm:pb-8">
       {error && <Banner tone="danger" className="mb-4">{error}</Banner>}
       {success && <Banner tone="success" className="mb-4">Timezone updated. Reports now use {label}.</Banner>}
