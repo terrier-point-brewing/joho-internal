@@ -16,6 +16,12 @@ import { fetchColdStorageOnHand } from "./coldStorageOnHand";
 import { fetchCurrentCounts } from "@/lib/square/inventory";
 import { findDeadLinks, type DeadLink } from "@/lib/square/linkHealth";
 
+/** A mapping problem the last consumption sync ran into, as recorded in cron_runs. */
+export interface SyncDiscrepancySummary {
+  kind: string;
+  detail: string;
+}
+
 export interface InventoryDrift {
   cans: FamilyMeasurement[];
   kegs: KegMeasurement[];
@@ -23,6 +29,8 @@ export interface InventoryDrift {
   deadLinks: DeadLink[];
   /** Comparable in principle, but one side could not be read this run. */
   unmeasured: (KegUnmeasured | { recipeId: string; reason: string })[];
+  /** Mapping-shaped findings from the most recent consumption sync. */
+  syncFindings: { at: string | null; items: SyncDiscrepancySummary[] };
   warnings: string[];
   /** Beer names for every recipe referenced above, so the UI needs no second call. */
   recipeNames: Record<string, string>;
@@ -74,6 +82,69 @@ async function loadRecipeNames(db: Db, recipeIds: string[]): Promise<Record<stri
   return out;
 }
 
+/** Discrepancy kinds that mean "a mapping is wrong", as opposed to operational noise. */
+const MAPPING_KINDS = new Set([
+  "unmapped_sale",
+  "link_missing_cold_storage_variation",
+  "unmapped_restock",
+  "unconfigured_draft_swap",
+]);
+
+/** PURE: turn a run's raw discrepancy list into one readable line each. */
+export function summariseSyncDiscrepancies(
+  discrepancies: Record<string, unknown>[],
+): SyncDiscrepancySummary[] {
+  const out: SyncDiscrepancySummary[] = [];
+  for (const d of discrepancies) {
+    const kind = String(d.kind ?? "");
+    if (!MAPPING_KINDS.has(kind)) continue;
+    switch (kind) {
+      case "unmapped_sale":
+        out.push({
+          kind,
+          detail: `${d.quantity} sold on Square variation ${d.squareVariationId} with no mapping to book it against`,
+        });
+        break;
+      case "link_missing_cold_storage_variation":
+        out.push({
+          kind,
+          detail: `${d.beerName || d.recipeId} · ${d.variationName || "?"} is linked to Square but has no cold-storage variation`,
+        });
+        break;
+      case "unmapped_restock":
+        out.push({
+          kind,
+          detail: `${d.count} restock ring(s) on variation ${d.squareVariationId}, which maps to no tap`,
+        });
+        break;
+      case "unconfigured_draft_swap":
+        out.push({
+          kind,
+          detail: `${d.beerName || d.recipeId}: ${d.swapCount} keg swap(s) with no swap keg configured`,
+        });
+        break;
+    }
+  }
+  return out;
+}
+
+async function loadSyncFindings(db: Db): Promise<InventoryDrift["syncFindings"]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (db as any)
+    .from("cron_runs")
+    .select("started_at, detail")
+    .eq("job", "taproom-consumption-sync")
+    .order("started_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(error.message);
+
+  const run = (data ?? [])[0] as { started_at: string; detail: Record<string, unknown> | null } | undefined;
+  if (!run) return { at: null, items: [] };
+
+  const raw = (run.detail?.discrepancies ?? []) as Record<string, unknown>[];
+  return { at: run.started_at, items: summariseSyncDiscrepancies(raw) };
+}
+
 export async function measureInventoryDrift(db: Db): Promise<InventoryDrift> {
   const warnings: string[] = [];
 
@@ -118,6 +189,17 @@ export async function measureInventoryDrift(db: Db): Promise<InventoryDrift> {
     warnings.push(`link health unavailable: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // Sales that could not be booked are found by the consumption sync, not here —
+  // detecting them needs a Square order search, which this read has no business
+  // repeating. The sync already records them in cron_runs.detail, so they are
+  // read back from there rather than recomputed.
+  let syncFindings: InventoryDrift["syncFindings"] = { at: null, items: [] };
+  try {
+    syncFindings = await loadSyncFindings(db);
+  } catch (e) {
+    warnings.push(`sync findings unavailable: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   const recipeNames = await loadRecipeNames(db, [
     ...cans.map((c) => c.recipeId),
     ...kegs.map((k) => k.recipeId),
@@ -125,5 +207,5 @@ export async function measureInventoryDrift(db: Db): Promise<InventoryDrift> {
     ...kegUnmeasured.map((u) => u.recipeId),
   ]);
 
-  return { cans, kegs, deadLinks, unmeasured: kegUnmeasured, warnings, recipeNames };
+  return { cans, kegs, deadLinks, unmeasured: kegUnmeasured, syncFindings, warnings, recipeNames };
 }

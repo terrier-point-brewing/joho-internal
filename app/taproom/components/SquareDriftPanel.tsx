@@ -13,6 +13,7 @@ interface DriftResponse {
   kegs: KegMeasurement[];
   deadLinks: DeadLink[];
   unmeasured: { recipeId: string; reason: string; variationName?: string | null }[];
+  syncFindings: { at: string | null; items: { kind: string; detail: string }[] };
   warnings: string[];
   recipeNames: Record<string, string>;
 }
@@ -106,6 +107,23 @@ export default function SquareDriftPanel() {
                 </span>
               </li>
             ))}
+          </ul>
+        </Banner>
+      )}
+
+      {data.syncFindings.items.length > 0 && (
+        <Banner tone="danger">
+          <div className="font-semibold mb-1">
+            The last consumption sync found {data.syncFindings.items.length} mapping problem
+            {data.syncFindings.items.length === 1 ? "" : "s"}.
+          </div>
+          <div className="text-xs mb-1.5">
+            Beer that moved with nowhere to book it. Until these are mapped, cold storage keeps
+            counting stock that has already left.
+            {data.syncFindings.at && ` Last run ${new Date(data.syncFindings.at).toLocaleString()}.`}
+          </div>
+          <ul className="text-xs flex flex-col gap-0.5">
+            {data.syncFindings.items.map((f, i) => <li key={i}>{f.detail}</li>)}
           </ul>
         </Banner>
       )}
