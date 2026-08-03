@@ -116,6 +116,7 @@ const settingsSchema: FieldSpec[] = [
     key: "general_sales_tax_id",
     label: "Square General Sales Tax",
     type: "select",
+    source: "square_tax",
     help: "The Square catalog tax representing NC general sales & use tax. Options are fetched from Square's catalog taxes when this field is rendered.",
   },
 ];
