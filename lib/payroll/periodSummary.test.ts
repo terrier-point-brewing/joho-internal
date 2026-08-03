@@ -125,32 +125,51 @@ function fakeClient(t: Record<string, Record<string, unknown>[]>): SupabaseClien
   } as unknown as SupabaseClient;
 }
 
+/** Shared fixture: one locked period with a Gusto report covering both a
+ *  shift-tracked (taproom) wage bucket and a salaried one. App basis is
+ *  15000 base + 500 paycheck tips + 200 bonus = 15700 wages, + 100 cash tips. */
+function reportFixture(settings: Record<string, unknown>) {
+  return {
+    pay_periods: [
+      { id: "A", start_date: "2026-06-01", end_date: "2026-06-14", due_date: "2026-06-15", status: "locked", locked_at: null, locked_by: null, created_at: "x" },
+    ],
+    payroll_config: [{ effective_from: "2026-06-01", base_rate_cents: 1000 }],
+    payroll_entries: [
+      { pay_period_id: "A", hours_worked: 10, paycheck_tips_cents: 500, cash_tips_cents: 100, bonus_cents: 0 },
+      { pay_period_id: "A", hours_worked: 5, paycheck_tips_cents: 0, cash_tips_cents: 0, bonus_cents: 200 },
+    ],
+    payroll_gl_settings: [settings],
+    payroll_gl_reports: [{ id: "r1", pay_period_id: "A", uploaded_at: "2026-06-30T00:00:00Z", original_filename: "june.csv" }],
+    payroll_gl_report_totals: [
+      { report_id: "r1", chart_of_accounts_id: "coa-taproom", amount_cents: 15000, bucket_kind: "wages" },
+      { report_id: "r1", chart_of_accounts_id: "coa-salaried", amount_cents: 40000, bucket_kind: "wages" },
+      { report_id: "r1", chart_of_accounts_id: "coa-tips-liability", amount_cents: 500, bucket_kind: "tips" },
+      { report_id: "r1", chart_of_accounts_id: "coa-tax", amount_cents: 3000, bucket_kind: "employer_tax" },
+    ],
+    payroll_period_expense_matches: [],
+    expenses: [],
+    expense_gl_splits: [],
+  };
+}
+
+const CONFIGURED = { payroll_taxes_chart_of_accounts_id: "coa-tax", taproom_chart_of_accounts_id: "coa-taproom" };
+
 describe("getPeriodSummaries", () => {
-  it("composes basis, Gusto totals (taxes excluded), drift, reconciliation, and split status per period", async () => {
+  it("composes basis, the Gusto cost partition, both checks, and split status per period", async () => {
     const summaries = await getPeriodSummaries(
       fakeClient({
+        ...reportFixture(CONFIGURED),
         pay_periods: [
           { id: "A", start_date: "2026-06-01", end_date: "2026-06-14", due_date: "2026-06-15", status: "locked", locked_at: null, locked_by: null, created_at: "x" },
           { id: "B", start_date: "2026-06-15", end_date: "2026-06-28", due_date: "2026-06-29", status: "open", locked_at: null, locked_by: null, created_at: "x" },
-        ],
-        payroll_config: [{ effective_from: "2026-06-01", base_rate_cents: 1000 }],
-        payroll_entries: [
-          { pay_period_id: "A", hours_worked: 10, paycheck_tips_cents: 500, cash_tips_cents: 100, bonus_cents: 0 },
-          { pay_period_id: "A", hours_worked: 5, paycheck_tips_cents: 0, cash_tips_cents: 0, bonus_cents: 200 },
-        ],
-        payroll_gl_settings: [{ payroll_taxes_chart_of_accounts_id: "coa-tax" }],
-        payroll_gl_reports: [{ id: "r1", pay_period_id: "A", uploaded_at: "2026-06-30T00:00:00Z", original_filename: "june.csv" }],
-        payroll_gl_report_totals: [
-          { report_id: "r1", chart_of_accounts_id: "coa-wage", amount_cents: 15650 },
-          { report_id: "r1", chart_of_accounts_id: "coa-tax", amount_cents: 3000 },
         ],
         payroll_period_expense_matches: [
           { pay_period_id: "A", expense_id: "e1" },
           { pay_period_id: "A", expense_id: "e2" },
         ],
         expenses: [
-          { id: "e1", amount_cents: -18000 },
-          { id: "e2", amount_cents: -700 },
+          { id: "e1", amount_cents: -58000 },
+          { id: "e2", amount_cents: -550 },
         ],
         expense_gl_splits: [{ expense_id: "e1" }],
       }),
@@ -162,13 +181,17 @@ describe("getPeriodSummaries", () => {
       appWagesCents: 15700, // 15000 base + 500 paycheck + 200 bonus
       appBasisCents: 15800, // + 100 cash tips
       appCashTipsCents: 100,
-      gustoTotalCents: 18650, // 15650 + 3000
-      gustoWagesCents: 15650, // taxes account excluded
-      gustoEmployerTaxCents: 3000, // the coa-tax bucket
-      driftCents: 50, // 15700 − 15650
+      gustoTaproomWagesCents: 15000,
+      gustoSalariedWagesCents: 40000,
+      gustoTipsCents: 500,
+      gustoEmployerTaxCents: 3000,
+      gustoTotalCents: 58500, // 15000 + 40000 + 500 + 3000
+      // 15700 − (15000 taproom + 500 tips). The residual is the bonus: the app
+      // computes a guaranteed-minimum top-up Gusto has no line for.
+      taproomVarianceCents: 200,
       matchedCount: 2,
-      matchedSumCents: 18700, // |−18000| + |−700|
-      reconciliationCents: 50, // 18700 − 18650
+      matchedSumCents: 58550, // |−58000| + |−550|
+      reconciliationCents: 50, // 58550 − 58500
       splitStatus: "split",
     });
 
@@ -178,10 +201,12 @@ describe("getPeriodSummaries", () => {
       appBasisCents: null,
       appWagesCents: null,
       appCashTipsCents: null,
-      gustoTotalCents: null,
-      gustoWagesCents: null,
+      gustoTaproomWagesCents: null,
+      gustoSalariedWagesCents: null,
+      gustoTipsCents: null,
       gustoEmployerTaxCents: null,
-      driftCents: null,
+      gustoTotalCents: null,
+      taproomVarianceCents: null,
       matchedCount: 0,
       matchedSumCents: 0,
       reconciliationCents: null,
@@ -189,36 +214,43 @@ describe("getPeriodSummaries", () => {
     });
   });
 
-  it("excludes the tips bucket from gustoWagesCents so drift is unaffected by a tips bucket", async () => {
-    const summaries = await getPeriodSummaries(
-      fakeClient({
-        pay_periods: [
-          { id: "A", start_date: "2026-06-01", end_date: "2026-06-14", due_date: "2026-06-15", status: "locked", locked_at: null, locked_by: null, created_at: "x" },
-        ],
-        payroll_config: [{ effective_from: "2026-06-01", base_rate_cents: 1000 }],
-        payroll_entries: [
-          { pay_period_id: "A", hours_worked: 10, paycheck_tips_cents: 500, cash_tips_cents: 100, bonus_cents: 0 },
-          { pay_period_id: "A", hours_worked: 5, paycheck_tips_cents: 0, cash_tips_cents: 0, bonus_cents: 200 },
-        ],
-        payroll_gl_settings: [{ payroll_taxes_chart_of_accounts_id: "coa-tax" }],
-        payroll_gl_reports: [{ id: "r1", pay_period_id: "A", uploaded_at: "2026-06-30T00:00:00Z", original_filename: "june.csv" }],
-        payroll_gl_report_totals: [
-          { report_id: "r1", chart_of_accounts_id: "coa-wage", amount_cents: 15650, bucket_kind: "wages" },
-          { report_id: "r1", chart_of_accounts_id: "coa-tax", amount_cents: 3000, bucket_kind: "employer_tax" },
-          // Tips bucket lives on its own (non-tax) account -- pre-fix this leaked
-          // into gustoWagesCents (only the tax account was ever excluded) and
-          // produced a bogus ~$900 drift.
-          { report_id: "r1", chart_of_accounts_id: "coa-tips-liability", amount_cents: 90000, bucket_kind: "tips" },
-        ],
-        payroll_period_expense_matches: [],
-        expenses: [],
-        expense_gl_splits: [],
-      }),
-    );
+  it("partitions the report so the four Gusto figures sum to the total", async () => {
+    const [a] = await getPeriodSummaries(fakeClient(reportFixture(CONFIGURED)));
+    expect(
+      a.gustoTaproomWagesCents! + a.gustoSalariedWagesCents! + a.gustoTipsCents! + a.gustoEmployerTaxCents!,
+    ).toBe(a.gustoTotalCents);
+  });
 
-    const a = summaries.find((s) => s.id === "A")!;
-    expect(a.gustoWagesCents).toBe(15650); // tips excluded despite not being the taxes account
-    expect(a.driftCents).toBe(50); // 15700 − 15650, unaffected by the $900 tips bucket
-    expect(a.gustoEmployerTaxCents).toBe(3000); // only the coa-tax bucket, not the tips bucket
+  it("keeps salaried wages out of the taproom check", async () => {
+    // The $400 salaried bucket is payroll the app has no shift data for. Folding
+    // it in was the old drift bug -- it swamped the check with a number no one
+    // could act on, and hid the $2 residual that actually mattered.
+    const [a] = await getPeriodSummaries(fakeClient(reportFixture(CONFIGURED)));
+    expect(a.taproomVarianceCents).toBe(200);
+    expect(a.gustoSalariedWagesCents).toBe(40000);
+  });
+
+  it("counts paycheck tips on both sides of the taproom check", async () => {
+    // App wages include paycheck tips, so Gusto's tips bucket has to count too
+    // -- otherwise every period reads as short by exactly the tip pool.
+    const fixture = reportFixture(CONFIGURED);
+    fixture.payroll_gl_report_totals = fixture.payroll_gl_report_totals.map((t) =>
+      t.bucket_kind === "tips" ? { ...t, amount_cents: 480 } : t,
+    );
+    const [a] = await getPeriodSummaries(fakeClient(fixture));
+    expect(a.gustoTipsCents).toBe(480);
+    expect(a.taproomVarianceCents).toBe(220); // 15700 − (15000 + 480): the $20 tip gap surfaces
+  });
+
+  it("reports the taproom check as unavailable when no taproom account is configured", async () => {
+    // Better an honest dash than a variance against a basis that covers only
+    // part of the wages it's being compared to.
+    const [a] = await getPeriodSummaries(
+      fakeClient(reportFixture({ payroll_taxes_chart_of_accounts_id: "coa-tax" })),
+    );
+    expect(a.gustoTaproomWagesCents).toBeNull();
+    expect(a.taproomVarianceCents).toBeNull();
+    expect(a.gustoSalariedWagesCents).toBe(55000); // every wage bucket, still adding to the total
+    expect(a.gustoTotalCents).toBe(58500);
   });
 });

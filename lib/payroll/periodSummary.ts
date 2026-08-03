@@ -105,14 +105,17 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
   ] = await Promise.all([
     sb.from("payroll_config").select("effective_from, base_rate_cents"),
     sb.from("payroll_entries").select("pay_period_id, hours_worked, paycheck_tips_cents, cash_tips_cents, bonus_cents"),
-    sb.from("payroll_gl_settings").select("payroll_taxes_chart_of_accounts_id").maybeSingle(),
+    sb.from("payroll_gl_settings").select("payroll_taxes_chart_of_accounts_id, taproom_chart_of_accounts_id").maybeSingle(),
     sb.from("payroll_gl_reports").select("id, pay_period_id, uploaded_at, original_filename").is("superseded_at", null),
     sb.from("payroll_period_expense_matches").select("pay_period_id, expense_id"),
   ]);
 
   const configs = (configRows ?? []) as { effective_from: string; base_rate_cents: number }[];
-  const taxesAccountId =
-    (settingsRow as { payroll_taxes_chart_of_accounts_id: string } | null)?.payroll_taxes_chart_of_accounts_id ?? null;
+  const settings = settingsRow as
+    | { payroll_taxes_chart_of_accounts_id: string; taproom_chart_of_accounts_id: string | null }
+    | null;
+  const taxesAccountId = settings?.payroll_taxes_chart_of_accounts_id ?? null;
+  const taproomAccountId = settings?.taproom_chart_of_accounts_id ?? null;
 
   // entries grouped by period
   const entriesByPeriod = new Map<string, BasisEntry[]>();
@@ -173,30 +176,54 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
 
     const report = reportByPeriod.get(p.id) ?? null;
     const totals = report ? (totalsByReport.get(report.id) ?? []) : [];
-    const gustoTotalCents = report ? totals.reduce((s, t) => s + t.amount_cents, 0) : null;
-    // Tips are a balance-sheet pass-through, not wages -- exclude them by
-    // bucket_kind (not by requiring bucket_kind === "wages"): migration
-    // 20260824's DEFAULT 'wages' means pre-existing employer-tax rows also
-    // read bucket_kind='wages', so an inclusive test would misclassify them.
-    // They're already excluded by the taxesAccountId check below regardless.
-    const gustoWagesCents = report
-      ? totals
-          .filter((t) => t.chart_of_accounts_id !== taxesAccountId && t.bucket_kind !== "tips")
-          .reduce((s, t) => s + t.amount_cents, 0)
-      : null;
-    // Employer taxes reported, isolated the same way gustoWagesCents excludes
-    // them: by chart_of_accounts_id, not bucket_kind (see note above — the
-    // 20260824 migration default makes bucket_kind unreliable for these rows).
-    const employerTaxCents =
-      report && taxesAccountId
-        ? totals.filter((t) => t.chart_of_accounts_id === taxesAccountId).reduce((s, t) => s + t.amount_cents, 0)
+    const sum = (rows: typeof totals) => rows.reduce((s, t) => s + t.amount_cents, 0);
+    const gustoTotalCents = report ? sum(totals) : null;
+
+    // The report partitions into tips / employer tax / wages, three disjoint
+    // slices that add back to gustoTotalCents — which is what lets the table
+    // show its arithmetic instead of asking the reader to trust it.
+    //
+    // Tips are matched on bucket_kind and taxes on chart_of_accounts_id, never
+    // the reverse: migration 20260824 added bucket_kind with DEFAULT 'wages',
+    // so a row predating it reads 'wages' whatever it really is. The tips
+    // bucket has only ever been written by computeGlBucketTotals (which always
+    // sets the kind), while the taxes account has been declared in settings
+    // from the start — so each side is matched on the field it can trust.
+    const tipsTotals = totals.filter((t) => t.bucket_kind === "tips");
+    const taxTotals = taxesAccountId
+      ? totals.filter((t) => t.chart_of_accounts_id === taxesAccountId && t.bucket_kind !== "tips")
+      : [];
+    const wageTotals = totals.filter((t) => !tipsTotals.includes(t) && !taxTotals.includes(t));
+
+    const gustoTipsCents = report ? sum(tipsTotals) : null;
+    const employerTaxCents = report && taxesAccountId ? sum(taxTotals) : null;
+
+    // Wages split into the slice the app can check against Square shift data
+    // and the slice it can only display. With no taproom account configured
+    // nothing is checkable, so it all reads as salaried — better an honest
+    // "not configured" than a variance against a basis that doesn't cover it.
+    const gustoTaproomWagesCents =
+      report && taproomAccountId
+        ? sum(wageTotals.filter((t) => t.chart_of_accounts_id === taproomAccountId))
         : null;
+    const gustoSalariedWagesCents = report
+      ? sum(wageTotals.filter((t) => t.chart_of_accounts_id !== taproomAccountId))
+      : null;
 
     const matchedIds = matchedByPeriod.get(p.id) ?? [];
     const matchedSumCents = matchedIds.reduce((s, id) => s + (amountByExpense.get(id) ?? 0), 0);
 
-    const driftCents =
-      basis && gustoWagesCents !== null ? basis.wagesCents - gustoWagesCents : null;
+    // Tips sit on BOTH sides of the taproom check: Gusto disburses them through
+    // the paycheck and the app's tip pool produces its own expectation for
+    // them, so a gap is a real finding rather than a definitional artifact.
+    // The whole tips bucket belongs to the taproom side — tipped staff are
+    // exactly the staff the app has shifts for.
+    const gustoTaproomTotalCents =
+      gustoTaproomWagesCents !== null && gustoTipsCents !== null
+        ? gustoTaproomWagesCents + gustoTipsCents
+        : null;
+    const taproomVarianceCents =
+      basis && gustoTaproomTotalCents !== null ? basis.wagesCents - gustoTaproomTotalCents : null;
     const reconciliationCents =
       gustoTotalCents !== null && matchedIds.length > 0 ? matchedSumCents - gustoTotalCents : null;
 
@@ -207,11 +234,13 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
       appWagesCents: basis?.wagesCents ?? null,
       appCashTipsCents: basis?.cashTipsCents ?? null,
       gustoTotalCents,
-      gustoWagesCents,
+      gustoTaproomWagesCents,
+      gustoSalariedWagesCents,
+      gustoTipsCents,
       gustoEmployerTaxCents: employerTaxCents,
       reportUploadedAt: report?.uploaded_at ?? null,
       reportFilename: report?.original_filename ?? null,
-      driftCents,
+      taproomVarianceCents,
       matchedCount: matchedIds.length,
       matchedSumCents,
       reconciliationCents,

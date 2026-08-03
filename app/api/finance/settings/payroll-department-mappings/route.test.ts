@@ -205,15 +205,36 @@ describe("PUT /api/finance/settings/payroll-department-mappings", () => {
     sbConfig = { mappingsSelectResults: [{ data: [], error: null }] };
 
     const { PUT } = await import("./route");
-    await PUT(putRequest({ mappings: [], payrollTaxesAccountId: "COA_TAX", tipsAccountId: "COA_TIPS" }));
+    await PUT(
+      putRequest({
+        mappings: [],
+        payrollTaxesAccountId: "COA_TAX",
+        tipsAccountId: "COA_TIPS",
+        taproomAccountId: "COA_FOH",
+      }),
+    );
 
     const upsertCall = lastCalls.find((c) => c.table === "payroll_gl_settings" && c.op === "upsert");
     expect(upsertCall?.args[0]).toEqual({
       id: true,
       payroll_taxes_chart_of_accounts_id: "COA_TAX",
       tips_chart_of_accounts_id: "COA_TIPS",
+      taproom_chart_of_accounts_id: "COA_FOH",
     });
     expect(upsertCall?.args[1]).toEqual({ onConflict: "id" });
+  });
+
+  it("writes a null taproom account when none is submitted", async () => {
+    // Unlike taxes and tips, an unset taproom account is a legitimate state:
+    // it turns the periods table's taproom check off instead of failing the save.
+    sbConfig = { mappingsSelectResults: [{ data: [], error: null }] };
+
+    const { PUT } = await import("./route");
+    const res = await PUT(putRequest({ mappings: [], payrollTaxesAccountId: "COA_TAX", tipsAccountId: "COA_TIPS" }));
+
+    expect(res.status).toBe(200);
+    const upsertCall = lastCalls.find((c) => c.table === "payroll_gl_settings" && c.op === "upsert");
+    expect((upsertCall?.args[0] as Record<string, unknown>).taproom_chart_of_accounts_id).toBeNull();
   });
 
   it("requires payrollTaxesAccountId", async () => {

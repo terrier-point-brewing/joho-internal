@@ -20,13 +20,27 @@ export function Th({ label, align = "left", className = "" }: { label?: string; 
  * `head`. The inner `overflow-x-auto` lets wide rows scroll horizontally within
  * the card instead of spilling past it (the rounded card keeps `overflow-hidden`
  * so its corners still clip the table's square edges).
+ *
+ * `groupHead` is an optional row of colspan'd `<th>`s rendered above `head`, for
+ * tables whose columns only make sense in bands (Finance → Payroll groups its
+ * Gusto figures so the reader can see they sum to a total). Omit it and the
+ * header is a single row exactly as before.
  */
-export function LedgerTable({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
+export function LedgerTable({
+  head,
+  groupHead,
+  children,
+}: {
+  head: React.ReactNode;
+  groupHead?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="bg-surface border border-line rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse">
           <thead>
+            {groupHead && <tr className="border-b border-line">{groupHead}</tr>}
             <tr className="border-b border-line">{head}</tr>
           </thead>
           <tbody>{children}</tbody>

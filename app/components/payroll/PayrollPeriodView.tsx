@@ -92,6 +92,14 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
   // Toggle-driven basis: actuals drive the bonus/true comp; reported (÷ratio) is the Gusto figure.
   const viewCTips   = cashView === "actual" ? totCTips : totRCTips;
   const viewComp    = totBase + totPTips + viewCTips + totBonus;
+  // Basis for the taproom check, rounded the same way lib/payroll/periodSummary.ts
+  // rounds it: once per employee on their period total. totBase can't be reused —
+  // it comes from calculations.ts, which rounds each shift bucket separately and
+  // accumulates, so the two drift by a cent or two over a full period. Gusto pays
+  // on period totals, so that's the model both views have to agree on.
+  const taproomBasisCents =
+    entries.reduce((s, e) => s + Math.round(e.effective_hours * config.base_rate_cents), 0)
+    + totPTips + totBonus;
   const viewHrlyRate = totHours > 0 ? viewComp / totHours / 100 : null;
   const empName = (id: string) => {
     const e = empById.get(id);
@@ -181,7 +189,9 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
           salariedEmployees={salaried_employees}
         />
       ) : activeTab === "gustoUpload" ? (
-        <GustoUploadPanel periodId={periodId} />
+        // Wages only — cash tips never move company money, so they're excluded
+        // from both sides of the taproom check (see GustoUploadPanel).
+        <GustoUploadPanel periodId={periodId} appTaproomWagesCents={taproomBasisCents} />
       ) : (
         <>
           {/* Cash-tips basis toggle: actual (drives bonus) vs Gusto-reported (÷ ratio) */}
