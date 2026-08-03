@@ -408,7 +408,7 @@ export default function ManualEntriesPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line">
+      <div className="shrink-0 px-4 sm:px-6 py-2">
         <FilterBar>
           <FilterSelect
             label="Kind"
@@ -426,17 +426,6 @@ export default function ManualEntriesPage() {
         </FilterBar>
       </div>
 
-      {visibleEntries.length > 0 && (
-        <SummaryStatBar
-          stats={[
-            { label: "Entries", value: visibleEntries.length },
-            { label: "Flows", value: flowCount },
-            { label: "Balances", value: balanceCount },
-            { label: "Net total", value: formatCurrencyCents(netTotal), tone: netTotal < 0 ? "accent" : "strong" },
-          ]}
-        />
-      )}
-
       {loadError && <Banner className="mx-4 sm:mx-6 my-2">{loadError instanceof Error ? loadError.message : "Failed to load manual entries."}</Banner>}
       {actionError && <Banner className="mx-4 sm:mx-6 my-2">{actionError}</Banner>}
 
@@ -450,8 +439,9 @@ export default function ManualEntriesPage() {
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+        <div className="flex-1 min-h-0 flex flex-col px-4 sm:px-6 py-4">
           <LedgerTable
+            fill
             head={
               <>
                 <Th label="Kind" />
@@ -481,6 +471,17 @@ export default function ManualEntriesPage() {
             are staged for the Balance Sheet — no statement reads them yet.
           </p>
         </div>
+      )}
+
+      {visibleEntries.length > 0 && (
+        <SummaryStatBar
+          stats={[
+            { label: "Entries", value: visibleEntries.length },
+            { label: "Flows", value: flowCount },
+            { label: "Balances", value: balanceCount },
+            { label: "Net total", value: formatCurrencyCents(netTotal), tone: netTotal < 0 ? "accent" : "strong" },
+          ]}
+        />
       )}
 
       {modal && (

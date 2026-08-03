@@ -1,16 +1,15 @@
 "use client";
 // The month-end close nudge: "N accounts still need a balance for July".
 //
-// Lifted out of the Financials page, where it was the only place this ever
-// appeared. That was the wrong single home for it. The work it describes is
-// done under Finance > Period Close, and the alert email sends people there --
-// so the one screen someone lands on with this outstanding was the one screen
-// that never mentioned it.
-//
 // It renders nothing at all when nothing is outstanding, which is the normal
-// state, so it costs a reader nothing to have it on more than one surface --
-// including Manual Entries now, which used to be this banner's one silent
-// exception because the checklist lived there. It doesn't anymore.
+// state, so it costs a reader nothing to sit on the surfaces that deal in
+// month-end balances: Financials, and Period Close by way of the alert email's
+// link (where it self-suppresses -- see below).
+//
+// Deliberately NOT on Transactions. Every subtab there is a full-height table,
+// and a banner that appears for part of the month pushed the grid down on the
+// screens where vertical space is scarcest. Transactions is where lines get
+// coded, not where a period gets closed.
 
 import { useMemo } from "react";
 import { usePathname } from "next/navigation";

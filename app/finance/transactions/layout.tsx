@@ -2,7 +2,6 @@ import { requirePage, CAP } from "@/lib/auth";
 import FinanceNav from "../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
 import TransactionsNav from "./TransactionsNav";
-import CloseTasksBanner from "../CloseTasksBanner";
 
 /**
  * Shared chrome for the Transactions tab. Owns the finance nav, the page
@@ -20,11 +19,10 @@ export default async function TransactionsLayout({ children }: { children: React
       <div className="shrink-0 px-4 sm:px-6">
         <TransactionsNav />
       </div>
-      {/* Renders nothing unless a month-end balance is outstanding, and stays
-          silent on Manual Entries where the full checklist already is. Here
-          rather than on one tab because this is the surface someone reaches
-          from the alert email. */}
-      <CloseTasksBanner />
+      {/* No month-end close banner here. Every subtab under Transactions is a
+          full-height table, and a banner that appears for part of the month
+          shifts the whole grid down. The nudge lives on Financials and Period
+          Close, which is where the work it describes actually happens. */}
       {children}
     </div>
   );

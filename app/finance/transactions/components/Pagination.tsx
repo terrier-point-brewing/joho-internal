@@ -8,7 +8,7 @@ export default function Pagination({
 }) {
   if (totalPages <= 1) return null;
   return (
-    <div className="shrink-0 border-t border-line px-4 sm:px-6 py-3 flex items-center justify-between">
+    <div className="shrink-0 border-t border-line mx-4 sm:mx-6 py-3 flex items-center justify-between">
       <span className="text-xs text-faint">Page {page} of {totalPages} · {total} {unit}</span>
       <div className="flex gap-2">
         <button onClick={() => onPageChange(page - 1)} disabled={page === 1} className="btn-secondary">← Prev</button>

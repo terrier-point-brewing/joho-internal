@@ -134,7 +134,7 @@ export default function BankLedgerPage() {
 
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-line">
+      <div className="shrink-0 px-4 sm:px-6 py-2">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search counterparty…" />
           <DateRangeFilter from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} />
@@ -151,14 +151,6 @@ export default function BankLedgerPage() {
           <RunJobButton job="bank-transactions-sync" label="Refresh bank feed" onFinished={() => loadAll(from, to)} />
         </FilterBar>
       </div>
-      {rows.length > 0 && (
-        <SummaryStatBar stats={[
-          { label: "Lines", value: rows.length },
-          { label: "Needs review", value: needsReview, tone: needsReview > 0 ? "accent" : "secondary" },
-          { label: "In QuickBooks", value: `${inQbCount} / ${rows.length}` },
-          { label: "P&L impact", value: formatCurrencyCents(plNet) },
-        ]} />
-      )}
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
@@ -168,8 +160,8 @@ export default function BankLedgerPage() {
         </div>
       ) : (
         <>
-        <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
-          <LedgerTable head={<>
+        <div className="flex-1 min-h-0 flex flex-col px-4 sm:px-6 py-4">
+          <LedgerTable fill head={<>
             <SortableTh label="Date" sortKey="date" sort={sort} onSort={toggleSort} />
             <Th label="Counterparty" /><Th label="Description" /><Th label="Flow" /><Th label="P&L" /><Th label="QB Sync" />
             <SortableTh label="Amount" sortKey="amount" sort={sort} onSort={toggleSort} align="right" />
@@ -210,6 +202,15 @@ export default function BankLedgerPage() {
         </div>
         <Pagination page={safePage} totalPages={totalPages} total={visible.length} unit="bank lines" onPageChange={setPage} />
         </>
+      )}
+
+      {rows.length > 0 && (
+        <SummaryStatBar stats={[
+          { label: "Lines", value: rows.length },
+          { label: "Needs review", value: needsReview, tone: needsReview > 0 ? "accent" : "secondary" },
+          { label: "In QuickBooks", value: `${inQbCount} / ${rows.length}` },
+          { label: "P&L impact", value: formatCurrencyCents(plNet) },
+        ]} />
       )}
     </>
   );
