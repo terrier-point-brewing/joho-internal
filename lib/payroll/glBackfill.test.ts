@@ -16,10 +16,16 @@ const TIPS_COA_ID = "coa-payroll-tips";
 
 // Two employees so wages sum > 0, one with Paycheck Tips so the tips bucket
 // is non-zero -- exercises all three bucket kinds in computeGlBucketTotals.
+//
+// The cash columns are internally consistent with the earnings ones, because
+// the backfill now derives the expected ACH pulls from them too: gross 1000.00
+// + tips 50.00 - employee withholding 200.00 = an 850.00 check, and the tax
+// pull is that withholding plus 100.00 employer tax. A fixture with zeros there
+// would let a parser that reads the wrong column index still pass.
 const CSV_WITH_TIPS = `"Payroll period"," 06/15/2026 - 06/28/2026"
 "Pay day"," 07/01/2026"
 "Last Name","First Name","Department","Work Address","Employee Type","Payment","Job","Pay Type","Hours","Rate","Amount","Employee Taxes","Federal Income Tax (Employee)","Social Security (Employee)","Medicare (Employee)","Additional Medicare (Employee)","NC State Tax (Employee)","Employer Taxes","Social Security (Employer)","Medicare (Employer)","FUTA (Employer)","NC Unemployment Tax (Employer)","Net Pay","Reimbursements","Donations","Check Amount","Employer Cost"
-"Ashford","Casey","Production","addr","Salary/No overtime","Direct Deposit","Brewer","Regular","80.00","29.81","1000.00","0","0","0","0","0","0","100.00","0","0","0","0","0","0","0","0","0"
+"Ashford","Casey","Production","addr","Salary/No overtime","Direct Deposit","Brewer","Regular","80.00","29.81","1000.00","200.00","0","0","0","0","0","100.00","0","0","0","0","850.00","0","0","850.00","0"
 "","","","","","","Totals","Paycheck Tips","","","50.00","0","0","0","0","0","0","0","0","0","0","0","0","0","0","0"
 `;
 
@@ -50,6 +56,8 @@ function makeSb(opts: {
   /** Fails every `payroll_gl_report_totals` insert call, including a restore
    *  attempt -- simulates the restore itself also failing. */
   insertErrorAlways?: boolean;
+  /** Fails the `payroll_gl_reports` update that writes the expected debits. */
+  expectedDebitsError?: { message: string } | null;
 } = {}) {
   const calls: { kind: string; args: unknown[] }[] = [];
   let insertCallCount = 0;
@@ -87,6 +95,18 @@ function makeSb(opts: {
             },
           };
           return builder;
+        },
+        // Writes the re-derived expected debits back onto the report row.
+        update: (payload: unknown) => {
+          calls.push({ kind: "update", args: [table, payload] });
+          return {
+            eq: async (col: string, val: unknown) => {
+              calls.push({ kind: "eq", args: [col, val] });
+              return opts.expectedDebitsError
+                ? { data: null, error: opts.expectedDebitsError }
+                : { data: null, error: null };
+            },
+          };
         },
       };
     }
@@ -347,5 +367,47 @@ describe("backfillGlReports", () => {
     expect(results[0].error).toMatch(/Restore of the original rows ALSO failed/);
     expect(results[0].error).toMatch(/manual recovery/i);
     expect(mockRecompute).not.toHaveBeenCalled();
+  });
+});
+
+describe("backfillGlReports — expected debits", () => {
+  it("reports the re-derived debits on a dry run without writing them", async () => {
+    const { sb, calls } = makeSb({ reportRows: [makeReportRow({ id: "R1" })] });
+
+    const results = await backfillGlReports(sb, { dryRun: true });
+
+    expect(results[0].expectedDebits.netPayCents).toBeGreaterThan(0);
+    expect(results[0].expectedDebits.taxCents).toBeGreaterThan(0);
+    // The whole point of the dry run: the operator can compare these against
+    // the period's real bank charges before anything is committed.
+    expect(calls.some((c) => c.kind === "update")).toBe(false);
+  });
+
+  it("writes the debits onto the report row when not a dry run", async () => {
+    const { sb, calls } = makeSb({ reportRows: [makeReportRow({ id: "R1" })] });
+
+    await backfillGlReports(sb, { dryRun: false });
+
+    const update = calls.find((c) => c.kind === "update");
+    expect(update).toBeDefined();
+    const payload = update!.args[1] as Record<string, number>;
+    expect(payload.expected_net_pay_cents).toBeGreaterThan(0);
+    expect(payload.expected_tax_cents).toBeGreaterThan(0);
+    expect(payload).toHaveProperty("expected_reimbursements_cents");
+  });
+
+  /** A period whose debits never got written stays invisible to
+   *  matchPeriodByExpectedDebits, so a silent failure here would look exactly
+   *  like "no payroll charges found" forever. */
+  it("records the failure for that period when the debits update errors", async () => {
+    const { sb } = makeSb({
+      reportRows: [makeReportRow({ id: "R1" })],
+      expectedDebitsError: { message: "debits write failed" },
+    });
+
+    const results = await backfillGlReports(sb, { dryRun: false });
+
+    expect(results[0].error).toMatch(/Update expected debits failed: debits write failed/);
+    expect(results[0].splitsRecomputed).toBe(false);
   });
 });

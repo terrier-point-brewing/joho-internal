@@ -17,6 +17,7 @@ import { getSessionUser, requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { uploadGustoReport, getActiveGustoReport } from "@/lib/payroll/gustoUpload";
+import { matchPeriodByExpectedDebits } from "@/lib/finance/payrollMatching";
 import type { PayrollGlReportEmployee } from "@/lib/payroll/types";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       fileName: file.name,
       userId: session!.user.id,
     });
+
+    // The other half of the pair with the bank sync's matchAllPendingPeriods:
+    // report and charges arrive in either order, so both events attempt the
+    // match and whichever is second completes it. Usually a no-op here (the
+    // report is uploaded on pay day, before the debits clear) — it matters when
+    // a report is uploaded late, as a backfill is, and the charges are already
+    // sitting there. Best-effort: a matching failure must not fail an upload
+    // that has already fully persisted.
+    try {
+      await matchPeriodByExpectedDebits(sb, id);
+    } catch {
+      // Surfaced on the period's reconciliation panel instead — the report is
+      // saved either way, and the next bank sync retries the match.
+    }
 
     const { data: employeeRows, error: employeesErr } = await sb
       .from("payroll_gl_report_employees")

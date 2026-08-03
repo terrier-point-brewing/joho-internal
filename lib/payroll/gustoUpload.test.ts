@@ -20,6 +20,9 @@ const sampleReport: PayrollGlReport = {
   uploaded_at: "2026-07-15T00:00:00Z",
   uploaded_by: "USER_1",
   superseded_at: null,
+  expected_net_pay_cents: null,
+  expected_tax_cents: null,
+  expected_reimbursements_cents: null,
 };
 
 const sampleTotals: PayrollGlReportTotal[] = [

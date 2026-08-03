@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseGustoPayrollJournal,
   computeGlBucketTotals,
+  computeExpectedDebits,
 } from "./gustoParser";
 
 // Gusto "Payroll Journal Report" export sample — real structure, real dollar
@@ -243,5 +244,45 @@ describe("computeGlBucketTotals", () => {
     expect(taxes?.amountCents).toBe(80749);
     const tips = totals.find((t) => t.kind === "tips");
     expect(tips?.amountCents).toBe(100247);
+  });
+});
+
+describe("computeExpectedDebits", () => {
+  it("sums Check Amount into the disbursement pull and both tax columns into the remittance pull", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    const debits = computeExpectedDebits(parsed);
+
+    const expectedNet = parsed.employees.reduce((s, e) => s + e.checkAmountCents, 0);
+    const expectedTax = parsed.employees.reduce((s, e) => s + e.employeeTaxCents + e.employerTaxCents, 0);
+
+    expect(debits.netPayCents).toBe(expectedNet);
+    expect(debits.taxCents).toBe(expectedTax);
+    expect(debits.netPayCents).toBeGreaterThan(0);
+    expect(debits.taxCents).toBeGreaterThan(0);
+  });
+
+  it("reads the cash columns off the employee row only — the blank-Last-Name sub-rows leave them empty and must not zero them", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    // SAMPLE_CSV's first employee is followed by a "Gross" sub-row.
+    const ashford = parsed.employees.find((e) => e.lastName === "Ashford")!;
+    expect(ashford.employeeTaxCents).toBe(45874);
+    expect(ashford.checkAmountCents).toBe(192588);
+    expect(ashford.reimbursementsCents).toBe(0);
+  });
+
+  /** The relationship the whole matching design rests on: what left the bank
+   *  differs from what payroll cost by withholding and reimbursements, so the
+   *  two debits can only tie back to the GL total once reimbursements are
+   *  accounted for. If Gusto ever changes the export's columns this breaks
+   *  loudly here rather than silently mis-matching a bank charge. */
+  it("ties the two debits back to gross + employer tax + tips, off by exactly reimbursements", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    const debits = computeExpectedDebits(parsed);
+
+    const gross = parsed.employees.reduce((s, e) => s + e.grossAmountCents, 0);
+    const tips = parsed.employees.reduce((s, e) => s + e.paycheckTipsCents, 0);
+    const employerTax = parsed.employees.reduce((s, e) => s + e.employerTaxCents, 0);
+
+    expect(debits.netPayCents + debits.taxCents - debits.reimbursementsCents).toBe(gross + tips + employerTax);
   });
 });
