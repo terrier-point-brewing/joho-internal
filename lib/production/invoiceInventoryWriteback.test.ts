@@ -36,12 +36,18 @@ describe("planInvoiceWriteback", () => {
     ]);
   });
 
-  // Square only decrements at payment. Draining cold storage for an unpaid
-  // invoice would take stock that is still on the shelf and may never sell.
-  it("leaves an unpaid invoice alone", () => {
+  // Square deducts at SEND, so a sent-but-unpaid invoice has already taken its
+  // stock and cold storage is already behind — book it now, not at payment.
+  it("books a sent invoice that is not yet paid", () => {
     const plan = planInvoiceWriteback({ lines: [line({ status: "open" })], alreadyBookedRefs: none });
+    expect(plan.writes).toHaveLength(1);
+  });
+
+  // A draft has deducted nothing; a canceled invoice's deduction was rolled back.
+  it.each(["draft", "canceled"])("leaves a %s invoice alone", (status) => {
+    const plan = planInvoiceWriteback({ lines: [line({ status })], alreadyBookedRefs: none });
     expect(plan.writes).toEqual([]);
-    expect(plan.skips[0].reason).toMatch(/not paid/);
+    expect(plan.skips[0].reason).toMatch(/not sent/);
   });
 
   // The double-depletion guard: the Export Bay already drained this.

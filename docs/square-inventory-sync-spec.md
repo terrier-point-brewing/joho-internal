@@ -230,15 +230,28 @@ Changes:
    - **Contract brewing**: the fee invoice will never deduct, so the mapped
      Square SKU is decremented (by absolute restate) at ship — the only signal
      Square ever gets. Never deferred.
-   - **Distribution/wholesale**: the invoice deducts Square itself, so the
-     recipe is deferred from ship until settlement; the drift in between is
-     deliberate and labelled "awaiting invoice".
+   - **Distribution/wholesale**: the invoice deducts Square itself **at send**
+     (the send action publishes the Square invoice and flips the rows to
+     `unpaid` in the same request), so the recipe is deferred from ship until
+     send — not until payment, which would strand it for the invoice's net
+     terms. The drift in between is deliberate and labelled "awaiting invoice".
 
    Evidence hierarchy: once an invoice exists its line items answer directly;
    before one exists the shipment's **channel** predicts it — not as a proxy but
    as the cause, since the app's invoice builder branches on channel to decide
    what the invoice bills. An unknown channel defers (stale-safe). In every case
    the SKU must be inventory-tracked for Square to owe anything at all.
+
+   **Cross-model revisions** (a shipment re-billed under a different model than
+   it shipped, via a channel edit or the `billAsChannel` override): the rule
+   re-evaluates live on every run, and the draft's actual lines overrule the
+   ship-time prediction the moment the draft exists. Shipped-as-distribution →
+   billed-as-fees releases at draft and the next sweep restates Square. The
+   reverse — shipped-as-contract (pushed at ship) → re-billed with product
+   lines — cannot recall the ship-time push, so Square under-reports from send
+   until the first push after send restates it. Self-healing, visible in the
+   drift view, and always the result of an explicit override that is stamped on
+   the invoice (`billed_channel` + `override_reason`).
 4. ✅ **Dead links render as their own state**, in their own banner, explicitly
    labelled unmeasurable rather than shown as zero stock.
 5. ⏳ **Show unmapped-sale discrepancies** — lands with W4, which produces them.
@@ -318,7 +331,8 @@ different reasons, and should be opened by different evidence:
 
 - `PUSH_TO_SQUARE_ENABLED` — makes cold storage overwrite Square. Open it once
   the drift view shows the two sides agreeing, or once someone has decided which
-  side is right where they don't. 19 of 51 keg SKUs currently disagree.
+  side is right where they don't. 19 of 51 keg SKUs currently disagree (some of
+  that is the ship-to-send window, now labelled rather than counted).
 - `INVOICE_WRITEBACK_ENABLED` — lets a Square-raised invoice drain cold storage.
   This writes to the app's own ledger, where a wrong deduction removes stock
   that is still on the shelf and no second system will notice. Open it after a

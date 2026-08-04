@@ -24,7 +24,8 @@
 //                         will NEVER deduct. The ship-time push is the only
 //                         signal Square gets — never deferred.
 //   Distribution/wholesale the invoice carries the product SKU, so Square will
-//                         deduct on its own. Deferred until it has; the drift in
+//                         deduct on its own — at SEND, not at payment. Deferred
+//                         from ship until the invoice is sent; the drift in
 //                         between is expected and labelled, not corrected.
 //
 // The decision uses the best evidence available at each stage. Once an invoice
@@ -76,8 +77,13 @@ export interface ShipmentDeduction {
 export function selectPendingDeductionRecipes(rows: ShipmentDeduction[]): Set<string> {
   const pending = new Set<string>();
   for (const r of rows) {
-    // Settled: Square has taken its units, or there were never any to take.
-    if (r.status === "paid") continue;
+    // 'unpaid' means SENT, not merely owed: the send action publishes the Square
+    // invoice and flips invoice_required → unpaid in the same request
+    // (app/api/production/export/invoice, action=send), and publishing is the
+    // moment Square deducts. So by 'unpaid' the deduction has already landed and
+    // the recipe is safe to push again — payment changes nothing for inventory.
+    // Holding until 'paid' would strand the recipe for the invoice's net terms.
+    if (r.status === "unpaid" || r.status === "paid") continue;
 
     // Square cannot decrement a variation it does not track. Nothing is owed,
     // whatever the invoice ends up saying.

@@ -25,6 +25,13 @@ import { INVOICE_WRITEBACK_ENABLED } from "@/lib/square/pushGate";
 /** Invoice types the app itself raises. Their stock left via the Export Bay. */
 const APP_RAISED_TYPES = new Set(["export_invoice", "allocation_deposit"]);
 
+/**
+ * Invoice statuses at or after send — the point where Square has deducted.
+ * The app's own flow uses draft → open → paid; Square-native invoices sync in
+ * with Square's ledger vocabulary, so its variants are accepted too.
+ */
+const SENT_STATUSES = new Set(["open", "unpaid", "partial", "partially_paid", "paid"]);
+
 export interface InvoiceBeerLine {
   invoiceId: string;
   lineItemId: string;
@@ -89,8 +96,12 @@ export function planInvoiceWriteback(input: {
   };
 
   for (const line of input.lines) {
-    if (line.status !== "paid") {
-      skipOnce(line.invoiceId, `not paid (${line.status ?? "unknown"}) — Square has not decremented yet`);
+    // Square deducts when an invoice is SENT (published), not when it is paid —
+    // so a sent-but-unpaid invoice has already taken its stock and cold storage
+    // is already behind. Draft is the state where nothing has happened yet, and
+    // a canceled invoice's deduction was rolled back (or never made).
+    if (!line.status || !SENT_STATUSES.has(line.status)) {
+      skipOnce(line.invoiceId, `not sent (${line.status ?? "unknown"}) — Square only deducts once an invoice is published`);
       continue;
     }
     if (line.hasExportTransactions) {
