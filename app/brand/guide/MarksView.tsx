@@ -1,11 +1,9 @@
-import type { ReactNode } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandSeason } from "@/lib/brand/seasons";
 import { groupChopsBySeason, groupVariations, type MarkVariation } from "@/lib/brand/marks";
 import { normalizeRules, splitByPolarity } from "@/lib/brand/guideRules";
 import type { ArtworkGround } from "@/lib/brand/svgColor";
-import GuideSection from "./GuideSection";
 import SubHead from "./blocks/SubHead";
 import SpecCard from "./blocks/SpecCard";
 import MarkArtwork from "./blocks/MarkArtwork";
@@ -55,7 +53,10 @@ function MarkRules({ spec }: { spec: MarkSpec }) {
 
   return (
     <div className="flex flex-col gap-3 mb-4">
-      {spec.title && (
+      {/* Wordmarks skip their own title line — the "Wordmark specification"
+          card below already headers the section, so a second name/status/
+          approved line here would just repeat it. */}
+      {spec.title && spec.kind !== "wordmark" && (
         <p className="font-brand-display text-lg text-brand-high-contrast">
           {spec.title}
           {spec.status && (
@@ -273,9 +274,7 @@ export default function MarksView({
   chops,
   seasons,
   grounds,
-  intro,
   chop,
-  topRight,
 }: {
   /** Canon mark specs — the written rules, keyed by kind. */
   specs: MarkSpec[];
@@ -287,10 +286,8 @@ export default function MarksView({
   seasons: BrandSeason[];
   /** Per-asset background choice, read from the artwork itself. */
   grounds: Record<string, ArtworkGround>;
-  intro: string;
   /** The chop's narrative and specification — the law every chop is cut to. */
   chop?: BrandCanon["chop"];
-  topRight?: ReactNode;
 }) {
   const variations = groupVariations(wordmarks);
   const chopGroups = groupChopsBySeason(chops, seasons);
@@ -300,7 +297,6 @@ export default function MarksView({
   const chopRows = (chop?.specs ?? []).map((s) => ({ label: s.key, value: s.value }));
 
   return (
-    <GuideSection section="marks" intro={intro} topRight={topRight}>
       <div className="flex flex-col gap-8">
         <section>
           <SubHead
@@ -386,6 +382,5 @@ export default function MarksView({
           )}
         </section>
       </div>
-    </GuideSection>
   );
 }

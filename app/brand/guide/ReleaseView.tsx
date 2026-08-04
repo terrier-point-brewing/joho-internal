@@ -1,7 +1,4 @@
-import type { ReactNode } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
-import { resolveGuideIntro } from "@/lib/brand/guideIntros";
-import GuideSection from "./GuideSection";
 import SubHead from "./blocks/SubHead";
 import SpecCard from "./blocks/SpecCard";
 import LabelDiagram from "./blocks/LabelDiagram";
@@ -20,12 +17,10 @@ import LabelDiagram from "./blocks/LabelDiagram";
 export default function ReleaseView({
   canon,
   wordmarkUrl,
-  topRight,
 }: {
   canon: BrandCanon;
   /** Approved wordmark artwork for the chassis diagram's top band. */
   wordmarkUrl?: string | null;
-  topRight?: ReactNode;
 }) {
   const naming = canon.naming;
   // The narrative is the template for a release card, so it renders as one:
@@ -43,7 +38,7 @@ export default function ReleaseView({
   const elements = chassis?.elements ?? [];
 
   return (
-    <GuideSection section="release" intro={resolveGuideIntro(canon, "release")} topRight={topRight}>
+    <>
       {naming && (
         <section className="mb-8">
           <SubHead
@@ -133,6 +128,6 @@ export default function ReleaseView({
           )}
         </section>
       )}
-    </GuideSection>
+    </>
   );
 }

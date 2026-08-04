@@ -1,9 +1,6 @@
-import type { ReactNode } from "react";
 import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandCanon } from "@/lib/brand/canon.types";
-import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { normalizePairs, type RulePanel } from "@/lib/brand/rulePairs";
-import GuideSection from "./GuideSection";
 import RulePairCard from "./blocks/RulePairCard";
 
 /**
@@ -27,12 +24,10 @@ import RulePairCard from "./blocks/RulePairCard";
 export default function VisualIdentityView({
   canon,
   assetsById,
-  topRight,
 }: {
   canon: BrandCanon;
   /** Resolved assets, so illustrated rules can use their authored alt text. */
   assetsById?: Map<string, BrandAsset>;
-  topRight?: ReactNode;
 }) {
   const law = canon.illustrationLaw;
   const pairs = normalizePairs(law);
@@ -44,23 +39,19 @@ export default function VisualIdentityView({
     asset: panel.assetId ? assetsById?.get(panel.assetId) : undefined,
   });
 
-  return (
-    <GuideSection section="visual" intro={resolveGuideIntro(canon, "visual")} topRight={topRight}>
-      {pairs.length === 0 ? (
-        <p className="font-brand-body text-sm text-brand-content-muted">No rules yet.</p>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {pairs.map((pair, i) => (
-            <RulePairCard
-              key={pair.id ?? i}
-              title={pair.title}
-              doPanel={resolve(pair.do)}
-              dontPanel={resolve(pair.dont)}
-              nuance={pair.nuance}
-            />
-          ))}
-        </div>
-      )}
-    </GuideSection>
+  return pairs.length === 0 ? (
+    <p className="font-brand-body text-sm text-brand-content-muted">No rules yet.</p>
+  ) : (
+    <div className="flex flex-col gap-4">
+      {pairs.map((pair, i) => (
+        <RulePairCard
+          key={pair.id ?? i}
+          title={pair.title}
+          doPanel={resolve(pair.do)}
+          dontPanel={resolve(pair.dont)}
+          nuance={pair.nuance}
+        />
+      ))}
+    </div>
   );
 }
