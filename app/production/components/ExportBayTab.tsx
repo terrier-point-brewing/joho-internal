@@ -14,6 +14,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
 import Card from "@/app/components/ui/Card";
 import { Modal } from "@/app/components/ui/Modal";
+import ColdStorageTransformModal from "./ColdStorageTransformModal";
 
 function formatShipmentWarning(w: ShipmentWarning): string {
   switch (w.type) {
@@ -357,6 +358,7 @@ export default function ExportBayTab() {
   const [shipGroup,         setShipGroup]         = useState<CustomerRecipeGroup | null>(null);
   const [showAdHoc,         setShowAdHoc]         = useState(false);
   const [showSync,          setShowSync]          = useState(false);
+  const [showTransform,     setShowTransform]     = useState(false);
   const [writeOffAlloc,     setWriteOffAlloc]     = useState<BatchAllocation | null>(null);
   const [expandedFulfilled, setExpandedFulfilled] = useState<Set<string>>(new Set());
 
@@ -573,6 +575,13 @@ export default function ExportBayTab() {
             className="btn-secondary"
           >
             ↻ Sync Taproom
+          </button>
+          <button
+            onClick={() => setShowTransform(true)}
+            title="Break cold-storage stock down into smaller packaging — e.g. a 1/2 keg into sixtels"
+            className="btn-secondary"
+          >
+            ⇄ Transform Stock
           </button>
           <button
             onClick={() => setShowAdHoc(true)}
@@ -892,6 +901,20 @@ export default function ExportBayTab() {
         <SyncConsumptionModal
           onClose={() => setShowSync(false)}
           onRecorded={() => qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() })}
+        />
+      )}
+
+      {showTransform && (
+        <ColdStorageTransformModal
+          onClose={() => setShowTransform(false)}
+          onDone={() => {
+            // Both views of cold storage move: the per-batch lots the modal picks
+            // from, and the recipe-level availability this tab ships against.
+            qc.invalidateQueries({ queryKey: queryKeys.production.coldStorage() });
+            qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() });
+            qc.invalidateQueries({ queryKey: queryKeys.production.coldStorageAdjustments() });
+            setShowTransform(false);
+          }}
         />
       )}
 

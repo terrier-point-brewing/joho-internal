@@ -13,7 +13,7 @@ import { applyBreakDown } from "./applyBreakDown";
 //  packaging_variations: identity lookup (.eq(id).single) + family fetch (.eq(container_id))
 //  cold_storage_inventory: on-hand read (.eq(recipe_id).in(variation_id) ... ) + oldest row
 //    (.eq(recipe_id).eq(variation_id).order(created_at).limit(1)) + update/delete/insert
-//  cold_storage_breaks: insert
+//  cold_storage_transforms: insert
 interface CsiRow { id: string; batch_id: string; recipe_id: string; variation_id: string; quantity_on_hand: number; created_at: string }
 
 function makeClient(opts: {
@@ -94,7 +94,7 @@ function makeClient(opts: {
       };
       return q;
     }
-    if (table === "cold_storage_breaks") {
+    if (table === "cold_storage_transforms") {
       return { insert: (payload: unknown) => { effects.push({ table, op: "insert", payload }); return Promise.resolve({ error: null }); } };
     }
     throw new Error(`unexpected table ${table}`);
@@ -124,7 +124,7 @@ describe("applyBreakDown", () => {
     // pack row fully consumed -> deleted; single row created with +4 in batch B-040
     expect(effects).toContainEqual({ table: "cold_storage_inventory", op: "delete", id: "row-pack" });
     expect(effects).toContainEqual({ table: "cold_storage_inventory", op: "insert", payload: expect.objectContaining({ batch_id: "B-040", recipe_id: "r1", variation_id: ID.single, quantity_on_hand: 4 }) });
-    expect(effects).toContainEqual({ table: "cold_storage_breaks", op: "insert", payload: expect.objectContaining({ batch_id: "B-040", from_variation_id: ID.pack, to_variation_id: ID.single, from_units: 1, to_units: 4, source_ref: "sqsale:x:2026-07-07" }) });
+    expect(effects).toContainEqual({ table: "cold_storage_transforms", op: "insert", payload: expect.objectContaining({ batch_id: "B-040", from_variation_id: ID.pack, to_variation_id: ID.single, from_units: 1, to_units: 4, source_ref: "sqsale:x:2026-07-07" }) });
     // final on-hand: single=4, pack=0
     expect(csi.find((r) => r.variation_id === ID.single)?.quantity_on_hand ?? (csi.length ? undefined : 4)).toBeDefined();
   });
@@ -152,7 +152,7 @@ describe("applyBreakDown", () => {
       { batchId: "B-040", fromVariationId: ID.pack, toVariationId: ID.single, toUnits: 4 },
     ]);
     expect(res.shortfall).toBe(0);
-    expect(effects.filter((e) => e.table === "cold_storage_breaks")).toHaveLength(2);
+    expect(effects.filter((e) => e.table === "cold_storage_transforms")).toHaveLength(2);
   });
 
   it("skips an op whose oldest parent row holds less than one whole unit, even though the tier's aggregate on-hand looked sufficient to the planner", async () => {
@@ -174,7 +174,7 @@ describe("applyBreakDown", () => {
     expect(res.applied).toEqual([]);
     // Neither pack row was touched, no single row was created, no break journaled.
     expect(effects.filter((e) => e.table === "cold_storage_inventory" && e.op !== undefined)).toEqual([]);
-    expect(effects.filter((e) => e.table === "cold_storage_breaks")).toEqual([]);
+    expect(effects.filter((e) => e.table === "cold_storage_transforms")).toEqual([]);
     expect(csi.find((r) => r.id === "row-pack-a")?.quantity_on_hand).toBe(0.6);
     expect(csi.find((r) => r.id === "row-pack-b")?.quantity_on_hand).toBe(0.5);
     expect(csi.some((r) => r.variation_id === ID.single)).toBe(false);

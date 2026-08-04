@@ -55,6 +55,8 @@ export const queryKeys = {
     allocationsByBatch:   (batchId: string) => ["production", "allocations", batchId] as const,
     exportBayInventory:   () => ["production", "export-bay-inventory"] as const,
     coldStorage:          () => ["production", "cold-storage"] as const,
+    /** The cold_storage_transforms journal behind Export > Adjustments. */
+    coldStorageAdjustments: () => ["production", "cold-storage-adjustments"] as const,
     commitments:          () => ["production", "commitments"] as const,
     squareCatalog:        () => ["production", "square-catalog"] as const,
     recipeSquareLinks:    () => ["production", "recipe-square-links"] as const,
