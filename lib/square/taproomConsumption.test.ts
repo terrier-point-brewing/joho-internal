@@ -116,6 +116,73 @@ const restockEvent = (over: Partial<RestockLineEvent> = {}): RestockLineEvent =>
   ...over,
 });
 
+describe("assembleConsumption — sales with nowhere to book them", () => {
+  // The Epic Hazy failure in miniature: Square deleted and recreated the
+  // variation, the link kept pointing at the dead id, and sales arrived on the
+  // live one. ~93 cans left the building and nothing said a word.
+  it("reports a sale on a variation that should have been mapped", () => {
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      salesByDay: new Map([["sqvar-orphan\t2026-07-01", 23]]),
+      kegCanLinks: [canLink],
+      unmappedSaleCandidates: new Set(["sqvar-orphan"]),
+    });
+
+    expect(units).toEqual([]);
+    expect(discrepancies).toEqual([
+      { kind: "unmapped_sale", squareVariationId: "sqvar-orphan", quantity: 23, days: ["2026-07-01"] },
+    ]);
+  });
+
+  it("accumulates one discrepancy per variation across days", () => {
+    const { discrepancies } = assembleConsumption({
+      ...empty(),
+      salesByDay: new Map([
+        ["sqvar-orphan\t2026-07-01", 2],
+        ["sqvar-orphan\t2026-07-03", 5],
+      ]),
+      unmappedSaleCandidates: new Set(["sqvar-orphan"]),
+    });
+
+    expect(discrepancies).toEqual([
+      { kind: "unmapped_sale", squareVariationId: "sqvar-orphan", quantity: 7, days: ["2026-07-01", "2026-07-03"] },
+    ]);
+  });
+
+  // Narrowing is what makes this reportable rather than noise: every burger and
+  // cocktail sold is an "unmapped" variation too.
+  it("stays silent for a variation that was never a candidate", () => {
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      salesByDay: new Map([["sqvar-burger\t2026-07-01", 40]]),
+      unmappedSaleCandidates: new Set(["sqvar-orphan"]),
+    });
+
+    expect(units).toEqual([]);
+    expect(discrepancies).toEqual([]);
+  });
+
+  it("keeps the old silent behaviour when no candidate set is supplied", () => {
+    const { discrepancies } = assembleConsumption({
+      ...empty(),
+      salesByDay: new Map([["sqvar-orphan\t2026-07-01", 9]]),
+    });
+    expect(discrepancies).toEqual([]);
+  });
+
+  it("does not report a variation that IS mapped", () => {
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      salesByDay: new Map([["sqvar-can\t2026-07-01", 4]]),
+      kegCanLinks: [canLink],
+      unmappedSaleCandidates: new Set(["sqvar-can"]),
+    });
+
+    expect(units).toHaveLength(1);
+    expect(discrepancies).toEqual([]);
+  });
+});
+
 describe("assembleConsumption — restock draft swaps (tap grain)", () => {
   it("maps a restock line to a draft_swap unit with the tap's swap keg + recount", () => {
     const { units, discrepancies } = assembleConsumption({

@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
-import Banner from "@/app/components/ui/Banner";
+import ButtonGroup from "@/app/components/ButtonGroup";
+import SquareDriftPanel from "./SquareDriftPanel";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterSelect from "@/app/components/ui/FilterSelect";
@@ -18,15 +19,14 @@ import type {
 } from "@/lib/production/inventoryGrid";
 import type { MappingColumn } from "@/app/production/types";
 
-interface ReconEvent {
-  recipe_id: string | null;
-  base_variation_name: string | null;
-  cold_storage_cans: number;
-  square_cans_before: number;
-  drift: number;
-  occurred_at: string;
-}
-type TaproomInventoryResponse = InventoryGrid & { reconciliations: ReconEvent[] };
+type TaproomInventoryResponse = InventoryGrid;
+
+type View = "onHand" | "drift";
+
+const VIEWS = [
+  { key: "onHand" as const, label: "On hand" },
+  { key: "drift" as const, label: "Square drift" },
+];
 
 const INVENTORY_CONTROLS: ControlsConfig<InventoryRow> = {
   search: [{ param: "q", accessor: (r) => r.recipeName }],
@@ -132,6 +132,8 @@ function Cell({ cell, col }: { cell: InventoryCell | null | undefined; col: Mapp
 // ── grid ──────────────────────────────────────────────────────────────────────
 
 export default function InventoryTab() {
+  const [view, setView] = useState<View>("onHand");
+
   const { data, isLoading, error } = useQuery({
     queryKey: queryKeys.taproom.inventory(),
     queryFn: () => fetchJson<TaproomInventoryResponse>("/api/taproom/inventory"),
@@ -148,15 +150,6 @@ export default function InventoryTab() {
         .map((p) => ({ value: p, label: p })),
     [source],
   );
-
-  const lastReconcile = useMemo(() => {
-    const events = data?.reconciliations ?? [];
-    if (events.length === 0) return null;
-    const latest = events[0].occurred_at;
-    // Count corrections from the most recent reconcile batch (same occurred_at).
-    const inBatch = events.filter((e) => e.occurred_at === latest);
-    return { at: latest, count: inBatch.length };
-  }, [data]);
 
   // Column/grand totals recomputed from the matches so the banner and footer
   // track what's visible.
@@ -176,28 +169,30 @@ export default function InventoryTab() {
     return { columnTotals, grandTotalBbl: Number(grandTotalBbl.toFixed(2)) };
   }, [rows, data?.columns]);
 
-  if (isLoading) return <div className="text-sm text-muted py-8 text-center">Loading inventory…</div>;
-  if (error) return <div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div>;
-  if (!data) return null;
+  // The view switcher renders above every branch so it stays reachable while the
+  // grid loads or errors — the drift view is the one you want when on-hand is
+  // misbehaving.
+  const switcher = (
+    <ButtonGroup className="mb-2" tabs={VIEWS} activeKey={view} onSelect={setView} />
+  );
+
+  if (view === "drift") return <div>{switcher}<SquareDriftPanel /></div>;
+
+  if (isLoading) return <div>{switcher}<div className="text-sm text-muted py-8 text-center">Loading inventory…</div></div>;
+  if (error) return <div>{switcher}<div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div></div>;
+  if (!data) return <div>{switcher}</div>;
 
   const { columns } = data;
 
   return (
     <div>
+      {switcher}
       <div className="mb-2 flex items-center justify-between rounded-lg border border-accent-border/30 bg-accent-muted/20 px-3 py-2">
         <span className="text-sm text-body">Cold storage available to the taproom</span>
         <span className="text-sm text-strong font-semibold tabular-nums">
           {fmtBbl(grandTotalBbl)} bbl{activeCount > 0 ? " shown" : " total"}
         </span>
       </div>
-
-      {lastReconcile && (
-        <Banner tone="info" className="mb-2">
-          Square inventory is auto-synced from cold storage. Last correction{" "}
-          {new Date(lastReconcile.at).toLocaleString()} — {lastReconcile.count}{" "}
-          {pluralize(lastReconcile.count, "SKU", "SKUs")} adjusted to match cold storage.
-        </Banner>
-      )}
 
       <div className="mb-2 flex items-center gap-2">
         <FilterBar activeCount={activeCount} onClear={reset}>

@@ -8,6 +8,7 @@ import { finalizeConversion, createConversionTargetBatch, reconcileConvertedBatc
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { applyPackagingLoss } from "@/lib/production/packagingMaterials";
+import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +129,12 @@ async function processTransferLine(
         await upsertColdStorageInventory(supabase, {
           batch_id, recipe_id, variation_id, quantity_delta: quantity, source_transfer_id: transferRow.id,
         });
+
+        // Finished goods just arrived. Restate this recipe's Square counts now so
+        // the taproom sees the new stock immediately rather than after the
+        // nightly push — Square has no other way to learn that beer was packaged.
+        // No-ops while the push gate is shut; never throws.
+        await triggerSquarePush(supabase, [recipe_id], `canning/kegging batch ${batch_id}`);
       }
     } catch (deductionErr) {
       console.error("[transfers] Packaging deduction / cold storage update failed (transfer committed):", deductionErr);

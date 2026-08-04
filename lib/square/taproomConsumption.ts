@@ -82,10 +82,46 @@ export interface StaleQueuedSwapDiscrepancy {
   toBeerName: string;
 }
 
+/**
+ * Beer sold in the taproom that had nowhere to be booked.
+ *
+ * Narrowed to variations whose Square ITEM is already mapped for some other
+ * variation — a sale on a sibling of a mapped SKU is a mapping gap, whereas a
+ * burger has no mapped siblings and is not interesting. That narrowing is what
+ * makes this reportable instead of noise.
+ *
+ * This is not hypothetical: when Epic Hazy's "Regular" variations were deleted
+ * and recreated in Square, the links still pointed at the dead ids, so 23
+ * four-packs and a single can sold against the live ids and drained nothing.
+ * Roughly 93 cans that cold storage still believes are on the shelf.
+ */
+export interface UnmappedSaleDiscrepancy {
+  kind: "unmapped_sale";
+  squareVariationId: string;
+  /** Total units sold across the window with no link to book them against. */
+  quantity: number;
+  days: string[];
+}
+
+/**
+ * A keg/can link with no cold-storage variation behind it. Its Square sales can
+ * never deplete anything, so it is a half-finished mapping rather than a working
+ * one.
+ */
+export interface LinkMissingVariationDiscrepancy {
+  kind: "link_missing_cold_storage_variation";
+  recipeId: string;
+  squareVariationId: string;
+  beerName: string;
+  variationName: string;
+}
+
 export type AssemblyDiscrepancy =
   | ConfigDiscrepancy
   | UnmappedRestockDiscrepancy
-  | StaleQueuedSwapDiscrepancy;
+  | StaleQueuedSwapDiscrepancy
+  | UnmappedSaleDiscrepancy
+  | LinkMissingVariationDiscrepancy;
 
 // keg/can Square SKU -> cold-storage variation
 export interface KegCanLink {
@@ -126,6 +162,12 @@ export function assembleConsumption(input: {
   restockEvents?: RestockLineEvent[]; // bartender-recorded keg swaps (the new path)
   tapRestockLinks?: TapRestockLink[]; // restock variation → tap → recipe + swap config
   pendingSwaps?: PendingTapSwap[]; // queued beer-change transitions awaiting a ring
+  /**
+   * Variations that SHOULD have a keg/can link but don't — siblings on an item
+   * that is otherwise mapped. A sale landing on one of these is reported rather
+   * than silently dropped. Omit to keep the old silent behaviour.
+   */
+  unmappedSaleCandidates?: ReadonlySet<string>;
   nowIso?: string; // enables staleness reporting; omitted keeps this fully time-free
 }): { units: ConsumptionUnit[]; discrepancies: AssemblyDiscrepancy[] } {
   const {
@@ -135,6 +177,7 @@ export function assembleConsumption(input: {
     restockEvents = [],
     tapRestockLinks = [],
     pendingSwaps = [],
+    unmappedSaleCandidates,
     nowIso,
   } = input;
 
@@ -149,11 +192,24 @@ export function assembleConsumption(input: {
   for (const d of draftLinks) draftSquareVarByRecipe.set(d.recipeId, d.squareVariationId);
 
   // Keg/can sales → one unit per (variation, day).
+  const unmappedSales = new Map<string, { quantity: number; days: Set<string> }>();
   for (const [key, qty] of salesByDay) {
     if (qty <= 0) continue;
     const [sqVarId, day] = key.split("\t");
     const link = linkByVarId.get(sqVarId);
-    if (!link) continue; // sale for an unmapped SKU — can't resolve a cold-storage variation
+    if (!link) {
+      // A sale with no link books nothing. Reported when the variation looks like
+      // it should have been mapped, so the beer that left is visible instead of
+      // being dropped on the floor — the failure mode that hid ~93 cans of Epic
+      // Hazy behind a stale link for nine days.
+      if (unmappedSaleCandidates?.has(sqVarId)) {
+        const acc = unmappedSales.get(sqVarId) ?? { quantity: 0, days: new Set<string>() };
+        acc.quantity += qty;
+        acc.days.add(day);
+        unmappedSales.set(sqVarId, acc);
+      }
+      continue;
+    }
     units.push({
       recipeId: link.recipeId,
       variationId: link.variationId,
@@ -161,6 +217,15 @@ export function assembleConsumption(input: {
       sourceRef: `sqsale:${sqVarId}:${day}`,
       kind: link.kind,
       label: `${link.beerName} · ${link.variationName} · ${day}`,
+    });
+  }
+
+  for (const [squareVariationId, acc] of unmappedSales) {
+    discrepancies.push({
+      kind: "unmapped_sale",
+      squareVariationId,
+      quantity: acc.quantity,
+      days: [...acc.days].sort(),
     });
   }
 
@@ -243,6 +308,7 @@ interface RecipeSquareLinkRow {
   recipe_id: string;
   packaging: string;
   square_variation_id: string;
+  square_item_id: string | null;
   variation_id: string | null;
   variation_name: string | null;
   item_name: string | null;
@@ -287,7 +353,7 @@ export async function deriveTaproomConsumption(
   const { data: linkRows, error: linkErr } = await supabase
     .from("recipe_square_links")
     .select(
-      "recipe_id, packaging, square_variation_id, variation_id, variation_name, item_name, recipes(beer_name)",
+      "recipe_id, packaging, square_variation_id, square_item_id, variation_id, variation_name, item_name, recipes(beer_name)",
     );
   if (linkErr) throw new Error(linkErr.message);
 
@@ -295,6 +361,7 @@ export async function deriveTaproomConsumption(
 
   const kegCanLinks: KegCanLink[] = [];
   const draftLinks: DraftLink[] = [];
+  const halfMappedLinks: LinkMissingVariationDiscrepancy[] = [];
   for (const row of rows) {
     const beerName = row.recipes?.beer_name ?? row.item_name ?? "";
     if (row.packaging === "draft") {
@@ -304,9 +371,18 @@ export async function deriveTaproomConsumption(
         beerName,
       });
     } else if (row.packaging === "keg" || row.packaging === "can") {
-      // Skip unmapped keg/can rows — without variation_id they can't resolve to
-      // a cold-storage variation.
-      if (!row.variation_id) continue;
+      // Without a cold-storage variation the link can't deplete anything, so its
+      // sales would vanish. Reported rather than skipped in silence.
+      if (!row.variation_id) {
+        halfMappedLinks.push({
+          kind: "link_missing_cold_storage_variation",
+          recipeId: row.recipe_id,
+          squareVariationId: row.square_variation_id,
+          beerName,
+          variationName: row.variation_name ?? "",
+        });
+        continue;
+      }
       kegCanLinks.push({
         squareVariationId: row.square_variation_id,
         recipeId: row.recipe_id,
@@ -388,9 +464,39 @@ export async function deriveTaproomConsumption(
   const kegCanSquareVarIds = kegCanLinks.map((l) => l.squareVariationId);
   const restockSquareVarIds = tapRestockLinks.map((l) => l.restockVariationId);
 
+  // Variations that ought to be mapped but aren't: live siblings on an item that
+  // already carries a keg/can link. Narrowing to mapped items keeps food, merch
+  // and cocktails out of it — an unmapped burger is not a mapping gap, an
+  // unmapped variation of a beer we already sell is.
+  //
+  // Sales are then fetched for these too, so a sale landing on one is reported
+  // instead of being filtered out before assembly ever sees it. That pre-filter
+  // is precisely why the recreated Epic Hazy SKUs drained nothing and said
+  // nothing: the sale carried the live id, and only the dead one was requested.
+  const mappedItemIds = new Set(
+    rows.filter((r) => r.packaging === "keg" || r.packaging === "can")
+      .map((r) => r.square_item_id)
+      .filter((id): id is string => !!id),
+  );
+  const linkedVarIds = new Set(rows.map((r) => r.square_variation_id));
+
+  const unmappedSaleCandidates = new Set<string>();
+  if (mappedItemIds.size > 0) {
+    const { data: siblingRows, error: siblingErr } = await supabase
+      .from("square_catalog_variations")
+      .select("square_variation_id, square_item_id")
+      .in("square_item_id", [...mappedItemIds])
+      .eq("is_deleted", false);
+    if (siblingErr) throw new Error(siblingErr.message);
+    for (const v of (siblingRows ?? []) as { square_variation_id: string }[]) {
+      if (!linkedVarIds.has(v.square_variation_id)) unmappedSaleCandidates.add(v.square_variation_id);
+    }
+  }
+
+  const saleVarIds = [...new Set([...kegCanSquareVarIds, ...unmappedSaleCandidates])];
   const salesByDay =
-    kegCanSquareVarIds.length > 0
-      ? await fetchOrderSalesByDay(startDate, endDate, kegCanSquareVarIds)
+    saleVarIds.length > 0
+      ? await fetchOrderSalesByDay(startDate, endDate, saleVarIds)
       : new Map<string, number>();
 
   const restockEvents =
@@ -398,13 +504,21 @@ export async function deriveTaproomConsumption(
       ? await fetchDraftRestockLineItems(startDate, endDate, restockSquareVarIds)
       : [];
 
-  return assembleConsumption({
+  const assembled = assembleConsumption({
     salesByDay,
     kegCanLinks,
     draftLinks,
     restockEvents,
     tapRestockLinks,
     pendingSwaps,
+    unmappedSaleCandidates,
     nowIso: new Date().toISOString(),
   });
+
+  // Half-finished mappings are found while loading links, not while assembling,
+  // so they join the assembler's own findings here.
+  return {
+    ...assembled,
+    discrepancies: [...assembled.discrepancies, ...halfMappedLinks],
+  };
 }

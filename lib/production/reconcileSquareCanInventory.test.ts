@@ -139,6 +139,8 @@ interface CatalogVarRow {
   variation_name: string;
   volume_fl_oz_per_unit: number | null;
   track_inventory: boolean;
+  /** Mirror rows for variations Square has deleted; omitted means live. */
+  is_deleted?: boolean;
 }
 
 function fakeSupabase(opts: {
@@ -161,14 +163,21 @@ function fakeSupabase(opts: {
         };
       }
       if (table === "square_catalog_variations") {
-        return {
-          select: () => ({
-            eq: (_col: string, itemId: string) => ({
-              data: opts.catalogVariationsByItem[itemId] ?? [],
-              error: null,
-            }),
-          }),
-        };
+        // Chainable .eq() — the reconciler filters on square_item_id AND
+        // is_deleted, so a single-.eq() stub would not exercise the real query.
+        // Rows carrying `is_deleted: true` are filtered out here exactly as
+        // PostgREST would, which is what pins the ghost-exclusion behaviour.
+        const build = (rows: CatalogVarRow[]) => ({
+          data: rows,
+          error: null,
+          eq: (col: string, val: unknown) =>
+            build(
+              col === "square_item_id"
+                ? (opts.catalogVariationsByItem[val as string] ?? [])
+                : rows.filter((r) => (r[col as keyof CatalogVarRow] ?? false) === val),
+            ),
+        });
+        return { select: () => build([]) };
       }
       if (table === "square_inventory_reconciliations") {
         return {
@@ -221,7 +230,7 @@ describe("reconcileSquareCanInventory (IO)", () => {
     });
   }
 
-  it("writes cold storage's loose-equivalent onto Square and journals the correction when they drift", async () => {
+  it("plans the loose-equivalent correction but does NOT push it to Square (observe-only)", async () => {
     mockRegularFamilySkus();
     fetchCounts.mockResolvedValue(new Map([["SQ-BASE", 40]]));
     recount.mockResolvedValue(undefined);
@@ -240,19 +249,24 @@ describe("reconcileSquareCanInventory (IO)", () => {
     // 8 loose + 0 packs*4 + 1 case*24 = 32 loose-equivalent; Square was at 40.
     const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"], occurredAt: "2026-07-08T12:00:00Z" });
 
-    expect(recount).toHaveBeenCalledTimes(1);
-    expect(recount).toHaveBeenCalledWith("SQ-BASE", 32, "2026-07-08T12:00:00Z");
-    expect(sink.reconciliations).toEqual([
+    // The drift is fully measured and reported...
+    expect(res.writes).toEqual([
       expect.objectContaining({
-        recipe_id: "r1",
-        base_square_variation_id: "SQ-BASE",
-        cold_storage_cans: 32,
-        square_cans_before: 40,
+        recipeId: "r1",
+        baseSquareVariationId: "SQ-BASE",
+        coldStorageCans: 32,
+        squareCansBefore: 40,
         drift: 8,
       }),
     ]);
-    expect(res.applied).toBe(1);
-    expect(res.writes).toHaveLength(1);
+
+    // ...but nothing is written to Square, and nothing is journalled as applied,
+    // while the push is off. A journal row means "we changed Square"; recording
+    // one for a write we never sent is exactly the lie that hid the stale-link
+    // bug for nine days.
+    expect(recount).not.toHaveBeenCalled();
+    expect(sink.reconciliations).toEqual([]);
+    expect(res.applied).toBe(0);
   });
 
   it("skips a family whose item's matching parent is not inventory-tracked (Be Like Mike)", async () => {
@@ -280,6 +294,67 @@ describe("reconcileSquareCanInventory (IO)", () => {
     expect(res.applied).toBe(0);
     expect(res.skips.some((s) => s.recipeId === "r2" && s.reason.includes("Be Like Mike"))).toBe(true);
     expect(sink.reconciliations).toHaveLength(0);
+  });
+
+  // The regression that started all of this: the mapped variation had been
+  // deleted in Square, so the count read came back empty. Coercing that to 0
+  // produced a -158 "drift" against a SKU that did not exist, and the reconciler
+  // chased it 1,040 times without ever converging. No count is not a count.
+  it("treats a variation Square returns no count for as unknown, never as zero", async () => {
+    mockRegularFamilySkus();
+    fetchCounts.mockResolvedValue(new Map()); // Square answered, but not about SQ-BASE
+    const sink = { reconciliations: [] as unknown[] };
+
+    const supabase = fakeSupabase({
+      coldStorageRows: [
+        csRow("r1", "PV-LOOSE", 8, loosePv),
+        csRow("r1", "PV-PACK", 0, packPv),
+        csRow("r1", "PV-CASE", 1, casePv),
+      ],
+      catalogVariationsByItem: { "ITEM-1": baseItemVars },
+      sink,
+    });
+
+    const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"] });
+
+    expect(res.writes).toEqual([]);
+    expect(res.applied).toBe(0);
+    expect(recount).not.toHaveBeenCalled();
+    expect(sink.reconciliations).toEqual([]);
+    expect(res.skips.some((s) => s.recipeId === "r1" && /unknown, not zero/.test(s.reason))).toBe(true);
+  });
+
+  // Deleted variations stay in the mirror so their mappings remain inspectable,
+  // but they must not compete to be the family's base. Wiggo! IPA's item really
+  // does carry three deleted rows next to its live ones.
+  it("ignores mirror rows for variations Square has deleted when picking the base", async () => {
+    mockRegularFamilySkus();
+    fetchCounts.mockResolvedValue(new Map([["SQ-BASE", 40]]));
+    const sink = { reconciliations: [] as unknown[] };
+
+    const supabase = fakeSupabase({
+      coldStorageRows: [
+        csRow("r1", "PV-LOOSE", 8, loosePv),
+        csRow("r1", "PV-PACK", 0, packPv),
+        csRow("r1", "PV-CASE", 1, casePv),
+      ],
+      catalogVariationsByItem: {
+        "ITEM-1": [
+          // A second untracked-parent ghost would make base resolution ambiguous
+          // and silently skip the whole family if it were still considered.
+          { square_variation_id: "SQ-DEAD-BASE", variation_name: "Regular", volume_fl_oz_per_unit: null, track_inventory: true, is_deleted: true },
+          ...baseItemVars,
+        ],
+      },
+      sink,
+    });
+
+    const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"], occurredAt: "2026-08-03T12:00:00Z" });
+
+    expect(res.writes).toEqual([
+      expect.objectContaining({ baseSquareVariationId: "SQ-BASE", coldStorageCans: 32, squareCansBefore: 40 }),
+    ]);
+    expect(res.skips).toEqual([]);
   });
 
   it("does not write when Square's count already matches cold storage's loose-equivalent", async () => {

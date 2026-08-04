@@ -21,6 +21,10 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/cron/square-inventory-push",
+      "schedule": "15 7 * * *"
+    },
+    {
       "path": "/api/cron/finance-sync",
       "schedule": "30 7 * * *"
     },

@@ -89,6 +89,16 @@ export const CRON_JOBS: CronJobMeta[] = [
     manualNote:    "This drains cold storage for what was poured and can change stock counts in Square. Anything already recorded is not recorded again.",
   },
   {
+    job:           "square-inventory-push",
+    path:          "/api/cron/square-inventory-push",
+    schedule:      "15 7 * * *",
+    scheduleLabel: "Daily · 07:15 UTC",
+    description:   "Reflects cold storage onto Square for every mapped keg and can SKU, so Square's counts include stock that arrived as well as stock that sold.",
+    maxAgeHours:   25,
+    manualRun:     "wait",
+    manualNote:    "Runs right after the consumption sync so it restates counts once that has drained what was poured. While the push is in observe-only mode it measures and reports without changing anything in Square.",
+  },
+  {
     job:           "finance-sync",
     path:          "/api/cron/finance-sync",
     schedule:      "30 7 * * *",

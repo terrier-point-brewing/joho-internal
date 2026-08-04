@@ -5,6 +5,7 @@ import { getAvailableColdStorageQuantity } from "@/lib/production/coldStorageDep
 import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
 import type { ShipmentWarning } from "@/lib/production/allocationReserve";
 import { normalizeShipLines, dedupeWarnings, type ShipLinesInput } from "@/lib/production/shipLines";
+import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,17 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+
+  // Beer physically left the building. Whether Square needs telling now is
+  // decided inside the push (lib/production/pendingSquareDeduction): a
+  // contract-style shipment is pushed immediately — its fee invoice will never
+  // deduct, so this is the only signal Square gets — while a distribution/
+  // wholesale-style shipment is held back, because its invoice will deduct the
+  // same units itself and pushing first would take them off twice. That window
+  // of drift is deliberate and labelled on the taproom drift view.
+  //
+  // No-ops while the push gate is shut; never throws.
+  await triggerSquarePush(supabase, [recipe_id], `export ship ${shipmentId}`);
 
   return NextResponse.json(
     { shipment_id: shipmentId, created, warnings: dedupeWarnings(warnings) },

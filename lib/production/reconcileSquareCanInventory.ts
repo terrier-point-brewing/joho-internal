@@ -14,8 +14,8 @@ import { deriveCansEach } from "./coldStorageBreak";
 import { groupCanFamilies, type FamilyPackagingRow } from "./canIdentityFamily";
 import { resolveProductSku } from "@/lib/square/skuMappings";
 import { fetchCurrentCounts, setPhysicalCount } from "@/lib/square/inventory";
+import { PUSH_TO_SQUARE_ENABLED, DRIFT_THRESHOLD } from "@/lib/square/pushGate";
 
-const DRIFT_THRESHOLD = 0.5;
 const INT_EPS = 1e-6;
 
 // ── Base-variation resolution (pure) ─────────────────────────────────────────
@@ -68,8 +68,30 @@ export interface ReconcileWrite {
   drift: number; // squareCansBefore - coldStorageCans
 }
 
+/**
+ * What the two sides say for one can family, whether or not they disagree enough
+ * to be worth a write.
+ *
+ * `components` is the decomposition: the per-tier on-hand and how many loose cans
+ * each tier is worth, which multiply and sum to `coldStorageCans`. A variance you
+ * cannot break into the slices that produce it is not reviewable, so the drift
+ * view is given the slices rather than just the total.
+ */
+export interface FamilyMeasurement {
+  recipeId: string;
+  baseSquareVariationId: string;
+  baseVariationName: string | null;
+  coldStorageCans: number;
+  squareCans: number;
+  drift: number; // squareCans - coldStorageCans
+  components: { variationId: string; cansEach: number; onHand: number }[];
+}
+
 export interface ReconcilePlan {
+  /** Families whose drift clears the threshold — the subset worth writing. */
   writes: ReconcileWrite[];
+  /** EVERY family both sides could be read for, drift or not. Feeds the drift view. */
+  measurements: FamilyMeasurement[];
   skips: { recipeId: string; reason: string }[];
   warnings: string[];
 }
@@ -80,7 +102,7 @@ export function planCanReconciliation(input: {
   threshold?: number;
 }): ReconcilePlan {
   const threshold = input.threshold ?? DRIFT_THRESHOLD;
-  const plan: ReconcilePlan = { writes: [], skips: [], warnings: [] };
+  const plan: ReconcilePlan = { writes: [], measurements: [], skips: [], warnings: [] };
 
   for (const fam of input.families) {
     if (!fam.baseSquareVariationId) {
@@ -95,8 +117,38 @@ export function planCanReconciliation(input: {
     if (Math.abs(raw - coldStorageCans) > INT_EPS) {
       plan.warnings.push(`${fam.recipeId} ${fam.baseVariationName ?? fam.baseSquareVariationId}: fractional loose-equivalent ${raw.toFixed(3)} rounded to ${coldStorageCans}`);
     }
-    const squareCansBefore = input.squareCountByVar[fam.baseSquareVariationId] ?? 0;
+    // ABSENT IS NOT ZERO. Square returns no count row for a variation it does not
+    // track — or does not have at all. Reading that as 0 is what invented a
+    // permanent -158 drift against a deleted variation and drove 1,040 writes
+    // that could never converge. An unknown count is not a measurement, so there
+    // is nothing to correct toward and the family is skipped.
+    const squareCansBefore = input.squareCountByVar[fam.baseSquareVariationId];
+    if (squareCansBefore === undefined) {
+      plan.skips.push({
+        recipeId: fam.recipeId,
+        reason: `Square returned no count for ${fam.baseVariationName ?? fam.baseSquareVariationId} — unknown, not zero`,
+      });
+      continue;
+    }
     const drift = squareCansBefore - coldStorageCans;
+
+    // Recorded for every family, not just the ones over threshold: a family that
+    // ties is exactly as interesting to a reader checking whether the two systems
+    // agree as one that does not.
+    plan.measurements.push({
+      recipeId: fam.recipeId,
+      baseSquareVariationId: fam.baseSquareVariationId,
+      baseVariationName: fam.baseVariationName,
+      coldStorageCans,
+      squareCans: squareCansBefore,
+      drift,
+      components: Object.entries(fam.cansEachByVar).map(([variationId, cansEach]) => ({
+        variationId,
+        cansEach,
+        onHand: fam.onHandByVar[variationId] ?? 0,
+      })),
+    });
+
     if (Math.abs(drift) >= threshold) {
       plan.writes.push({
         recipeId: fam.recipeId,
@@ -116,9 +168,19 @@ type Db = SupabaseClient | { from: (t: string) => any };
 
 export async function reconcileSquareCanInventory(
   supabase: Db,
-  opts: { recipeIds?: string[]; occurredAt?: string } = {},
+  opts: {
+    recipeIds?: string[];
+    /**
+     * Recipes to measure but never write. Square still owes itself a deduction
+     * for these (shipped, invoice not settled), so writing now would double-count
+     * the shipment. See lib/production/pendingSquareDeduction.
+     */
+    skipRecipeIds?: string[];
+    occurredAt?: string;
+  } = {},
 ): Promise<ReconcilePlan & { applied: number }> {
   const occurredAt = opts.occurredAt ?? new Date().toISOString();
+  const skip = new Set(opts.skipRecipeIds ?? []);
 
   // 1. Load cold-storage can rows (optionally scoped) with the packaging identity + volume.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -208,11 +270,16 @@ export async function reconcileSquareCanInventory(
 
       let base: ItemVariation | null = null;
       if (itemId) {
+        // Live variations only. The mirror keeps rows for variations Square has
+        // deleted so their mappings stay inspectable, but a ghost must never be
+        // a candidate for the base variation — Wiggo! IPA's item carries three
+        // deleted rows alongside its live ones.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: itemVars } = await (supabase as any)
           .from("square_catalog_variations")
           .select("square_variation_id, variation_name, volume_fl_oz_per_unit, track_inventory")
-          .eq("square_item_id", itemId);
+          .eq("square_item_id", itemId)
+          .eq("is_deleted", false);
         base = pickBaseVariation({
           itemVariations: ((itemVars ?? []) as Record<string, unknown>[]).map((v) => ({
             squareVariationId: v.square_variation_id as string,
@@ -239,8 +306,13 @@ export async function reconcileSquareCanInventory(
   // 3. Read current Square counts for the base variations we might write.
   const baseVarIds = [...new Set(families.map((f) => f.baseSquareVariationId).filter((x): x is string => !!x))];
   const counts = baseVarIds.length ? await fetchCurrentCounts(baseVarIds) : new Map<string, number>();
+  // Only ids Square actually answered for. A missing key means "unknown" and the
+  // planner skips it; see the ABSENT IS NOT ZERO note in planCanReconciliation.
   const squareCountByVar: Record<string, number> = {};
-  for (const id of baseVarIds) squareCountByVar[id] = counts.get(id) ?? 0;
+  for (const id of baseVarIds) {
+    const c = counts.get(id);
+    if (c !== undefined) squareCountByVar[id] = c;
+  }
 
   // 4. Plan, then execute writes (cold storage trumps) + journal each correction.
   const plan = planCanReconciliation({ families, squareCountByVar });
@@ -249,8 +321,35 @@ export async function reconcileSquareCanInventory(
 
   let applied = 0;
   for (const w of plan.writes) {
+    // Measured and reported, deliberately not written: Square is going to
+    // decrement this recipe itself when its shipment's invoice settles, and
+    // restating the count now would let that deduction take the same units a
+    // second time.
+    if (skip.has(w.recipeId)) {
+      plan.skips.push({ recipeId: w.recipeId, reason: "awaiting Square's own deduction for a shipped order — push deferred" });
+      continue;
+    }
+    // `plan.writes` carries every intended correction whether or not the gate is
+    // open, so drift stays fully visible in the run summary and on the taproom
+    // Inventory tab; only the Square mutation is withheld. See lib/square/pushGate.
+    if (!PUSH_TO_SQUARE_ENABLED) continue;
     try {
       await setPhysicalCount(w.baseSquareVariationId, w.coldStorageCans, occurredAt);
+
+      // VERIFY THE WRITE LANDED. Square accepts a PHYSICAL_COUNT against a
+      // variation it does not have and returns no error, so "the POST did not
+      // fail" says nothing about whether anything changed. Read the count back
+      // and insist it matches before claiming the correction was applied.
+      const after = await fetchCurrentCounts([w.baseSquareVariationId]);
+      const observed = after.get(w.baseSquareVariationId);
+      if (observed === undefined || Math.abs(observed - w.coldStorageCans) > INT_EPS) {
+        plan.warnings.push(
+          `write NOT verified for ${w.baseVariationName ?? w.baseSquareVariationId}: ` +
+          `wrote ${w.coldStorageCans}, Square reports ${observed ?? "no count"}`,
+        );
+        continue;
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (supabase as any).from("square_inventory_reconciliations").insert({
         recipe_id: w.recipeId,
