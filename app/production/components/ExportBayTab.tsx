@@ -329,11 +329,14 @@ function PhantomAlertsPanel({
 export default function ExportBayTab() {
   const qc = useQueryClient();
 
-  const { data: inventory = [], isLoading: inventoryLoading } = useQuery({
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the
+  // render would fall through to "Nothing to show yet" for a load that never landed.
+  const { data: inventory = [], isPending: inventoryPending, error: inventoryError } = useQuery({
     queryKey: queryKeys.production.exportBayInventory(),
     queryFn: () => fetchJson<AvailableInventoryLine[]>("/api/production/export-bay/inventory"),
   });
-  const { data: allocations = [], isLoading: allocationsLoading } = useQuery({
+  const { data: allocations = [], isPending: allocationsPending, error: allocationsError } = useQuery({
     queryKey: queryKeys.production.allocations(),
     queryFn: () => fetchJson<BatchAllocation[]>("/api/production/allocations"),
   });
@@ -537,8 +540,17 @@ export default function ExportBayTab() {
 
   const anyData = inventory.length > 0 || recipeGroups.size > 0;
 
-  if (inventoryLoading || allocationsLoading) {
+  if (inventoryPending || allocationsPending) {
     return <p className="text-sm text-faint py-8 text-center">Loading…</p>;
+  }
+
+  const bayError = inventoryError ?? allocationsError;
+  if (bayError) {
+    return (
+      <p className="text-sm text-danger py-8 text-center">
+        Could not load the export bay: {bayError instanceof Error ? bayError.message : "unknown error"}
+      </p>
+    );
   }
 
   function afterShip() {

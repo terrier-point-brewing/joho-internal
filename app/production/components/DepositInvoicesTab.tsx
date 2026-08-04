@@ -103,7 +103,10 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
 }
 
 export default function DepositInvoicesTab() {
-  const { data: invoices = [], isLoading, error } = useQuery({
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the
+  // empty branch would claim "no deposit invoices" for a load that never landed.
+  const { data: invoices = [], isPending, error } = useQuery({
     queryKey: queryKeys.production.depositInvoices(),
     queryFn: () => fetchJson<DepositInvoiceListItem[]>("/api/production/deposit-invoices"),
   });
@@ -177,7 +180,7 @@ export default function DepositInvoicesTab() {
         <Banner>Could not load deposit invoices: {error instanceof Error ? error.message : "unknown error"}</Banner>
       ) : filtered.length === 0 ? (
         <p className="text-sm text-faint">
-          {isLoading ? "Loading deposit invoices…" : "No deposit invoices match the current filters."}
+          {isPending ? "Loading deposit invoices…" : "No deposit invoices match the current filters."}
         </p>
       ) : (
         <div className="rounded-lg border border-line overflow-hidden">

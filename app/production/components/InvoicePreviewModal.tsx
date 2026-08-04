@@ -59,7 +59,13 @@ export default function InvoicePreviewModal({
   onCreated: () => void;
 }) {
   const [billAsChannel, setBillAsChannel] = useState<string | null>(null);
-  const { data, isLoading, error: previewError } = useInvoicePreview(transactionIds, billAsChannel);
+  const { data, isPending, error: previewError } = useInvoicePreview(transactionIds, billAsChannel);
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the
+  // modal would render its body with no line items for a load that never landed.
+  // Gated on transactionIds because the preview query is `enabled`-gated, and a
+  // disabled query stays pending forever.
+  const previewPending = transactionIds.length > 0 && isPending;
   const { data: catalog } = useExportSquareCatalogQuery();
   const [lineItems, setLineItems] = useState<DraftLineItem[] | null>(null);
   const [creating, setCreating] = useState(false);
@@ -241,7 +247,7 @@ export default function InvoicePreviewModal({
   return (
     <>
     <Modal title={title} onClose={onClose} extraWide>
-      {isLoading ? (
+      {previewPending ? (
         <p className="text-sm text-muted">Loading line items…</p>
       ) : previewError ? (
         <div className="space-y-4">

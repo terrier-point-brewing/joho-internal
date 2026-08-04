@@ -137,14 +137,19 @@ function buildRows(
 }
 
 export default function StockAdjustmentsTab() {
-  const { data: ingAdjustments = [] } = useAdjustmentsQuery();
+  const { data: ingAdjustments = [], isPending: ingPending, error: ingError } = useAdjustmentsQuery();
   const { data: ingredients = [] } = useIngredientsQuery();
   const { data: packaging = [] } = usePackagingQuery();
-  const { data: pkgAdjs = [], isLoading: pkgLoading } = useQuery({
+  const { data: pkgAdjs = [], isPending: pkgPending, error: pkgError } = useQuery({
     queryKey: queryKeys.production.packagingAdjustments(),
     queryFn: () => fetchJson<PackagingStockAdjustment[]>("/api/production/packaging-adjustments"),
   });
-  const loading = pkgLoading;
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the
+  // render would fall through to "No adjustments found" for a load that never
+  // landed. Both adjustment feeds gate the table because the rows are their union.
+  const loading = ingPending || pkgPending;
+  const loadError = ingError ?? pkgError;
 
   const [groupByDate, setGroupByDate] = useState(false);
 
@@ -218,6 +223,10 @@ export default function StockAdjustmentsTab() {
 
       {loading ? (
         <p className="text-faint text-sm">Loading…</p>
+      ) : loadError ? (
+        <p className="text-sm text-danger">
+          Could not load adjustments: {loadError instanceof Error ? loadError.message : "unknown error"}
+        </p>
       ) : filtered.length === 0 ? (
         <p className="text-faint text-sm">No adjustments found.</p>
       ) : (

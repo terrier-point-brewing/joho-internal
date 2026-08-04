@@ -134,7 +134,10 @@ function Cell({ cell, col }: { cell: InventoryCell | null | undefined; col: Mapp
 export default function InventoryTab() {
   const [view, setView] = useState<View>("onHand");
 
-  const { data, isLoading, error } = useQuery({
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the
+  // grid would drop straight to the bare switcher for a load that never landed.
+  const { data, isPending, error } = useQuery({
     queryKey: queryKeys.taproom.inventory(),
     queryFn: () => fetchJson<TaproomInventoryResponse>("/api/taproom/inventory"),
   });
@@ -178,7 +181,7 @@ export default function InventoryTab() {
 
   if (view === "drift") return <div>{switcher}<SquareDriftPanel /></div>;
 
-  if (isLoading) return <div>{switcher}<div className="text-sm text-muted py-8 text-center">Loading inventory…</div></div>;
+  if (isPending) return <div>{switcher}<div className="text-sm text-muted py-8 text-center">Loading inventory…</div></div>;
   if (error) return <div>{switcher}<div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div></div>;
   if (!data) return <div>{switcher}</div>;
 

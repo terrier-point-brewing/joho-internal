@@ -59,7 +59,11 @@ function urgencyColor(row: TaproomRow): "red" | "amber" | "green" | "none" {
 
 export default function TaproomTab({ recipes }: { recipes: Recipe[] }) {
   const qc = useQueryClient();
-  const { data: rows = [], isLoading: loading, error } = useQuery({
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the
+  // render would fall through to "No styles linked to Square yet" for a load
+  // that never landed.
+  const { data: rows = [], isPending: loading, error } = useQuery({
     queryKey: queryKeys.production.taproomInventory(),
     queryFn: () => fetchJson<TaproomRow[]>("/api/production/taproom-inventory"),
     staleTime: 5 * 60 * 1000, // Square data: treat as fresh for 5 min, avoids re-fetch on tab switch

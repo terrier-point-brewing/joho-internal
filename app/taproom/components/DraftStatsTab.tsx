@@ -125,7 +125,11 @@ function daysUntilEmpty(flOz: number, dailyFlOz: number) {
 export default function DraftStatsTab() {
   const qc = useQueryClient();
 
-  const { data: stats, isLoading, error, refetch } = useQuery({
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the tap
+  // grid would render empty and the shrinkage panel would claim "no shrinkage
+  // data found" for a load that never landed.
+  const { data: stats, isPending, error, refetch } = useQuery({
     queryKey: queryKeys.taproom.draftStats(),
     queryFn:  () => fetchJson<DraftStatsData>("/api/taproom/draft-stats"),
     staleTime: 5 * 60_000,
@@ -590,7 +594,7 @@ export default function DraftStatsTab() {
       )}
 
       {/* ── Tap grid ── */}
-      {isLoading ? (
+      {isPending ? (
         <p className="text-faint text-sm py-10 text-center">Loading tap data from Square…</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-8">
@@ -980,7 +984,7 @@ export default function DraftStatsTab() {
         </Modal>
       )}
 
-      {shrinkageItems.length === 0 && !isLoading && (
+      {shrinkageItems.length === 0 && !isPending && !err && (
         <div className="py-8 text-center">
           <p className="text-faint text-sm">
             {draftRecipeIds.size === 0
