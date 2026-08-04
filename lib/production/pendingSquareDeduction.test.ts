@@ -34,12 +34,20 @@ describe("selectPendingDeductionRecipes", () => {
   });
 
   // The mechanism gate: Square cannot decrement a variation it does not track,
-  // so nothing is ever owed for it.
-  it("never defers an untracked SKU", () => {
+  // so with no invoice to say otherwise, nothing is owed for it.
+  it("never defers an untracked SKU with no invoice", () => {
     expect(selectPendingDeductionRecipes([
-      ship({ skuTracked: false }),
       ship({ skuTracked: false, invoiceId: null, invoiceHasInventoryLine: null }),
     ])).toEqual(new Set());
+  });
+
+  // Evidence ordering: skuTracked rests on resolving the shipped item's name to
+  // a SKU, and a failed resolution must not release a shipment whose drafted
+  // invoice PROVABLY carries an inventory line. Invoice lines outrank the gate.
+  it("defers when the drafted invoice has an inventory line, even if the SKU could not be resolved", () => {
+    expect(selectPendingDeductionRecipes([
+      ship({ skuTracked: false, invoiceId: "INV-1", invoiceHasInventoryLine: true }),
+    ])).toEqual(new Set(["R1"]));
   });
 
   // Contract brewing with its invoice drafted: fee lines only, Square will never

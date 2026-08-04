@@ -85,22 +85,26 @@ export function selectPendingDeductionRecipes(rows: ShipmentDeduction[]): Set<st
     // Holding until 'paid' would strand the recipe for the invoice's net terms.
     if (r.status === "unpaid" || r.status === "paid") continue;
 
-    // Square cannot decrement a variation it does not track. Nothing is owed,
-    // whatever the invoice ends up saying.
-    if (!r.skuTracked) continue;
-
-    // No invoice yet, so nothing to inspect — the channel predicts what the app
-    // will build. A fee-only channel gets NO deduction from Square ever, so the
-    // ship-time push is the only signal Square gets and must not be held back.
-    // Every other channel is assumed to owe one: stale is recoverable,
-    // double-counting is not.
-    if (r.invoiceId === null) {
-      if (!FEE_ONLY_CHANNELS.has(r.channel)) pending.add(r.recipeId);
+    // An invoice exists: its line items are the best evidence there is, and they
+    // are checked FIRST — before the skuTracked gate — because skuTracked rests
+    // on resolving the shipped item's name to a SKU, and a failed resolution
+    // must not release a shipment whose drafted invoice provably carries an
+    // inventory line Square will deduct.
+    if (r.invoiceId !== null) {
+      if (r.invoiceHasInventoryLine) pending.add(r.recipeId);
       continue;
     }
 
-    // An invoice exists: believe its line items rather than the prediction.
-    if (r.invoiceHasInventoryLine) pending.add(r.recipeId);
+    // No invoice yet, so predict. Square cannot decrement a variation it does
+    // not track, so an untracked (or unmapped — the invoice builder cannot put
+    // an unmapped item on a product invoice either) SKU owes nothing.
+    if (!r.skuTracked) continue;
+
+    // The channel predicts what the app will build. A fee-only channel gets NO
+    // deduction from Square ever, so the ship-time push is the only signal
+    // Square gets and must not be held back. Every other channel is assumed to
+    // owe one: stale is recoverable, double-counting is not.
+    if (!FEE_ONLY_CHANNELS.has(r.channel)) pending.add(r.recipeId);
   }
   return pending;
 }
