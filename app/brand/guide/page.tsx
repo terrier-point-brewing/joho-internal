@@ -61,10 +61,25 @@ export default async function BrandGuidePage() {
   // the code seed until an admin publishes marks of their own (which override).
   const markSpecs = canon.marks?.length ? canon.marks : (seedCanon.marks ?? []);
 
+  // Resolved once here, server-side, and handed to BrandGuideTabs as data —
+  // the intro cards themselves render client-side now (see BrandGuideTabs),
+  // since only the client knows the admin View/Edit toggle they carry.
+  const intros = {
+    ethos: resolveGuideIntro(canon, "ethos"),
+    voice: resolveGuideIntro(canon, "voice"),
+    visual: resolveGuideIntro(canon, "visual"),
+    color: resolveGuideIntro(canon, "color"),
+    type: resolveGuideIntro(canon, "type"),
+    marks: resolveGuideIntro(canon, "marks"),
+    release: resolveGuideIntro(canon, "release"),
+    agent: resolveGuideIntro(canon, "agent"),
+  };
+
   return (
     <BrandGuideTabs
       isAdmin={isAdmin}
       publishedCanon={isAdmin ? canon : undefined}
+      intros={intros}
       views={{
         ethos: <EthosView canon={canon} />,
         voice: <VoiceView canon={canon} />,
@@ -79,7 +94,6 @@ export default async function BrandGuidePage() {
             chops={approvedAssets.filter((a) => a.kind === "chop_glyph")}
             seasons={seasons}
             grounds={assetGrounds}
-            intro={resolveGuideIntro(canon, "marks")}
             chop={canon.chop}
           />
         ),

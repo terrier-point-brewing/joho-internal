@@ -1,8 +1,5 @@
-import type { ReactNode } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
-import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { compileBrandMarkdown } from "@/lib/brand/markdown";
-import GuideSection from "./GuideSection";
 import SubHead from "./blocks/SubHead";
 import MarkdownBlock from "./blocks/MarkdownBlock";
 
@@ -25,11 +22,11 @@ function slug(heading: string): string {
  * the thing being copied is the text itself; formatting it would hide the exact
  * string that ends up in a prompt.
  */
-export default function AgentRulesView({ canon, topRight }: { canon: BrandCanon; topRight?: ReactNode }) {
+export default function AgentRulesView({ canon }: { canon: BrandCanon }) {
   const { sections, full } = compileBrandMarkdown(canon);
 
   return (
-    <GuideSection section="agent" intro={resolveGuideIntro(canon, "agent")} topRight={topRight}>
+    <>
       <section className="mb-8">
         <SubHead
           title="Full brief"
@@ -58,6 +55,6 @@ export default function AgentRulesView({ canon, topRight }: { canon: BrandCanon;
           ))}
         </div>
       </section>
-    </GuideSection>
+    </>
   );
 }

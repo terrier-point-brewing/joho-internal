@@ -1,11 +1,8 @@
-import type { ReactNode } from "react";
 import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandCanon, RoleName } from "@/lib/brand/canon.types";
-import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { normalizeRules } from "@/lib/brand/guideRules";
 import { resolveRole, rolesByPaletteKey } from "@/lib/brand/paletteLinks";
 import { ROLE_NAMES, resolveDarkRoles, resolveLightRoles } from "@/lib/brand/tokens";
-import GuideSection from "./GuideSection";
 import SubHead from "./blocks/SubHead";
 import SwatchCard from "./blocks/SwatchCard";
 import RatioBar from "./blocks/RatioBar";
@@ -108,12 +105,10 @@ function ThemeRow({
 export default function ColorView({
   canon,
   assetsById,
-  topRight,
 }: {
   canon: BrandCanon;
   /** Resolved assets, so illustrated rules can use their authored alt text. */
   assetsById?: Map<string, BrandAsset>;
-  topRight?: ReactNode;
 }) {
   const lightRoles = resolveLightRoles(canon);
   const darkRoles = resolveDarkRoles(canon, lightRoles);
@@ -137,7 +132,7 @@ export default function ColorView({
   ].filter((g) => g.colors.length > 0);
 
   return (
-    <GuideSection section="color" intro={resolveGuideIntro(canon, "color")} topRight={topRight}>
+    <>
       {groups.map((group) => (
         <section key={group.key} className="mb-8">
           <SubHead
@@ -207,6 +202,6 @@ export default function ColorView({
           <RuleGrid rules={forbidden} assetsById={assetsById} />
         </section>
       )}
-    </GuideSection>
+    </>
   );
 }

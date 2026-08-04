@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, cloneElement, isValidElement, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import PageHeader from "@/app/components/PageHeader";
 import TabBar from "@/app/components/TabBar";
 import ToggleChip from "@/app/components/ui/ToggleChip";
+import GuideSection from "./GuideSection";
 import CanonEditor, { type CanonSection } from "../canon/CanonEditor";
 import CanonHistory from "../canon/CanonHistory";
 
@@ -37,15 +38,30 @@ function isCanonSection(tab: TabKey): tab is CanonSection {
  *
  * The editor is kept mounted once opened — hidden, not unmounted — so unsaved
  * draft edits survive both switching tabs and toggling back to View.
+ *
+ * Each view's `GuideSection` shell (intro card + admin toggle) is rendered
+ * HERE rather than inside the view component itself. The views are Server
+ * Components, fully resolved into a fixed element tree before they ever cross
+ * into this Client Component — so once one arrives as a prop, there's no
+ * component function left to re-invoke with a `topRight` prop. An earlier
+ * version tried exactly that (`cloneElement(view, { topRight: modeToggle })`),
+ * which silently did nothing: cloning the resolved tree's outer element only
+ * ever set an unused attribute on it, never reached the `{topRight}` slot
+ * GuideSection had already rendered without it. Passing the server-rendered
+ * content as plain `children` into a `GuideSection` mounted here sidesteps the
+ * problem — nothing needs to be re-rendered with new props, only slotted in.
  */
 export default function BrandGuideTabs({
   isAdmin,
   publishedCanon,
+  intros,
   views,
 }: {
   isAdmin: boolean;
   /** The live canon — lets the editor's publish bar name what differs. */
   publishedCanon?: BrandCanon;
+  /** Each subtab's introduction prose, resolved server-side. */
+  intros: Record<CanonSection, string>;
   views: {
     ethos: ReactNode;
     voice: ReactNode;
@@ -105,11 +121,6 @@ export default function BrandGuideTabs({
     </div>
   ) : undefined;
 
-  /** Injects the mode toggle into an already-built view element as its `topRight` prop. */
-  function withModeToggle(view: ReactNode): ReactNode {
-    return modeToggle && isValidElement(view) ? cloneElement(view, { topRight: modeToggle } as object) : view;
-  }
-
   return (
     <div className="flex flex-col h-full">
       {/* Fixed header + subtab region — mirrors the app-wide page shell */}
@@ -123,19 +134,39 @@ export default function BrandGuideTabs({
 
       {/* Scrollable content region */}
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-8 pt-4">
-        {/* View mode — each tab's rendered content */}
-        <div className={!editing && active === "ethos" ? "" : "hidden"}>{withModeToggle(views.ethos)}</div>
-        <div className={!editing && active === "voice" ? "" : "hidden"}>{withModeToggle(views.voice)}</div>
-        <div className={!editing && active === "visual" ? "" : "hidden"}>{withModeToggle(views.visual)}</div>
-        <div className={!editing && active === "color" ? "" : "hidden"}>{withModeToggle(views.color)}</div>
-        <div className={!editing && active === "type" ? "" : "hidden"}>{withModeToggle(views.type)}</div>
-        <div className={!editing && active === "marks" ? "" : "hidden"}>{withModeToggle(views.marks)}</div>
-        <div className={!editing && active === "release" ? "" : "hidden"}>{withModeToggle(views.release)}</div>
-        <div className={!editing && active === "agent" ? "" : "hidden"}>{withModeToggle(views.agent)}</div>
+        {/* View mode — each tab's intro card + rendered content */}
+        <div className={!editing && active === "ethos" ? "" : "hidden"}>
+          <GuideSection section="ethos" intro={intros.ethos} topRight={modeToggle}>{views.ethos}</GuideSection>
+        </div>
+        <div className={!editing && active === "voice" ? "" : "hidden"}>
+          <GuideSection section="voice" intro={intros.voice} topRight={modeToggle}>{views.voice}</GuideSection>
+        </div>
+        <div className={!editing && active === "visual" ? "" : "hidden"}>
+          <GuideSection section="visual" intro={intros.visual} topRight={modeToggle}>{views.visual}</GuideSection>
+        </div>
+        <div className={!editing && active === "color" ? "" : "hidden"}>
+          <GuideSection section="color" intro={intros.color} topRight={modeToggle}>{views.color}</GuideSection>
+        </div>
+        <div className={!editing && active === "type" ? "" : "hidden"}>
+          <GuideSection section="type" intro={intros.type} topRight={modeToggle}>{views.type}</GuideSection>
+        </div>
+        <div className={!editing && active === "marks" ? "" : "hidden"}>
+          <GuideSection section="marks" intro={intros.marks} topRight={modeToggle}>{views.marks}</GuideSection>
+        </div>
+        <div className={!editing && active === "release" ? "" : "hidden"}>
+          <GuideSection section="release" intro={intros.release} topRight={modeToggle}>{views.release}</GuideSection>
+        </div>
+        <div className={!editing && active === "agent" ? "" : "hidden"}>
+          <GuideSection section="agent" intro={intros.agent} topRight={modeToggle}>{views.agent}</GuideSection>
+        </div>
 
-        {/* Edit mode — canon editor (kept mounted once opened) */}
+        {/* Edit mode — canon editor (kept mounted once opened). The toggle
+            repeats here: it lives inside each View-mode intro card, which is
+            hidden while editing, so without this an admin who opens Edit has
+            no way back to View short of losing their place in the tab. */}
         {isAdmin && editorMounted && (
           <div className={showCanonEditor ? "" : "hidden"}>
+            <div className="flex justify-end mb-3">{modeToggle}</div>
             <CanonEditor section={editorSection} publishedCanon={publishedCanon} />
           </div>
         )}

@@ -1,9 +1,6 @@
-import type { ReactNode } from "react";
 import type { BrandCanon, FontRole } from "@/lib/brand/canon.types";
-import { resolveGuideIntro } from "@/lib/brand/guideIntros";
 import { sourceOf } from "@/lib/brand/fontRegistry";
 import { cssSize } from "@/lib/brand/typeSpecimen";
-import GuideSection from "./GuideSection";
 import SubHead from "./blocks/SubHead";
 
 const FONT_CLASS: Record<FontRole, string> = {
@@ -38,7 +35,7 @@ const MEDIA: { key: string; title: string }[] = [
  * "48pt poster title" is something you see rather than a claim you take on
  * trust.
  */
-export default function TypeView({ canon, topRight }: { canon: BrandCanon; topRight?: ReactNode }) {
+export default function TypeView({ canon }: { canon: BrandCanon }) {
   const fontByRole = new Map(canon.fonts.map((f) => [f.role, f]));
   const useCases = canon.typeUseCases ?? [];
 
@@ -48,7 +45,7 @@ export default function TypeView({ canon, topRight }: { canon: BrandCanon; topRi
   })).filter((g) => g.rows.length > 0);
 
   return (
-    <GuideSection section="type" intro={resolveGuideIntro(canon, "type")} topRight={topRight}>
+    <>
       <section className="mb-8">
         <SubHead
           title="Faces"
@@ -145,6 +142,6 @@ export default function TypeView({ canon, topRight }: { canon: BrandCanon; topRi
           </div>
         </section>
       )}
-    </GuideSection>
+    </>
   );
 }
