@@ -211,9 +211,17 @@ Changes:
    Vienna Lager keeps a house "1/6 Keg" and a contract-branded
    "Fortnight - 1/6 Keg" pointed at the same Square SKU. Comparing per mapping
    produced two rows against one Square number and both were wrong.
-3. ⏳ **Exclude the ship-to-payment window** from drift, or label it distinctly —
-   see the timing note above. A shipped-but-unpaid distribution order is not
-   drift. **Not yet done**; some of the 19 drifting kegs are probably this.
+3. ✅ **The ship-to-payment window is labelled, not counted as drift.** Rows for
+   a recipe with a shipped-but-unsettled wholesale/distribution order show
+   "awaiting invoice" and sit outside the agree/drift tally.
+
+   This turned out to matter far more than presentation: the same window makes
+   the PUSH unsafe. An absolute push sets Square to cold storage, and the
+   invoice's own deduction then takes the same units again —
+   `100 → push 76 → invoice 52` against a true 76. Left alone Square goes
+   `100 → 76` and lands correct. The push and the invoice are two mechanisms for
+   one event. `lib/production/pendingSquareDeduction.ts` is the single rule both
+   the push and this view consult.
 4. ✅ **Dead links render as their own state**, in their own banner, explicitly
    labelled unmeasurable rather than shown as zero stock.
 5. ⏳ **Show unmapped-sale discrepancies** — lands with W4, which produces them.

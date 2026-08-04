@@ -16,6 +16,7 @@ import { loadKegLinks } from "./kegLinks";
 import { fetchColdStorageOnHand } from "./coldStorageOnHand";
 import { fetchCurrentCounts } from "@/lib/square/inventory";
 import { findDeadLinks, type DeadLink } from "@/lib/square/linkHealth";
+import { loadPendingDeductionRecipes } from "./pendingSquareDeduction";
 
 /** A mapping problem the last consumption sync ran into, as recorded in cron_runs. */
 export interface SyncDiscrepancySummary {
@@ -32,6 +33,12 @@ export interface InventoryDrift {
   unmeasured: (KegUnmeasured | { recipeId: string; reason: string })[];
   /** Mapping-shaped findings from the most recent consumption sync. */
   syncFindings: { at: string | null; items: SyncDiscrepancySummary[] };
+  /**
+   * Recipes with stock shipped but not yet deducted by Square's own invoice.
+   * Their variance is expected and temporary, so it is labelled rather than
+   * counted as drift — Square is legitimately still holding those units.
+   */
+  pendingDeductionRecipeIds: string[];
   warnings: string[];
   /** Beer names for every recipe referenced above, so the UI needs no second call. */
   recipeNames: Record<string, string>;
@@ -173,12 +180,23 @@ export async function measureInventoryDrift(db: Db): Promise<InventoryDrift> {
     warnings.push(`sync findings unavailable: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  let pendingDeductionRecipeIds: string[] = [];
+  try {
+    pendingDeductionRecipeIds = [...await loadPendingDeductionRecipes(db)];
+  } catch (e) {
+    warnings.push(`pending-deduction check unavailable: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   const recipeNames = await loadRecipeNames(db, [
     ...cans.map((c) => c.recipeId),
     ...kegs.map((k) => k.recipeId),
     ...deadLinks.map((d) => d.recipeId),
     ...kegUnmeasured.map((u) => u.recipeId),
+    ...pendingDeductionRecipeIds,
   ]);
 
-  return { cans, kegs, deadLinks, unmeasured: kegUnmeasured, syncFindings, warnings, recipeNames };
+  return {
+    cans, kegs, deadLinks, unmeasured: kegUnmeasured, syncFindings,
+    pendingDeductionRecipeIds, warnings, recipeNames,
+  };
 }

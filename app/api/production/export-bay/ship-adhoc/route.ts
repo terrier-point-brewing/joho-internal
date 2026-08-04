@@ -74,8 +74,9 @@ export async function POST(req: NextRequest) {
     export_transaction_id: result.exportTransactionIds[i],
   }));
 
-  // Same reasoning as the credited ship route: stock left, and only an absolute
-  // push tells Square about the channels that never decrement themselves.
+  // Same reasoning as the credited ship route: contract brewing is pushed because
+  // Square will never hear about it otherwise, while wholesale and distribution
+  // are deferred inside the push until their invoice has taken its own units.
   await triggerSquarePush(supabase, [recipe_id], "ad-hoc export ship");
 
   return NextResponse.json({ created }, { status: 201 });

@@ -12,7 +12,7 @@ vi.mock("@/lib/taproom/draftPourConsumption", async (orig) => ({
   loadDraftPourVariations: vi.fn(async () => new Map()),
 }));
 vi.mock("@/lib/production/pushInventoryToSquare", () => ({
-  pushInventoryToSquare: vi.fn(async () => ({ planned: [], applied: 0, warnings: [], pushEnabled: false })),
+  pushInventoryToSquare: vi.fn(async () => ({ planned: [], applied: 0, deferredRecipeIds: [], warnings: [], pushEnabled: false })),
 }));
 
 import {
@@ -229,7 +229,7 @@ function fakeSupabaseSwaps(
 beforeEach(() => {
   derive.mockReset(); record.mockReset(); recount.mockReset(); fetchCounts.mockReset();
   push.mockReset(); loadPourVars.mockReset(); pourSales.mockReset();
-  push.mockResolvedValue({ planned: [], applied: 0, warnings: [], pushEnabled: false });
+  push.mockResolvedValue({ planned: [], applied: 0, deferredRecipeIds: [], warnings: [], pushEnabled: false });
   // Default: no pour variations configured, so measurement falls back to the
   // Square on-hand read. Tests that exercise the pour sum call `armPourSum`.
   loadPourVars.mockResolvedValue(new Map());

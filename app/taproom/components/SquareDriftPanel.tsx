@@ -14,6 +14,7 @@ interface DriftResponse {
   deadLinks: DeadLink[];
   unmeasured: { recipeId: string; reason: string; variationName?: string | null }[];
   syncFindings: { at: string | null; items: { kind: string; detail: string }[] };
+  pendingDeductionRecipeIds: string[];
   warnings: string[];
   recipeNames: Record<string, string>;
 }
@@ -35,6 +36,16 @@ function DriftCell({ drift }: { drift: number }) {
   );
 }
 
+/**
+ * Shipped, but the invoice that will decrement Square has not settled. Square is
+ * legitimately still holding those units, so this is a state, not a variance.
+ */
+function PendingBadge() {
+  return (
+    <span className="ml-1 text-[10px] text-info whitespace-nowrap">awaiting invoice</span>
+  );
+}
+
 function SectionHeading({ children, count }: { children: React.ReactNode; count?: number }) {
   return (
     <div className="flex items-baseline gap-2 mb-1.5">
@@ -52,14 +63,18 @@ export default function SquareDriftPanel() {
 
   const summary = useMemo(() => {
     if (!data) return null;
-    const all = [
-      ...data.cans.map((c) => c.drift),
-      ...data.kegs.map((k) => k.drift),
+    const pending = new Set(data.pendingDeductionRecipeIds);
+    // A recipe awaiting its invoice's own deduction is legitimately apart from
+    // Square. Counting it as drift would cry wolf on every open shipment.
+    const rows = [
+      ...data.cans.map((c) => ({ recipeId: c.recipeId, drift: c.drift })),
+      ...data.kegs.map((k) => ({ recipeId: k.recipeId, drift: k.drift })),
     ];
+    const settled = rows.filter((r) => !pending.has(r.recipeId));
     return {
-      compared: all.length,
-      agreeing: all.filter((d) => d === 0).length,
-      drifting: all.filter((d) => d !== 0).length,
+      agreeing: settled.filter((r) => r.drift === 0).length,
+      drifting: settled.filter((r) => r.drift !== 0).length,
+      pending: rows.length - settled.length,
     };
   }, [data]);
 
@@ -68,6 +83,7 @@ export default function SquareDriftPanel() {
   if (!data || !summary) return null;
 
   const name = (id: string) => data.recipeNames[id] || id;
+  const pendingIds = new Set(data.pendingDeductionRecipeIds);
   const driftingKegs = data.kegs.filter((k) => k.drift !== 0);
   const driftingCans = data.cans.filter((c) => c.drift !== 0);
 
@@ -85,6 +101,13 @@ export default function SquareDriftPanel() {
             {summary.drifting}
           </span>
           <span className="text-muted"> drifting</span>
+          {summary.pending > 0 && (
+            <>
+              <span className="text-muted"> · </span>
+              <span className="text-info font-semibold">{summary.pending}</span>
+              <span className="text-muted"> awaiting invoice</span>
+            </>
+          )}
         </span>
       </div>
 
@@ -171,6 +194,7 @@ export default function SquareDriftPanel() {
                   <tr key={k.squareVariationId} className="border-b border-line/40">
                     <td className="px-3 py-1.5 text-strong">
                       {name(k.recipeId)}
+                      {pendingIds.has(k.recipeId) && <PendingBadge />}
                       {k.multiRecipe && (
                         <span className="ml-1 text-[10px] text-danger">
                           + {k.multiRecipe.length - 1} other recipe{k.multiRecipe.length > 2 ? "s" : ""}
@@ -221,7 +245,10 @@ export default function SquareDriftPanel() {
               <tbody>
                 {[...driftingCans, ...data.cans.filter((c) => c.drift === 0)].map((c) => (
                   <tr key={c.baseSquareVariationId} className="border-b border-line/40">
-                    <td className="px-3 py-1.5 text-strong">{name(c.recipeId)}</td>
+                    <td className="px-3 py-1.5 text-strong">
+                      {name(c.recipeId)}
+                      {pendingIds.has(c.recipeId) && <PendingBadge />}
+                    </td>
                     <td className="px-3 py-1.5 text-body">{c.baseVariationName ?? "—"}</td>
                     <td className="px-3 py-1.5 text-muted tabular-nums">
                       {c.components

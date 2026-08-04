@@ -168,9 +168,19 @@ type Db = SupabaseClient | { from: (t: string) => any };
 
 export async function reconcileSquareCanInventory(
   supabase: Db,
-  opts: { recipeIds?: string[]; occurredAt?: string } = {},
+  opts: {
+    recipeIds?: string[];
+    /**
+     * Recipes to measure but never write. Square still owes itself a deduction
+     * for these (shipped, invoice not settled), so writing now would double-count
+     * the shipment. See lib/production/pendingSquareDeduction.
+     */
+    skipRecipeIds?: string[];
+    occurredAt?: string;
+  } = {},
 ): Promise<ReconcilePlan & { applied: number }> {
   const occurredAt = opts.occurredAt ?? new Date().toISOString();
+  const skip = new Set(opts.skipRecipeIds ?? []);
 
   // 1. Load cold-storage can rows (optionally scoped) with the packaging identity + volume.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -311,6 +321,14 @@ export async function reconcileSquareCanInventory(
 
   let applied = 0;
   for (const w of plan.writes) {
+    // Measured and reported, deliberately not written: Square is going to
+    // decrement this recipe itself when its shipment's invoice settles, and
+    // restating the count now would let that deduction take the same units a
+    // second time.
+    if (skip.has(w.recipeId)) {
+      plan.skips.push({ recipeId: w.recipeId, reason: "awaiting Square's own deduction for a shipped order — push deferred" });
+      continue;
+    }
     // `plan.writes` carries every intended correction whether or not the gate is
     // open, so drift stays fully visible in the run summary and on the taproom
     // Inventory tab; only the Square mutation is withheld. See lib/square/pushGate.

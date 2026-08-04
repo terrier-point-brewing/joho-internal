@@ -25,6 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { reconcileSquareCanInventory } from "./reconcileSquareCanInventory";
 import { measureKegDrift, type KegMeasurement } from "./kegDrift";
 import { loadKegLinks } from "./kegLinks";
+import { loadPendingDeductionRecipes } from "./pendingSquareDeduction";
 import { fetchColdStorageOnHand } from "./coldStorageOnHand";
 import { fetchCurrentCounts, setPhysicalCount } from "@/lib/square/inventory";
 import { PUSH_TO_SQUARE_ENABLED, DRIFT_THRESHOLD } from "@/lib/square/pushGate";
@@ -43,6 +44,12 @@ export interface PushOutcome {
     drift: number;
   }[];
   applied: number;
+  /**
+   * Recipes held back because Square still owes itself a deduction for stock
+   * already shipped. Pushing them would consume the headroom that deduction is
+   * about to take. See pendingSquareDeduction.
+   */
+  deferredRecipeIds: string[];
   warnings: string[];
   /** False while the gate is shut, so a caller can say why applied is 0. */
   pushEnabled: boolean;
@@ -88,8 +95,10 @@ async function pushKegs(
   db: Db,
   occurredAt: string,
   out: PushOutcome,
+  deferred: ReadonlySet<string>,
 ): Promise<void> {
-  const links = await loadKegLinks(db);
+  const allLinks = await loadKegLinks(db);
+  const links = allLinks.filter((l) => !deferred.has(l.recipeId));
   if (links.length === 0) return;
 
   const [coldStorage, counts] = await Promise.all([
@@ -153,13 +162,38 @@ export async function pushInventoryToSquare(
   opts: { recipeIds?: string[]; occurredAt?: string } = {},
 ): Promise<PushOutcome> {
   const occurredAt = opts.occurredAt ?? new Date().toISOString();
-  const out: PushOutcome = { planned: [], applied: 0, warnings: [], pushEnabled: PUSH_TO_SQUARE_ENABLED };
+  const out: PushOutcome = {
+    planned: [], applied: 0, deferredRecipeIds: [], warnings: [], pushEnabled: PUSH_TO_SQUARE_ENABLED,
+  };
+
+  // Recipes Square is still going to decrement for itself. Pushing them now
+  // would double-count the shipment: the push lowers Square to cold storage, and
+  // the invoice then takes the same units again. Held back until the invoice
+  // settles, at which point Square is already correct and the push is a no-op.
+  let deferred: ReadonlySet<string> = new Set();
+  try {
+    deferred = await loadPendingDeductionRecipes(db);
+  } catch (e) {
+    // Failing open here would double-count real inventory, so refuse to push at
+    // all rather than push blind.
+    out.warnings.push(`push skipped — could not determine pending Square deductions: ${e instanceof Error ? e.message : String(e)}`);
+    return out;
+  }
+
+  const scoped = opts.recipeIds?.filter((id) => !deferred.has(id));
+  out.deferredRecipeIds = [...(opts.recipeIds ?? []).filter((id) => deferred.has(id))];
+  // A trigger scoped entirely to deferred recipes has nothing left to do.
+  if (opts.recipeIds && scoped!.length === 0) return out;
 
   // Cans: the family/tier resolution lives in the reconciler, which already
   // writes, verifies and journals behind the same gate.
   try {
     const canPlan = await reconcileSquareCanInventory(db, {
-      ...(opts.recipeIds ? { recipeIds: opts.recipeIds } : {}),
+      ...(scoped ? { recipeIds: scoped } : {}),
+      // Passed IN rather than filtered out of the result: the reconciler writes
+      // as it goes, so a post-filter would remove the row from the report after
+      // the double-count had already been sent.
+      skipRecipeIds: [...deferred],
       occurredAt,
     });
     out.applied += canPlan.applied;
@@ -182,7 +216,7 @@ export async function pushInventoryToSquare(
   // Kegs: no tiers, but the same one-Square-SKU-many-cold-storage-rows grain, so
   // the sum is what gets written.
   try {
-    await pushKegs(db, occurredAt, out);
+    await pushKegs(db, occurredAt, out, deferred);
   } catch (e) {
     out.warnings.push(`keg push failed: ${e instanceof Error ? e.message : String(e)}`);
   }
