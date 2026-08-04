@@ -528,7 +528,11 @@ export default function BatchSchedulerTab({
   onBatchCommitted?: () => void;
 }) {
   const qc = useQueryClient();
-  const { data: recs, isLoading: loading, error, refetch } = useQuery({
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the
+  // render would fall through to "No batches need scheduling right now" for a
+  // load that never landed.
+  const { data: recs, isPending: loading, error, refetch } = useQuery({
     queryKey: queryKeys.production.batchScheduler(),
     queryFn: () => fetchJson<SchedulerRecommendation[]>("/api/production/batch-scheduler"),
   });

@@ -58,7 +58,10 @@ function fmtOutflow(val: number): string {
 }
 
 export default function DemandCalendarTab() {
-  const { data: rows = [], isLoading: loading, error, refetch } = useQuery({
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the
+  // render would fall through to "No demand data yet" for a load that never landed.
+  const { data: rows = [], isPending: loading, error, refetch } = useQuery({
     queryKey: queryKeys.production.demandCalendar(),
     queryFn: () => fetchJson<DemandRow[]>("/api/production/demand-calendar"),
   });

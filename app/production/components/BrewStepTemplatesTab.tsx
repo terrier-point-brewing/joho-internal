@@ -290,7 +290,10 @@ function ApplyModal({
 
 export default function BrewStepTemplatesTab() {
   const qc = useQueryClient();
-  const { data: templates = [], isLoading } = useQuery({
+  // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
+  // React Query has paused reads as false while there is still no data — the
+  // empty branch would claim "no templates yet" for a load that never landed.
+  const { data: templates = [], isPending, error } = useQuery({
     queryKey: queryKeys.production.brewStepTemplates(),
     queryFn:  () => fetchJson<BrewStepTemplate[]>("/api/production/brew-step-templates"),
   });
@@ -319,8 +322,12 @@ export default function BrewStepTemplatesTab() {
         <button onClick={() => setEditingTemplate("new")} className="btn-primary">+ New Template</button>
       </div>
 
-      {isLoading ? (
+      {isPending ? (
         <p className="text-faint text-sm py-10 text-center">Loading…</p>
+      ) : error ? (
+        <p className="text-sm text-danger py-10 text-center">
+          Could not load templates: {error instanceof Error ? error.message : "unknown error"}
+        </p>
       ) : templates.length === 0 ? (
         <p className="text-faint text-sm py-4">No templates yet. Create one to get started.</p>
       ) : (
