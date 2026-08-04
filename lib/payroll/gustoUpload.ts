@@ -31,7 +31,7 @@
  * expenses' GL splits — see Task 8/Task 11 in the implementation plan.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseGustoPayrollJournal, computeGlBucketTotals } from "./gustoParser";
+import { parseGustoPayrollJournal, computeGlBucketTotals, computeExpectedDebits } from "./gustoParser";
 import type { PayrollGlReport, PayrollGlReportTotal } from "./types";
 
 const BUCKET = "payroll-gl-reports";
@@ -104,6 +104,11 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
   }
 
   const buckets = computeGlBucketTotals(parsed, departmentMap, payrollTaxesAccountId, tipsAccountId);
+  // What payroll cost (buckets, above) and what will leave the bank (debits)
+  // are different figures — see gustoParser's ExpectedDebits. Both are stored:
+  // the buckets drive the GL, the debits are what a bank charge gets matched
+  // against.
+  const debits = computeExpectedDebits(parsed);
 
   const { data: reportRow, error: reportError } = await sb
     .from("payroll_gl_reports")
@@ -112,6 +117,9 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
       storage_path: storagePath,
       original_filename: input.fileName,
       uploaded_by: input.userId,
+      expected_net_pay_cents: debits.netPayCents,
+      expected_tax_cents: debits.taxCents,
+      expected_reimbursements_cents: debits.reimbursementsCents,
     })
     .select()
     .single();

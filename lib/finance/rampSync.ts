@@ -10,6 +10,7 @@ import { getRampTransactions, getRampBills, getRampBankTransactions, getRampBank
 import { rampTxnToExpenseRecord, rampBillToExpenseRecords, syncExpenseRecords } from "./rampExpenses";
 import { partitionBankLines, syncBankLedger, buildBillTotals, selectPrunableExpenseIds, setAsideReason, type PruneCandidate, type FlowType } from "./bankLedger";
 import { classifyTransfers, transferToLedgerRecord } from "./transferLedger";
+import { matchAllPendingPeriods } from "./payrollMatching";
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { chunk } from "@/lib/utils/chunk";
 
@@ -58,7 +59,22 @@ export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdmi
   } catch (err) {
     pruned = { deleted: 0, skipped: [], setAside: [], error: err instanceof Error ? err.message : String(err) };
   }
-  return { ...expenses, bank, pruned };
+
+  // A sync is the event that can supply a payroll debit a period has been
+  // waiting for: the Gusto report is uploaded on pay day and the charges clear
+  // a day or two later, so the charge is almost always the second of the two to
+  // arrive. Matching here is what lets an operator upload, lock, and never come
+  // back — the charges self-code when they land. Best-effort for the same
+  // reason as the prune above: payroll matching must never take down an
+  // otherwise-successful sync.
+  let payrollMatched: { periodsMatched: number; charges: number; errors: string[] };
+  try {
+    payrollMatched = await matchAllPendingPeriods(supabase);
+  } catch (err) {
+    payrollMatched = { periodsMatched: 0, charges: 0, errors: [err instanceof Error ? err.message : String(err)] };
+  }
+
+  return { ...expenses, bank, pruned, payrollMatched };
 }
 
 /**

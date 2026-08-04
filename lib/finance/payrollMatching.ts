@@ -64,6 +64,90 @@ export function planPayrollMatches(
   return plans;
 }
 
+// ── Amount matching (preferred) ──────────────────────────────────────────────
+//
+// suggestPayPeriod above matches on PROXIMITY, which is all that was possible
+// before the Gusto journal's cash columns were parsed. Proximity cannot tell a
+// payroll debit from anything else the same counterparty bills in the same
+// fortnight, and a wrong match is not inert: computeProportionalSplits will
+// force-fill the intruder onto wage/tax accounts, booking it to the P&L as
+// payroll. Everything below matches on AMOUNT instead — the report says what
+// the two ACH pulls will be, and a charge either equals one or it does not.
+// What's left over is non-payroll by construction, with no rule to go stale.
+
+/** Which of Gusto's two ACH pulls a charge satisfied. */
+export type DebitComponent = "net_pay" | "taxes";
+
+export interface ExpectedDebitTarget {
+  component: DebitComponent;
+  amountCents: number; // absolute
+}
+
+export interface DebitCandidate {
+  id: string;
+  amountCents: number; // absolute
+  expenseDate: string; // "YYYY-MM-DD"
+}
+
+/**
+ * How far either side of pay day a charge may sit and still be considered.
+ * Observed lag is +1 to +2 days; the generous tail absorbs weekends and bank
+ * holidays. Both bounds are well inside the 14-day period cadence, so one
+ * period's window cannot reach another's pay day — amounts must match exactly
+ * anyway, but a window that cannot overlap makes that a second line of defence
+ * rather than the only one.
+ */
+const PAYDAY_WINDOW_BEFORE_DAYS = 3;
+const PAYDAY_WINDOW_AFTER_DAYS = 10;
+
+/** Whether a charge is close enough to pay day to be one of its debits. */
+export function withinPayDayWindow(expenseDate: string, payDay: string): boolean {
+  const days = (Date.parse(`${expenseDate}T00:00:00Z`) - Date.parse(`${payDay}T00:00:00Z`)) / MS_PER_DAY;
+  return days >= -PAYDAY_WINDOW_BEFORE_DAYS && days <= PAYDAY_WINDOW_AFTER_DAYS;
+}
+
+/**
+ * Assigns each expected debit at most one candidate charge of EXACTLY equal
+ * amount, and each candidate to at most one debit. Candidates outside the pay
+ * day window are ignored. Ties (two charges of the same amount) go to the one
+ * nearest pay day, then to the lower id so the result is deterministic.
+ *
+ * Deliberately all-or-nothing per debit: a near miss is NOT matched. If the
+ * tax pull is a dollar off the report, that is a discrepancy the operator needs
+ * to see, and quietly absorbing it is how the old proximity rule hid the
+ * subscription charge for two months.
+ *
+ * Not handled, on purpose: a provider that pulls disbursements and taxes as a
+ * SINGLE combined debit. Gusto pulls them separately — that is the whole reason
+ * two amounts are derivable — and inventing a combined-match path for a shape
+ * this feed has never produced would be speculative.
+ */
+export function planExpectedDebitMatches(
+  targets: ExpectedDebitTarget[],
+  candidates: DebitCandidate[],
+  payDay: string,
+): { expenseId: string; component: DebitComponent }[] {
+  const inWindow = candidates.filter((c) => withinPayDayWindow(c.expenseDate, payDay));
+  const claimed = new Set<string>();
+  const plans: { expenseId: string; component: DebitComponent }[] = [];
+
+  for (const target of targets) {
+    if (target.amountCents <= 0) continue; // a zero debit is not a charge to find
+    const best = inWindow
+      .filter((c) => !claimed.has(c.id) && c.amountCents === target.amountCents)
+      .sort((a, b) => {
+        const da = Math.abs(Date.parse(`${a.expenseDate}T00:00:00Z`) - Date.parse(`${payDay}T00:00:00Z`));
+        const db = Math.abs(Date.parse(`${b.expenseDate}T00:00:00Z`) - Date.parse(`${payDay}T00:00:00Z`));
+        return da !== db ? da - db : a.id.localeCompare(b.id);
+      })[0];
+    if (!best) continue;
+    claimed.add(best.id);
+    plans.push({ expenseId: best.id, component: target.component });
+  }
+
+  return plans;
+}
+
 export interface MatchedExpenseAmount {
   expenseId: string;
   amountCents: number; // absolute value of the expense's signed amount_cents
@@ -373,10 +457,200 @@ export async function recomputePeriodExpenseSplits(sb: SupabaseClient, payPeriod
   }
 }
 
+/** Counterparty keys routed to payroll splitting (e.g. Gusto). */
+async function loadPayrollCounterpartyKeys(sb: SupabaseClient): Promise<string[]> {
+  const { data, error } = await sb
+    .from("expense_counterparty_mappings")
+    .select("counterparty_key")
+    .eq("routing", "payroll_split");
+  if (error) throw new Error(`Load payroll_split counterparties failed: ${error.message}`);
+  return ((data ?? []) as { counterparty_key: string }[]).map((r) => r.counterparty_key);
+}
+
+export interface ExpectedDebitMatchResult {
+  matched: number;
+  /** Debits the report expects that no charge satisfied yet — the "hasn't
+   *  landed" case, which is normal for a day or two after pay day. */
+  unmatchedComponents: DebitComponent[];
+  /** Why nothing happened, when nothing did — so a caller can tell "no report"
+   *  apart from "report predates amount matching" apart from "already done". */
+  skipped?: "no_report" | "no_expected_amounts";
+}
+
 /**
- * Bulk "auto-map payroll split" for a date range: matches every unmatched
- * payroll_split-routed bank expense in [from, to] to its nearest pay period
- * (planPayrollMatches), inserts the matches, then recomputes every touched
+ * Match one period's bank charges to the two ACH pulls its Gusto report says to
+ * expect, then regenerate its GL splits.
+ *
+ * Safe to run repeatedly and from either direction — that is the point. The
+ * report and the charges arrive in either order (in practice the report is
+ * uploaded on pay day and the charges clear a day or two later), so this runs
+ * both after an upload and after every bank sync, and whichever arrives second
+ * completes the match. Components already matched are left alone, so a re-run
+ * is a no-op rather than a duplicate.
+ *
+ * Never force-matches: a debit with no exactly-equal charge stays unmatched and
+ * is reported in unmatchedComponents.
+ */
+export async function matchPeriodByExpectedDebits(
+  sb: SupabaseClient,
+  payPeriodId: string,
+): Promise<ExpectedDebitMatchResult> {
+  const { data: periodRow, error: periodErr } = await sb
+    .from("pay_periods")
+    .select("id, due_date")
+    .eq("id", payPeriodId)
+    .single();
+  if (periodErr) throw new Error(`Load pay period failed: ${periodErr.message}`);
+  const payDay = (periodRow as { due_date: string | null }).due_date;
+  if (!payDay) return { matched: 0, unmatchedComponents: [], skipped: "no_expected_amounts" };
+
+  const { data: reportRows, error: reportErr } = await sb
+    .from("payroll_gl_reports")
+    .select("id, expected_net_pay_cents, expected_tax_cents")
+    .eq("pay_period_id", payPeriodId)
+    .is("superseded_at", null)
+    .order("uploaded_at", { ascending: false })
+    .limit(1);
+  if (reportErr) throw new Error(`Load payroll GL report failed: ${reportErr.message}`);
+  const report = (reportRows as { expected_net_pay_cents: number | null; expected_tax_cents: number | null }[] | null)?.[0];
+  if (!report) return { matched: 0, unmatchedComponents: [], skipped: "no_report" };
+
+  // A report parsed before the cash columns existed carries no expected
+  // amounts. Falling back to the proximity rule here would reintroduce exactly
+  // the mis-matching this replaces, so it does nothing instead and leaves the
+  // charges for a human (or for the backfill to re-parse the stored CSV).
+  if (report.expected_net_pay_cents == null || report.expected_tax_cents == null) {
+    return { matched: 0, unmatchedComponents: [], skipped: "no_expected_amounts" };
+  }
+
+  const { data: existingRows, error: existingErr } = await sb
+    .from("payroll_period_expense_matches")
+    .select("matched_component")
+    .eq("pay_period_id", payPeriodId);
+  if (existingErr) throw new Error(`Load existing payroll matches failed: ${existingErr.message}`);
+  const alreadyMatched = new Set(
+    ((existingRows ?? []) as { matched_component: string | null }[])
+      .map((r) => r.matched_component)
+      .filter((c): c is DebitComponent => c === "net_pay" || c === "taxes"),
+  );
+
+  const targets: ExpectedDebitTarget[] = [
+    { component: "net_pay", amountCents: report.expected_net_pay_cents },
+    { component: "taxes", amountCents: report.expected_tax_cents },
+  ].filter((t): t is ExpectedDebitTarget => !alreadyMatched.has(t.component as DebitComponent));
+
+  if (targets.length === 0) return { matched: 0, unmatchedComponents: [] };
+
+  const keys = await loadPayrollCounterpartyKeys(sb);
+  if (keys.length === 0) return { matched: 0, unmatchedComponents: targets.map((t) => t.component) };
+
+  // Candidates: payroll-routed bank charges around pay day that nobody has
+  // claimed. Hand-pinned rows are excluded for the same reason autoMapPayrollExpenses
+  // excludes them — a pin is an operator saying "this one is not payroll".
+  const windowFrom = new Date(Date.parse(`${payDay}T00:00:00Z`) - PAYDAY_WINDOW_BEFORE_DAYS * MS_PER_DAY)
+    .toISOString().slice(0, 10);
+  const windowTo = new Date(Date.parse(`${payDay}T00:00:00Z`) + PAYDAY_WINDOW_AFTER_DAYS * MS_PER_DAY)
+    .toISOString().slice(0, 10);
+
+  const { data: expRows, error: expErr } = await sb
+    .from("expenses")
+    .select("id, amount_cents, accounting_date, transaction_time")
+    .eq("ramp_object", "bank")
+    .in("counterparty_key", keys)
+    .neq("mapping_source", "manual")
+    .gte("accounting_date", windowFrom)
+    .lte("accounting_date", windowTo);
+  if (expErr) throw new Error(`Load payroll expense candidates failed: ${expErr.message}`);
+
+  const rows = (expRows ?? []) as {
+    id: string; amount_cents: number | null; accounting_date: string | null; transaction_time: string | null;
+  }[];
+  if (rows.length === 0) return { matched: 0, unmatchedComponents: targets.map((t) => t.component) };
+
+  const { data: claimedRows, error: claimedErr } = await sb
+    .from("payroll_period_expense_matches")
+    .select("expense_id")
+    .in("expense_id", rows.map((r) => r.id));
+  if (claimedErr) throw new Error(`Load existing matches for candidates failed: ${claimedErr.message}`);
+  const claimed = new Set(((claimedRows ?? []) as { expense_id: string }[]).map((r) => r.expense_id));
+
+  const candidates: DebitCandidate[] = rows
+    .filter((r) => !claimed.has(r.id))
+    .map((r) => ({
+      id: r.id,
+      amountCents: Math.abs(r.amount_cents ?? 0),
+      expenseDate: r.accounting_date ?? r.transaction_time?.slice(0, 10) ?? "",
+    }))
+    .filter((c) => c.expenseDate !== "");
+
+  const plans = planExpectedDebitMatches(targets, candidates, payDay);
+  const matchedComponents = new Set(plans.map((p) => p.component));
+  const unmatchedComponents = targets.map((t) => t.component).filter((c) => !matchedComponents.has(c));
+
+  if (plans.length === 0) return { matched: 0, unmatchedComponents };
+
+  // matched_by is null: nobody chose this, the amounts agreed.
+  const { error: insErr } = await sb.from("payroll_period_expense_matches").insert(
+    plans.map((p) => ({
+      pay_period_id: payPeriodId,
+      expense_id: p.expenseId,
+      matched_by: null,
+      matched_component: p.component,
+    })),
+  );
+  if (insErr) throw new Error(`Insert payroll matches failed: ${insErr.message}`);
+
+  await recomputePeriodExpenseSplits(sb, payPeriodId);
+
+  return { matched: plans.length, unmatchedComponents };
+}
+
+/**
+ * Run matchPeriodByExpectedDebits across every period whose report is still
+ * missing a debit — the hook the bank sync calls, since a sync is exactly the
+ * event that can supply a charge a period has been waiting for.
+ *
+ * Scoped to periods with an un-superseded report carrying expected amounts;
+ * everything else is a no-op, so this stays cheap on a feed with years of
+ * history. Best-effort per period: one period's failure must not abort the
+ * others (or, at the call site, the sync that triggered it).
+ */
+export async function matchAllPendingPeriods(
+  sb: SupabaseClient,
+): Promise<{ periodsMatched: number; charges: number; errors: string[] }> {
+  const { data: reportRows, error: reportErr } = await sb
+    .from("payroll_gl_reports")
+    .select("pay_period_id")
+    .is("superseded_at", null)
+    .not("expected_net_pay_cents", "is", null);
+  if (reportErr) throw new Error(`Load reports with expected debits failed: ${reportErr.message}`);
+
+  const periodIds = Array.from(
+    new Set(((reportRows ?? []) as { pay_period_id: string }[]).map((r) => r.pay_period_id)),
+  );
+
+  let periodsMatched = 0;
+  let charges = 0;
+  const errors: string[] = [];
+  for (const periodId of periodIds) {
+    try {
+      const result = await matchPeriodByExpectedDebits(sb, periodId);
+      if (result.matched > 0) {
+        periodsMatched += 1;
+        charges += result.matched;
+      }
+    } catch (err) {
+      errors.push(`${periodId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return { periodsMatched, charges, errors };
+}
+
+/**
+ * Bulk "auto-map payroll split" for a date range: matches every unmatched,
+ * un-pinned payroll_split-routed bank expense in [from, to] to its nearest pay
+ * period (planPayrollMatches), inserts the matches, then recomputes every touched
  * period so its proportional GL splits regenerate (recomputePeriodExpenseSplits
  * no-ops on periods without an active Gusto report). Only ever ADDS matches for
  * currently-unmatched expenses, so it's safe to re-run. Mirrors the per-row
@@ -395,12 +669,20 @@ export async function autoMapPayrollExpenses(
   const keys = ((cpRows ?? []) as { counterparty_key: string }[]).map((r) => r.counterparty_key);
   if (keys.length === 0) return { matched: 0, periodsRecomputed: 0 };
 
-  // Bank expenses in range for those counterparties.
+  // Bank expenses in range for those counterparties -- EXCEPT the ones a human
+  // has already pinned to an account. A payroll-routed counterparty can bill
+  // things that are not payroll (Gusto charges its software subscription from
+  // the same account, indistinguishable in the feed), and pinning such a row is
+  // exactly how an operator says "this one is not payroll's". Sweeping it back
+  // into a period on the next bulk run would overrule that by hand-wave, and
+  // silently: the pin survives, so the row still LOOKS coded, while its match
+  // re-inflates the period's bank-vs-Gusto reconciliation.
   const { data: expRows, error: expErr } = await sb
     .from("expenses")
     .select("id, accounting_date, transaction_time")
     .eq("ramp_object", "bank")
     .in("counterparty_key", keys)
+    .neq("mapping_source", "manual")
     .gte("accounting_date", opts.from)
     .lte("accounting_date", opts.to);
   if (expErr) throw new Error(`Load payroll expenses failed: ${expErr.message}`);

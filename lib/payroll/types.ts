@@ -163,6 +163,12 @@ export interface PayrollGlReport {
   uploaded_at: string;
   uploaded_by: string;
   superseded_at: string | null;
+  /** What this report says will leave the bank, as Gusto's two ACH pulls —
+   *  see gustoParser's ExpectedDebits. NULL on reports parsed before amount
+   *  matching existed; the matcher skips those periods rather than guessing. */
+  expected_net_pay_cents: number | null;
+  expected_tax_cents: number | null;
+  expected_reimbursements_cents: number | null;
 }
 
 export interface PayrollGlReportEmployee {

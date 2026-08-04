@@ -17,7 +17,16 @@ export interface PayrollMatchInfo {
   periodStart: string; // YYYY-MM-DD
   periodEnd: string;   // YYYY-MM-DD
   hasReport: boolean;
+  /** Which of Gusto's two ACH pulls this charge is, when it was matched by
+   *  amount. Null for hand-matched rows and rows predating amount matching. */
+  matchedComponent?: "net_pay" | "taxes" | null;
 }
+
+/** How each debit reads in the ledger. */
+const COMPONENT_LABEL: Record<"net_pay" | "taxes", string> = {
+  net_pay: "net pay",
+  taxes: "taxes",
+};
 
 /** The fresh payroll state a mutation returns for its one expense — used to patch that row in place. */
 export interface PayrollState {
@@ -81,9 +90,16 @@ export function PayrollSplitSummary({ payrollMatch, glLines }: { payrollMatch: P
       </span>
     );
   }
+
+  // Which debit this is, when the report's amounts established it — strictly
+  // more informative than the split count, which only ever restated how many GL
+  // buckets the period happens to have. Falls back to the count for
+  // hand-matched rows, where nobody has established which debit it is.
+  const component = payrollMatch.matchedComponent;
+  const detail = component ? COMPONENT_LABEL[component] : `split (${glLines.length})`;
   return (
-    <span title={title}>
-      <Badge tone="accent">{periodLabel ? `Payroll ${periodLabel} · split (${glLines.length})` : `Payroll split (${glLines.length})`}</Badge>
+    <span title={component ? `${title ?? "Pay period"} · matched to the ${COMPONENT_LABEL[component]} debit by amount` : title}>
+      <Badge tone="accent">{periodLabel ? `Payroll ${periodLabel} · ${detail}` : `Payroll · ${detail}`}</Badge>
     </span>
   );
 }

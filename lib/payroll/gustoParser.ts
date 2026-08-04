@@ -6,17 +6,29 @@
  * "First Name", ...), followed by one block per employee. Each employee's
  * own row (non-blank Last Name) carries their Regular/Salary `Amount` and
  * pre-summed `Employer Taxes`. It may be followed by blank-Last-Name
- * sub-rows carrying additional pay-type breakdowns — a Bonus (real wage
- * expense, must be added to gross), Paycheck Tips (a balance-sheet
- * pass-through — captured separately, never folded into gross wages), Cash
- * Tips (never moves company money, so it is discarded entirely), and a
- * "Gross" subtotal (sum of the above, would double-count if included). The
- * label for these sub-rows lives in the
+ * sub-rows carrying additional pay-type breakdowns — Bonus, Commission and
+ * Additional Earnings (all real wage expense, must be added to gross),
+ * Paycheck Tips (a balance-sheet pass-through — captured separately, never
+ * folded into gross wages), Cash Tips (never moves company money, so it is
+ * discarded entirely), and a "Gross" subtotal (sum of the above, would
+ * double-count if included). Those seven labels — Regular on the employee's
+ * own row plus those six sub-row labels — are the complete set observed
+ * across every export in the payroll-gl-reports bucket as of 2026-08-03; an
+ * unrecognised label is dropped, so a new Gusto pay type has to be added
+ * here deliberately. The label for these sub-rows lives in the
  * "Pay Type" column position (index 7) — verified directly against the
  * real export; the first sub-row of a block also carries the literal
  * "Totals" in the "Job" column position (index 6), which is not used here.
  * A "Payroll Totals" row (and everything after it) is the file's own
  * grand-total/by-job-title trailer, not employee data, and is excluded.
+ *
+ * ── Two different questions this file answers ────────────────────────────────
+ * computeGlBucketTotals answers "what did payroll COST" (gross wages by
+ * department, employer tax, tips) — that drives the GL. computeExpectedDebits
+ * answers "what will LEAVE THE BANK" (disbursements, tax remittance) — that is
+ * the only figure a bank charge can be matched against, because it is the shape
+ * Gusto actually pulls the money in. The two are not the same number and are
+ * not meant to be; see ExpectedDebits for why.
  */
 
 // ── Column positions in the per-employee data rows (0-indexed, after the
@@ -28,7 +40,12 @@ const COL = {
   job: 6,
   payType: 7,
   amount: 10,
+  employeeTaxes: 11,
   employerTaxes: 17,
+  netPay: 22,
+  reimbursements: 23,
+  donations: 24,
+  checkAmount: 25,
 } as const;
 
 export interface ParsedGustoEmployee {
@@ -43,6 +60,56 @@ export interface ParsedGustoEmployee {
    *  employee has no Paycheck Tips sub-row. Never folded into grossAmountCents —
    *  tips are a balance-sheet pass-through, not wage expense. */
   paycheckTipsCents: number;
+  // ── Cash-movement columns ────────────────────────────────────────────────
+  // The fields above describe what payroll COST (they drive the GL buckets).
+  // These describe what LEAVES THE BANK, which is a different number and the
+  // only thing a bank debit can be matched against. See computeExpectedDebits.
+  /** "Employee Taxes" — withheld from the employee, remitted by the company. */
+  employeeTaxCents: number;
+  /** "Check Amount" — net pay + reimbursements − donations, i.e. the actual
+   *  disbursement to this employee. Preferred over the "Net Pay" column
+   *  because reimbursements really do leave the bank. */
+  checkAmountCents: number;
+  /** "Reimbursements" — money out, but NOT wage expense, so it appears in the
+   *  disbursement and in no GL bucket. Carried separately so a report whose
+   *  debits exceed its GL total can say why instead of reading as a variance. */
+  reimbursementsCents: number;
+}
+
+/**
+ * What Gusto will actually debit the bank for this payroll, as two separate
+ * ACH pulls — which is how Gusto moves the money and therefore how the bank
+ * feed reports it.
+ *
+ * This is deliberately NOT the GL bucket total. Gross wages + employer tax
+ * (what payroll COST) and disbursement + tax remittance (what MOVED) differ by
+ * employee withholding on one side and reimbursements on the other; they only
+ * coincide when withholding nets out and nobody was reimbursed. Matching bank
+ * charges against the cost figure is what forced the old nearest-date rule,
+ * because the cost figure matches no single debit.
+ */
+export interface ExpectedDebits {
+  /** Σ Check Amount — the direct-deposit pull. */
+  netPayCents: number;
+  /** Σ Employee Taxes + Σ Employer Taxes — the tax-remittance pull. */
+  taxCents: number;
+  /** Σ Reimbursements. Included in netPayCents; surfaced so the gap between
+   *  these debits and the report's GL total is explainable rather than a
+   *  mystery variance. */
+  reimbursementsCents: number;
+}
+
+/** Sums the per-employee cash columns into the two debits Gusto will pull. */
+export function computeExpectedDebits(parsed: ParsedGustoReport): ExpectedDebits {
+  let netPayCents = 0;
+  let taxCents = 0;
+  let reimbursementsCents = 0;
+  for (const e of parsed.employees) {
+    netPayCents += e.checkAmountCents;
+    taxCents += e.employeeTaxCents + e.employerTaxCents;
+    reimbursementsCents += e.reimbursementsCents;
+  }
+  return { netPayCents, taxCents, reimbursementsCents };
 }
 
 export interface ParsedGustoReport {
@@ -52,6 +119,23 @@ export interface ParsedGustoReport {
   employees: ParsedGustoEmployee[];
   /** departments seen with no entry in payrollDepartmentGlMappings — surfaced, never silently dropped */
   unmappedDepartments: string[];
+  /**
+   * Every blank-Last-Name sub-row label folded into gross wages, with its
+   * company-wide total. Itemises WHICH pay types make up the part of gross that
+   * does not come from the employee row's own Regular `Amount`.
+   *
+   * This exists so a consumer comparing a fresh parse against previously stored
+   * totals can attribute a difference to a specific pay type instead of reading
+   * it as unexplained drift — see the backfill screen's write gate, which blocks
+   * on any wage movement it cannot itemise.
+   */
+  wageSubRowTotals: WageSubRowTotal[];
+}
+
+/** One sub-row pay-type label and the gross wages it contributed, company-wide. */
+export interface WageSubRowTotal {
+  label: string;
+  amountCents: number;
 }
 
 // ── CSV row splitting ──────────────────────────────────────────────────────
@@ -139,6 +223,7 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
   }
 
   const employees: ParsedGustoEmployee[] = [];
+  const wageSubRowCents = new Map<string, number>();
 
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i];
@@ -155,6 +240,14 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
         grossAmountCents: parseAmountCents(cell(row, COL.amount)),
         employerTaxCents: parseAmountCents(cell(row, COL.employerTaxes)),
         paycheckTipsCents: 0,
+        // Cash columns live ONLY on the employee's own row — the blank-Last-Name
+        // sub-rows leave every one of them empty (verified against the real
+        // export), so they are read here and never accumulated below. That also
+        // means tips need no special handling: Gusto computes Check Amount on
+        // the employee's total earnings, tips included.
+        employeeTaxCents: parseAmountCents(cell(row, COL.employeeTaxes)),
+        checkAmountCents: parseAmountCents(cell(row, COL.checkAmount)),
+        reimbursementsCents: parseAmountCents(cell(row, COL.reimbursements)),
       });
       continue;
     }
@@ -164,8 +257,14 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
     if (!current) continue; // stray sub-row before any employee block — ignore
 
     const label = cell(row, COL.payType);
-    if (label === "Bonus") {
-      current.grossAmountCents += parseAmountCents(cell(row, COL.amount));
+    // Bonus / Commission / Additional Earnings are all compensation Gusto
+    // reports outside the employee row's Regular `Amount`, and all three are
+    // already inside Check Amount / Employee Taxes / Employer Taxes — so they
+    // belong in gross wages, and folding them in changes no expected debit.
+    if (label === "Bonus" || label === "Commission" || label === "Additional Earnings") {
+      const amountCents = parseAmountCents(cell(row, COL.amount));
+      current.grossAmountCents += amountCents;
+      wageSubRowCents.set(label, (wageSubRowCents.get(label) ?? 0) + amountCents);
     } else if (label === "Paycheck Tips") {
       current.paycheckTipsCents += parseAmountCents(cell(row, COL.amount));
     }
@@ -182,6 +281,7 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
     payDay,
     employees,
     unmappedDepartments: [],
+    wageSubRowTotals: Array.from(wageSubRowCents.entries()).map(([label, amountCents]) => ({ label, amountCents })),
   };
 }
 

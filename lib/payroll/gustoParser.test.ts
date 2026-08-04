@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseGustoPayrollJournal,
   computeGlBucketTotals,
+  computeExpectedDebits,
 } from "./gustoParser";
 
 // Gusto "Payroll Journal Report" export sample — real structure, real dollar
@@ -69,6 +70,23 @@ const NO_TIPS_CSV = `"Last Name","First Name","Department","Work Address","Emplo
 const CASH_TIPS_ONLY_CSV = `"Last Name","First Name","Department","Work Address","Employee Type","Payment","Job","Pay Type","Hours","Rate","Amount","Employee Taxes","Federal Income Tax (Employee)","Social Security (Employee)","Medicare (Employee)","Additional Medicare (Employee)","NC State Tax (Employee)","Employer Taxes","Social Security (Employer)","Medicare (Employer)","FUTA (Employer)","NC Unemployment Tax (Employer)","Net Pay","Reimbursements","Donations","Check Amount","Employer Cost"
 "Carver","Coral","Front of House","140 Thomas Mill Rd, Holly Springs, NC 27540","Paid by the hour","Direct Deposit","Bartender","Regular","8.08","7.00","56.56","9.27","0.00","7.51","1.76","0.00","0.00","12.30","7.51","1.76","0.73","2.30","111.42","0.00","0.00","111.42","132.99"
 "","","","","","","Totals","Cash Tips","","","0.54","","","","","","","","","","","","","","","",""
+`;
+
+// One employee carrying every sub-row pay type the real exports contain:
+// Commission and Additional Earnings (wage expense, folded into gross
+// alongside Bonus), Cash Tips (discarded), Paycheck Tips (tracked separately),
+// and the "Gross" subtotal (excluded — it would double-count). Amounts are
+// internally consistent so the debits/GL tie-back below holds:
+//   Regular 500 + Commission 100 + Additional Earnings 50 = 650 gross
+//   650 gross + 40 Paycheck Tips + 60 employer tax = 750
+//   = Check Amount 640 + (50 employee tax + 60 employer tax) − 0 reimbursements
+const ALL_PAY_TYPES_CSV = `"Last Name","First Name","Department","Work Address","Employee Type","Payment","Job","Pay Type","Hours","Rate","Amount","Employee Taxes","Federal Income Tax (Employee)","Social Security (Employee)","Medicare (Employee)","Additional Medicare (Employee)","NC State Tax (Employee)","Employer Taxes","Social Security (Employer)","Medicare (Employer)","FUTA (Employer)","NC Unemployment Tax (Employer)","Net Pay","Reimbursements","Donations","Check Amount","Employer Cost"
+"Ashford","Casey","Production","140 Thomas Mill Rd, Holly Springs, NC 27540","Paid by the hour","Direct Deposit","Brewer","Regular","50.00","10.00","500.00","50.00","20.00","20.00","10.00","0.00","0.00","60.00","30.00","20.00","5.00","5.00","640.00","0.00","0.00","640.00","710.00"
+"","","","","","","Totals","Commission","","","100.00","","","","","","","","","","","","","","","",""
+"","","","","","","","Additional Earnings","","","50.00","","","","","","","","","","","","","","","",""
+"","","","","","","","Cash Tips","","","3.00","","","","","","","","","","","","","","","",""
+"","","","","","","","Paycheck Tips","","","40.00","","","","","","","","","","","","","","","",""
+"","","","","","","","Gross","","","693.00","","","","","","","","","","","","","","","",""
 `;
 
 const PRODUCTION_COA_ID = "coa-production";
@@ -164,6 +182,79 @@ describe("parseGustoPayrollJournal", () => {
     }
   });
 
+  /** Commission and Additional Earnings used to be dropped on the floor —
+   *  neither added to gross nor tracked anywhere — which understated payroll
+   *  expense in the P&L by $257.21 across three 2026 periods. */
+  it("folds Commission and Additional Earnings into gross wages alongside Bonus", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    expect(parsed.employees).toHaveLength(1);
+    // 500.00 Regular + 100.00 Commission + 50.00 Additional Earnings = 650.00.
+    // Cash Tips, Paycheck Tips and the Gross subtotal stay out.
+    expect(parsed.employees[0].grossAmountCents).toBe(65000);
+    expect(parsed.employees[0].paycheckTipsCents).toBe(4000);
+  });
+
+  it("leaves the expected debits untouched when Commission and Additional Earnings are present", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    const debits = computeExpectedDebits(parsed);
+
+    // Check Amount / Employee Taxes / Employer Taxes are per-employee totals
+    // already inclusive of every pay type, and live only on the employee's own
+    // row — so amount matching must be unaffected by the gross-wage fix.
+    expect(debits.netPayCents).toBe(64000);
+    expect(debits.taxCents).toBe(11000);
+    expect(debits.reimbursementsCents).toBe(0);
+  });
+
+  it("ties debits back to gross + tips + employer tax once Commission and Additional Earnings are in gross", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    const debits = computeExpectedDebits(parsed);
+    const employee = parsed.employees[0];
+
+    expect(debits.netPayCents + debits.taxCents - debits.reimbursementsCents).toBe(
+      employee.grossAmountCents + employee.paycheckTipsCents + employee.employerTaxCents,
+    );
+  });
+
+  it("itemises the sub-row pay types folded into gross so a backfill can attribute a delta to one", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    const byLabel = Object.fromEntries(parsed.wageSubRowTotals.map((t) => [t.label, t.amountCents]));
+
+    expect(byLabel).toEqual({ Commission: 10000, "Additional Earnings": 5000 });
+    // Tips and the Gross subtotal are not wages and must never appear here.
+    expect(parsed.wageSubRowTotals.map((t) => t.label)).not.toContain("Paycheck Tips");
+    expect(parsed.wageSubRowTotals.map((t) => t.label)).not.toContain("Cash Tips");
+    expect(parsed.wageSubRowTotals.map((t) => t.label)).not.toContain("Gross");
+  });
+
+  it("sums a label across employees and reports Bonus alongside the rest", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    // Carver's 7.67 is SAMPLE_CSV's only Bonus sub-row, and matches the file's
+    // own "Payroll Totals" Bonus row.
+    expect(parsed.wageSubRowTotals).toEqual([{ label: "Bonus", amountCents: 767 }]);
+  });
+
+  it("reports no wage sub-rows when an employee has none", () => {
+    expect(parseGustoPayrollJournal(NO_TIPS_CSV).wageSubRowTotals).toEqual([]);
+    expect(parseGustoPayrollJournal(CASH_TIPS_ONLY_CSV).wageSubRowTotals).toEqual([]);
+  });
+
+  it("the itemised sub-row wages plus each employee's Regular Amount reconstruct gross exactly", () => {
+    const parsed = parseGustoPayrollJournal(ALL_PAY_TYPES_CSV);
+    const gross = parsed.employees.reduce((s, e) => s + e.grossAmountCents, 0);
+    const subRows = parsed.wageSubRowTotals.reduce((s, t) => s + t.amountCents, 0);
+
+    // 500.00 Regular on the employee row + 150.00 of sub-rows = 650.00 gross.
+    expect(gross - subRows).toBe(50000);
+  });
+
+  it("ignores an unrecognised sub-row pay type rather than guessing at it", () => {
+    const withUnknown = ALL_PAY_TYPES_CSV.replace(`"Commission"`, `"Some New Gusto Pay Type"`);
+    const parsed = parseGustoPayrollJournal(withUnknown);
+    // 650.00 − the 100.00 that is no longer a recognised wage label.
+    expect(parsed.employees[0].grossAmountCents).toBe(55000);
+  });
+
   it("throws a clear error on empty input", () => {
     expect(() => parseGustoPayrollJournal("")).toThrow();
     expect(() => parseGustoPayrollJournal("   \n  ")).toThrow();
@@ -243,5 +334,45 @@ describe("computeGlBucketTotals", () => {
     expect(taxes?.amountCents).toBe(80749);
     const tips = totals.find((t) => t.kind === "tips");
     expect(tips?.amountCents).toBe(100247);
+  });
+});
+
+describe("computeExpectedDebits", () => {
+  it("sums Check Amount into the disbursement pull and both tax columns into the remittance pull", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    const debits = computeExpectedDebits(parsed);
+
+    const expectedNet = parsed.employees.reduce((s, e) => s + e.checkAmountCents, 0);
+    const expectedTax = parsed.employees.reduce((s, e) => s + e.employeeTaxCents + e.employerTaxCents, 0);
+
+    expect(debits.netPayCents).toBe(expectedNet);
+    expect(debits.taxCents).toBe(expectedTax);
+    expect(debits.netPayCents).toBeGreaterThan(0);
+    expect(debits.taxCents).toBeGreaterThan(0);
+  });
+
+  it("reads the cash columns off the employee row only — the blank-Last-Name sub-rows leave them empty and must not zero them", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    // SAMPLE_CSV's first employee is followed by a "Gross" sub-row.
+    const ashford = parsed.employees.find((e) => e.lastName === "Ashford")!;
+    expect(ashford.employeeTaxCents).toBe(45874);
+    expect(ashford.checkAmountCents).toBe(192588);
+    expect(ashford.reimbursementsCents).toBe(0);
+  });
+
+  /** The relationship the whole matching design rests on: what left the bank
+   *  differs from what payroll cost by withholding and reimbursements, so the
+   *  two debits can only tie back to the GL total once reimbursements are
+   *  accounted for. If Gusto ever changes the export's columns this breaks
+   *  loudly here rather than silently mis-matching a bank charge. */
+  it("ties the two debits back to gross + employer tax + tips, off by exactly reimbursements", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    const debits = computeExpectedDebits(parsed);
+
+    const gross = parsed.employees.reduce((s, e) => s + e.grossAmountCents, 0);
+    const tips = parsed.employees.reduce((s, e) => s + e.paycheckTipsCents, 0);
+    const employerTax = parsed.employees.reduce((s, e) => s + e.employerTaxCents, 0);
+
+    expect(debits.netPayCents + debits.taxCents - debits.reimbursementsCents).toBe(gross + tips + employerTax);
   });
 });
