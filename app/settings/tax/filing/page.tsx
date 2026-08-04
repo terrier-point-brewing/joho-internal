@@ -32,17 +32,16 @@ export default function TaxFilingSettingsPage() {
         <SettingsHeader
           title="Tax Filing"
           description="Per-module Square mappings and the statutory rate tables each filing worksheet relies on."
-        >
-          {activeModule && parties.length >= 1 && (
-            <ButtonGroup
-              tabs={parties.map((p) => ({ key: p.key, label: p.label }))}
-              activeKey={activeModule.key}
-              onSelect={setSelectedKey}
-            />
-          )}
-        </SettingsHeader>
+        />
       </div>
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">
+        {activeModule && parties.length >= 1 && (
+          <ButtonGroup
+            tabs={parties.map((p) => ({ key: p.key, label: p.label }))}
+            activeKey={activeModule.key}
+            onSelect={setSelectedKey}
+          />
+        )}
         {partiesQuery.isLoading && <p className="text-sm text-faint">Loading…</p>}
         {partiesQuery.isError && (
           <Banner tone="danger">
