@@ -212,6 +212,37 @@ export function useColdStorageQuery() {
   });
 }
 
+// One row of the cold_storage_transforms journal — an internal reformatting of
+// finished goods already in cold storage. `kind` says what was physically
+// cracked: a keg transform is a human breaking a 1/2 keg down into sixtels and
+// LOSES volume; a pack break is applyBreakDown cracking a sealed case for a
+// taproom single and always conserves.
+export interface ColdStorageAdjustment {
+  id: string;
+  occurred_at: string;
+  batch_id: string;
+  recipe_id: string | null;
+  kind: "keg_transform" | "pack_break";
+  beer_name: string | null;
+  batch_number: string | null;
+  from_variation_name: string | null;
+  to_variation_name: string | null;
+  from_units: number;
+  to_units: number;
+  shrinkage_fl_oz: number;
+  shrinkage_bbl: number;
+  note: string | null;
+  source_ref: string | null;
+  created_by_email: string | null;
+}
+
+export function useColdStorageAdjustmentsQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.coldStorageAdjustments(),
+    queryFn: () => fetchJson<ColdStorageAdjustment[]>("/api/production/cold-storage/adjustments"),
+  });
+}
+
 export function useBatchScheduleQuery() {
   return useQuery({
     queryKey: productionKeys.batchSchedule,

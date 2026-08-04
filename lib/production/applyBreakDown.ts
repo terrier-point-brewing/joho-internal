@@ -3,18 +3,20 @@
 // IO layer for cold-storage pack break-downs. Resolves the target variation's
 // can-identity family (same container + lid + label + partner, differing only by
 // tier), tops up the target tier by cracking higher tiers per planBreakDown, and
-// journals each break to cold_storage_breaks. Breaks stay within a single batch so
-// attribution is preserved. Scoped to the taproom fungible path — the caller
-// (recordTaproomConsumption) invokes this only when the target tier is short.
+// journals each break to cold_storage_transforms — the shared journal for every
+// internal cold-storage reformatting, cans and kegs alike. Breaks stay within a
+// single batch so attribution is preserved. Scoped to the taproom fungible path
+// — the caller (recordTaproomConsumption) invokes this only when the target tier
+// is short.
 //
 // Accepted wholesale-case behavior: cold storage is a single shared pool with
 // wholesale -- there is no reservation overlay carving out sealed cases for
 // wholesale-only use. planBreakDown cracks smallest-first (case only breaks
 // into packs, never straight to singles), but if a beer is stocked as cases
 // only, a single taproom sale WILL crack a sealed case meant for wholesale.
-// This is intentional, not a bug: the break is journaled to cold_storage_breaks
-// for audit, and adding a reservation system is out of scope unless this proves
-// to be a real operational problem.
+// This is intentional, not a bug: the break is journaled to
+// cold_storage_transforms for audit, and adding a reservation system is out of
+// scope unless this proves to be a real operational problem.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { planBreakDown, deriveCansEach, type Tier } from "./coldStorageBreak";
@@ -191,14 +193,21 @@ export async function applyBreakDown(
       if (error) throw new Error(error.message);
     }
 
-    // Journal the break.
-    const { error: jErr } = await supabase.from("cold_storage_breaks").insert({
+    // Journal the break. Volumes are snapshot onto the row so the journal stays
+    // true if a variation is later edited, and so shrinkage_fl_oz (generated)
+    // computes without a join — for cans it always lands on exactly 0, since a
+    // case holds precisely the cans its packs do.
+    const fromVol = Number(rowById.get(op.fromVariationId)?.total_volume_fl_oz ?? 0);
+    const toVol = Number(rowById.get(op.toVariationId)?.total_volume_fl_oz ?? 0);
+    const { error: jErr } = await supabase.from("cold_storage_transforms").insert({
       batch_id: batchId,
       recipe_id: recipeId,
       from_variation_id: op.fromVariationId,
       to_variation_id: op.toVariationId,
       from_units: op.fromUnits,
       to_units: op.toUnits,
+      from_volume_fl_oz: fromVol,
+      to_volume_fl_oz: toVol,
       source_ref: sourceRef,
     });
     if (jErr) throw new Error(jErr.message);

@@ -7,12 +7,16 @@ import TabBar, { type TabDef } from "@/app/components/TabBar";
 import { PRODUCTION_NAV } from "@/app/production/nav-config";
 import ExportTab from "@/app/production/components/ExportTab";
 
-export type ExportTopTab = "export_bay" | "shipments" | "export_invoices";
+export type ExportTopTab = "export_bay" | "shipments" | "export_invoices" | "adjustments";
 
 const TOP_TABS: TabDef<ExportTopTab>[] = [
   { key: "export_bay", label: "Export Bay" },
   { key: "shipments", label: "Shipments" },
   { key: "export_invoices", label: "Export Invoices" },
+  // Cold storage lives in Export, so its adjustment journal does too. Shipments
+  // is the record of what left; this is the record of what was reformatted in
+  // place. Both are read-only views of actions taken on the Export Bay tab.
+  { key: "adjustments", label: "Adjustments" },
 ];
 
 export default function ExportPage() {
