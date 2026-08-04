@@ -1,18 +1,27 @@
+"use client";
+
+import { useState } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
+import ButtonGroup from "@/app/components/ButtonGroup";
 import SubHead from "./blocks/SubHead";
 import SpecCard from "./blocks/SpecCard";
 import LabelDiagram from "./blocks/LabelDiagram";
 
+type ReleaseTab = "naming" | "release-card" | "label-design";
+
 /**
  * Release Design view: how a new release is designed, with the label as the
- * frame. Both halves lived apart — naming at the tail of Voice, the chassis at
- * the tail of Visual Identity — but they were never two subjects: the card
- * names the release, the chassis is what it's poured into.
+ * frame. Naming, the release card, and the label chassis lived apart — naming
+ * at the tail of Voice, the chassis at the tail of Visual Identity — but they
+ * were never three subjects: the name gates the release, the card writes it,
+ * the chassis is what it's poured into.
  *
- * The tab runs in the order a release is made ("story before ship"): naming
- * first — the five gates, the template card, the releases that clear them —
- * then the chassis, drawn as an annotated label rather than only listed as
- * spec cards, so the one fixed frame can be seen and not just read about.
+ * Button-tabs beneath the intro (see Settings → Tax Filing for the same
+ * pattern) run in the order a release is made ("story before ship"): the five
+ * naming gates, then the card every release is written as plus the releases
+ * that clear it, then the chassis — drawn as an annotated label rather than
+ * only listed as spec cards, so the one fixed frame can be seen and not just
+ * read about.
  */
 export default function ReleaseView({
   canon,
@@ -22,6 +31,8 @@ export default function ReleaseView({
   /** Approved wordmark artwork for the chassis diagram's top band. */
   wordmarkUrl?: string | null;
 }) {
+  const [tab, setTab] = useState<ReleaseTab>("naming");
+
   const naming = canon.naming;
   // The narrative is the template for a release card, so it renders as one:
   // same component, same labels, same order as the examples below it. A field
@@ -38,15 +49,25 @@ export default function ReleaseView({
   const elements = chassis?.elements ?? [];
 
   return (
-    <>
-      {naming && (
-        <section className="mb-8">
+    <div className="flex flex-col gap-6">
+      <ButtonGroup
+        tabs={[
+          { key: "naming", label: "Naming" },
+          { key: "release-card", label: "Release card" },
+          { key: "label-design", label: "Label design" },
+        ]}
+        activeKey={tab}
+        onSelect={setTab}
+      />
+
+      {tab === "naming" && naming && (
+        <section>
           <SubHead
             title="Naming"
-            description="The five gates a name must clear, the card each release is written as, and the releases that pass."
+            description="The five gates a name must clear before it reaches a release card."
           />
           {naming.criteria?.length > 0 && (
-            <ol className="flex flex-col gap-1.5 mb-6">
+            <ol className="flex flex-col gap-1.5">
               {naming.criteria.map((criterion, i) => (
                 <li key={i} className="font-brand-body text-sm text-brand-content flex gap-2">
                   <span className="text-brand-content-muted tabular-nums shrink-0">{i + 1}.</span>
@@ -55,6 +76,15 @@ export default function ReleaseView({
               ))}
             </ol>
           )}
+        </section>
+      )}
+
+      {tab === "release-card" && naming && (
+        <section>
+          <SubHead
+            title="Release card"
+            description="The card each release is written as, and the releases that pass it."
+          />
           {templateRows.length > 0 && (
             <>
               {narrative?.intro && (
@@ -93,10 +123,10 @@ export default function ReleaseView({
         </section>
       )}
 
-      {(chassis?.narrative || elements.length > 0) && (
+      {tab === "label-design" && (chassis?.narrative || elements.length > 0) && (
         <section>
           <SubHead
-            title="The label chassis"
+            title="Label design"
             description="The fixed frame every release is poured into. The illustration roams; the chassis is home."
           />
           {chassis?.narrative && (
@@ -128,6 +158,6 @@ export default function ReleaseView({
           )}
         </section>
       )}
-    </>
+    </div>
   );
 }
