@@ -133,6 +133,42 @@ describe("applyControls", () => {
     expect(out.map((r) => r.recipe)).toEqual(["Hazy IPA", "Pilsner"]);
   });
 
+  describe("search narrowing", () => {
+    interface Card { id: string; lines: { beer: string }[] }
+    const CARDS: Card[] = [
+      { id: "a", lines: [{ beer: "Hazy IPA" }, { beer: "Stout" }] },
+      { id: "b", lines: [{ beer: "Pilsner" }] },
+    ];
+    const NARROW: ControlsConfig<Card> = {
+      search: [{
+        param: "q",
+        accessor: (c) => c.lines.map((l) => l.beer),
+        narrow: (c, matches) => ({ ...c, lines: c.lines.filter((l) => matches(l.beer)) }),
+      }],
+    };
+
+    it("drops the sub-items that did not match", () => {
+      const out = applyControls(CARDS, NARROW, { ...EMPTY, search: { q: "hazy" } });
+      expect(out).toHaveLength(1);
+      expect(out[0].lines.map((l) => l.beer)).toEqual(["Hazy IPA"]);
+    });
+
+    it("leaves rows untouched when the query is blank", () => {
+      const out = applyControls(CARDS, NARROW, { ...EMPTY, search: { q: "  " } });
+      expect(out).toBe(CARDS);
+    });
+
+    it("does not mutate the source rows", () => {
+      applyControls(CARDS, NARROW, { ...EMPTY, search: { q: "hazy" } });
+      expect(CARDS[0].lines).toHaveLength(2);
+    });
+
+    it("a surviving row always keeps at least one sub-item", () => {
+      const out = applyControls(CARDS, NARROW, { ...EMPTY, search: { q: "s" } });
+      expect(out.every((c) => c.lines.length > 0)).toBe(true);
+    });
+  });
+
   it("matches predicate with empty selection does not filter", () => {
     const cfg: ControlsConfig<Row> = {
       filters: [{ param: "vol", matches: () => false }],

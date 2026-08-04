@@ -154,10 +154,14 @@ const STATUS_OPTIONS = [
 ];
 
 const SHIPMENT_CONTROLS: ControlsConfig<InvoiceGroup> = {
-  // A card survives when ANY of its product lines is that beer; the component
-  // then narrows the card to just those lines (see `searched`), so a search for
-  // one recipe never reports the volume of whatever shipped alongside it.
-  search: [{ param: "q_recipe", accessor: (g) => g.products.map((p) => p.beer_name) }],
+  // A card survives when ANY of its product lines is that beer, and then narrows
+  // to just those lines — a search for one recipe must not report the volume of
+  // whatever happened to ship alongside it.
+  search: [{
+    param: "q_recipe",
+    accessor: (g) => g.products.map((p) => p.beer_name),
+    narrow: (g, matches) => ({ ...g, products: g.products.filter((p) => matches(p.beer_name)) }),
+  }],
   filters: [
     { param: "channel", matches: (g, sel) => g.products.some((p) => sel.includes(p.channel)) },
     { param: "status", accessor: (g) => g.status },
@@ -360,25 +364,10 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
   const { rows: hookFiltered, search, filters, setSearch, setFilter, reset, activeCount } =
     useTableControls(invoiceGroups, SHIPMENT_CONTROLS, { prefix: "ship_" });
 
-  // The recipe search asks for one beer, so the card can't stay intact: drop the
-  // sibling product lines that merely shipped alongside the match, or the card
-  // (and the bbl/tax totals below) reports volume the search didn't ask for.
-  // Mirrors applyControls' search semantics — trimmed, lowercased substring.
-  const recipeQuery = (search.q_recipe ?? "").trim().toLowerCase();
-  const searched = useMemo(() => {
-    if (!recipeQuery) return hookFiltered;
-    return hookFiltered
-      .map((g) => ({
-        ...g,
-        products: g.products.filter((p) => p.beer_name.toLowerCase().includes(recipeQuery)),
-      }))
-      .filter((g) => g.products.length > 0);
-  }, [hookFiltered, recipeQuery]);
-
   // Date range stays a local, non-URL-synced control (design non-goal: date-range
   // selectors are exempt from the shared filter primitives) — applied after the
   // hook's categorical filtering.
-  const filtered = useMemo(() => searched.filter((g) => {
+  const filtered = useMemo(() => hookFiltered.filter((g) => {
     if (!dateFrom && !dateTo) return true;
     return g.products.some((p) => p.allocations.some((a) => {
       const day = a.created_at.slice(0, 10);
@@ -386,7 +375,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
       if (dateTo && day > dateTo) return false;
       return true;
     }));
-  }), [searched, dateFrom, dateTo]);
+  }), [hookFiltered, dateFrom, dateTo]);
 
   const summaryStats = useMemo(() => {
     let totalBbl = 0;
