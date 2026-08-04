@@ -168,9 +168,10 @@ export async function pushInventoryToSquare(
 
   // Recipes Square is still going to decrement for itself. Pushing them now
   // would double-count the shipment: the push lowers Square to cold storage, and
-  // the invoice then takes the same units again. Decided off the shipped SKU's
-  // inventory tracking and its invoice's actual line items, so a channel whose
-  // invoices bill only fees is pushed rather than stranded.
+  // the invoice then takes the same units again. Decided per shipment — invoice
+  // line items once one exists, the channel's invoice shape before then — so a
+  // contract-style shipment pushes at ship while a distribution one waits out
+  // its invoice. See pendingSquareDeduction for the three shipment models.
   let deferred: ReadonlySet<string> = new Set();
   try {
     deferred = await loadPendingDeductionRecipes(db);

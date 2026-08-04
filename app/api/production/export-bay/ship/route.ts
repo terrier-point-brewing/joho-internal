@@ -94,14 +94,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Beer physically left the building. Whether Square needs telling depends on
-  // whether Square is going to work it out for itself, which is decided inside
-  // the push (lib/production/pendingSquareDeduction) off the shipped SKU's own
-  // inventory tracking and its invoice's line items — not off the channel.
-  //
-  // A shipment whose invoice will decrement Square is held back until it does,
-  // or the same units come off twice. A shipment whose invoice bills only fees
-  // is pushed, because this is the only signal Square will ever get.
+  // Beer physically left the building. Whether Square needs telling now is
+  // decided inside the push (lib/production/pendingSquareDeduction): a
+  // contract-style shipment is pushed immediately — its fee invoice will never
+  // deduct, so this is the only signal Square gets — while a distribution/
+  // wholesale-style shipment is held back, because its invoice will deduct the
+  // same units itself and pushing first would take them off twice. That window
+  // of drift is deliberate and labelled on the taproom drift view.
   //
   // No-ops while the push gate is shut; never throws.
   await triggerSquarePush(supabase, [recipe_id], `export ship ${shipmentId}`);

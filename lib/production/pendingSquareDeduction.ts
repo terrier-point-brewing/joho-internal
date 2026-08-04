@@ -15,21 +15,44 @@
 // Left alone, Square goes 100 → 76 on its own and lands correct. The push and
 // the invoice are two mechanisms for one event; running both double-counts.
 //
-// THE TEST IS THE MECHANISM, NOT THE CHANNEL. Square can only decrement a
-// variation it tracks inventory on, and only when an invoice line actually
-// carries that variation. An earlier version of this keyed off a hardcoded
-// channel allowlist instead, which duplicated knowledge held in the invoice
-// builder: add a channel, or ever put a product line on a contract invoice, and
-// it would have silently double-counted. Testing what Square can actually do
-// fails the other way — toward a stale count, which the drift view shows and the
-// next push fixes.
+// Three shipment models, three answers:
 //
-// Once an invoice exists there is no need to predict: its line items say whether
-// Square will decrement. Only a shipment with no invoice yet has to be guessed
-// at, and there the safe guess is "it will".
+//   Taproom               Square deducted at the sale, before the app's row even
+//                         existed. Rows are terminal ('paid') at creation and
+//                         never reach this rule.
+//   Contract brewing      the invoice bills fees/excise/services only, so Square
+//                         will NEVER deduct. The ship-time push is the only
+//                         signal Square gets — never deferred.
+//   Distribution/wholesale the invoice carries the product SKU, so Square will
+//                         deduct on its own. Deferred until it has; the drift in
+//                         between is expected and labelled, not corrected.
+//
+// The decision uses the best evidence available at each stage. Once an invoice
+// exists, its actual line items answer directly. Before one exists, the
+// shipment's CHANNEL predicts it — not as a proxy but as the cause, since the
+// app's own invoice builder branches on channel to decide what the invoice will
+// bill. Either way the SKU must be inventory-tracked at all for Square to owe
+// anything.
+
+/**
+ * Channels whose invoices the app builds WITHOUT product lines — packaging fees,
+ * excise, services. No Square deduction will ever arrive for these, so their
+ * shipments must be pushed at ship time; deferring them would leave Square
+ * offering beer that has physically left, until an invoice that changes nothing.
+ *
+ * This mirrors the `channel === "contract_brewing"` branch in
+ * exportInvoicePreview — the channel is not a proxy for what the invoice will
+ * bill, it is what DECIDES it. Used only while no invoice exists; once one does,
+ * its actual line items answer instead. A channel not listed here defers, so an
+ * unknown or future channel fails toward a stale count rather than a double
+ * deduction.
+ */
+const FEE_ONLY_CHANNELS = new Set(["contract_brewing"]);
 
 export interface ShipmentDeduction {
   recipeId: string;
+  /** The shipment's channel — predicts the invoice's shape until one exists. */
+  channel: string;
   /** invoice_required | unpaid | paid */
   status: string;
   invoiceId: string | null;
@@ -60,11 +83,17 @@ export function selectPendingDeductionRecipes(rows: ShipmentDeduction[]): Set<st
     // whatever the invoice ends up saying.
     if (!r.skuTracked) continue;
 
-    // No invoice yet, so nothing to inspect. Assume a deduction is coming —
-    // being briefly stale is recoverable, double-counting is the one to avoid.
-    if (r.invoiceId === null) { pending.add(r.recipeId); continue; }
+    // No invoice yet, so nothing to inspect — the channel predicts what the app
+    // will build. A fee-only channel gets NO deduction from Square ever, so the
+    // ship-time push is the only signal Square gets and must not be held back.
+    // Every other channel is assumed to owe one: stale is recoverable,
+    // double-counting is not.
+    if (r.invoiceId === null) {
+      if (!FEE_ONLY_CHANNELS.has(r.channel)) pending.add(r.recipeId);
+      continue;
+    }
 
-    // An invoice exists: believe it rather than guessing from the channel.
+    // An invoice exists: believe its line items rather than the prediction.
     if (r.invoiceHasInventoryLine) pending.add(r.recipeId);
   }
   return pending;
@@ -76,13 +105,13 @@ type Db = { from: (t: string) => any };
 export async function loadPendingDeductionRecipes(db: Db): Promise<Set<string>> {
   const { data: txRows, error: txErr } = await db
     .from("export_transactions")
-    .select("recipe_id, variant_label, status, invoice_id")
+    .select("recipe_id, variant_label, channel, status, invoice_id")
     .neq("status", "paid");
   if (txErr) throw new Error(txErr.message);
 
   const shipments = (txRows ?? []) as {
     recipe_id: string | null; variant_label: string | null;
-    status: string; invoice_id: string | null;
+    channel: string; status: string; invoice_id: string | null;
   }[];
   if (shipments.length === 0) return new Set();
 
@@ -140,6 +169,7 @@ export async function loadPendingDeductionRecipes(db: Db): Promise<Set<string>> 
           : undefined;
         return {
           recipeId: s.recipe_id!,
+          channel: s.channel,
           status: s.status,
           invoiceId: s.invoice_id,
           skuTracked: !!sku && trackedSkus.has(sku),

@@ -3,6 +3,7 @@ import { selectPendingDeductionRecipes, type ShipmentDeduction } from "./pending
 
 const ship = (over: Partial<ShipmentDeduction> = {}): ShipmentDeduction => ({
   recipeId: "R1",
+  channel: "distribution",
   status: "unpaid",
   invoiceId: "INV-1",
   skuTracked: true,
@@ -38,12 +39,36 @@ describe("selectPendingDeductionRecipes", () => {
     expect(selectPendingDeductionRecipes([ship({ invoiceHasInventoryLine: false })])).toEqual(new Set());
   });
 
-  // No invoice yet, so nothing to inspect. Stale is recoverable; double-counting
-  // is the failure worth avoiding.
-  it("defers a shipment with no invoice raised yet", () => {
+  // No invoice yet: the channel predicts what the app will build for it.
+  it("defers a distribution shipment with no invoice raised yet", () => {
     expect(selectPendingDeductionRecipes([
       ship({ status: "invoice_required", invoiceId: null, invoiceHasInventoryLine: null }),
     ])).toEqual(new Set(["R1"]));
+  });
+
+  // Model 2 (contract brewing): the fee invoice will never deduct, so the
+  // ship-time push is the only signal Square gets. Deferring it would leave
+  // Square offering beer that physically left, until an invoice that changes
+  // nothing — the exact staleness the ship trigger exists to prevent.
+  it("does NOT defer a contract-brewing shipment with no invoice yet", () => {
+    expect(selectPendingDeductionRecipes([
+      ship({ channel: "contract_brewing", status: "invoice_required", invoiceId: null, invoiceHasInventoryLine: null }),
+    ])).toEqual(new Set());
+  });
+
+  // An unrecognised channel fails toward stale, never toward double-count.
+  it("defers an unknown channel with no invoice yet", () => {
+    expect(selectPendingDeductionRecipes([
+      ship({ channel: "some_future_channel", status: "invoice_required", invoiceId: null, invoiceHasInventoryLine: null }),
+    ])).toEqual(new Set(["R1"]));
+  });
+
+  // Once the contract invoice exists, the line inspection reaches the same
+  // answer the prediction did — the two stages agree on the same shipment.
+  it("keeps a contract shipment released after its fee invoice is raised", () => {
+    expect(selectPendingDeductionRecipes([
+      ship({ channel: "contract_brewing", invoiceId: "INV-FEES", invoiceHasInventoryLine: false }),
+    ])).toEqual(new Set());
   });
 
   it("does not defer an unraised invoice for an untracked SKU", () => {
