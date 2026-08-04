@@ -1,11 +1,15 @@
+"use client";
+
+import { useState } from "react";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandSeason } from "@/lib/brand/seasons";
 import { groupChopsBySeason, groupVariations, type MarkVariation } from "@/lib/brand/marks";
 import { normalizeRules, splitByPolarity } from "@/lib/brand/guideRules";
 import type { ArtworkGround } from "@/lib/brand/svgColor";
+import ButtonGroup from "@/app/components/ButtonGroup";
 import SubHead from "./blocks/SubHead";
-import SpecCard from "./blocks/SpecCard";
+import SpecCard, { type SpecRow } from "./blocks/SpecCard";
 import MarkArtwork from "./blocks/MarkArtwork";
 
 type MarkSpec = NonNullable<BrandCanon["marks"]>[number];
@@ -33,102 +37,48 @@ function Facet({ label, value }: { label: string; value: string | null | undefin
 }
 
 /**
- * The written rules for a mark family — everything about it that is prose
- * rather than a file.
+ * The written rules for a mark family, folded into the one card a reader
+ * needs — the boundaries every cut is chosen within (frame, orientation,
+ * valid colors), clearspace, the one rule that decides between cuts, and any
+ * do/don't guidance — rather than a run of separate labeled blocks above a
+ * spec card. Wordmarks and chops render the exact same shape, so the two
+ * sections read as siblings instead of the wordmark carrying more prose than
+ * the chop does.
  *
  * These stay in the canon rather than moving onto the assets: "never show both
  * J's in one lockup" is a statement about the mark, not about any one file of
  * it, and it has to survive every variation being re-uploaded.
  */
-function MarkRules({ spec }: { spec: MarkSpec }) {
+function MarkSpecCard({ spec }: { spec: MarkSpec }) {
   const { dos, donts } = splitByPolarity(normalizeRules(spec.usage, "do"));
-  const specRows = spec.specs ?? [];
-  const hasBody =
-    dos.length > 0 ||
-    donts.length > 0 ||
-    (spec.clearspace?.length ?? 0) > 0 ||
-    (spec.oneRule?.length ?? 0) > 0;
+  const rows: SpecRow[] = [];
 
-  if (!hasBody && specRows.length === 0 && !spec.note) return null;
+  // Wordmarks skip a status row — the card title already headers the
+  // section, so a second name/status/approved line would just repeat it.
+  if (spec.kind !== "wordmark" && (spec.status || spec.approved)) {
+    rows.push({ label: "Status", value: [spec.status, spec.approved].filter(Boolean).join(" — ") });
+  }
+  for (const s of spec.specs ?? []) rows.push({ label: s.key, value: s.value });
+  if (dos.length > 0) rows.push({ label: "Do", value: dos.map((r) => r.title).join(" · ") });
+  if (donts.length > 0) {
+    rows.push({ label: "Don't", value: donts.map((r) => r.title).join(" · "), tone: "accent" });
+  }
+  if ((spec.clearspace?.length ?? 0) > 0) {
+    rows.push({ label: "Clearspace & scale", value: spec.clearspace!.join(" ") });
+  }
+  if ((spec.oneRule?.length ?? 0) > 0) {
+    rows.push({ label: "The one rule", value: spec.oneRule!.join(" ") });
+  }
+
+  if (rows.length === 0 && !spec.note) return null;
 
   return (
-    <div className="flex flex-col gap-3 mb-4">
-      {/* Wordmarks skip their own title line — the "Wordmark specification"
-          card below already headers the section, so a second name/status/
-          approved line here would just repeat it. */}
-      {spec.title && spec.kind !== "wordmark" && (
-        <p className="font-brand-display text-lg text-brand-high-contrast">
-          {spec.title}
-          {spec.status && (
-            <span className="font-brand-body text-2xs uppercase tracking-wide text-brand-content-muted ml-2">
-              {spec.status}
-            </span>
-          )}
-          {spec.approved && (
-            <span className="font-brand-body text-2xs text-brand-content-muted ml-2">
-              {spec.approved}
-            </span>
-          )}
-        </p>
-      )}
-
-      {(dos.length > 0 || donts.length > 0) && (
-        <div className="flex flex-col gap-1">
-          {dos.map((rule) => (
-            <p key={rule.id} className="font-brand-body text-sm text-brand-primary leading-relaxed">
-              ✓ {rule.title}
-            </p>
-          ))}
-          {donts.map((rule) => (
-            <p key={rule.id} className="font-brand-body text-sm text-brand-accent leading-relaxed">
-              ✕ {rule.title}
-            </p>
-          ))}
-        </div>
-      )}
-
-      {(spec.clearspace?.length ?? 0) > 0 && (
-        <div>
-          <p className="font-brand-body text-2xs uppercase tracking-wide text-brand-content-muted mb-0.5">
-            Clearspace &amp; scale
-          </p>
-          {spec.clearspace!.map((line, i) => (
-            <p key={i} className="font-brand-body text-sm text-brand-content leading-relaxed">
-              {line}
-            </p>
-          ))}
-        </div>
-      )}
-
-      {(spec.oneRule?.length ?? 0) > 0 && (
-        <div>
-          <p className="font-brand-body text-2xs uppercase tracking-wide text-brand-content-muted mb-0.5">
-            The one rule
-          </p>
-          {spec.oneRule!.map((line, i) => (
-            <p key={i} className="font-brand-body text-sm text-brand-content leading-relaxed">
-              {line}
-            </p>
-          ))}
-        </div>
-      )}
-
-      {/* The mark's own spec sheet — the boundaries every cut is chosen
-          within (frame, orientation, valid color combinations). One card,
-          same as the chop's: a wordmark is largely fixed, so what a reader
-          needs is the short list of what varies, not a sheet per cut. */}
-      {specRows.length > 0 && (
-        <SpecCard
-          title={spec.kind === "wordmark" ? "Wordmark specification" : "Mark specification"}
-          tag={spec.kind === "wordmark" ? "Every wordmark" : undefined}
-          rows={specRows.map((s) => ({ label: s.key, value: s.value }))}
-        />
-      )}
-
-      {spec.note && (
-        <p className="font-brand-body text-2xs text-brand-content-muted">{spec.note}</p>
-      )}
-    </div>
+    <SpecCard
+      title={spec.kind === "wordmark" ? "Wordmark specification" : spec.title || "Mark specification"}
+      tag={spec.kind === "wordmark" ? "Every wordmark" : undefined}
+      rows={rows}
+      footer={spec.note}
+    />
   );
 }
 
@@ -248,14 +198,20 @@ function ChopCard({
  *
  * A wordmark is one drawing shipped in variations — horizontal or vertical,
  * square or rectangular, one ink or another, on a ground or on nothing — so it
- * is a grid of variation cards, each naming its facets and saying when to
- * reach for it. Above the grid sits the wordmark's own specification: the
+ * is a grid of variation cards, sitting under its one specification card: the
  * short list of what is allowed to vary, since a wordmark is otherwise fixed.
  *
  * A chop is cut per season against a fixed specification: same color, same
  * frame, different content. So the specification comes first, and the chops
  * below it are grouped by the season that claims them, with the seasonless ones
  * standing as the generic fallback.
+ *
+ * Wordmarks and Chops are button-tabs beneath the intro (see Settings → Tax
+ * Filing for the same pattern) rather than two sections stacked on one page —
+ * a reader after the chop shouldn't have to scroll past every wordmark
+ * variation to reach it. Each tab's written rules collapse into the one
+ * specification card (`MarkSpecCard`), never a run of separate blocks above
+ * it, so the two tabs read as siblings.
  *
  * Cards are built from approved assets rather than from canon JSON. They were
  * canon `marks[].variants[]` until this rework, which made every new chop a
@@ -289,23 +245,39 @@ export default function MarksView({
   /** The chop's narrative and specification — the law every chop is cut to. */
   chop?: BrandCanon["chop"];
 }) {
+  const [tab, setTab] = useState<"wordmarks" | "chops">("wordmarks");
+
   const variations = groupVariations(wordmarks);
   const chopGroups = groupChopsBySeason(chops, seasons);
 
   const wordmarkSpecs = specs.filter((s) => s.kind === "wordmark");
   const chopSpecs = specs.filter((s) => s.kind === "chop");
-  const chopRows = (chop?.specs ?? []).map((s) => ({ label: s.key, value: s.value }));
+  const chopRows: SpecRow[] = (chop?.specs ?? []).map((s) => ({ label: s.key, value: s.value }));
 
   return (
-      <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
+      <ButtonGroup
+        tabs={[
+          { key: "wordmarks", label: "Wordmarks" },
+          { key: "chops", label: "Chops" },
+        ]}
+        activeKey={tab}
+        onSelect={setTab}
+      />
+
+      {tab === "wordmarks" && (
         <section>
           <SubHead
             title="Wordmarks"
             description="The name set as type — one drawing, cut into variations. The variations differ only in proportion, ink and ground; pick by where it has to sit, never by taste."
           />
-          {wordmarkSpecs.map((spec, i) => (
-            <MarkRules key={spec.id ?? i} spec={spec} />
-          ))}
+          {wordmarkSpecs.length > 0 && (
+            <div className="flex flex-col gap-3 mb-4">
+              {wordmarkSpecs.map((spec, i) => (
+                <MarkSpecCard key={spec.id ?? i} spec={spec} />
+              ))}
+            </div>
+          )}
           {variations.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {variations.map((variation) => (
@@ -323,7 +295,9 @@ export default function MarksView({
             </p>
           )}
         </section>
+      )}
 
+      {tab === "chops" && (
         <section>
           <SubHead
             title="Chops"
@@ -335,19 +309,21 @@ export default function MarksView({
               {chop.narrative}
             </p>
           )}
-          {chopRows.length > 0 && (
-            <div className="mb-4">
-              <SpecCard
-                title="Chop specification"
-                tag="Every chop"
-                rows={chopRows}
-                footer="Every chop below is cut to these. A chop that misses one is not a chop."
-              />
+          {(chopRows.length > 0 || chopSpecs.length > 0) && (
+            <div className="flex flex-col gap-3 mb-4">
+              {chopRows.length > 0 && (
+                <SpecCard
+                  title="Chop specification"
+                  tag="Every chop"
+                  rows={chopRows}
+                  footer="Every chop below is cut to these. A chop that misses one is not a chop."
+                />
+              )}
+              {chopSpecs.map((spec, i) => (
+                <MarkSpecCard key={spec.id ?? i} spec={spec} />
+              ))}
             </div>
           )}
-          {chopSpecs.map((spec, i) => (
-            <MarkRules key={spec.id ?? i} spec={spec} />
-          ))}
 
           {chopGroups.length > 0 ? (
             <div className="flex flex-col gap-5">
@@ -381,6 +357,7 @@ export default function MarksView({
             </p>
           )}
         </section>
-      </div>
+      )}
+    </div>
   );
 }
