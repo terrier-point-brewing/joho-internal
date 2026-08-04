@@ -124,7 +124,7 @@ export default function LabelDiagram({
 
         {/* ── Bordered art window — the Paper margin is the parent's padding. ── */}
         <div className="relative min-w-0 flex-1 p-[2.5%]">
-          <div className="relative h-full w-full overflow-hidden rounded-[2px] border border-brand-line-strong bg-gradient-to-b from-brand-primary via-brand-secondary to-brand-canvas">
+          <div className="relative h-full w-full rounded-[2px] border border-brand-line-strong bg-gradient-to-b from-brand-primary via-brand-secondary to-brand-canvas">
             <Badge element={artWindow} className="-left-2 -top-2" />
             <p className="absolute inset-x-0 top-[38%] text-center font-brand-body text-2xs uppercase tracking-[0.2em] text-brand-canvas/90">
               The illustration roams here
