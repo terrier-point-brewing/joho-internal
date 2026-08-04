@@ -222,6 +222,20 @@ Changes:
    `100 → 76` and lands correct. The push and the invoice are two mechanisms for
    one event. `lib/production/pendingSquareDeduction.ts` is the single rule both
    the push and this view consult.
+
+   **The rule tests the mechanism, not the channel.** Square can only decrement a
+   variation it tracks inventory on, and only when an invoice line carries that
+   variation. A first version keyed off a hardcoded
+   `{distribution, wholesale}` allowlist, which duplicated knowledge held in the
+   invoice builder — add a channel, or ever put a product line on a contract
+   invoice, and it would silently double-count. It also wasn't even a good proxy:
+   4 of the 5 unpaid contract-brewing shipments in prod carry tracked SKUs.
+
+   Once an invoice exists there is nothing to predict — its line items say
+   whether Square will decrement, so contract brewing releases as soon as its
+   fee-only invoice is raised rather than waiting for payment. Only a shipment
+   with no invoice yet is guessed at, and there the safe guess is "a deduction is
+   coming": stale is recoverable and visible, double-counted is neither.
 4. ✅ **Dead links render as their own state**, in their own banner, explicitly
    labelled unmeasurable rather than shown as zero stock.
 5. ⏳ **Show unmapped-sale discrepancies** — lands with W4, which produces them.

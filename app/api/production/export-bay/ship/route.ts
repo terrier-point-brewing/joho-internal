@@ -94,16 +94,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Beer physically left the building, and for CONTRACT BREWING that is the only
-  // signal Square will ever get — those invoices bill fees, excise and services,
-  // never inventory-tracked SKUs, so without this Square keeps offering stock
-  // that has gone.
+  // Beer physically left the building. Whether Square needs telling depends on
+  // whether Square is going to work it out for itself, which is decided inside
+  // the push (lib/production/pendingSquareDeduction) off the shipped SKU's own
+  // inventory tracking and its invoice's line items — not off the channel.
   //
-  // Wholesale and distribution are held back inside the push, not here: their
-  // invoices decrement Square themselves once settled, and restating the count
-  // now would let that deduction take the same units a second time. See
-  // lib/production/pendingSquareDeduction — the export row this shipment just
-  // wrote is what marks the recipe pending.
+  // A shipment whose invoice will decrement Square is held back until it does,
+  // or the same units come off twice. A shipment whose invoice bills only fees
+  // is pushed, because this is the only signal Square will ever get.
   //
   // No-ops while the push gate is shut; never throws.
   await triggerSquarePush(supabase, [recipe_id], `export ship ${shipmentId}`);
