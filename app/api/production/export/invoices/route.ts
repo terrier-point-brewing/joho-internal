@@ -34,7 +34,7 @@ export async function GET() {
     .from("invoices")
     .select(`
       id, invoice_number, invoice_date, customer_name, partner_id,
-      status, source, square_invoice_id, subtotal_cents, total_cents,
+      status, source, square_invoice_id, subtotal_cents, discount_cents, total_cents,
       invoice_line_items!invoice_line_items_invoice_id_fkey(
         id, sort_order, line_item_name, variation_name, description, note, category,
         quantity, unit_price_cents, total_cents,
@@ -79,6 +79,7 @@ export async function GET() {
       square_invoice_id: inv.square_invoice_id,
       square_dashboard_url: squareDashboardUrl,
       subtotal_cents: inv.subtotal_cents,
+      discount_cents: inv.discount_cents,
       total_cents: inv.total_cents,
       line_items: (inv.invoice_line_items ?? []).sort(
         (a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order

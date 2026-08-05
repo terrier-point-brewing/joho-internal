@@ -13,6 +13,10 @@ export type InvoiceLineCategory =
   | "pass_through_taxes"
   | "distribution_keg"
   | "distribution_can"
+  // An invoice-level (ORDER-scope) discount, carried as its own line rather
+  // than smeared across the real lines. Always negative money. See
+  // lib/finance/invoiceLineItems.ts.
+  | "discount"
   | "other";
 
 export interface InvoiceLineItem {

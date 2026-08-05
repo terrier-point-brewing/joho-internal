@@ -48,12 +48,20 @@ const PL_SECTIONS = new Set(["revenue", "other_income", "cogs", "expenses", "oth
 export function normalizeSignedCents(
   rawCents: number,
   statementSection: string,
-  source: "pos" | "invoice" | "expense" | "bank" | "refund" | "tip_accrual" | "tax_accrual"
+  source: "pos" | "invoice" | "expense" | "bank" | "refund" | "discount" | "tip_accrual" | "tax_accrual"
 ): number {
   const magnitude = Math.abs(rawCents);
 
   // Refunds are always contra-revenue, regardless of mapped section.
   if (source === "refund") return -magnitude;
+
+  // An invoice-level discount line is contra-revenue too, and needs its own
+  // source for the same reason a refund does: it arrives as negative money,
+  // but the "invoice" branch below abs()es and re-derives sign from the
+  // section — so once someone maps the line to a Discounts & Allowances
+  // account (Income → "revenue" → positive), a -$270 discount would flip to
+  // +$270 and ADD revenue. Pinning the sign here makes that unmappable-wrong.
+  if (source === "discount") return -magnitude;
 
   if (source === "expense" || source === "bank") {
     // P&L section: cash-direction sign already matches the target
