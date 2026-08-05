@@ -22,6 +22,20 @@ describe("normalizeSignedCents", () => {
     expect(normalizeSignedCents(750, "revenue", "refund")).toBe(-750);
   });
 
+  it("invoice-level discount stays negative even when mapped to an Income account", () => {
+    // Discounts & Allowances is an Income account → "revenue" section. Under the
+    // plain "invoice" path this would abs() to +27000 and ADD revenue, which is
+    // the exact inversion the dedicated source exists to prevent.
+    expect(normalizeSignedCents(-27000, "revenue", "discount")).toBe(-27000);
+    expect(normalizeSignedCents(-27000, "revenue", "invoice")).toBe(27000);
+  });
+
+  it("an unmapped discount line is still contra-revenue", () => {
+    // Discount lines are written unmapped and stay that way until a human maps
+    // them — they must not read as positive revenue in the meantime.
+    expect(normalizeSignedCents(-27000, "unmapped", "discount")).toBe(-27000);
+  });
+
   it("bank interest_income (already-signed positive input) normalizes to positive", () => {
     expect(normalizeSignedCents(300, "other_income", "bank")).toBe(300);
   });

@@ -72,6 +72,8 @@ interface ExportInvoiceListItem {
   square_invoice_id: string | null;
   square_dashboard_url: string | null;
   subtotal_cents: number;
+  /** Invoice-level (ORDER-scope) discount, positive cents. 0 when none. */
+  discount_cents: number | null;
   total_cents: number;
   line_items: InvoiceLineItem[];
   shipments: InvoiceShipment[];
@@ -438,7 +440,12 @@ function InvoiceExpandedPanel({
                   <td className="py-1 text-right text-secondary">{li.quantity}</td>
                   <td className="py-1 text-right text-secondary">{fmtUsd(li.unit_price_cents / 100)}</td>
                   <td className="py-1 text-right text-body">{fmtUsd(li.total_cents / 100)}</td>
-                  {isDraft && (
+                  {/* The invoice-level discount line is derived from the Square
+                      order, not a Square line item — there is nothing on the
+                      other end for these buttons to edit or delete. Change it
+                      in Square and it re-syncs. */}
+                  {isDraft && li.category === "discount" && <td />}
+                  {isDraft && li.category !== "discount" && (
                     <td className="py-1 text-right whitespace-nowrap">
                       <button
                         onClick={() => startEdit(li)}
@@ -463,10 +470,27 @@ function InvoiceExpandedPanel({
             })}
           </tbody>
         </table>
+        {/* Subtotal / Discount / Total. The discount only earns its own rows
+            when there is one — an undiscounted invoice keeps the single-line
+            Total it has always had. */}
         <div className="flex justify-end pt-1 border-t border-line mt-1">
-          <span className="text-xs text-secondary">
-            Total: <span className="text-primary font-medium">{fmtUsd(invoice.total_cents / 100)}</span>
-          </span>
+          {(invoice.discount_cents ?? 0) > 0 ? (
+            <div className="text-xs text-secondary space-y-0.5 text-right">
+              <div>
+                Subtotal: <span className="text-body">{fmtUsd(invoice.subtotal_cents / 100)}</span>
+              </div>
+              <div>
+                Discount: <span className="text-body">−{fmtUsd((invoice.discount_cents ?? 0) / 100)}</span>
+              </div>
+              <div>
+                Total: <span className="text-primary font-medium">{fmtUsd(invoice.total_cents / 100)}</span>
+              </div>
+            </div>
+          ) : (
+            <span className="text-xs text-secondary">
+              Total: <span className="text-primary font-medium">{fmtUsd(invoice.total_cents / 100)}</span>
+            </span>
+          )}
         </div>
 
         {/* Add line item (Draft only) */}

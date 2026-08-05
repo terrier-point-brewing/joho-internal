@@ -73,6 +73,40 @@ describe("aggregateRows", () => {
     expect(distributionRow!.amountCentsByMonth).toEqual({ "2026-01": 0, "2026-02": 20000 });
   });
 
+  it("an invoice-level discount line reduces revenue even once mapped to an Income account", () => {
+    const rows = aggregateRows(
+      emptyInput({
+        invoiceLines: [
+          {
+            id: "inv-line-gross",
+            totalCents: 132624,
+            category: "packaging_fees",
+            invoiceDate: "2026-01-05",
+            chartOfAccountsId: "coa-beer",
+            exportChannel: "contract_brewing",
+            volumeBbl: null,
+          },
+          {
+            id: "inv-line-discount",
+            totalCents: -27000,
+            category: "discount",
+            invoiceDate: "2026-01-05",
+            // Mapped by hand to an Income (Discounts & Allowances) account — the
+            // case that would invert without the "discount" sign source.
+            chartOfAccountsId: "coa-beer",
+            exportChannel: "contract_brewing",
+            volumeBbl: null,
+          },
+        ],
+      }),
+    );
+
+    const row = rows.find((r) => r.coaId === "coa-beer");
+    expect(row).toBeDefined();
+    // 1326.24 gross − 270.00 discount = 1056.24, the invoice's actual total.
+    expect(row!.amountCentsByMonth["2026-01"]).toBe(105624);
+  });
+
   it("contract-brewing deposit line recognizes revenue immediately via its chart_of_accounts_id (4320), no delivery-invoice link", () => {
     const rows = aggregateRows(
       emptyInput({

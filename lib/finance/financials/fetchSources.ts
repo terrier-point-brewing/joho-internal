@@ -323,6 +323,7 @@ export async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRan
     return {
       id: r.id,
       totalCents: r.total_cents ?? 0,
+      category: r.category,
       invoiceDate: r.invoices.invoice_date,
       chartOfAccountsId: r.chart_of_accounts_id,
       exportChannel,

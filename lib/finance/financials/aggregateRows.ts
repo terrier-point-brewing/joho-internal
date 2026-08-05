@@ -57,6 +57,11 @@ export interface PosLineRecord {
 export interface InvoiceLineRecord {
   id: string;
   totalCents: number;
+  /**
+   * invoice_line_items.category. Only "discount" changes behaviour here (it
+   * pins the row to contra-revenue); everything else is carried for context.
+   */
+  category?: string | null;
   /** invoices.invoice_date, "YYYY-MM-DD". */
   invoiceDate: string;
   chartOfAccountsId: string | null;
@@ -280,7 +285,10 @@ function resolveInvoice(row: InvoiceLineRecord, coaMap: Map<string, CoaRecord>):
     }),
     posCategory: null,
     kegSize: null,
-    amountCents: normalizeSignedCents(row.totalCents, section, "invoice"),
+    // An invoice-level discount line carries negative money and must stay
+    // negative no matter which account it lands on — see normalizeSign.ts's
+    // "discount" branch for why the plain "invoice" path would invert it.
+    amountCents: normalizeSignedCents(row.totalCents, section, row.category === "discount" ? "discount" : "invoice"),
     bbl,
     bblCoverage: coverage,
     monthKey,

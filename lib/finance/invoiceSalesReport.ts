@@ -355,6 +355,15 @@ function addRevenue(
 ): boolean {
   const cat = li.category;
 
+  // An invoice-level discount line, in every channel. It carries NEGATIVE gross
+  // and no per-line discount of its own, so it belongs in the deductions column
+  // (as a positive reduction) rather than in gross revenue — otherwise it would
+  // understate gross and never reach total_deductions.
+  if (cat === "discount") {
+    row.discounts += -gross;
+    return true;
+  }
+
   if (channel === "distribution" || channel === "wholesale") {
     if (cat === "distribution_keg") {
       const sz = kegSize(li.variation_name);

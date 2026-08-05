@@ -93,6 +93,19 @@ export async function buildLineItemIndexes(
   return { kegIndex, canVariationOz, variationById, itemNameByVariationId };
 }
 
+/**
+ * Total of the order's ORDER-scope (invoice-level) discounts, in cents.
+ *
+ * The single definition of "invoice-level discount" — `buildInvoiceLineItemRows`
+ * writes it as a line and `invoiceHeaderTotalsFromOrder` writes it to the header,
+ * and those two must never disagree or the lines stop summing to the total.
+ */
+export function orderScopedDiscountTotal(order: Order): number {
+  return (order.discounts ?? [])
+    .filter((d) => (d.scope ?? "").toUpperCase() === "ORDER")
+    .reduce((s, d) => s + (d.applied_money?.amount ?? 0), 0);
+}
+
 export function buildInvoiceLineItemRows(
   invoiceId: string,
   order: Order,
@@ -106,6 +119,26 @@ export function buildInvoiceLineItemRows(
     .map((d) => d.applied_money?.amount ?? 0)
     .filter((a) => a > 0);
 
+  // Square allocates an ORDER-scope discount pro-rata into every line's
+  // `total_discount_money`, which is NOT how a flat invoice-level discount
+  // behaves: it isn't a property of any one line, and letting it erode a
+  // pass-through excise line understates a tax we still remit in full. So a
+  // line only absorbs the LINE_ITEM-scope discounts actually applied to it;
+  // the invoice-level remainder becomes its own line below.
+  const lineScopedDiscountUids = new Set(
+    (order.discounts ?? [])
+      .filter((d) => (d.scope ?? "").toUpperCase() !== "ORDER")
+      .map((d) => d.uid),
+  );
+  const lineScopedDiscountFor = (li: { applied_discounts?: { discount_uid: string; applied_money?: { amount?: number } }[] }) =>
+    (li.applied_discounts ?? [])
+      .filter((ad) => lineScopedDiscountUids.has(ad.discount_uid))
+      .reduce((sum, ad) => sum + (ad.applied_money?.amount ?? 0), 0);
+
+  // Same filter `invoiceHeaderTotalsFromOrder` uses for `discount_cents`, so the
+  // discount line below always equals the header's discount figure.
+  const orderScopedDiscountCents = orderScopedDiscountTotal(order);
+
   const rows: CanonicalLineItemRow[] = [];
   // sort_order counts PUSHED rows, not the order's line-item positions: carve-out
   // excise lines are skipped below, and a gap would make persistInvoiceLineItems'
@@ -118,7 +151,12 @@ export function buildInvoiceLineItemRows(
     const varId   = li.catalog_object_id ?? "";
     const varName = li.variation_name ?? "";
     const gross   = li.gross_sales_money?.amount ?? 0;
-    const discount = li.total_discount_money?.amount ?? 0;
+    // No order-level discount on this order → `total_discount_money` is already
+    // line-scoped money, so use it directly and stay bit-identical to the old
+    // behaviour (it also survives orders that predate `applied_discounts`).
+    const discount = orderScopedDiscountCents === 0
+      ? (li.total_discount_money?.amount ?? 0)
+      : lineScopedDiscountFor(li);
     const tax      = li.total_tax_money?.amount ?? 0;
 
     let category: InvoiceLineCategory | null = null;
@@ -162,15 +200,50 @@ export function buildInvoiceLineItemRows(
     sortOrder++;
   });
 
+  // The invoice-level discount, as its own trailing line. Written UNMAPPED
+  // (no chart_of_accounts_id) so it surfaces in the Financials "Unmapped"
+  // data-quality bucket and a human assigns the contra-revenue account in
+  // Finance > Transactions > Invoices — the same path every other unmapped
+  // line takes. `resolveLineItemCoa` still runs so a mapping, once set by
+  // hand, survives every later re-sync.
+  if (orderScopedDiscountCents > 0) {
+    const coa = resolveLineItemCoa(existingCoaBySort.get(sortOrder), { chart_of_accounts_id: null });
+    const names = (order.discounts ?? [])
+      .filter((d) => (d.scope ?? "").toUpperCase() === "ORDER")
+      .map((d) => d.name)
+      .filter(Boolean);
+    const label = names.length === 1 ? names[0] : "Invoice Discount";
+    rows.push({
+      invoice_id: invoiceId,
+      sort_order: sortOrder,
+      line_item_name: label,
+      variation_name: null,
+      description: label,
+      note: null,
+      category: "discount",
+      quantity: 1,
+      // Negative money throughout: this line REDUCES the invoice, and every
+      // consumer that sums line rows has to see that without special-casing.
+      unit_price_cents: -orderScopedDiscountCents,
+      gross_sales_cents: -orderScopedDiscountCents,
+      discount_cents: 0,
+      net_sales_cents: -orderScopedDiscountCents,
+      tax_cents: 0,
+      total_cents: -orderScopedDiscountCents,
+      square_catalog_variation_id: null,
+      // Not a Square line item — it has no uid to key taxes off.
+      square_line_item_uid: null,
+      chart_of_accounts_id: coa.chart_of_accounts_id,
+    });
+  }
+
   return rows;
 }
 
 export function invoiceHeaderTotalsFromOrder(order: Order) {
   const total = order.total_money?.amount ?? 0;
   const tax   = order.total_tax_money?.amount ?? 0;
-  const orderDiscount = (order.discounts ?? [])
-    .filter((d) => (d.scope ?? "").toUpperCase() === "ORDER")
-    .reduce((s, d) => s + (d.applied_money?.amount ?? 0), 0);
+  const orderDiscount = orderScopedDiscountTotal(order);
   const subtotal = total - tax + orderDiscount;
   return { subtotal_cents: subtotal, tax_cents: tax, discount_cents: orderDiscount, total_cents: total };
 }

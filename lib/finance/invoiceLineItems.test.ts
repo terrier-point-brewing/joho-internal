@@ -65,6 +65,121 @@ describe("buildInvoiceLineItemRows", () => {
     expect(row.total_cents).toBe(221200);
   });
 
+  describe("invoice-level (ORDER-scope) discounts", () => {
+    // Square smears an ORDER-scope discount pro-rata into every line's
+    // total_discount_money. Mirrors invoice 000048: $270 off, allocated across
+    // packaging fees, a pass-through excise line, and services.
+    const smearedOrder = () => {
+      const order = orderWith(
+        [
+          {
+            uid: "u1", catalog_object_id: "VARP", quantity: "10", name: "Packaging Fee",
+            variation_name: "1/2 Keg",
+            base_price_money: { amount: 4500, currency: "USD" },
+            gross_sales_money: { amount: 45000, currency: "USD" },
+            // Square's allocated slice — must NOT land on the line.
+            total_discount_money: { amount: 9161, currency: "USD" },
+            applied_discounts: [{ uid: "ad1", discount_uid: "d-order", applied_money: { amount: 9161, currency: "USD" } }],
+            total_money: { amount: 35839, currency: "USD" },
+          },
+          {
+            uid: "u2", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax",
+            variation_name: "Regular",
+            base_price_money: { amount: 19125, currency: "USD" },
+            gross_sales_money: { amount: 19125, currency: "USD" },
+            total_discount_money: { amount: 3894, currency: "USD" },
+            applied_discounts: [{ uid: "ad2", discount_uid: "d-order", applied_money: { amount: 3894, currency: "USD" } }],
+            total_money: { amount: 15231, currency: "USD" },
+          },
+        ],
+        [{ uid: "d-order", name: "Custom Discount", scope: "ORDER", applied_money: { amount: 27000, currency: "USD" } }],
+      );
+      return order;
+    };
+
+    it("leaves real lines at gross instead of absorbing Square's pro-rata slice", () => {
+      const rows = buildInvoiceLineItemRows("INV1", smearedOrder(), emptyIndexes, new Map());
+      const [packaging, excise] = rows;
+      expect(packaging.discount_cents).toBe(0);
+      expect(packaging.total_cents).toBe(45000);
+      // The whole point: a pass-through tax we remit in full is never discounted.
+      expect(excise.discount_cents).toBe(0);
+      expect(excise.total_cents).toBe(19125);
+    });
+
+    it("writes the discount as its own negative, unmapped trailing line", () => {
+      const rows = buildInvoiceLineItemRows("INV1", smearedOrder(), emptyIndexes, new Map());
+      expect(rows).toHaveLength(3);
+      const discount = rows[2];
+      expect(discount.category).toBe("discount");
+      expect(discount.line_item_name).toBe("Custom Discount");
+      expect(discount.total_cents).toBe(-27000);
+      expect(discount.net_sales_cents).toBe(-27000);
+      // Unmapped on purpose — a human assigns the contra-revenue account.
+      expect(discount.chart_of_accounts_id).toBeNull();
+      expect(discount.square_line_item_uid).toBeNull();
+    });
+
+    it("keeps the lines summing to the invoice total, so Financials still ties", () => {
+      const order = smearedOrder();
+      order.total_money = { amount: 37125, currency: "USD" };
+      const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
+      const lineSum = rows.reduce((s, r) => s + r.total_cents, 0);
+      const totals = invoiceHeaderTotalsFromOrder(order);
+      expect(lineSum).toBe(totals.total_cents);
+      // And the discount line equals the header's discount figure exactly.
+      expect(rows[2].total_cents).toBe(-totals.discount_cents);
+    });
+
+    it("preserves a hand-mapped account on the discount line across a re-sync", () => {
+      const existing = new Map([[2, { chart_of_accounts_id: "coa-4900" }]]);
+      const rows = buildInvoiceLineItemRows("INV1", smearedOrder(), emptyIndexes, existing);
+      expect(rows[2].chart_of_accounts_id).toBe("coa-4900");
+    });
+
+    it("still nets LINE_ITEM-scope discounts out of their own line", () => {
+      const order = orderWith(
+        [
+          {
+            uid: "u1", catalog_object_id: "VARX", quantity: "1", name: "Keg",
+            gross_sales_money: { amount: 10000, currency: "USD" },
+            total_discount_money: { amount: 3500, currency: "USD" },
+            applied_discounts: [
+              { uid: "a1", discount_uid: "d-line", applied_money: { amount: 1500, currency: "USD" } },
+              { uid: "a2", discount_uid: "d-order", applied_money: { amount: 2000, currency: "USD" } },
+            ],
+            total_money: { amount: 6500, currency: "USD" },
+          },
+        ],
+        [
+          { uid: "d-line", name: "Bulk Discount", scope: "LINE_ITEM", applied_money: { amount: 1500, currency: "USD" } },
+          { uid: "d-order", name: "Custom Discount", scope: "ORDER", applied_money: { amount: 2000, currency: "USD" } },
+        ],
+      );
+      const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
+      expect(rows[0].discount_cents).toBe(1500);
+      expect(rows[0].total_cents).toBe(8500);
+      expect(rows[1].total_cents).toBe(-2000);
+    });
+
+    it("adds no discount line, and changes nothing, when there is no order-level discount", () => {
+      const order = orderWith([
+        {
+          uid: "u1", catalog_object_id: "VARX", quantity: "1", name: "Keg",
+          gross_sales_money: { amount: 10000, currency: "USD" },
+          total_discount_money: { amount: 1500, currency: "USD" },
+          total_tax_money: { amount: 0, currency: "USD" },
+          total_money: { amount: 8500, currency: "USD" },
+        },
+      ]);
+      const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
+      expect(rows).toHaveLength(1);
+      // No applied_discounts on this line at all — the legacy path still works.
+      expect(rows[0].discount_cents).toBe(1500);
+      expect(rows[0].total_cents).toBe(8500);
+    });
+  });
+
   it("keeps two same-variation lines distinct via note; both map to the same variation id", () => {
     const order = orderWith([
       { uid: "a", catalog_object_id: "VAR1", quantity: "1", name: "Barrel Excise Tax", variation_name: "Regular", note: "TTB (1.50 bbls)", gross_sales_money: { amount: 525, currency: "USD" }, total_money: { amount: 525, currency: "USD" } },
