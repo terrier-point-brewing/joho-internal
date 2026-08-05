@@ -26,7 +26,16 @@ export interface IngredientShortfall {
   shortfall: number;            // this_batch_committed - available_to_batch (always > 0)
 }
 
-/** Create or update commitments for every ingredient in the recipe × volume. */
+/**
+ * Make this batch's commitments match the recipe × volume exactly.
+ *
+ * This REPLACES the batch's commitment set rather than adding to it. Upserting
+ * alone would leave the previous recipe's ingredients behind on a recipe swap,
+ * and the shortfall dialog reads commitments (not the recipe), so the batch
+ * would report the union of both recipes — B-056 showed Epic Hazy IPA's twelve
+ * ingredients while linked to Pace Yourself Pilsner. Anything not in the recipe
+ * is released here, including every line when the recipe is emptied.
+ */
 export async function upsertCommitments(
   supabase: SupabaseClient,
   batchId: string,
@@ -38,7 +47,11 @@ export async function upsertCommitments(
     .select("ingredient_id, quantity_per_bbl")
     .eq("recipe_id", recipeId);
 
-  if (!ris?.length) return;
+  if (!ris?.length) {
+    // A recipe with no lines commits nothing — drop whatever the batch still holds.
+    await releaseCommitments(supabase, batchId);
+    return;
+  }
 
   await supabase
     .from("batch_ingredient_commitments")
@@ -47,9 +60,51 @@ export async function upsertCommitments(
         batch_id:      batchId,
         ingredient_id: ri.ingredient_id,
         committed_qty: ri.quantity_per_bbl * volumeBbl,
+        // The unique key is (batch_id, ingredient_id) with no regard for
+        // released_at, so an ingredient that was pruned on an earlier swap and
+        // has now come back resolves to that same released row. Without this the
+        // upsert would refresh its quantity but leave it released — committing
+        // nothing, and silently hiding the shortfall.
+        released_at:   null,
       })),
       { onConflict: "batch_id,ingredient_id" },
     );
+
+  // Release the leftovers from whatever recipe this batch used before.
+  await supabase
+    .from("batch_ingredient_commitments")
+    .update({ released_at: new Date().toISOString() })
+    .eq("batch_id", batchId)
+    .is("released_at", null)
+    .not("ingredient_id", "in", `(${ris.map((ri) => ri.ingredient_id).join(",")})`);
+}
+
+/** Batch statuses that have NOT yet consumed their ingredients. */
+const PRE_BREW_STATUSES = ["planning", "backlog"];
+
+/**
+ * Re-apply a recipe's ingredient lines to every pre-brew batch using it.
+ *
+ * Editing a recipe rewrites `recipe_ingredients`, but each batch's commitments
+ * were computed at assignment time and would otherwise stay frozen at the old
+ * quantities forever — B-056 sat at 900 lb of Pilsner Malt long after the recipe
+ * had moved to 660. Batches past planning are skipped: their ingredients are
+ * already physically deducted, so re-committing would double-charge stock.
+ */
+export async function resyncRecipeCommitments(
+  supabase: SupabaseClient,
+  recipeId: string,
+): Promise<void> {
+  const { data: batches } = await supabase
+    .from("brew_batches")
+    .select("id, volume_bbl")
+    .eq("recipe_id", recipeId)
+    .in("status", PRE_BREW_STATUSES);
+
+  for (const b of batches ?? []) {
+    if (b.volume_bbl == null) continue;
+    await upsertCommitments(supabase, b.id, recipeId, Number(b.volume_bbl));
+  }
 }
 
 /** Mark all active commitments for a batch as released (archived or brewed). */
@@ -63,9 +118,6 @@ export async function releaseCommitments(
     .eq("batch_id", batchId)
     .is("released_at", null);
 }
-
-/** Batch statuses that have NOT yet consumed their ingredients. */
-const PRE_BREW_STATUSES = ["planning", "backlog"];
 
 export interface GetShortfallsOptions {
   /**

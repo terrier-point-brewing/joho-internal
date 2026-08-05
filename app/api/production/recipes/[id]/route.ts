@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resyncRecipeCommitments } from "@/lib/production/commitments";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,11 @@ export async function PATCH(
       const { error: lineErr } = await supabase.from("recipe_ingredients").insert(rows);
       if (lineErr) return NextResponse.json({ error: lineErr.message }, { status: 500 });
     }
+
+    // Batches still in planning committed stock against the OLD lines. Re-apply
+    // the new ones so their shortfall warnings reflect the recipe as it now
+    // stands rather than the quantities in force when they were scheduled.
+    await resyncRecipeCommitments(supabase, id);
   }
 
   const { data, error } = await supabase
