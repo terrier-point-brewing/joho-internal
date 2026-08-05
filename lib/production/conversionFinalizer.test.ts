@@ -167,6 +167,11 @@ function reconcileStub(cfg: {
     const b: Record<string, unknown> = {};
     b.select = (_cols: string, opts?: { count?: string; head?: boolean }) => { if (opts?.head) headCount = true; return b; };
     b.eq = (k: string, v: unknown) => { match[k] = v; return b; };
+    // upsertCommitments follows its upsert with a prune chain
+    // (.update().eq().is().not()) that releases ingredients no longer in the
+    // recipe; both filters have to be chainable for that call to resolve.
+    b.is = (k: string, v: unknown) => { match[`${k}:is`] = v; return b; };
+    b.not = (k: string, op: string, v: unknown) => { match[`${k}:not:${op}`] = v; return b; };
     b.update = (payload: unknown) => { recorded.push({ table, op: "update", payload, match }); return b; };
     b.upsert = (payload: unknown) => { recorded.push({ table, op: "upsert", payload, match: { ...match } }); return Promise.resolve({ data: null, error: null }); };
     b.single = () => Promise.resolve({ data: table === "brew_batches" ? cfg.batch : null, error: null });

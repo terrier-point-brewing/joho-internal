@@ -16,17 +16,36 @@
 // post-planning batches excluded, and the yeast re-pitch exemption.
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { upsertCommitments, releaseCommitments, getShortfalls } from "./commitments";
+import { upsertCommitments, releaseCommitments, resyncRecipeCommitments, getShortfalls } from "./commitments";
 
 interface Recorded { table: string; op: string; payload: unknown }
 
 // ── upsertCommitments ────────────────────────────────────────────────────────
+// Two chains now run per call: the upsert of the recipe's lines, and a prune
+// that releases every unreleased commitment NOT in the recipe. The stub records
+// both, including the `.not("ingredient_id","in",…)` filter — that filter is the
+// whole fix, so an assertion that ignored it would pass on the buggy version.
 function upsertStub(ris: Array<{ ingredient_id: string; quantity_per_bbl: number }> | null) {
   const recorded: Recorded[] = [];
   const from = (table: string) => {
     const b: Record<string, unknown> = {};
+    let update: Record<string, unknown> | null = null;
+    let notFilter: string | null = null;
     b.select = () => b;
-    b.eq = () => Promise.resolve({ data: ris, error: null });
+    b.eq = () => (update ? b : Promise.resolve({ data: ris, error: null }));
+    b.is = () => b;
+    b.not = (col: string, op: string, val: string) => {
+      notFilter = `${col} ${op} ${val}`;
+      recorded.push({ table, op: "prune", payload: { released_at: update?.released_at, filter: notFilter } });
+      return Promise.resolve({ error: null });
+    };
+    b.update = (p: Record<string, unknown>) => {
+      update = p;
+      // releaseCommitments ends at .is(); prune continues to .not(). Record the
+      // bare release now and let .not() overwrite it with the pruning variant.
+      recorded.push({ table, op: "release", payload: p });
+      return b;
+    };
     b.upsert = (payload: unknown) => { recorded.push({ table, op: "upsert", payload }); return Promise.resolve({ error: null }); };
     return b;
   };
@@ -40,29 +59,86 @@ describe("upsertCommitments", () => {
       { ingredient_id: "malt", quantity_per_bbl: 10.5 },
     ]);
     await upsertCommitments(client, "batch1", "recipe1", 4);
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0].payload).toEqual([
-      { batch_id: "batch1", ingredient_id: "hops", committed_qty: 8 },
-      { batch_id: "batch1", ingredient_id: "malt", committed_qty: 42 },
+    const upserts = recorded.filter((r) => r.op === "upsert");
+    expect(upserts).toHaveLength(1);
+    // released_at: null is load-bearing — (batch_id, ingredient_id) is unique
+    // regardless of released_at, so an ingredient pruned by an earlier swap and
+    // since restored resolves to the released row and must be revived.
+    expect(upserts[0].payload).toEqual([
+      { batch_id: "batch1", ingredient_id: "hops", committed_qty: 8, released_at: null },
+      { batch_id: "batch1", ingredient_id: "malt", committed_qty: 42, released_at: null },
     ]);
   });
 
   it("produces zero committed_qty at zero volume", async () => {
     const { client, recorded } = upsertStub([{ ingredient_id: "hops", quantity_per_bbl: 2 }]);
     await upsertCommitments(client, "b", "r", 0);
-    expect((recorded[0].payload as Array<{ committed_qty: number }>)[0].committed_qty).toBe(0);
+    const upsert = recorded.find((r) => r.op === "upsert")!;
+    expect((upsert.payload as Array<{ committed_qty: number }>)[0].committed_qty).toBe(0);
   });
 
-  it("no-ops (no upsert) when the recipe has no ingredients", async () => {
+  // The B-056 regression: swapping a batch onto a new recipe must not leave the
+  // old recipe's ingredients committed. Everything outside the new line-up is
+  // released in the same pass as the upsert.
+  it("releases commitments for ingredients no longer in the recipe", async () => {
+    const { client, recorded } = upsertStub([
+      { ingredient_id: "pilsner-malt", quantity_per_bbl: 16.5 },
+      { ingredient_id: "hallertau", quantity_per_bbl: 0.178 },
+    ]);
+    await upsertCommitments(client, "b56", "pilsner", 40);
+    const prune = recorded.find((r) => r.op === "prune");
+    expect(prune).toBeDefined();
+    const { filter, released_at } = prune!.payload as { filter: string; released_at: string };
+    expect(filter).toBe("ingredient_id in (pilsner-malt,hallertau)");
+    expect(new Date(released_at).toString()).not.toBe("Invalid Date");
+  });
+
+  it("releases every commitment when the recipe has no ingredients", async () => {
     const { client, recorded } = upsertStub([]);
     await upsertCommitments(client, "b", "r", 5);
-    expect(recorded).toEqual([]);
+    expect(recorded.filter((r) => r.op === "upsert")).toEqual([]);
+    expect(recorded.some((r) => r.op === "release")).toBe(true);
   });
 
-  it("no-ops when recipe_ingredients returns null", async () => {
+  it("releases every commitment when recipe_ingredients returns null", async () => {
     const { client, recorded } = upsertStub(null);
     await upsertCommitments(client, "b", "r", 5);
-    expect(recorded).toEqual([]);
+    expect(recorded.filter((r) => r.op === "upsert")).toEqual([]);
+    expect(recorded.some((r) => r.op === "release")).toBe(true);
+  });
+});
+
+// ── resyncRecipeCommitments ──────────────────────────────────────────────────
+describe("resyncRecipeCommitments", () => {
+  it("re-commits every pre-brew batch at its own volume, and only those", async () => {
+    const ris = [{ ingredient_id: "malt", quantity_per_bbl: 10 }];
+    const batches = [
+      { id: "b1", volume_bbl: "40.00" },
+      { id: "b2", volume_bbl: "15.5" },
+      { id: "b3", volume_bbl: null },   // no volume — nothing to compute
+    ];
+    let statusFilter: string[] | null = null;
+    const upserts: unknown[] = [];
+    const from = (table: string) => {
+      const b: Record<string, unknown> = {};
+      b.select = () => b;
+      b.eq = () => (table === "recipe_ingredients" ? Promise.resolve({ data: ris, error: null }) : b);
+      b.in = (_col: string, vals: string[]) => { statusFilter = vals; return Promise.resolve({ data: batches, error: null }); };
+      b.is = () => b;
+      b.not = () => Promise.resolve({ error: null });
+      b.update = () => b;
+      b.upsert = (p: unknown) => { upserts.push(p); return Promise.resolve({ error: null }); };
+      return b;
+    };
+    await resyncRecipeCommitments({ from } as unknown as SupabaseClient, "pilsner");
+
+    // Post-planning batches already had stock physically deducted; re-committing
+    // them would double-charge, so the query must not reach past pre-brew.
+    expect(statusFilter).toEqual(["planning", "backlog"]);
+    expect(upserts).toEqual([
+      [{ batch_id: "b1", ingredient_id: "malt", committed_qty: 400, released_at: null }],
+      [{ batch_id: "b2", ingredient_id: "malt", committed_qty: 155, released_at: null }],
+    ]);
   });
 });
 
