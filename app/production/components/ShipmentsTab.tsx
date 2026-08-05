@@ -154,9 +154,14 @@ const STATUS_OPTIONS = [
 ];
 
 const SHIPMENT_CONTROLS: ControlsConfig<InvoiceGroup> = {
-  // A card matches when ANY of its product lines is that beer; the whole card
-  // then renders intact, consistent with how the categorical filters behave.
-  search: [{ param: "q_recipe", accessor: (g) => g.products.map((p) => p.beer_name) }],
+  // A card survives when ANY of its product lines is that beer, and then narrows
+  // to just those lines — a search for one recipe must not report the volume of
+  // whatever happened to ship alongside it.
+  search: [{
+    param: "q_recipe",
+    accessor: (g) => g.products.map((p) => p.beer_name),
+    narrow: (g, matches) => ({ ...g, products: g.products.filter((p) => matches(p.beer_name)) }),
+  }],
   filters: [
     { param: "channel", matches: (g, sel) => g.products.some((p) => sel.includes(p.channel)) },
     { param: "status", accessor: (g) => g.status },

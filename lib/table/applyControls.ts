@@ -40,11 +40,15 @@ export function applyControls<T>(
   for (const spec of config.search ?? []) {
     const q = (state.search[spec.param] ?? "").trim().toLowerCase();
     if (!q) continue;
+    const matches = (f: string | null | undefined) => (f ?? "").toString().toLowerCase().includes(q);
     out = out.filter((row) => {
       const raw = spec.accessor(row);
       const fields = Array.isArray(raw) ? raw : [raw];
-      return fields.some((f) => (f ?? "").toString().toLowerCase().includes(q));
+      return fields.some((f) => matches(f));
     });
+    // Container rows narrow to their matching sub-items, using the same
+    // `matches` the row was selected with (see SearchSpec.narrow).
+    if (spec.narrow) out = out.map((row) => spec.narrow!(row, matches));
   }
 
   for (const spec of config.filters ?? []) {

@@ -9,6 +9,14 @@ export interface SearchSpec<T> {
   /** URL param key, e.g. "q" or "q_recipe". */
   param: string;
   accessor: (row: T) => string | (string | null | undefined)[];
+  /** Optional second pass for rows that are containers of sub-items (an invoice
+   *  card of product lines, say). A surviving row is replaced by a copy holding
+   *  only the sub-items that matched, so the row can't report totals the search
+   *  didn't ask for. The engine hands in its own `matches`, which is the exact
+   *  comparison it used against `accessor` — narrowing and matching therefore
+   *  cannot drift apart, and a row that survived can never narrow to empty as
+   *  long as both read the same field. */
+  narrow?: (row: T, matches: (text: string | null | undefined) => boolean) => T;
 }
 
 /** One categorical filter dimension. Provide `matches` for group/predicate
