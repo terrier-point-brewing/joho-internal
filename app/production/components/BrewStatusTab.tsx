@@ -376,7 +376,7 @@ export default function BrewStatusTab() {
     <>
       {/* Deviation toast */}
       {deviationToast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-lg border border-accent-border/60 bg-accent-muted shadow-xl text-sm text-accent-soft max-w-sm">
+        <div className="fixed bottom-[calc(1.5rem+var(--mobile-nav-space))] right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-lg border border-accent-border/60 bg-accent-muted shadow-xl text-sm text-accent-soft max-w-sm">
           <span className="text-lg leading-none">📋</span>
           <div className="flex-1">
             <p className="font-semibold text-accent-soft">Schedule updated</p>

@@ -101,6 +101,21 @@
 
 :root {
   color-scheme: dark;
+
+  /* ── Mobile bottom-nav footprint ──────────────────────────────────────────
+     Below `md` the nav is fixed to the bottom of the viewport, so it covers
+     whatever sits under it. Anything the user must be able to reach — the
+     scrolling content pane in app/layout.tsx, floating toasts — reserves
+     --mobile-nav-space at the bottom. --mobile-nav-h is the bar itself (icon +
+     label + py-2); the safe-area inset is the home indicator below it, which
+     the bar pads itself with. One place to change if the bar's height moves. */
+  --mobile-nav-h: 3.25rem;
+  --mobile-nav-space: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 48rem) {
+  /* The desktop nav is a sidebar — nothing overlaps the content pane. */
+  :root { --mobile-nav-space: 0px; }
 }
 
 /* ── Category / data-hue badge tokens ───────────────────────────────────────
