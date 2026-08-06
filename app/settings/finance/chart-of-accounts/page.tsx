@@ -666,7 +666,11 @@ export default function ChartOfAccountsPage() {
                 className="btn-secondary">
                 {showAddForm ? "Cancel" : "Add Account"}
               </button>
-              <label className="btn-primary cursor-pointer">
+              {/* `relative` anchors the `sr-only` (absolutely positioned)
+                  input to this button — see FileUploader.tsx for why an
+                  unanchored one scrolls the whole app off-screen when the
+                  file dialog opens. */}
+              <label className="btn-primary cursor-pointer relative">
                 Upload CSV
                 <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleFile} />
               </label>

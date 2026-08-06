@@ -12,15 +12,20 @@
 
 /**
  * Rate lines that carry a purchases/receipts/tax triple on the worksheet.
+ * Line 7 (Mfg. Homes) is deliberately absent: it shares Line 6's 4.75% rate
+ * and is reported with it as a single combined "Modular & Mfg. Homes" line,
+ * so the worksheet keeps one field triple for the pair. Any `line7_*` keys on
+ * a historical worksheet are inert — they resolve to "manual" ownership and
+ * are excluded from the Line 13 sum.
  * Lives here (not calc.ts) so this stays a zero-server-import pure module —
  * both `calc.ts` and the pure `fieldOwnership.ts` (shared by the server
  * template and the client worksheet) derive from this single source instead
  * of duplicating the line numbers.
  */
-export const RATE_LINES = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+export const RATE_LINES = [4, 5, 6, 8, 9, 10, 11, 12] as const;
 
 /** The rate-line numbers, as the string keys used across worksheet fields. */
-export type RateLineKey = "4" | "5" | "6" | "7" | "8" | "9" | "10" | "11" | "12";
+export type RateLineKey = "4" | "5" | "6" | "8" | "9" | "10" | "11" | "12";
 
 /**
  * Represents a county's RESOLVED local/transit tax rates (read from the
