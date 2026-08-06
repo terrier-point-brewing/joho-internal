@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { NC_COUNTIES, RATE_LINES, countyRateLine, transitRateLine } from './rates';
 
 describe('NC DOR Rate Schedule (structural)', () => {
-  it('should export the rate lines 4-12', () => {
-    expect(RATE_LINES).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  it('should export the rate lines 4-12, less the merged line 7', () => {
+    // Line 7 (Mfg. Homes) is reported inside Line 6 as one combined
+    // "Modular & Mfg. Homes" line — it carries no field triple of its own.
+    expect(RATE_LINES).toEqual([4, 5, 6, 8, 9, 10, 11, 12]);
   });
 
   describe('NC_COUNTIES', () => {

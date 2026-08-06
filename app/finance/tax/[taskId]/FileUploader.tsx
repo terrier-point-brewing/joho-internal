@@ -99,7 +99,17 @@ export default function FileUploader({ taskId, readOnly = false }: { taskId: str
       {!readOnly && (
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex items-center gap-2 shrink-0">
-            <label className="btn-secondary cursor-pointer">
+            {/* `relative` is load-bearing, not cosmetic: `sr-only` makes the
+                input `position: absolute`, so without a positioned ancestor
+                its containing block is the initial one — the app shell pins
+                `<body>` to `h-screen overflow-hidden` and scrolls an inner
+                div, so the input lays out ~2000px down a viewport-height,
+                un-scrollable root. Focusing it (which the browser does when
+                the file dialog opens) then scrolls the ROOT to reach it,
+                pushing every pixel of the app off-screen with no way to
+                scroll back. Anchoring it to the label keeps the scroll inside
+                the real scroll container. */}
+            <label className="btn-secondary cursor-pointer relative">
               Choose File
               <input
                 ref={fileInputRef}

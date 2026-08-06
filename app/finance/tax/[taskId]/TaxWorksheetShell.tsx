@@ -15,7 +15,7 @@
  * fields render display-only. `CompletePanel` already handles its own
  * read-only rendering once the task is completed.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import FinanceNav from "../../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
@@ -44,6 +44,10 @@ function formatEntityAddress(entity: Record<string, string>): string {
 }
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+
+/** One `<dt>/<dd>` pair in the Filing Identity header. `value` is a node so a
+ * row can render its own control (see the bank numbers' Unmask). */
+type IdentityRow = { label: string; value: ReactNode };
 
 async function postJson<T>(url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -383,9 +387,13 @@ function IdentityHeader({
     : [];
 
   // Routing/account numbers are `sensitive` — this masked query never carries
-  // the real digits, only "present"/"absent" — so the header can only ever
-  // confirm one's on file, never show it. See Tax Profile's Unmask control
-  // for the real value.
+  // the real digits, only "present"/"absent" — so the header renders
+  // "On file" by default and fetches the real digits on demand from
+  // `/api/tax/bank-account/reveal` (admin-only, `taxPiiReveal`) via the
+  // Unmask control, mirroring Tax Profile's. A user without the capability
+  // just gets the API's error text; nothing is ever pre-loaded.
+  const bankNumbersOnFile =
+    bankAccount?.routing_number === "present" && bankAccount?.account_number === "present";
   const bankAccountRows = bankAccount
     ? [
         { label: "Name of Account", value: bankAccount.account_name || "—" },
@@ -393,17 +401,14 @@ function IdentityHeader({
         { label: "Account Holder", value: bankAccount.account_holder || "—" },
         {
           label: "Routing/Account Number",
-          value:
-            bankAccount.routing_number === "present" && bankAccount.account_number === "present"
-              ? "On file"
-              : "Not on file",
+          value: <BankNumbersCell onFile={bankNumbersOnFile} />,
         },
       ]
     : [];
 
   const schemaRows = schema.map((field) => ({ label: field.label, value: values?.[field.key] || "—" }));
 
-  const groups = [
+  const groups: { title: string; rows: IdentityRow[] }[] = [
     { title: "Registrations & Permits", rows: registrationRows },
     { title: "Business Identity", rows: businessIdentityRows },
     { title: "Representative", rows: representativeRows },
@@ -423,7 +428,12 @@ function IdentityHeader({
               {group.rows.map((row) => (
                 <div key={row.label} className="min-w-0">
                   <dt className="text-xs text-faint">{row.label}</dt>
-                  <dd className="text-body truncate">{row.value}</dd>
+                  {/* Plain text still truncates (long addresses); a row that
+                      renders its own control gets the full cell so its button
+                      and revealed value aren't clipped. */}
+                  <dd className={`text-body ${typeof row.value === "string" ? "truncate" : "min-w-0"}`}>
+                    {row.value}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -431,6 +441,62 @@ function IdentityHeader({
         ))}
       </div>
     </Card>
+  );
+}
+
+/**
+ * The Filing Identity header's routing/account-number cell.
+ *
+ * Defaults to the same "On file" / "Not on file" status the masked
+ * `GET /api/tax/bank-account` can prove, and never pre-loads the digits.
+ * "Unmask" fetches them once from `/api/tax/bank-account/reveal` (admin-only,
+ * `taxPiiReveal`) and toggles them in the clear; "Hide" only flips visibility,
+ * so re-showing costs no second request. A caller without the capability gets
+ * the API's own error text inline — this control never widens who may see the
+ * numbers, it just saves a trip to Tax Profile for whoever already may.
+ */
+function BankNumbersCell({ onFile }: { onFile: boolean }) {
+  const [revealed, setRevealed] = useState<{ routing_number?: string; account_number?: string } | null>(null);
+  const [visible, setVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleToggle() {
+    if (revealed) {
+      setVisible((v) => !v);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const values = await fetchJson<{ routing_number?: string; account_number?: string }>(
+        "/api/tax/bank-account/reveal",
+      );
+      setRevealed(values);
+      setVisible(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reveal the account numbers.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!onFile) return <span>Not on file</span>;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="truncate tabular-nums">
+          {visible && revealed
+            ? `${revealed.routing_number || "—"} / ${revealed.account_number || "—"}`
+            : "On file"}
+        </span>
+        <button type="button" className="btn-secondary btn-xxs shrink-0" onClick={handleToggle} disabled={loading}>
+          {loading ? "Loading…" : visible ? "Hide" : "Unmask"}
+        </button>
+      </div>
+      {error && <span className="text-xs text-danger">{error}</span>}
+    </div>
   );
 }
 

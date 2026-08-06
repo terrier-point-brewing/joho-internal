@@ -31,8 +31,7 @@ type Fields = Record<string, number | string | null>;
 const RATE_LINE_LABEL: Record<number, string> = {
   4: "Gen. State Rate 4.75%",
   5: "3% State Rate",
-  6: "Modular Homes",
-  7: "Mfg. Homes",
+  6: "Modular & Mfg. Homes",
   8: "2% Food Rate",
   9: "2% County Rate",
   10: "2.25% County Rate",
@@ -44,7 +43,6 @@ const RATE_LINE_RATE_DISPLAY: Record<number, string> = {
   4: "4.75%",
   5: "3%",
   6: "—",
-  7: "—",
   8: "2%",
   9: "2%",
   10: "2.25%",
