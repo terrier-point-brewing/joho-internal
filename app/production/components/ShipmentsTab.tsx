@@ -765,7 +765,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
 
       {/* Sticky action bar */}
       {selected && selected.ids.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 bg-surface border border-line-strong rounded-xl shadow-2xl text-sm">
+        <div className="fixed bottom-[calc(1.5rem+var(--mobile-nav-space))] left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 bg-surface border border-line-strong rounded-xl shadow-2xl text-sm">
           <span className="text-secondary">
             {selected.ids.size} line{selected.ids.size !== 1 ? "s" : ""} selected
             {selectedCustomerName && <> — <span className="text-strong">{selectedCustomerName}</span></>}

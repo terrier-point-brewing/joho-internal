@@ -335,7 +335,10 @@ export default function NavBar() {
       </div>
 
       {/* ── Mobile bottom nav ────────────────────────────────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-surface border-t border-line flex items-stretch">
+      {/* Height here is what --mobile-nav-space in globals.css reserves for;
+          keep the two in step. The safe-area padding lifts the tap targets off
+          the home indicator without changing what the content pane reserves. */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-surface border-t border-line flex items-stretch pb-[env(safe-area-inset-bottom,0px)]">
         <MobileNavItem href="/taproom/performance" active={isTaproom} label="Taproom">
           <TaproomIcon />
         </MobileNavItem>

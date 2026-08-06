@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import {
   Geist,
   Geist_Mono,
@@ -69,6 +69,15 @@ export const metadata: Metadata = {
   description: "Square sales reports for Terrier Point Brewing",
 };
 
+// viewport-fit=cover is what makes env(safe-area-inset-bottom) report a real
+// number on notched phones, which the mobile bottom nav (and the space the
+// content pane reserves for it) both add on top of the bar's own height.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 // Resolving the session here is what lets NavBar render the same nav on the
 // server as on the client's first render. It costs no extra round trip — every
 // section layout below already calls getSessionUser, and that is memoized per
@@ -92,11 +101,15 @@ export default async function RootLayout({
       // expect — it only suppresses <html>'s own attributes, not the tree below.
       suppressHydrationWarning
     >
-      {/* h-screen + overflow-hidden caps body to the viewport so the content
+      {/* h-dvh + overflow-hidden caps body to the viewport so the content
           pane below is the one true scroll container (its own overflow-y-auto
           then actually engages) instead of the whole document scrolling —
-          which is what let position:sticky headers silently no-op before. */}
-      <body className="h-screen overflow-hidden flex flex-row bg-canvas">
+          which is what let position:sticky headers silently no-op before.
+          dvh, not vh: on mobile Safari 100vh is the *large* viewport, so with
+          the URL bar showing the pane's last stretch — including the space it
+          reserves for the bottom nav — fell below the screen with no way to
+          scroll to it. */}
+      <body className="h-dvh overflow-hidden flex flex-row bg-canvas">
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <BrandStyle />
         <BrandFontFace />
@@ -107,7 +120,10 @@ export default async function RootLayout({
           <Suspense>
             <NavBar />
           </Suspense>
-          <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden pt-11 md:pt-0 pb-16 md:pb-0">
+          {/* The bottom padding is the mobile nav's own footprint — bar height
+              plus whatever the home indicator takes — so the last row of any
+              page can still be scrolled clear of it. */}
+          <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden pt-11 md:pt-0 pb-[var(--mobile-nav-space)] md:pb-0">
             {children}
           </div>
         </Providers>
