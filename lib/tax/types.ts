@@ -24,6 +24,21 @@ export interface FieldSpec {
   source?: "square_tax";
   required?: boolean;
   help?: string;
+  /**
+   * Places this field in a named group of the worksheet's Filing Identity
+   * header instead of the catch-all "Filing Settings" group. Only
+   * `"registrations"` exists today: a field that is really a filing
+   * credential (e.g. Wake County's PIN) belongs beside the account/permit
+   * numbers it is used with, not in a settings bucket. A `sensitive` field
+   * placed here renders masked with the same on-demand Unmask control the
+   * bank numbers use — never the stored value inline.
+   */
+  identityGroup?: "registrations";
+  /**
+   * Sort position within `identityGroup` (see `RequiredRegistration.identityOrder`).
+   * Unset sorts after everything that sets it, in declaration order.
+   */
+  identityOrder?: number;
 }
 export interface ReferenceTable { title: string; columns: string[]; rows: (string | number)[][] }
 export interface ReferenceSpec { tables: ReferenceTable[]; notes?: string[] }

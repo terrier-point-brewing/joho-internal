@@ -32,8 +32,12 @@ export async function GET() {
       supportedFrequencies: party.supportedFrequencies,
       settingsSchema: party.settingsSchema,
       scheduleConfigSchema: party.scheduleConfigSchema,
+      // Party-specific registrations first, the universal FEIN last — the
+      // worksheet header renders this order, and the party's own account and
+      // permit numbers are what a filer looks for first. Any entry declaring
+      // `identityOrder` is sorted ahead of the rest client-side.
       requiredRegistrations: resolveRequiredRegistrations(
-        [...BASE_REQUIRED_REGISTRATIONS, ...party.requiredRegistrations],
+        [...party.requiredRegistrations, ...BASE_REQUIRED_REGISTRATIONS],
         registrations,
       ),
       referenceView: party.buildReferenceView(rateMap),

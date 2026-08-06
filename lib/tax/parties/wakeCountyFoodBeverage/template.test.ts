@@ -20,6 +20,7 @@ describe("wakeCountyFoodBeverageTemplate", () => {
       authorityKey: "wake_county",
       registrationKey: "wake_county_account_id",
       label: "Wake County Gross Receipts Account Number",
+      identityOrder: 1,
     });
   });
 
@@ -28,7 +29,18 @@ describe("wakeCountyFoodBeverageTemplate", () => {
       authorityKey: "nc_abc",
       registrationKey: "abc_permit_number_onpremise",
       label: "NC ABC On-Premise Permit Number",
+      identityOrder: 3,
     });
+  });
+
+  it("places the filing PIN in the registrations group, between the account number and the permit", () => {
+    const pin = t.settingsSchema.find((f) => f.key === "filing_pin");
+    expect(pin?.identityGroup).toBe("registrations");
+    expect(pin?.identityOrder).toBe(2);
+    const account = t.requiredRegistrations.find((r) => r.registrationKey === "wake_county_account_id");
+    const permit = t.requiredRegistrations.find((r) => r.registrationKey === "abc_permit_number_onpremise");
+    expect(account!.identityOrder!).toBeLessThan(pin!.identityOrder!);
+    expect(pin!.identityOrder!).toBeLessThan(permit!.identityOrder!);
   });
 
   it("exposes the two Square-tax selects and the sensitive PIN in settingsSchema", () => {

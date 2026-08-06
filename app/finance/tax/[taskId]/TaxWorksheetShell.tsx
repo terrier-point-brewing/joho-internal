@@ -216,7 +216,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
       <main className="px-4 sm:px-6">
         <StickyHeader divider>
           <FinanceNav mobile />
-          <BackLink href="/finance/tax" label="Tax" />
+          <BackLink href="/finance/tax?tab=open" label="Tax" />
         </StickyHeader>
         <p className="text-sm text-faint mt-4 pb-4 sm:pb-8">Loading…</p>
       </main>
@@ -228,7 +228,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
       <main className="px-4 sm:px-6">
         <StickyHeader divider>
           <FinanceNav mobile />
-          <BackLink href="/finance/tax" label="Tax" />
+          <BackLink href="/finance/tax?tab=open" label="Tax" />
         </StickyHeader>
         <Banner tone="danger" className="mt-4 pb-4 sm:pb-8">
           {taskQuery.error instanceof Error ? taskQuery.error.message : "Task not found."}
@@ -245,7 +245,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
     <main className="px-4 sm:px-6">
       <StickyHeader divider>
         <FinanceNav mobile />
-        <BackLink href="/finance/tax" label="Tax" />
+        <BackLink href="/finance/tax?tab=open" label="Tax" />
         <PageHeader
           title={party?.label ?? task.party_key}
           description={`Period ${fmtDateLong(task.period_start)} – ${fmtDateLong(task.period_end)} · Due ${fmtDateLong(task.due_date)}`}
@@ -254,6 +254,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
 
       <div className="pb-4 sm:pb-8">
         <IdentityHeader
+          partyKey={task.party_key}
           schema={party?.settingsSchema ?? []}
           values={profileQuery.data}
           entity={entityProfileQuery.data}
@@ -323,7 +324,11 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
  * Party-agnostic "who is filing" header shown above every party's
  * worksheet, grouped by what the metadata actually describes rather than as
  * one flat list — each group renders only if it has rows, in this order:
- *  1. Registrations & Permits — `requiredRegistrations`, already fully
+ *  1. Registrations & Permits — `requiredRegistrations` plus any
+ *     `settingsSchema` field declaring `identityGroup: "registrations"`
+ *     (a filing credential like Wake County's PIN, masked with its own
+ *     Unmask control), ordered by `identityOrder`. Registrations are already
+ *     fully
  *     resolved server-side by `GET /api/tax/parties` (base + this party's
  *     own requirements, matched by (authority_key, key) — never "first row
  *     for this authority"; e.g. the brewery's ABC wholesaler permit vs. the
@@ -346,6 +351,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
  * only shows what the paper form actually asks for.
  */
 function IdentityHeader({
+  partyKey,
   schema,
   values,
   entity,
@@ -354,6 +360,7 @@ function IdentityHeader({
   requiredRegistrations,
   isLoading,
 }: {
+  partyKey: string;
   schema: FieldSpec[];
   values?: Record<string, string>;
   entity?: Record<string, string>;
@@ -364,10 +371,34 @@ function IdentityHeader({
 }) {
   if (isLoading) return <p className="text-xs text-faint mt-2">Loading filing identity…</p>;
 
-  const registrationRows = requiredRegistrations.map((req) => ({
-    label: req.label,
-    value: req.number || "—",
-  }));
+  // "Registrations & Permits" is one order space shared by the resolved
+  // registrations and any settings field that declares
+  // `identityGroup: "registrations"` (e.g. Wake County's filing PIN, which
+  // sits between the county account number and the ABC permit). Entries
+  // without an `identityOrder` keep their declaration order at the end —
+  // that's how the universal FEIN row stays last.
+  const registrationGroupRows: (IdentityRow & { order: number })[] = [
+    ...requiredRegistrations.map((req) => ({
+      label: req.label,
+      value: req.number || "—",
+      order: req.identityOrder ?? Number.POSITIVE_INFINITY,
+    })),
+    ...schema
+      .filter((field) => field.identityGroup === "registrations")
+      .map((field) => ({
+        label: field.label,
+        value: field.sensitive ? (
+          <SensitiveProfileCell partyKey={partyKey} fieldKey={field.key} onFile={values?.[field.key] === "present"} />
+        ) : (
+          values?.[field.key] || "—"
+        ),
+        order: field.identityOrder ?? Number.POSITIVE_INFINITY,
+      })),
+  ];
+  const registrationRows: IdentityRow[] = registrationGroupRows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => a.row.order - b.row.order || a.index - b.index)
+    .map(({ row }) => row);
 
   const businessIdentityRows = entity
     ? [
@@ -406,7 +437,9 @@ function IdentityHeader({
       ]
     : [];
 
-  const schemaRows = schema.map((field) => ({ label: field.label, value: values?.[field.key] || "—" }));
+  const schemaRows = schema
+    .filter((field) => field.identityGroup !== "registrations")
+    .map((field) => ({ label: field.label, value: values?.[field.key] || "—" }));
 
   const groups: { title: string; rows: IdentityRow[] }[] = [
     { title: "Registrations & Permits", rows: registrationRows },
@@ -491,6 +524,61 @@ function BankNumbersCell({ onFile }: { onFile: boolean }) {
             ? `${revealed.routing_number || "—"} / ${revealed.account_number || "—"}`
             : "On file"}
         </span>
+        <button type="button" className="btn-secondary btn-xxs shrink-0" onClick={handleToggle} disabled={loading}>
+          {loading ? "Loading…" : visible ? "Hide" : "Unmask"}
+        </button>
+      </div>
+      {error && <span className="text-xs text-danger">{error}</span>}
+    </div>
+  );
+}
+
+/**
+ * A `sensitive` settings field rendered in the Filing Identity header (e.g.
+ * Wake County's filing PIN). Same contract as `BankNumbersCell`: the masked
+ * `GET /api/tax/profiles/[party]` only proves "present"/"absent", so the cell
+ * shows "On file" until the user asks, then fetches the real value once from
+ * the admin-only (`taxPiiReveal`) reveal route and toggles visibility locally.
+ * A caller without the capability just gets the API's error text inline.
+ */
+function SensitiveProfileCell({
+  partyKey,
+  fieldKey,
+  onFile,
+}: {
+  partyKey: string;
+  fieldKey: string;
+  onFile: boolean;
+}) {
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleToggle() {
+    if (revealed != null) {
+      setVisible((v) => !v);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const values = await fetchJson<Record<string, string>>(`/api/tax/profiles/${partyKey}/reveal`);
+      setRevealed(values[fieldKey] ?? "");
+      setVisible(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reveal the value.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!onFile) return <span>Not on file</span>;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="truncate tabular-nums">{visible && revealed != null ? revealed || "—" : "On file"}</span>
         <button type="button" className="btn-secondary btn-xxs shrink-0" onClick={handleToggle} disabled={loading}>
           {loading ? "Loading…" : visible ? "Hide" : "Unmask"}
         </button>

@@ -78,7 +78,11 @@ const settingsSchema: FieldSpec[] = [
     label: "Wake County Filing PIN",
     type: "text",
     sensitive: true,
-    help: "The 4-digit PIN required to submit the Wake County return. Stored securely and never displayed after saving.",
+    // A filing credential, not a setting: it belongs beside the account and
+    // permit numbers it is submitted with, between the two (identityOrder 2).
+    identityGroup: "registrations",
+    identityOrder: 2,
+    help: "The 4-digit PIN required to submit the Wake County return. Stored securely; the worksheet shows it only on demand via Unmask (admin-only).",
   },
 ];
 
@@ -103,6 +107,7 @@ const requiredRegistrations: RequiredRegistration[] = [
     authorityKey: "wake_county",
     registrationKey: "wake_county_account_id",
     label: "Wake County Gross Receipts Account Number",
+    identityOrder: 1,
   },
   // Taproom's on-premise alcohol sales permit — distinct from the brewery's
   // wholesaler permit (see ncDorBeerExcise/template.ts), same `nc_abc`
@@ -111,6 +116,7 @@ const requiredRegistrations: RequiredRegistration[] = [
     authorityKey: "nc_abc",
     registrationKey: "abc_permit_number_onpremise",
     label: "NC ABC On-Premise Permit Number",
+    identityOrder: 3,
   },
 ];
 
