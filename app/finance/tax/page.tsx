@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import FinanceNav from "../FinanceNav";
 import PageHeader from "@/app/components/PageHeader";
 import StickyHeader from "@/app/components/StickyHeader";
@@ -18,9 +19,29 @@ const TABS: TabDef<TaxSubtab>[] = [
   { key: "closed", label: "Closed Tasks" },
 ];
 
+function isTaxSubtab(value: string | null): value is TaxSubtab {
+  return TABS.some((t) => t.key === value);
+}
+
+/**
+ * `?tab=` picks the landing subtab. A worksheet's Back link uses it to return
+ * to Open Tasks — where the filer came from — rather than dropping them on
+ * Schedules. It's only the initial value: clicking a tab afterwards is local
+ * state and doesn't rewrite the URL.
+ */
 export default function FinanceTaxPage() {
+  return (
+    <Suspense fallback={null}>
+      <FinanceTaxPageInner />
+    </Suspense>
+  );
+}
+
+function FinanceTaxPageInner() {
   const { tasks, schedules, parties, isLoading, isError, error } = useTaxData();
-  const [tab, setTab] = useState<TaxSubtab>("schedules");
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const [tab, setTab] = useState<TaxSubtab>(isTaxSubtab(requestedTab) ? requestedTab : "schedules");
 
   return (
     <main className="px-4 sm:px-6">

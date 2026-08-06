@@ -89,6 +89,14 @@ export interface RequiredRegistration {
   authorityKey: string;
   registrationKey: string;
   label: string;
+  /**
+   * Sort position in the worksheet's "Registrations & Permits" group, shared
+   * with any `settingsSchema` field that declares `identityGroup:
+   * "registrations"` — one order space, so a party can interleave a filing
+   * credential between two of its registrations. Unset sorts last (in
+   * declaration order), which is how the universal FEIN row lands at the end.
+   */
+  identityOrder?: number;
 }
 
 /** A `RequiredRegistration` resolved against the live `tax_registrations` rows. */
