@@ -25,8 +25,20 @@ const GRANTS_MIGRATION = "20260820_user_permission_grants.sql";
 // 20260826 REDEFINES effective_grant_level to span role bundles too, so it —
 // not 20260822 — is the current definition and the one to assert against.
 const ROLE_MIGRATION = "20260826_role_permission_grants.sql";
+// 20260826's function half never took effect in prod (its table half did), so
+// this file re-applies the SAME body under a fresh version. See its header.
+const REPAIR_MIGRATION = "20261002090000_repair_effective_grant_level_role_bundles.sql";
 
 const read = (file: string) => readFileSync(join(MIGRATIONS, file), "utf8");
+
+/** The `create or replace function public.effective_grant_level ... $fn$;` block. */
+function resolverBody(sql: string): string {
+  const match = sql.match(
+    /create or replace function public\.effective_grant_level[\s\S]*?\$fn\$([\s\S]*?)\$fn\$;/,
+  );
+  if (!match) throw new Error("effective_grant_level definition not found");
+  return match[1].trim();
+}
 
 /** Pulls the string literals out of a `array['a','b',...]` SQL literal. */
 function sqlArrayLiteral(block: string): string[] {
@@ -363,5 +375,46 @@ describe("role bundle resolution", () => {
   it("keeps ignoring per-user rows for non-custom roles", () => {
     const userRows: GrantRow[] = [{ scope: "payroll", level: "admin" }];
     expect(sqlEffectiveGrantLevel("brewer", userRows, "payroll", [])).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. The prod repair (20261002) re-applies 20260826's body, not a variant
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("effective_grant_level repair migration", () => {
+  it("carries a body identical to 20260826's, so the two cannot drift", () => {
+    // Everything in section 3 asserts against ROLE_MIGRATION. If the repair
+    // that actually reaches prod said something different, those assertions
+    // would be checking a file no database runs.
+    expect(resolverBody(read(REPAIR_MIGRATION))).toBe(resolverBody(read(ROLE_MIGRATION)));
+  });
+
+  it("takes a version no other migration uses", () => {
+    // Sharing a version is exactly how 20260826's function half got skipped.
+    const version = REPAIR_MIGRATION.split("_")[0];
+    const sharing = readdirSync(MIGRATIONS).filter(
+      (f) => f.endsWith(".sql") && f.split("_")[0] === version,
+    );
+    expect(sharing).toEqual([REPAIR_MIGRATION]);
+  });
+
+  it("re-asserts EXECUTE for authenticated and withholds it from anon", () => {
+    const sql = read(REPAIR_MIGRATION);
+    expect(sql).toMatch(/grant execute on function public\.effective_grant_level\(text\) to authenticated/);
+    expect(sql).toMatch(/revoke execute on function public\.effective_grant_level\(text\) from anon, public/);
+  });
+
+  it("does not reopen the finance group that finance_reader_roles() keeps shut", () => {
+    // Widening those 14 tax/finance tables is a separate decision; this file
+    // must stay a pure repair of the resolver. Comments are stripped first —
+    // the header discusses both names at length, and prose is not an effect.
+    const statements = read(REPAIR_MIGRATION)
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n");
+    expect(statements).not.toMatch(/finance_reader_roles/);
+    expect(statements).not.toMatch(/apply_grant_policies/);
+    expect(statements).not.toMatch(/create policy|drop policy/i);
   });
 });
