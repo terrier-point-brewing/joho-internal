@@ -21,7 +21,10 @@ export const dynamic = "force-dynamic";
 interface TapAssignmentSnapshot {
   recipe_id: string | null;
   swap_variation_id: string | null;
-  swap_volume_fl_oz: number | null;
+  // Joined from the outgoing keg's variation. The transition row below then
+  // snapshots it as `from_volume_fl_oz` — a journal keeps its own copy on
+  // purpose; the tap config it came from does not.
+  packaging_variations: { total_volume_fl_oz: number | null } | null;
 }
 
 /** The recipe's Square draft base variation, or null when it has no draft link. */
@@ -105,11 +108,11 @@ export async function POST(req: NextRequest) {
 
     const { data: tapRow, error: tapErr } = await supabase
       .from("tap_assignments")
-      .select("recipe_id, swap_variation_id, swap_volume_fl_oz")
+      .select("recipe_id, swap_variation_id, packaging_variations(total_volume_fl_oz)")
       .eq("tap_number", tap_number)
       .maybeSingle();
     if (tapErr) return apiError(tapErr);
-    const outgoing = (tapRow ?? { recipe_id: null, swap_variation_id: null, swap_volume_fl_oz: null }) as TapAssignmentSnapshot;
+    const outgoing = (tapRow ?? { recipe_id: null, swap_variation_id: null, packaging_variations: null }) as unknown as TapAssignmentSnapshot;
 
     const [fromDraftSku, toDraftSku] = await Promise.all([
       draftSquareVariationId(supabase, outgoing.recipe_id),
@@ -135,7 +138,7 @@ export async function POST(req: NextRequest) {
         tap_number,
         from_recipe_id:                 outgoing.recipe_id,
         from_variation_id:              outgoing.swap_variation_id,
-        from_volume_fl_oz:              outgoing.swap_volume_fl_oz,
+        from_volume_fl_oz:              outgoing.packaging_variations?.total_volume_fl_oz ?? null,
         from_draft_square_variation_id: fromDraftSku,
         to_recipe_id:                   to_recipe_id,
         to_variation_id:                to_variation_id,

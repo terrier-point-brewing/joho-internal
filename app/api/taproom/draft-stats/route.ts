@@ -27,7 +27,10 @@ export async function GET(req: NextRequest) {
     const [tapCfgRes, tapCountRes, draftSellThrough, coldStorageRes, settingsRes, queuedSwapRes] = await Promise.all([
       supabase
         .from("tap_assignments")
-        .select("tap_number, recipe_id, label, swap_variation_id, swap_volume_fl_oz, recipes(beer_name)")
+        // Full-keg volume is DERIVED from the swap keg's own variation, never
+        // stored on the tap. Plain embed — tap_assignments has a single FK into
+        // packaging_variations, so there is no constraint name to get wrong.
+        .select("tap_number, recipe_id, label, swap_variation_id, recipes(beer_name), packaging_variations(total_volume_fl_oz)")
         .order("tap_number"),
       supabase.from("system_settings").select("value").eq("key", "tap_count").maybeSingle(),
       fetchSellThrough(supabase, { packaging: "draft" }),
@@ -153,8 +156,9 @@ export async function GET(req: NextRequest) {
     const enrichedTaps = Array.from({ length: tapCount }, (_, i) => {
       const tap      = taps.find((t) => t.tap_number === i + 1) as
         | { tap_number: number; recipe_id: string | null; label: string | null;
-            swap_variation_id: string | null; swap_volume_fl_oz: number | null;
-            recipes: { beer_name: string } | null }
+            swap_variation_id: string | null;
+            recipes: { beer_name: string } | null;
+            packaging_variations: { total_volume_fl_oz: number | null } | null }
         | undefined;
       const recipeId = tap?.recipe_id ?? undefined;
       const metrics  = recipeId ? (byRecipe.get(recipeId) ?? null) : null;
@@ -163,7 +167,10 @@ export async function GET(req: NextRequest) {
       const swapKegsOnHand = recipeId && tap?.swap_variation_id
         ? onHandByRecipeVar.get(`${recipeId}|${tap.swap_variation_id}`) ?? 0
         : 0;
-      const reserveFlOz = swapReserveFlOz(swapKegsOnHand, tap?.swap_volume_fl_oz ?? null);
+      const reserveFlOz = swapReserveFlOz(
+        swapKegsOnHand,
+        tap?.packaging_variations?.total_volume_fl_oz ?? null,
+      );
 
       return {
         tap_number: i + 1,
