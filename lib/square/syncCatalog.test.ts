@@ -14,13 +14,25 @@ import { syncSquareCatalog, markMissingAsDeleted } from "./syncCatalog";
 
 interface UpdateCall { table: string; patch: Record<string, unknown>; lt?: [string, unknown]; eq?: [string, unknown] }
 
-function fakeDb(opts: { rows?: Record<string, { id: string }[]> } = {}) {
+/** Variations the mirror already holds, keyed by square_variation_id. */
+type ExistingDerived = Record<string, { volume_fl_oz_per_unit: number | null; inventory_unit: string | null }>;
+
+function fakeDb(opts: { rows?: Record<string, { id: string }[]>; existing?: ExistingDerived } = {}) {
   const upserts: { table: string; rows: Record<string, unknown>[] }[] = [];
   const updates: UpdateCall[] = [];
   const rpcs: string[] = [];
 
   const db = {
     from: (table: string) => ({
+      // Reads the already-stored derived columns (fetchExistingDerived).
+      select: () => ({
+        in: (_col: string, ids: string[]) => ({
+          data: ids
+            .filter((id) => opts.existing?.[id])
+            .map((id) => ({ square_variation_id: id, ...opts.existing![id] })),
+          error: null,
+        }),
+      }),
       upsert: (rows: Record<string, unknown>[]) => {
         upserts.push({ table, rows });
         return {
@@ -118,6 +130,97 @@ describe("syncSquareCatalog", () => {
     await syncSquareCatalog(db);
 
     expect(rpcs).toContain("backfill_recipe_link_variation_ids");
+  });
+});
+
+describe("derived volumes are forward-only", () => {
+  // volume_fl_oz_per_unit is parsed from the variation NAME, and sell-through
+  // reads it against HISTORICAL sales. Overwriting it on a rename silently
+  // restates every pour ever recorded against that SKU — rename
+  // "Draft - 16oz" to "Draft - 12oz" and yesterday's pours shrink by a quarter.
+  const POUR_ITEM = {
+    id: "ITEM-P",
+    item_data: {
+      name: "Epic Hazy IPA",
+      variations: [{ id: "VAR-P", item_variation_data: { name: "Draft - 12oz", track_inventory: true } }],
+    },
+  };
+
+  beforeEach(() => {
+    fetchItems.mockResolvedValue([POUR_ITEM]);
+    fetchCategories.mockResolvedValue([]);
+    fetchTaxes.mockResolvedValue([]);
+  });
+
+  it("never rewrites the stored volume of a variation it has seen before", async () => {
+    const { db, upserts } = fakeDb({
+      existing: { "VAR-P": { volume_fl_oz_per_unit: 16, inventory_unit: "each" } },
+    });
+
+    const result = await syncSquareCatalog(db);
+
+    const varRows = upserts.filter((u) => u.table === "square_catalog_variations").flatMap((u) => u.rows);
+    expect(varRows).toHaveLength(1);
+    // Name refreshed from Square, volume left exactly as stored.
+    expect(varRows[0]).toMatchObject({ variation_name: "Draft - 12oz", volume_fl_oz_per_unit: 16 });
+    expect(result.variationsInserted).toBe(0);
+    expect(result.variationsUpdated).toBe(1);
+  });
+
+  it("reports the rename instead of applying it", async () => {
+    const { db } = fakeDb({
+      existing: { "VAR-P": { volume_fl_oz_per_unit: 16, inventory_unit: "each" } },
+    });
+
+    const result = await syncSquareCatalog(db);
+
+    expect(result.volumeMismatches).toEqual([
+      { squareVariationId: "VAR-P", variationName: "Draft - 12oz", stored: 16, impliedByName: 12 },
+    ]);
+  });
+
+  it("does derive the volume for a variation it has never seen", async () => {
+    const { db, upserts } = fakeDb({ existing: {} });
+
+    const result = await syncSquareCatalog(db);
+
+    const varRows = upserts.filter((u) => u.table === "square_catalog_variations").flatMap((u) => u.rows);
+    expect(varRows[0]).toMatchObject({ volume_fl_oz_per_unit: 12 });
+    expect(result.variationsInserted).toBe(1);
+    expect(result.volumeMismatches).toEqual([]);
+  });
+});
+
+describe("scoped sync", () => {
+  // Pulling one item into the mirror at link time must never run the deletion
+  // pass: it flags every row the run did not touch, which for a one-item run is
+  // the whole catalog.
+  it("skips the deletion pass when scoped to specific items", async () => {
+    fetchItems.mockResolvedValue([ITEM]);
+    fetchCategories.mockResolvedValue([]);
+    fetchTaxes.mockResolvedValue([]);
+    const { db, updates } = fakeDb({ existing: {} });
+
+    const result = await syncSquareCatalog(db, { onlyItemIds: ["ITEM-1"] });
+
+    expect(result.deletionPassSkipped).toMatch(/scoped/i);
+    expect(result.itemsMarkedDeleted).toBe(0);
+    expect(updates.some((u) => u.patch.is_deleted === true)).toBe(false);
+  });
+
+  it("mirrors only the named item", async () => {
+    const OTHER = { id: "ITEM-2", item_data: { name: "Other", variations: [
+      { id: "VAR-2", item_variation_data: { name: "Regular" } },
+    ] } };
+    fetchItems.mockResolvedValue([ITEM, OTHER]);
+    fetchCategories.mockResolvedValue([]);
+    fetchTaxes.mockResolvedValue([]);
+    const { db, upserts } = fakeDb({ existing: {} });
+
+    await syncSquareCatalog(db, { onlyItemIds: ["ITEM-2"] });
+
+    const itemRows = upserts.filter((u) => u.table === "square_catalog_items").flatMap((u) => u.rows);
+    expect(itemRows.map((r) => r.square_item_id)).toEqual(["ITEM-2"]);
   });
 });
 

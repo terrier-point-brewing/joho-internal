@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
+// The POST busts the live-catalog cache before mirroring the linked item.
+vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
+
+// Mirroring the linked item is a side effect of linking, not the subject of
+// these tests; the behaviour has its own coverage in lib/square.
+vi.mock("@/lib/square/ensureCatalogItem", () => ({
+  ensureCatalogItemMirrored: vi.fn().mockResolvedValue({ alreadyMirrored: true, synced: false }),
+}));
+vi.mock("@/lib/supabase/admin", () => ({ createSupabaseAdminClient: vi.fn(() => ({})) }));
+
 vi.mock("@/lib/auth", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/auth")>();
   return { ...actual, requirePermission: vi.fn().mockResolvedValue(undefined) };

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { ensureCatalogItemMirrored } from "@/lib/square/ensureCatalogItem";
 import { fetchMappingGrid } from "@/lib/production/mappingGridData";
 
 export const dynamic = "force-dynamic";
@@ -112,6 +115,24 @@ export async function POST(req: NextRequest) {
     packaging_item_id = pv.container_id;
   }
 
+  // The picker above reads Square live; everything downstream reads the mirror.
+  // Pull the linked item into the mirror now, or the two resolutions below come
+  // back null and the link is invisible to every backend consumer until someone
+  // clicks "Refresh from Square". Best effort — a link is still correct even if
+  // Square is unreachable. See lib/square/ensureCatalogItem.ts.
+  let mirrorWarning: string | undefined;
+  if (square_item_id && square_variation_id) {
+    // Bust the 5-minute live-catalog cache first: an item created within that
+    // window would otherwise be absent from the very fetch meant to mirror it.
+    revalidateTag("square-catalog", "max");
+    const ensured = await ensureCatalogItemMirrored(createSupabaseAdminClient(), {
+      squareItemId: square_item_id,
+      squareVariationId: square_variation_id,
+    });
+    mirrorWarning = ensured.warning;
+    if (mirrorWarning) console.error("[recipe-square-links] catalog mirror not updated", mirrorWarning);
+  }
+
   // Resolve catalog FKs from the master tables
   let catalog_item_id: string | null = null;
   let catalog_variation_id: string | null = null;
@@ -152,7 +173,9 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data, { status: 201 });
+  // The link saved either way; `mirror_warning` says the backend cannot resolve
+  // it yet, which is otherwise completely invisible from the grid.
+  return NextResponse.json(mirrorWarning ? { ...data, mirror_warning: mirrorWarning } : data, { status: 201 });
 }
 
 export async function DELETE(req: NextRequest) {
