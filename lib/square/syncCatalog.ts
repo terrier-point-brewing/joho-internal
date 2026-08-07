@@ -11,13 +11,45 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchCatalogItems, fetchCatalogCategories, fetchCatalogTaxes } from "./catalog";
 import { volumeFlOzPerUnit, inferInventoryUnit } from "./catalogUnits";
 
+/**
+ * An existing variation whose CURRENT Square name implies a different fl oz than
+ * the mirror stores. Reported, never applied — see `syncSquareCatalog`.
+ */
+export interface VolumeMismatch {
+  squareVariationId: string;
+  variationName: string;
+  stored: number | null;
+  impliedByName: number | null;
+}
+
 export interface CatalogSyncResult {
   items: number;
   variations: number;
+  /** Variations the mirror had never seen. These get their derived volume. */
+  variationsInserted: number;
+  /** Variations already mirrored. Their derived volume is left alone. */
+  variationsUpdated: number;
   itemsMarkedDeleted: number;
   variationsMarkedDeleted: number;
   /** Set when the deletion pass was deliberately skipped; see `markDeleted`. */
   deletionPassSkipped?: string;
+  /** Renames that would have moved a stored volume. Reported for a human. */
+  volumeMismatches: VolumeMismatch[];
+  /** Set when the link FK backfill failed. Non-fatal, but never silent. */
+  linkBackfillError?: string;
+}
+
+export interface CatalogSyncOptions {
+  /**
+   * Restrict the sync to these Square item ids. Used when a link is created
+   * against an item the mirror has never seen, so the backend can resolve it
+   * immediately instead of waiting for a full sync.
+   *
+   * The deletion pass is SKIPPED whenever this is set: it flags every mirror row
+   * a run did not touch, and a run that deliberately touched one item would
+   * otherwise bury the entire catalog.
+   */
+  onlyItemIds?: string[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,6 +69,37 @@ type Db = SupabaseClient | { from: (t: string) => any; rpc: (fn: string) => any 
  * that every product was deleted. Flagging on that would take out every mapping
  * at once.
  */
+interface StoredDerived {
+  volume_fl_oz_per_unit: number | null;
+  inventory_unit: string | null;
+}
+
+/**
+ * Read the derived columns already stored for these variations, so a sync can
+ * tell a first sighting from a refresh and carry the stored values through
+ * untouched. Chunked to stay well under PostgREST's URL length limit.
+ */
+async function fetchExistingDerived(db: Db, squareVariationIds: string[]): Promise<Map<string, StoredDerived>> {
+  const byId = new Map<string, StoredDerived>();
+  for (let i = 0; i < squareVariationIds.length; i += 200) {
+    const chunk = squareVariationIds.slice(i, i + 200);
+    if (chunk.length === 0) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (db as any)
+      .from("square_catalog_variations")
+      .select("square_variation_id, volume_fl_oz_per_unit, inventory_unit")
+      .in("square_variation_id", chunk);
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as ({ square_variation_id: string } & StoredDerived)[]) {
+      byId.set(r.square_variation_id, {
+        volume_fl_oz_per_unit: r.volume_fl_oz_per_unit,
+        inventory_unit: r.inventory_unit,
+      });
+    }
+  }
+  return byId;
+}
+
 export async function markMissingAsDeleted(
   db: Db,
   table: "square_catalog_items" | "square_catalog_variations",
@@ -53,12 +116,36 @@ export async function markMissingAsDeleted(
   return data?.length ?? 0;
 }
 
-export async function syncSquareCatalog(db: Db): Promise<CatalogSyncResult> {
-  const [items, categories, taxes] = await Promise.all([
+/**
+ * Mirror Square's catalog into square_catalog_items / square_catalog_variations.
+ *
+ * DERIVED VOLUMES ARE FORWARD-ONLY. `volume_fl_oz_per_unit` and `inventory_unit`
+ * are not Square fields — they are parsed from the variation NAME. Sell-through
+ * and the pour sums read that column against HISTORICAL sales, so overwriting it
+ * silently restates past numbers: rename "Draft - 16oz" to "Draft - 12oz" in
+ * Square and every pour ever recorded against it is suddenly re-measured. This
+ * function therefore derives those columns when it first inserts a variation
+ * (forward-looking by definition) and never touches them again. A name that now
+ * implies a different volume comes back in `volumeMismatches` for a human to act
+ * on. Making a genuinely changed pour size correct going forward without
+ * corrupting the past needs the volume to be effective-dated, which is its own
+ * piece of work.
+ *
+ * Everything else Square owns — names, prices, sku/upc, the inventory flags — is
+ * refreshed normally.
+ */
+export async function syncSquareCatalog(
+  db: Db,
+  opts: CatalogSyncOptions = {},
+): Promise<CatalogSyncResult> {
+  const [allItems, categories, taxes] = await Promise.all([
     fetchCatalogItems(),
     fetchCatalogCategories(),
     fetchCatalogTaxes(),
   ]);
+
+  const scoped = opts.onlyItemIds ? new Set(opts.onlyItemIds) : null;
+  const items = scoped ? allItems.filter((i) => scoped.has(i.id)) : allItems;
 
   const categoryMap = new Map(categories.map((c) => [c.id, c.category_data]));
   const taxMap      = new Map(taxes.map((t) => [t.id, t.tax_data]));
@@ -139,22 +226,67 @@ export async function syncSquareCatalog(db: Db): Promise<CatalogSyncResult> {
     });
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: upsertedVariations, error: varError } = await (db as any)
-    .from("square_catalog_variations")
-    .upsert(variationRows, { onConflict: "square_variation_id" })
-    .select("id");
-  if (varError) throw new Error(varError.message);
+  // Split new from already-mirrored. A new variation is written whole, derived
+  // volume included. An existing one is refreshed on Square's own fields only —
+  // its derived volume is history's measuring stick and stays put.
+  const existingByVarId = await fetchExistingDerived(db, variationRows.map((r) => r.square_variation_id));
+
+  const insertRows = variationRows.filter((r) => !existingByVarId.has(r.square_variation_id));
+  const updateRows = variationRows
+    .filter((r) => existingByVarId.has(r.square_variation_id))
+    .map((r) => {
+      const prior = existingByVarId.get(r.square_variation_id)!;
+      // The stored values are carried through verbatim rather than omitted, so
+      // this stays a plain upsert: if the row were deleted between the read and
+      // this write, the insert branch writes back exactly what was there.
+      return { ...r, volume_fl_oz_per_unit: prior.volume_fl_oz_per_unit, inventory_unit: prior.inventory_unit };
+    });
+
+  const volumeMismatches: VolumeMismatch[] = [];
+  for (const r of variationRows) {
+    const prior = existingByVarId.get(r.square_variation_id);
+    if (!prior) continue;
+    const implied = r.volume_fl_oz_per_unit;
+    const stored = prior.volume_fl_oz_per_unit;
+    if (implied != null && stored != null && Number(implied) !== Number(stored)) {
+      volumeMismatches.push({
+        squareVariationId: r.square_variation_id,
+        variationName:     r.variation_name ?? "",
+        stored:            Number(stored),
+        impliedByName:     Number(implied),
+      });
+    }
+  }
+
+  let variationsWritten = 0;
+  for (const [rows, label] of [[insertRows, "insert"], [updateRows, "update"]] as const) {
+    if (rows.length === 0) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (db as any)
+      .from("square_catalog_variations")
+      .upsert(rows, { onConflict: "square_variation_id" })
+      .select("id");
+    if (error) throw new Error(`${label} variations: ${error.message}`);
+    variationsWritten += (data ?? []).length;
+  }
+  const upsertedVariations = { length: variationsWritten };
 
   // ── Mark what Square no longer returns ─────────────────────────────────────
   const result: CatalogSyncResult = {
     items: (upsertedItems ?? []).length,
-    variations: (upsertedVariations ?? []).length,
+    variations: upsertedVariations.length,
+    variationsInserted: insertRows.length,
+    variationsUpdated: updateRows.length,
     itemsMarkedDeleted: 0,
     variationsMarkedDeleted: 0,
+    volumeMismatches,
   };
 
-  if (items.length === 0) {
+  if (scoped) {
+    // A scoped run touched one item on purpose. markMissingAsDeleted flags every
+    // row it did not touch, which here would be the entire rest of the catalog.
+    result.deletionPassSkipped = "Scoped to specific items; the deletion pass only makes sense on a full run";
+  } else if (items.length === 0) {
     result.deletionPassSkipped = "Square returned an empty catalog; refusing to flag every mirror row";
   } else {
     result.itemsMarkedDeleted      = await markMissingAsDeleted(db, "square_catalog_items", now);
@@ -163,9 +295,20 @@ export async function syncSquareCatalog(db: Db): Promise<CatalogSyncResult> {
 
   // Resolve catalog_variation_id on any link that lacks one — including links
   // re-pointed at a variation the mirror had not yet seen.
-  // Fire-and-forget; a failed backfill is not worth failing the sync over.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  void (db as any).rpc("backfill_recipe_link_variation_ids");
+  //
+  // AWAITED, not fired and forgotten. A supabase-js builder is lazy: the request
+  // is only sent when something calls `then`, so the previous `void db.rpc(...)`
+  // never issued it at all. The backfill had therefore never run from a sync,
+  // and 42 of 115 links sat with a null catalog_variation_id while every one of
+  // them was resolvable. Still non-fatal — a failed backfill is not worth losing
+  // the sync over — but now it fails loudly instead of silently not happening.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (db as any).rpc("backfill_recipe_link_variation_ids");
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    result.linkBackfillError = e instanceof Error ? e.message : String(e);
+  }
 
   return result;
 }

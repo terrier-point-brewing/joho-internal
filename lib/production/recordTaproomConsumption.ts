@@ -1,7 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { getAvailableColdStorageQuantity } from "@/lib/production/coldStorageDepletion";
 import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
-import { writePhantomExport } from "@/lib/production/writePhantomExport";
+import { writePhantomExport, type PhantomOrigin } from "@/lib/production/writePhantomExport";
 import { applyBreakDown, type AppliedBreak } from "@/lib/production/applyBreakDown";
 
 export interface RecordTaproomConsumptionParams {
@@ -11,6 +11,13 @@ export interface RecordTaproomConsumptionParams {
   quantity: number;        // target units to record
   sourceRef: string;       // idempotency key stamped onto the export transactions
   notes?: string | null;
+  /**
+   * Which Square consumption kind is being recorded. Only reaches the database
+   * on a shortfall, where it is stamped onto the phantom row — this function
+   * serves draft swaps, keg sales and can sales alike, and the phantom is the
+   * one output that cannot be told apart afterwards without it.
+   */
+  kind: PhantomOrigin;
 }
 
 const EPS = 1e-4;
@@ -79,6 +86,7 @@ export async function recordTaproomConsumption(
       quantityKegs: shortfall,
       sourceRef: params.sourceRef,
       notes: params.notes ?? null,
+      origin: params.kind,
     });
     exportTransactionIds.push(phantom.exportTransactionId);
   }

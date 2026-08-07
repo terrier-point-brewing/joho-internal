@@ -99,13 +99,22 @@ interface PhantomEligibleLot {
   onHand: number;
 }
 
-/** An open taproom draft-swap alert — barrel excise was booked with no
+/** An open taproom phantom alert — barrel excise was booked with no
  *  cold-storage stock to deduct (`export_transactions.is_phantom = true`,
- *  unacknowledged). See GET /api/production/taproom-consumption/phantom-alerts. */
+ *  unacknowledged). See GET /api/production/taproom-consumption/phantom-alerts.
+ *
+ *  These are NOT all draft swaps. A keg or can sale that outran cold storage
+ *  books the same kind of row, and `origin` is what tells them apart — the two
+ *  are grouped separately below because a drained tap keg and a sale with no
+ *  stock behind it are different problems with different fixes. */
 interface PhantomAlert {
   exportTransactionId: string;
   recipeId: string;
   beerName: string;
+  origin: "draft_swap" | "keg_sale" | "can_sale" | null;
+  /** Container type the row was booked against — matching is scoped to it. */
+  containerType: string | null;
+  /** Draft swaps only. */
   tapNumber: number | null;
   variationId: string;
   variationName: string;
@@ -114,6 +123,13 @@ interface PhantomAlert {
   exciseUsd: number;
   occurredAt: string;
   eligibleLots: PhantomEligibleLot[];
+  /** Same container type, but cannot resolve the row — and why. */
+  alternativeLots: {
+    variationName: string;
+    batchCode: string;
+    onHand: number;
+    reason: "different_size" | "not_enough";
+  }[];
 }
 
 interface CustomerRecipeGroup {
@@ -187,6 +203,20 @@ function PhantomAlertRow({
   dismissing: boolean;
 }) {
   const hasLots = alert.eligibleLots.length > 0;
+
+  // Why Resolve is unavailable, in the operator's terms. An empty picker said
+  // nothing at all — "no matching stock" and "no stock of any kind" look the
+  // same from an absent dropdown, and only the first is fixed by moving stock.
+  const blockedReason = hasLots
+    ? null
+    : alert.alternativeLots.length === 0
+      ? `No ${alert.containerType ?? "matching"} stock of ${alert.beerName} is in cold storage at all.`
+      : `Needs ${alert.quantityKegs} × ${alert.variationName}. Cold storage holds ` +
+        alert.alternativeLots
+          .map((l) => `${l.onHand} × ${l.variationName}${l.batchCode ? ` (${l.batchCode})` : ""}`)
+          .join(", ") +
+        ".";
+
   return (
     <Card padding="p-3" className="flex items-center justify-between gap-3">
       <div className="flex flex-col gap-1 min-w-0">
@@ -194,9 +224,12 @@ function PhantomAlertRow({
           {alert.beerName}
           {alert.tapNumber != null && <span className="text-muted font-normal"> · Tap {alert.tapNumber}</span>}
         </span>
+        {/* Unit-neutral: "5 kegs" was rendered for a can 4-pack sale, because
+            every phantom was assumed to be a keg swap. */}
         <span className="text-xs text-muted">
-          {fmtDate(alert.occurredAt)} · {alert.quantityKegs} keg{alert.quantityKegs !== 1 ? "s" : ""} · {alert.volumeBbl.toFixed(2)} BBL · {alert.variationName}
+          {fmtDate(alert.occurredAt)} · {alert.quantityKegs} × {alert.variationName} · {alert.volumeBbl.toFixed(2)} BBL
         </span>
+        {blockedReason && <span className="text-xs text-warning">{blockedReason}</span>}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {hasLots && (
@@ -205,7 +238,7 @@ function PhantomAlertRow({
             value={selectedLotKey}
             onChange={(e) => onSelectLot(e.target.value)}
           >
-            <option value="">— pick keg lot —</option>
+            <option value="">— pick lot —</option>
             {alert.eligibleLots.map((lot) => (
               <option key={`${lot.variationId}|${lot.batchId}`} value={`${lot.variationId}|${lot.batchId}`}>
                 {lot.variationName} · {lot.batchCode} ({lot.onHand} on hand)
@@ -213,16 +246,19 @@ function PhantomAlertRow({
             ))}
           </select>
         )}
-        {hasLots && (
-          <button
-            type="button"
-            onClick={onResolve}
-            disabled={!selectedLotKey || resolving}
-            className="btn-primary"
-          >
-            {resolving ? "…" : "Resolve"}
-          </button>
-        )}
+        {/* Always rendered, disabled when nothing matches. A hidden button reads
+            as broken; a disabled one with the reason attached teaches the rule —
+            reconciliation demands exact matching stock, so the fix is to put the
+            right stock in cold storage, not to loosen the match. */}
+        <button
+          type="button"
+          onClick={onResolve}
+          disabled={!hasLots || !selectedLotKey || resolving}
+          title={blockedReason ?? undefined}
+          className="btn-primary"
+        >
+          {resolving ? "…" : "Resolve"}
+        </button>
         <button
           type="button"
           onClick={onDismiss}
@@ -261,7 +297,7 @@ function PhantomAlertsPanel({
     return (
       <span
         className="text-xs text-danger whitespace-nowrap"
-        title={loadError ?? "The draft-swap reconciliation check could not be loaded."}
+        title={loadError ?? "The reconciliation check could not be loaded."}
       >
         ⚑ Reconciliation status unavailable
       </span>
@@ -294,29 +330,69 @@ function PhantomAlertsPanel({
     }
   }
 
+  // A drained tap keg and a sale that outran stock are both "excise booked with
+  // nothing to deduct", but they are reconciled against different things and by
+  // different people, so they are counted and listed apart. Anything the
+  // backfill could not classify lands with the sales rather than being passed
+  // off as a swap — an unknown origin is not evidence of a tap.
+  const swaps = alerts.filter((a) => a.origin === "draft_swap");
+  const sales = alerts.filter((a) => a.origin !== "draft_swap");
+
+  function renderGroup(group: PhantomAlert[]) {
+    return group.map((alert) => (
+      <PhantomAlertRow
+        key={alert.exportTransactionId}
+        alert={alert}
+        selectedLotKey={selectedLotByAlert[alert.exportTransactionId] ?? ""}
+        onSelectLot={(lotKey) =>
+          setSelectedLotByAlert((prev) => ({ ...prev, [alert.exportTransactionId]: lotKey }))
+        }
+        onResolve={() => handleResolve(alert)}
+        onDismiss={() => handleDismiss(alert)}
+        resolving={reconcile.isPending}
+        dismissing={dismiss.isPending}
+      />
+    ));
+  }
+
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className="btn-secondary whitespace-nowrap">
-        ⚑ {alerts.length} draft swap{alerts.length !== 1 ? "s" : ""} recorded without cold-storage stock
+        ⚑ {alerts.length} booked without cold-storage stock
+        {swaps.length > 0 && sales.length > 0 && (
+          <span className="text-muted font-normal"> ({swaps.length} swap{swaps.length !== 1 ? "s" : ""}, {sales.length} sale{sales.length !== 1 ? "s" : ""})</span>
+        )}
       </button>
       {open && (
-        <Modal title="Draft swaps recorded without cold-storage stock" onClose={() => setOpen(false)} wide>
-          <div className="flex flex-col gap-2">
+        <Modal title="Booked without cold-storage stock" onClose={() => setOpen(false)} wide>
+          <div className="flex flex-col gap-4">
             {error && <p className="text-xs text-danger">{error}</p>}
-            {alerts.map((alert) => (
-              <PhantomAlertRow
-                key={alert.exportTransactionId}
-                alert={alert}
-                selectedLotKey={selectedLotByAlert[alert.exportTransactionId] ?? ""}
-                onSelectLot={(lotKey) =>
-                  setSelectedLotByAlert((prev) => ({ ...prev, [alert.exportTransactionId]: lotKey }))
-                }
-                onResolve={() => handleResolve(alert)}
-                onDismiss={() => handleDismiss(alert)}
-                resolving={reconcile.isPending}
-                dismissing={dismiss.isPending}
-              />
-            ))}
+
+            {swaps.length > 0 && (
+              <section className="flex flex-col gap-2">
+                <div className="flex flex-col gap-0.5">
+                  <h3 className="text-sm font-medium text-primary">Draft swaps</h3>
+                  <p className="text-xs text-muted">
+                    A Draft Restock was rung and the keg it drains was not in cold storage.
+                  </p>
+                </div>
+                {renderGroup(swaps)}
+              </section>
+            )}
+
+            {sales.length > 0 && (
+              <section className="flex flex-col gap-2">
+                <div className="flex flex-col gap-0.5">
+                  <h3 className="text-sm font-medium text-primary">Sold without stock</h3>
+                  <p className="text-xs text-muted">
+                    A keg or can was sold in Square with no matching cold-storage stock to draw
+                    down. These drain no tap — reconcile against the lot the stock actually
+                    came from.
+                  </p>
+                </div>
+                {renderGroup(sales)}
+              </section>
+            )}
           </div>
         </Modal>
       )}

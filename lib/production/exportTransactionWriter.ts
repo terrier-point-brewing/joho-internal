@@ -48,6 +48,11 @@ export async function writeExportTransaction(
     sourceRef?: string | null;
     isPhantom?: boolean;
     /**
+     * Which consumption kind booked a phantom row (see writePhantomExport).
+     * Only meaningful alongside `isPhantom`; null on every regular shipment.
+     */
+    phantomOrigin?: "draft_swap" | "keg_sale" | "can_sale" | null;
+    /**
      * Canning packaging loss % inherited from the run that filled these cans, so
      * a Packaging Materials invoice line bills the same container/lid/label
      * quantity that was physically consumed. 0 for kegs and for runs with no loss.
@@ -81,6 +86,7 @@ export async function writeExportTransaction(
       notes: params.notes ?? null,
       over_allocation: params.overAllocation ?? false,
       is_phantom: params.isPhantom ?? false,
+      phantom_origin: params.phantomOrigin ?? null,
       packaging_loss_pct: params.packagingLossPct ?? 0,
     })
     .select("id")

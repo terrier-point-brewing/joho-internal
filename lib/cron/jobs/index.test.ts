@@ -7,6 +7,8 @@
  * this file.
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { CRON_JOBS } from "@/lib/cron/registry";
 import { CRON_JOB_DEFINITIONS, getCronJob, jobsWithoutWork } from "./index";
 
@@ -69,6 +71,32 @@ describe("the registry still matches the schedule", () => {
   it("gives every job a path under the cron routes", () => {
     for (const meta of CRON_JOBS) {
       expect(meta.path).toBe(`/api/cron/${meta.job}`);
+    }
+  });
+
+  // The registry's own header says to keep these in sync with vercel.json by
+  // hand. Vercel reads vercel.json and nothing else, so a job added to only one
+  // of the two either never fires or fires while the monitor denies it exists —
+  // and both look fine until someone goes looking.
+  it("lists exactly the jobs vercel.json schedules, at the same times", () => {
+    const vercel = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8")) as {
+      crons: { path: string; schedule: string }[];
+    };
+    const scheduled = new Map(vercel.crons.map((c) => [c.path, c.schedule]));
+    const registered = new Map(CRON_JOBS.map((j) => [j.path, j.schedule]));
+
+    expect([...scheduled.keys()].sort()).toEqual([...registered.keys()].sort());
+    for (const [path, schedule] of registered) {
+      expect(scheduled.get(path)).toBe(schedule);
+    }
+  });
+
+  it("labels each schedule with the hour its cron expression actually names", () => {
+    for (const meta of CRON_JOBS) {
+      const [minute, hour] = meta.schedule.split(" ");
+      const hh = String(hour).padStart(2, "0");
+      const mm = String(minute).padStart(2, "0");
+      expect(meta.scheduleLabel).toContain(`${hh}:${mm}`);
     }
   });
 });

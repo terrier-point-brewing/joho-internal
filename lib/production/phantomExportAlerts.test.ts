@@ -12,8 +12,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   fetchOpenPhantomAlerts,
   fetchUnemailedPhantomAlerts,
-  fetchEligibleLots,
-  swapPerKegFlOz,
+  fetchLotOptions,
+  phantomPerUnitFlOz,
   markPhantomAlertsEmailed,
   type PhantomAlert,
 } from "./phantomExportAlerts";
@@ -53,6 +53,7 @@ const phantomTxRow = {
   volume_bbl: 0.4032,
   total_excise_tax_usd: 2.48,
   created_at: "2026-07-18T20:00:00Z",
+  phantom_origin: "draft_swap",
   recipes: { beer_name: "Vienna Lager" },
 };
 
@@ -68,8 +69,64 @@ function baseTables() {
     export_transactions: { rows: [phantomTxRow] },
     recipe_packaging_variations: { rows: [recipePackagingVariationRow] },
     tap_assignments: { rows: [tapAssignmentRow] },
+    packaging_items: { rows: [{ id: "container-1", type: "keg" }] },
   };
 }
+
+describe("phantom origin", () => {
+  // The bug this guards: recordTaproomConsumption books draft swaps, keg sales
+  // and can sales through one path, so every shortfall produced an identical
+  // phantom row. Export Bay read them all as draft swaps and resolveTapNumber —
+  // which matches on (recipe, swap variation) — handed a keg SALE the tap number
+  // of whichever tap happened to be pouring that beer. A wholesale keg sale then
+  // read as if a tap had been drained.
+  it("does not attach a tap number to a keg sale, even when the beer is on tap", async () => {
+    const { client } = makeSupabase({
+      ...baseTables(),
+      export_transactions: { rows: [{ ...phantomTxRow, phantom_origin: "keg_sale" }] },
+    });
+
+    const alerts = await fetchOpenPhantomAlerts(client);
+
+    expect(alerts[0].origin).toBe("keg_sale");
+    expect(alerts[0].tapNumber).toBeNull();
+  });
+
+  it("does not attach a tap number to a can sale", async () => {
+    const { client } = makeSupabase({
+      ...baseTables(),
+      export_transactions: {
+        rows: [{ ...phantomTxRow, phantom_origin: "can_sale", variant_label: "16oz Labeled Can 4-Pack" }],
+      },
+    });
+
+    const alerts = await fetchOpenPhantomAlerts(client);
+
+    expect(alerts[0].origin).toBe("can_sale");
+    expect(alerts[0].tapNumber).toBeNull();
+  });
+
+  it("leaves an unclassified legacy row unclassified rather than calling it a swap", async () => {
+    const { client } = makeSupabase({
+      ...baseTables(),
+      export_transactions: { rows: [{ ...phantomTxRow, phantom_origin: null }] },
+    });
+
+    const alerts = await fetchOpenPhantomAlerts(client);
+
+    expect(alerts[0].origin).toBeNull();
+    expect(alerts[0].tapNumber).toBeNull();
+  });
+
+  it("still resolves the tap for a genuine draft swap", async () => {
+    const { client } = makeSupabase(baseTables());
+
+    const alerts = await fetchOpenPhantomAlerts(client);
+
+    expect(alerts[0].origin).toBe("draft_swap");
+    expect(alerts[0].tapNumber).toBe(3);
+  });
+});
 
 describe("fetchOpenPhantomAlerts", () => {
   it("returns alerts joined to beer/tap/variation names", async () => {
@@ -80,6 +137,8 @@ describe("fetchOpenPhantomAlerts", () => {
         exportTransactionId: "et-1",
         recipeId: "r1",
         beerName: "Vienna Lager",
+        origin: "draft_swap",
+        containerType: "keg",
         tapNumber: 3,
         variationId: "pv-1",
         variationName: "1/2 Keg",
@@ -126,22 +185,24 @@ describe("fetchUnemailedPhantomAlerts", () => {
   });
 });
 
-describe("swapPerKegFlOz", () => {
+describe("phantomPerUnitFlOz", () => {
   it("converts total BBL over keg count to per-keg fl oz", () => {
-    expect(swapPerKegFlOz(0.1666, 1)).toBeCloseTo(661.1, 0); // 1/6 keg
-    expect(swapPerKegFlOz(0.5, 2)).toBeCloseTo(992, 0);       // 1/4 keg each
+    expect(phantomPerUnitFlOz(0.1666, 1)).toBeCloseTo(661.1, 0); // 1/6 keg
+    expect(phantomPerUnitFlOz(0.5, 2)).toBeCloseTo(992, 0);       // 1/4 keg each
   });
   it("returns 0 when quantity is 0", () => {
-    expect(swapPerKegFlOz(0.5, 0)).toBe(0);
+    expect(phantomPerUnitFlOz(0.5, 0)).toBe(0);
   });
 });
 
-describe("fetchEligibleLots", () => {
+describe("fetchLotOptions", () => {
   // Booked 1/6 keg (perKeg ≈ 661 fl oz).
   const alert: PhantomAlert = {
     exportTransactionId: "et-1",
     recipeId: "r1",
     beerName: "Vienna Lager",
+    origin: "draft_swap",
+    containerType: "keg",
     tapNumber: 3,
     variationId: "pv-1",
     variationName: "Fortnight - 1/6 Keg",
@@ -173,24 +234,62 @@ describe("fetchEligibleLots", () => {
         ],
       },
     });
-    const lots = await fetchEligibleLots(client, alert);
-    expect(lots).toEqual([
+    const { eligible, alternatives } = await fetchLotOptions(client, alert);
+    expect(eligible).toEqual([
       { variationId: "pv-generic-16", variationName: "1/6 Keg", batchId: "b1", batchCode: "B-050", onHand: 2 },
+    ]);
+    // The wrong-size and too-little kegs come back as alternatives so the UI can
+    // say what IS on hand; the can is a different container type and is not the
+    // recipe's business here.
+    expect(alternatives).toEqual([
+      { variationName: "1/2 Keg", batchCode: "B-050", onHand: 4, reason: "different_size" },
+      { variationName: "1/6 Keg", batchCode: "B-050", onHand: 0.5, reason: "not_enough" },
     ]);
     const csiCalls = calls.cold_storage_inventory;
     expect(csiCalls.some((c) => c.method === "eq" && c.args[0] === "recipe_id" && c.args[1] === "r1")).toBe(true);
   });
 
-  it("returns an empty list when no lot qualifies", async () => {
+  it("returns no eligible lot, but names the near miss, when nothing qualifies", async () => {
     const { client } = makeSupabase({
       cold_storage_inventory: { rows: [keg16({ quantity_on_hand: 0.5 })] },
     });
-    expect(await fetchEligibleLots(client, alert)).toEqual([]);
+    const { eligible, alternatives } = await fetchLotOptions(client, alert);
+    expect(eligible).toEqual([]);
+    expect(alternatives).toEqual([
+      { variationName: "1/6 Keg", batchCode: "B-050", onHand: 0.5, reason: "not_enough" },
+    ]);
+  });
+
+  // The gap this closes: cans were filtered out before any other rule ran, so a
+  // can sale that outran cold storage could never be resolved — not even against
+  // the exact matching 4-packs. The match rule itself is unchanged.
+  it("resolves a can booking against matching can stock", async () => {
+    const canAlert: PhantomAlert = {
+      ...alert,
+      origin: "can_sale",
+      containerType: "can",
+      variationName: "16oz Labeled Can 4-Pack",
+      quantityKegs: 5,
+      volumeBbl: 0.0806,
+    };
+    const { client } = makeSupabase({
+      cold_storage_inventory: {
+        rows: [
+          keg16({ batch_id: "b9", variation_id: "pv-4pack", quantity_on_hand: 12,
+            packaging_variations: { name: "16oz Labeled Can 4-Pack", total_volume_fl_oz: 64, container: { type: "can" } } }),
+          keg16({}), // a keg lot must not satisfy a can booking
+        ],
+      },
+    });
+    const { eligible } = await fetchLotOptions(client, canAlert);
+    expect(eligible).toEqual([
+      { variationId: "pv-4pack", variationName: "16oz Labeled Can 4-Pack", batchId: "b9", batchCode: "B-050", onHand: 12 },
+    ]);
   });
 
   it("throws when the query errors", async () => {
     const { client } = makeSupabase({ cold_storage_inventory: { rows: null, error: "boom" } });
-    await expect(fetchEligibleLots(client, alert)).rejects.toThrow("boom");
+    await expect(fetchLotOptions(client, alert)).rejects.toThrow("boom");
   });
 });
 

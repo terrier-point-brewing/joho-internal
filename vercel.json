@@ -17,6 +17,10 @@
       "schedule": "30 6 * * *"
     },
     {
+      "path": "/api/cron/square-catalog-sync",
+      "schedule": "45 6 * * *"
+    },
+    {
       "path": "/api/cron/taproom-consumption-sync",
       "schedule": "0 7 * * *"
     },

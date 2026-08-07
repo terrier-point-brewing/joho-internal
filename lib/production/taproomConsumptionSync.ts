@@ -454,6 +454,7 @@ export async function runTaproomConsumptionSync(
       quantity: delta,
       sourceRef: u.sourceRef,
       notes: null,
+      kind: u.kind,
     });
 
     // A break that mutated inventory (parent decremented/deleted, child
