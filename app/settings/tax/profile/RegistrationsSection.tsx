@@ -38,7 +38,7 @@ function dedupeKey(authorityKey: string, registrationKey: string): string {
 
 /**
  * Groups the FREEFORM ("Other") rows by authority, excluding any row whose
- * (authority_key, key) is already covered by a resolved requirement — those
+ * (authority_key, registration_kind) is already covered by a resolved requirement — those
  * are edited in the "Required for active filings" block instead, never both.
  */
 function groupOtherRegistrations(
@@ -73,7 +73,7 @@ function initialRequiredDrafts(data: RegistrationsResponse): RequiredDrafts {
  *  - Required for active filings: one row per resolved requirement for THIS
  *    authority (`GET /api/tax/registrations`'s `required` field, filtered by
  *    `authorityKey`) — label locked, only the number is editable, matched by
- *    (authority_key, key), never "first row for this authority".
+ *    (authority_key, registration_kind), never "first row for this authority".
  *  - Other registrations: today's freeform per-authority editor, minus
  *    whatever's already covered above.
  * Both flatten into ONE `PUT /api/tax/registrations` call on Save — the
@@ -171,7 +171,7 @@ export default function RegistrationsSection() {
         rows.push({
           id: req.id,
           authority_key: req.authorityKey,
-          key: req.registrationKey,
+          registration_kind: req.registrationKey,
           label: req.label,
           number: number.trim() || null,
           display_order: 0,
@@ -188,7 +188,7 @@ export default function RegistrationsSection() {
           rows.push({
             id: row.id,
             authority_key: authorityKey,
-            key: null, // explicit: freeform "Other" rows are never keyed, unlike the required rows above
+            registration_kind: null, // explicit: freeform "Other" rows never have a kind, unlike the required rows above
             label: row.label.trim(),
             number: row.number.trim() || null,
             display_order: order,

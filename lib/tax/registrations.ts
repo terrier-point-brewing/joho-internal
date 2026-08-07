@@ -14,7 +14,12 @@ export interface TaxRegistration {
   label: string;
   number: string | null;
   display_order: number;
-  key: string | null;
+  /**
+   * Which kind of registration this row holds, matching a
+   * `RequiredRegistration.registrationKey`. `null` for freeform "Other" rows
+   * the operator typed in, which no party template requires.
+   */
+  registration_kind: string | null;
 }
 
 export interface TaxRegistrationInput {
@@ -23,7 +28,7 @@ export interface TaxRegistrationInput {
   label: string;
   number: string | null;
   display_order: number;
-  key?: string | null;
+  registration_kind?: string | null;
 }
 
 /**
@@ -44,7 +49,7 @@ export function reconcileRegistrations(
 export async function listRegistrations(sb: SupabaseClient): Promise<TaxRegistration[]> {
   const { data, error } = await sb
     .from("tax_registrations")
-    .select("id, authority_key, label, number, display_order, key")
+    .select("id, authority_key, label, number, display_order, registration_kind")
     .order("authority_key")
     .order("display_order");
   if (error) throw new Error(error.message);
@@ -131,7 +136,7 @@ export function resolveRequiredRegistrations(
 
   return deduped.map((req) => {
     const match = registrations.find(
-      (r) => r.authority_key === req.authorityKey && r.key === req.registrationKey,
+      (r) => r.authority_key === req.authorityKey && r.registration_kind === req.registrationKey,
     );
     return { ...req, id: match?.id, number: match?.number ?? null };
   });
