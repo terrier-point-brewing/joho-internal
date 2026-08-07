@@ -6,7 +6,7 @@ function recorder() {
   const calls: [string, ...unknown[]][] = [];
   const q = {
     calls,
-    ilike(...args: unknown[]) { calls.push(["ilike", ...args]); return q; },
+    filter(...args: unknown[]) { calls.push(["filter", ...args]); return q; },
     or(...args: unknown[]) { calls.push(["or", ...args]); return q; },
     is(...args: unknown[]) { calls.push(["is", ...args]); return q; },
   };
@@ -30,14 +30,18 @@ describe("applyExpenseStatementFilters", () => {
     const q = recorder();
     applyExpenseStatementFilters(q, false);
     expect(q.calls).toContainEqual(["or", "state.is.null,state.neq.DECLINED"]);
-    expect(q.calls.some(([fn]) => fn === "ilike")).toBe(false);
+    expect(q.calls.some(([fn]) => fn === "filter")).toBe(false);
   });
 
-  it("uses the case-insensitive cleared filter when cashOnly is true", () => {
+  it("matches settled rows on an exact upper-case CLEARED when cashOnly is true", () => {
     const q = recorder();
     applyExpenseStatementFilters(q, true);
-    expect(q.calls).toContainEqual(["ilike", "state", "cleared"]);
+    // Exact equality, and upper-case: the expenses_state_upper_check CHECK
+    // constraint guarantees the column's casing. A lower-case literal would now
+    // match nothing and silently empty the cash-flow statement.
+    expect(q.calls).toContainEqual(["filter", "state", "eq", "CLEARED"]);
     expect(q.calls.some(([fn]) => fn === "or")).toBe(false);
+    expect(q.calls.some(([fn]) => fn === "ilike")).toBe(false);
   });
 
   it("returns the builder so it stays chainable", () => {

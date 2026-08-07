@@ -158,6 +158,15 @@ describe("partitionBankLines", () => {
     });
   });
 
+  it("settles bank expenses as upper-case CLEARED", () => {
+    // This writer emitted lower-case "cleared" for a long time, which is what
+    // dropped every bank/payroll row off the cash-flow statement. expenses.state
+    // now carries an upper-case-only CHECK (expenses_state_upper_check) and the
+    // statements match it exactly, so lower-case here would both fail the insert
+    // and, if the constraint were ever dropped, silently re-break cash flow.
+    expect(expenseRecords[0].state).toBe("CLEARED");
+  });
+
   it("routes interest + transfer to ledger records with flow_type + affects_pl and correct sign", () => {
     expect(ledgerRecords.map((r) => r.flow_type).sort()).toEqual(["interest_income", "internal_transfer"]);
     const interest = ledgerRecords.find((r) => r.flow_type === "interest_income")!;
