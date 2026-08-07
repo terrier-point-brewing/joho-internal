@@ -146,13 +146,29 @@ export interface DeadLinkDiscrepancy {
   reason: "deleted_in_square" | "missing_from_catalog";
 }
 
+/**
+ * One Square SKU that several keg/can links claim, where the house-stock rule
+ * below could not choose between them.
+ *
+ * Reported rather than silently resolved: the whole reason this type exists is
+ * that a silent choice made from row order looked correct for weeks and then
+ * quietly changed its mind.
+ */
+export interface AmbiguousSaleLinkDiscrepancy {
+  kind: "ambiguous_sale_link";
+  squareVariationId: string;
+  /** The candidates, as "beer — variation", so the reader can see the clash. */
+  candidates: string[];
+}
+
 export type AssemblyDiscrepancy =
   | ConfigDiscrepancy
   | UnmappedRestockDiscrepancy
   | StaleQueuedSwapDiscrepancy
   | UnmappedSaleDiscrepancy
   | LinkMissingVariationDiscrepancy
-  | DeadLinkDiscrepancy;
+  | DeadLinkDiscrepancy
+  | AmbiguousSaleLinkDiscrepancy;
 
 // keg/can Square SKU -> cold-storage variation
 export interface KegCanLink {
@@ -162,6 +178,50 @@ export interface KegCanLink {
   kind: "keg_sale" | "can_sale";
   beerName: string;
   variationName: string;
+  /**
+   * Partner owning the cold-storage variation this link points at, or null for
+   * house packaging. Drives the taproom preference in `selectSaleLink`.
+   */
+  partnerId: string | null;
+}
+
+/**
+ * Choose which link a TAPROOM sale books against when several share one Square
+ * SKU.
+ *
+ * The mapping is one-to-many in this direction and legitimately so. Square has a
+ * single "Vienna Lager (Keg) · 1/6 Keg" button, while production holds two real
+ * packagings behind it: the house 1/6 Keg and the Fortnight-branded one. Both
+ * links are correct — shipping a Fortnight keg resolves through
+ * `resolveProductSku`, which is keyed on (variation_id, recipe_id) and so has no
+ * ambiguity to resolve.
+ *
+ * A taproom sale is house stock by definition: a partner's branded keg leaves on
+ * a distribution or contract shipment, not over the bar. So prefer the variation
+ * with no partner. Where that does not decide it — no house option, or several —
+ * the caller is told rather than handed an arbitrary winner.
+ *
+ * This replaces a plain last-wins map keyed on the Square SKU. With no ORDER BY
+ * on the underlying select, the winner was whichever row the database happened
+ * to return last: an 18 July sale booked the house keg and a 10 July sale, booked
+ * later from the same rows, took the Fortnight one.
+ */
+export function selectSaleLink(candidates: KegCanLink[]): {
+  link: KegCanLink | null;
+  ambiguous: boolean;
+} {
+  if (candidates.length === 0) return { link: null, ambiguous: false };
+  if (candidates.length === 1) return { link: candidates[0], ambiguous: false };
+
+  const house = candidates.filter((l) => l.partnerId == null);
+  if (house.length === 1) return { link: house[0], ambiguous: false };
+
+  // Either nothing is house stock or more than one thing is. Both are real
+  // mapping problems, not something to guess at. A deterministic pick still
+  // beats row order, so the books stay stable run to run while it is reported.
+  const pool = house.length > 1 ? house : candidates;
+  const stable = [...pool].sort((a, b) => a.variationId.localeCompare(b.variationId))[0];
+  return { link: stable, ambiguous: true };
 }
 
 // draft link (recipe-grain)
@@ -215,8 +275,28 @@ export function assembleConsumption(input: {
   const units: ConsumptionUnit[] = [];
   const discrepancies: AssemblyDiscrepancy[] = [];
 
+  // Square SKU → the link a taproom sale books against. Several links may share
+  // one SKU (house vs partner-branded packaging of the same beer), so the winner
+  // is chosen by the house-stock rule rather than by whichever row arrived last.
+  const candidatesByVarId = new Map<string, KegCanLink[]>();
+  for (const link of kegCanLinks) {
+    const list = candidatesByVarId.get(link.squareVariationId);
+    if (list) list.push(link);
+    else candidatesByVarId.set(link.squareVariationId, [link]);
+  }
+
   const linkByVarId = new Map<string, KegCanLink>();
-  for (const link of kegCanLinks) linkByVarId.set(link.squareVariationId, link);
+  for (const [sqVarId, candidates] of candidatesByVarId) {
+    const { link, ambiguous } = selectSaleLink(candidates);
+    if (link) linkByVarId.set(sqVarId, link);
+    if (ambiguous) {
+      discrepancies.push({
+        kind: "ambiguous_sale_link",
+        squareVariationId: sqVarId,
+        candidates: candidates.map((c) => `${c.beerName} — ${c.variationName}`).sort(),
+      });
+    }
+  }
 
   // Recipe → its draft SKU (the variation the recount resets to full).
   const draftSquareVarByRecipe = new Map<string, string>();
@@ -376,6 +456,27 @@ interface TapAssignmentRow {
  * the matching Square sales + restock line items for the trailing `days` window,
  * then hands everything to the pure `assembleConsumption`.
  */
+/** variation id → owning partner id, absent for house packaging. */
+async function fetchVariationPartners(
+  supabase: SupabaseClient,
+  variationIds: string[],
+): Promise<Map<string, string>> {
+  const byId = new Map<string, string>();
+  for (let i = 0; i < variationIds.length; i += 200) {
+    const chunk = variationIds.slice(i, i + 200);
+    if (chunk.length === 0) continue;
+    const { data, error } = await supabase
+      .from("packaging_variations")
+      .select("id, partner_id")
+      .in("id", chunk);
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as { id: string; partner_id: string | null }[]) {
+      if (r.partner_id) byId.set(r.id, r.partner_id);
+    }
+  }
+  return byId;
+}
+
 export async function deriveTaproomConsumption(
   supabase: SupabaseClient,
   opts: { days: number; window?: ConsumptionWindow },
@@ -393,6 +494,16 @@ export async function deriveTaproomConsumption(
   if (linkErr) throw new Error(linkErr.message);
 
   const rows = (linkRows ?? []) as unknown as RecipeSquareLinkRow[];
+
+  // Which cold-storage variations belong to a partner. `recipe_square_links`
+  // carries no partner column — the distinction lives on the variation — and a
+  // taproom sale has to prefer house packaging (see selectSaleLink). Read as a
+  // plain query rather than a PostgREST embed, matching the precedent set
+  // elsewhere in this file for joins this table has thrown PGRST200 on.
+  const partnerByVariationId = await fetchVariationPartners(
+    supabase,
+    [...new Set(rows.map((r) => r.variation_id).filter((id): id is string => !!id))],
+  );
 
   const kegCanLinks: KegCanLink[] = [];
   const draftLinks: DraftLink[] = [];
@@ -425,6 +536,7 @@ export async function deriveTaproomConsumption(
         kind: row.packaging === "keg" ? "keg_sale" : "can_sale",
         beerName,
         variationName: row.variation_name ?? "",
+        partnerId: partnerByVariationId.get(row.variation_id) ?? null,
       });
     }
   }
