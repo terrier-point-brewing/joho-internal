@@ -15,11 +15,17 @@ interface TransformRequest {
 
 // POST /api/production/cold-storage/transform
 //
-// Reformat cold-storage stock in place: crack N units of one packaging variation
-// into M units of another within the same batch. A 1/2 keg broken down into
-// sixtels is the motivating case, and unlike an automatic can break it LOSES
-// volume — you rarely get the full three sixtels a half-keg's 1984 fl oz would
-// allow, and the difference is real beer.
+// Reformat cold-storage stock in place: turn N units of one packaging variation
+// into M units of another within the same batch. It runs in both directions —
+// 1 x 1/2 Keg -> 3 x 1/6 Keg, or 3 x 1/6 Keg -> 1 x 1/2 Keg — and the payload is
+// the same shape either way; from/to say which variation, not which is bigger.
+// The build-up matters because a phantom-export reconcile only accepts the exact
+// keg size that was booked, so reshaping the stock is the operator's route to it.
+//
+// Unlike an automatic can break, a keg transform LOSES volume in either
+// direction: you rarely get the full three sixtels a half keg's 1984 fl oz would
+// allow, and you leave beer behind combining them back up. The difference is
+// real beer and gets journalled.
 //
 // Gated on exportOperate, the same permission as shipping: a transform destroys
 // inventory just as irreversibly.
@@ -68,7 +74,9 @@ export async function POST(req: NextRequest) {
   if (error) {
     // 23514 is the never-creates-volume constraint. It's the one failure an
     // operator will actually hit by mistake, so say what went wrong in their
-    // terms rather than surfacing the raw constraint name.
+    // terms rather than surfacing the raw constraint name. It no longer fires on
+    // a one-ounce rounding gap (3 x 1/6 -> 1 x 1/2) — that slack is in the
+    // constraint itself, so anything reaching here is a real over-count.
     if (error.code === "23514") {
       return NextResponse.json(
         { error: "That many units would hold more beer than the source did. Check the count — a transform can lose volume, never create it." },

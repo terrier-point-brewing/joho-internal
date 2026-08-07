@@ -74,9 +74,21 @@ export interface AlternativeLot {
   reason: "different_size" | "not_enough";
 }
 
-/** Max per-unit volume gap (fl oz) for a lot to count as the "same size" as a
- *  booked row. Keg sizes (661 / 992 / 1984 fl oz) and can pack tiers are far
- *  enough apart that a few fl oz of rounding never bleeds across sizes. */
+/**
+ * Max per-unit volume gap (fl oz) for a lot to count as the "same size" as a
+ * booked row. Keg sizes (661 / 992 / 1984 fl oz) and can pack tiers are far
+ * enough apart that a few fl oz of rounding never bleeds across sizes.
+ *
+ * Flat, and generous, because this compares ONE unit against one booked size —
+ * it can afford to be. The other consumer of whole-fl-oz rounding,
+ * previewTransform, has to scale its slack with unit count instead, since a
+ * transform compares n units against m; see
+ * VOLUME_ROUNDING_SLACK_PER_UNIT_FL_OZ. Same underlying fact, different shape.
+ *
+ * When no lot matches here, the operator's route is to transform stock into the
+ * right shape first — which is exactly why that transform has to permit a
+ * build-up.
+ */
 export const SWAP_VOLUME_TOLERANCE_FL_OZ = 5;
 
 /** Per-unit volume (fl oz) a phantom booked: total BBL / units × fl oz per BBL. */

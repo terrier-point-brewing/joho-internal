@@ -785,8 +785,12 @@ describe("runTaproomConsumptionSync — queued swap transitions", () => {
 
     expect(sink.flips).toHaveLength(1);
     expect(sink.flips[0]).toMatchObject({
-      recipe_id: "r-new", swap_variation_id: "pv-new", swap_volume_fl_oz: 661,
+      recipe_id: "r-new", swap_variation_id: "pv-new",
     });
+    // The recount target is NOT written here. It is the incoming keg's own coded
+    // volume, joined through swap_variation_id wherever it is read — a second
+    // copy on the tap is exactly what let a stale 660 outlive its 661 variation.
+    expect(sink.flips[0]).not.toHaveProperty("swap_volume_fl_oz");
     // Tapping a beer means it's active — leaving is_retired set would make the
     // batch scheduler refuse to brew more of a beer that's actively pouring.
     expect(sink.retires).toHaveLength(1);

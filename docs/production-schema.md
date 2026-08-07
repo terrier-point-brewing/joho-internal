@@ -84,6 +84,37 @@ packaging_items
   type: keg | can | lid | paktech | tray
 ```
 
+### Container volume — one number per container
+
+A physical container has exactly ONE capacity, and it lives in
+`packaging_items.volume_fl_oz`. `packaging_variations.total_volume_fl_oz` is that
+container times its format multiplier (`loose` 1, `4-pack` 4, `6-pack` 6, `case`
+24) and is the figure everything downstream should read, because it is stated at
+the grain features actually work in. Fluid ounces are the base unit; gallons and
+barrels are derived from fl oz, never the other way round
+(`lib/constants/production.ts`).
+
+Two rules keep the copies honest:
+
+- **Configuration derives. Journals snapshot.** A row that says what is set up
+  *right now* must join through to the variation and never keep its own copy —
+  `tap_assignments` is the example, and its `swap_volume_fl_oz` column was
+  dropped in `20260930090000_derive_tap_swap_volume.sql` for exactly this reason
+  (it had drifted to 660 against a 661 sixtel and was re-persisted on every
+  save). A row that records what was measured or moved *at a moment in time*
+  keeps its own snapshot on purpose, so the record stays true if someone later
+  edits a variation: `draft_swap_shrinkage.full_fl_oz`,
+  `tap_swap_transitions.from/to_volume_fl_oz`,
+  `cold_storage_transforms.from/to_volume_fl_oz`. Those are forward-only — do not
+  restate them to match a changed variation.
+- **One hardcoded keg table in TypeScript.** `KEG_FL_OZ_BY_SIZE` in
+  `lib/constants/production.ts` is it. `lib/square/catalogUnits.ts` (Square
+  variation-name parser) and `KEG_GALLONS_BY_SIZE` (BBL tracker, finance volume)
+  both derive from it, guarded by `lib/constants/production.test.ts`. It must
+  agree with the `packaging_items` rows for the same kegs — those are the same
+  physical containers. A sixtel is stored as 661; a true sixth barrel is 661.33,
+  and if that canonical figure ever changes it changes in both places together.
+
 ### Square SKU mapping (variation grain)
 
 - `recipe_square_links` is the product→Square mapping. As of migration

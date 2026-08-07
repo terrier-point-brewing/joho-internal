@@ -12,10 +12,10 @@ import type { ControlsConfig } from "@/lib/table/types";
 // Export > Adjustments — the cold_storage_transforms journal.
 //
 // Every internal reformatting of finished goods sitting in cold storage, of both
-// kinds: manual keg transforms (a human cracked a 1/2 keg into sixtels) and
-// automatic pack breaks (the taproom sold a single, so applyBreakDown cracked a
-// sealed case). The pack breaks have been written since July with nothing
-// reading them; this is their first read surface.
+// kinds: manual keg transforms (a human split a 1/2 keg into sixtels, or
+// combined sixtels back into one) and automatic pack breaks (the taproom sold a
+// single, so applyBreakDown cracked a sealed case). The pack breaks have been
+// written since July with nothing reading them; this is their first read surface.
 //
 // This is also the ONLY place transform shrinkage is visible anywhere in the
 // app. A transform happens after a batch is packaged out and closed, so the
@@ -76,15 +76,21 @@ export default function ColdStorageAdjustmentsTab() {
 
   // Only counts what's on screen, so it answers the question the filters ask —
   // e.g. "how much did we lose to keg transforms this month".
-  const totalShrinkageBbl = filtered.reduce((s, r) => s + r.shrinkage_bbl, 0);
+  //
+  // Clamped per row, because a build-up's shrinkage can be a fluid ounce or two
+  // negative purely from whole-fl-oz storage (3 x 661 vs 1984). Letting that
+  // subtract would make a rounding artifact quietly offset real beer lost
+  // elsewhere in the list. The DB caps the negative at half an ounce per unit,
+  // so nothing real is being hidden by the clamp.
+  const totalShrinkageBbl = filtered.reduce((s, r) => s + Math.max(0, r.shrinkage_bbl), 0);
 
   return (
     <div>
       <p className="text-xs text-muted mb-4 max-w-3xl">
-        Repackaging of stock already in cold storage — breaking a half keg down into sixtels, or
-        cracking a sealed case for a taproom single. Nothing enters or leaves the cold room, so these
-        are neither shipments nor production. Kegs lose a little volume in the process; that loss is
-        recorded here and nowhere else.
+        Repackaging of stock already in cold storage — splitting a half keg into sixtels, combining
+        sixtels back into one, or cracking a sealed case for a taproom single. Nothing enters or
+        leaves the cold room, so these are neither shipments nor production. Kegs lose a little
+        volume whichever way they go; that loss is recorded here and nowhere else.
       </p>
 
       {/* Toolbar */}
@@ -155,7 +161,9 @@ export default function ColdStorageAdjustmentsTab() {
                     {r.to_variation_name ?? EM_DASH}
                   </td>
                   {/* A pack break conserves exactly, so a literal 0.00 bbl would be
-                      noise on every automatic row — show a dash instead. */}
+                      noise on every automatic row — show a dash instead. The same
+                      dash covers a build-up's small negative, which is whole-fl-oz
+                      rounding rather than beer. */}
                   <td className="px-3 py-2 text-right tabular-nums text-xs font-mono whitespace-nowrap">
                     {r.shrinkage_fl_oz > 0.0001 ? (
                       <span className="text-accent-emphasis/90">{r.shrinkage_bbl.toFixed(3)} bbl</span>

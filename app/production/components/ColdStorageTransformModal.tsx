@@ -6,19 +6,29 @@ import Banner from "@/app/components/ui/Banner";
 import { useColdStorageQuery, usePackagingVariationsQuery, type ColdStorageLot } from "../hooks/queries";
 import { previewTransform } from "@/lib/production/coldStorageTransform";
 
-// Record a cold-storage transform: crack stock already in the cold room into a
-// different packaging variation of the SAME batch. The motivating case is a 1/2
-// keg broken down into sixtels, which loses volume — you rarely get the full
-// three a half-keg's 1984 fl oz would allow.
+// Record a cold-storage transform: reshape stock already in the cold room into a
+// different packaging variation of the SAME batch. It runs both ways —
 //
-// The operator enters the count they ACTUALLY filled. The modal never rounds it
-// up to make the volume tie; the difference is shrinkage and gets recorded.
+//   break down   1 x 1/2 Keg  ->  3 x 1/6 Keg
+//   build up     3 x 1/6 Keg  ->  1 x 1/2 Keg
+//
+// — and the form is the same either way, so nothing here says "parent" or
+// "crack". A build-up is how an operator gets stock into the shape a phantom
+// export reconcile demands, which only accepts the exact keg size that was
+// booked.
+//
+// Either direction loses volume: you leave beer in the lines breaking a half keg
+// down, and you leave beer in the lines combining sixtels back up. The operator
+// enters the count they ACTUALLY filled. The modal never rounds it to make the
+// volumes tie; the difference is shrinkage and gets recorded.
 //
 // The DB is the enforcer (cold_storage_transforms_never_creates_volume). The
-// preview here just means an impossible count is visible before they commit.
+// preview here just means an impossible count is visible before they commit —
+// and, because stored volumes are whole fl oz while a 1/6 bbl is really 661.33,
+// that a one-ounce rounding gap is NOT mistaken for one.
 
-/** Lots must share a container class to be a plausible transform — you don't
- *  crack a keg into cans. Kegs and cans each stay within their own world. */
+/** Lots must share a container class to be a plausible transform — kegs and cans
+ *  each stay within their own world, in either direction. */
 function sameContainerClass(a: string | null, b: string | null): boolean {
   return (a ?? "") === (b ?? "");
 }
@@ -44,8 +54,8 @@ export default function ColdStorageTransformModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Only lots holding at least one whole unit can be cracked — a 0.4 keg isn't
-  // a keg you can break down.
+  // Only lots holding at least one whole unit can be transformed — a 0.4 keg
+  // isn't a keg you can reshape into anything.
   const eligibleLots = useMemo(
     () => lots.filter((l) => l.quantity_on_hand >= 1).sort((a, b) => (a.beer_name ?? "").localeCompare(b.beer_name ?? "")),
     [lots],
@@ -56,6 +66,8 @@ export default function ColdStorageTransformModal({
   const sourceVariation = lot ? variationById.get(lot.variation_id) : undefined;
 
   // Candidate targets: same container class, not the source itself, and active.
+  // Deliberately NOT filtered to smaller variations — a bigger target is a
+  // build-up, which is half the point of this form.
   const targets = useMemo(() => {
     if (!lot) return [];
     return variations
@@ -118,9 +130,10 @@ export default function ColdStorageTransformModal({
     <Modal title="Transform Cold Storage Stock" onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         <p className="text-xs text-muted">
-          Repackage stock already in the cold room — a half keg into sixtels, say. The beer stays in
-          cold storage and stays on the same batch. Enter the number of units you actually filled;
-          any volume lost along the way is recorded as shrinkage.
+          Repackage stock already in the cold room — a half keg split into sixtels, or three sixtels
+          combined into a half keg. The beer stays in cold storage and stays on the same batch. Enter
+          the number of units you actually filled; any volume lost along the way is recorded as
+          shrinkage.
         </p>
 
         <Field label="Source lot" required>
@@ -142,7 +155,7 @@ export default function ColdStorageTransformModal({
           </select>
         </Field>
 
-        <Field label="Break down into" required hint={lot ? undefined : "pick a source lot first"}>
+        <Field label="Transform into" required hint={lot ? undefined : "pick a source lot first"}>
           <select
             className="inp w-full"
             value={toVariationId}
@@ -159,7 +172,10 @@ export default function ColdStorageTransformModal({
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Units cracked" required>
+          {/* "Units used" / "Units filled", not "cracked" / "filled" — the same
+              two boxes have to read right whether three sixtels are becoming a
+              half keg or the other way round. */}
+          <Field label="Units used" required hint={lot ? `${lot.quantity_on_hand} on hand` : undefined}>
             <input
               type="number"
               min="1"
@@ -188,7 +204,7 @@ export default function ColdStorageTransformModal({
 
         {overdrawn && lot && (
           <Banner tone="danger">
-            That lot only holds {lot.quantity_on_hand}. You can&apos;t crack more than is there.
+            That lot only holds {lot.quantity_on_hand}. You can&apos;t use more than is there.
           </Banner>
         )}
 
@@ -203,17 +219,25 @@ export default function ColdStorageTransformModal({
           <div className="rounded-lg bg-surface border border-line p-4 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted">Volume in</span>
-              <span className="text-strong tabular-nums">{preview.sourceVolumeFlOz.toLocaleString()} fl oz</span>
+              <span className="text-strong tabular-nums">{preview.volumeInFlOz.toLocaleString()} fl oz</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted">Volume out</span>
-              <span className="text-strong tabular-nums">{preview.producedVolumeFlOz.toLocaleString()} fl oz</span>
+              <span className="text-strong tabular-nums">{preview.volumeOutFlOz.toLocaleString()} fl oz</span>
             </div>
             <div className="flex justify-between text-sm font-semibold border-t border-line-strong pt-2 mt-1">
               <span className="text-body">Shrinkage</span>
-              <span className="text-accent tabular-nums">
-                {preview.shrinkageBbl.toFixed(3)} bbl ({(preview.shrinkageRatio * 100).toFixed(1)}%)
-              </span>
+              {/* Within rounding the two sides genuinely tie — three sixtels
+                  read as 1983 against a half keg's 1984 only because volumes are
+                  stored in whole fl oz. Showing "0.000 bbl" there would be
+                  false precision and "-0.000 bbl" would be nonsense. */}
+              {preview.withinRoundingSlack ? (
+                <span className="text-muted">none — volumes tie</span>
+              ) : (
+                <span className="text-accent tabular-nums">
+                  {preview.shrinkageBbl.toFixed(3)} bbl ({(preview.shrinkageRatio * 100).toFixed(1)}%)
+                </span>
+              )}
             </div>
           </div>
         )}

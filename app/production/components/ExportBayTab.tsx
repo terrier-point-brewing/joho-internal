@@ -666,7 +666,7 @@ export default function ExportBayTab() {
           </button>
           <button
             onClick={() => setShowTransform(true)}
-            title="Break cold-storage stock down into smaller packaging — e.g. a 1/2 keg into sixtels"
+            title="Repackage cold-storage stock into a different size — a 1/2 keg into sixtels, or sixtels into a 1/2 keg"
             className="btn-secondary"
           >
             ⇄ Transform Stock
