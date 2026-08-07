@@ -214,9 +214,14 @@ export function useColdStorageQuery() {
 
 // One row of the cold_storage_transforms journal — an internal reformatting of
 // finished goods already in cold storage. `kind` says what was physically
-// cracked: a keg transform is a human breaking a 1/2 keg down into sixtels and
-// LOSES volume; a pack break is applyBreakDown cracking a sealed case for a
-// taproom single and always conserves.
+// reshaped: a keg transform is a human splitting a 1/2 keg into sixtels or
+// combining sixtels back into one, and LOSES volume either way; a pack break is
+// applyBreakDown cracking a sealed case for a taproom single and always
+// conserves.
+//
+// shrinkage_fl_oz is the raw from-minus-to and can be a fluid ounce or two
+// negative on a build-up, where whole-fl-oz storage makes three 661s read as one
+// short of a 1984. Not beer — read it as zero.
 export interface ColdStorageAdjustment {
   id: string;
   occurred_at: string;
