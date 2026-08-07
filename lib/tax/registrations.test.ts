@@ -12,8 +12,8 @@ import {
 } from "./registrations";
 
 const sampleRegistrations: TaxRegistration[] = [
-  { id: "r1", authority_key: "irs", label: "Federal EIN (FEIN)", number: "12-3456789", display_order: 0, key: "fein" },
-  { id: "r2", authority_key: "nc_dor", label: "Account / License #", number: "NC-999", display_order: 0, key: "nc_dor_account_id" },
+  { id: "r1", authority_key: "irs", label: "Federal EIN (FEIN)", number: "12-3456789", display_order: 0, registration_kind: "fein" },
+  { id: "r2", authority_key: "nc_dor", label: "Account / License #", number: "NC-999", display_order: 0, registration_kind: "nc_dor_account_id" },
 ];
 
 describe("reconcileRegistrations", () => {
@@ -226,7 +226,7 @@ describe("BASE_REQUIRED_REGISTRATIONS", () => {
 });
 
 describe("resolveRequiredRegistrations", () => {
-  it("resolves a requirement to its matching (authority_key, key) row, including its id and number", () => {
+  it("resolves a requirement to its matching (authority_key, registration_kind) row, including its id and number", () => {
     const requirements: RequiredRegistration[] = [
       { authorityKey: "irs", registrationKey: "fein", label: "Federal EIN (FEIN)" },
     ];
@@ -246,13 +246,29 @@ describe("resolveRequiredRegistrations", () => {
     ]);
   });
 
-  it("matches by BOTH authority_key and key — a same-authority row with a different key must not match", () => {
+  it("matches by BOTH authority_key and registration_kind — a same-authority row with a different kind must not match", () => {
     const requirements: RequiredRegistration[] = [
       { authorityKey: "nc_dor", registrationKey: "some_other_key", label: "Something Else" },
     ];
     const result = resolveRequiredRegistrations(requirements, sampleRegistrations);
     expect(result[0].number).toBeNull();
     expect(result[0].id).toBeUndefined();
+  });
+
+  it("never matches a freeform row (registration_kind: null) to a requirement", () => {
+    // Freeform "Other" rows are stored with a null kind on purpose (see
+    // RegistrationsSection's handleSave). A requirement must not adopt one just
+    // because it shares the authority — that would silently bind an operator's
+    // hand-typed row to a filing's required field.
+    const freeform: TaxRegistration[] = [
+      { id: "r9", authority_key: "federal_ttb", label: "Account / License #", number: "TTB-12345", display_order: 0, registration_kind: null },
+    ];
+    const requirements: RequiredRegistration[] = [
+      { authorityKey: "federal_ttb", registrationKey: "ttb_permit_number", label: "TTB Brewer's Permit" },
+    ];
+    const result = resolveRequiredRegistrations(requirements, freeform);
+    expect(result[0].id).toBeUndefined();
+    expect(result[0].number).toBeNull();
   });
 
   it("dedupes requirements sharing the same (authorityKey, registrationKey), keeping the first occurrence's label", () => {
