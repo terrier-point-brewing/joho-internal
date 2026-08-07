@@ -8,12 +8,17 @@
  * this from there yet.
  */
 
+import { KEG_FL_OZ_BY_SIZE } from "@/lib/constants/production";
+
 export type InventoryUnit = "fl_oz" | "each";
 
+// Keyed by the size token as it appears in a Square variation name. The volumes
+// themselves come from lib/constants/production.ts — this table only maps a
+// name fragment onto a keg size, it does not get its own copy of the capacity.
 const KEG_FL_OZ: Record<string, number> = {
-  "1/2 Keg": 1984,
-  "1/4 Keg": 992,
-  "1/6 Keg": 661,
+  "1/2 Keg": KEG_FL_OZ_BY_SIZE.half,
+  "1/4 Keg": KEG_FL_OZ_BY_SIZE.quarter,
+  "1/6 Keg": KEG_FL_OZ_BY_SIZE.sixth,
 };
 
 const KEG_NAME = /\b(1\/2|1\/4|1\/6)\s*Keg\b/i;

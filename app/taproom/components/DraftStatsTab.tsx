@@ -211,9 +211,14 @@ export default function DraftStatsTab() {
 
   const [editingTaps, setEditingTaps] = useState(false);
   const [tapCountInput, setTapCountInput] = useState("");
+  // No swap_volume_fl_oz here: the recount target is the chosen keg variation's
+  // coded volume, so it is looked up from swap_variation_id at render time. When
+  // the editor carried its own copy, opening and saving the panel round-tripped
+  // whatever was already stored — which is how a legacy 660 outlived the 661 on
+  // the variation it pointed at.
   const [tapEdits, setTapEdits] = useState<Record<number, {
     recipe_id: string; label: string; restock_variation_id: string;
-    swap_variation_id: string; swap_volume_fl_oz: string;
+    swap_variation_id: string;
   }>>({});
   const [restockItemId, setRestockItemId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -272,13 +277,12 @@ export default function DraftStatsTab() {
     setRestockItemId(tapConfig?.draft_restock_item_id ?? "");
     const edits: Record<number, {
       recipe_id: string; label: string; restock_variation_id: string;
-      swap_variation_id: string; swap_volume_fl_oz: string;
+      swap_variation_id: string;
     }> = {};
     // Recipe/label come from the richest source; restock + swap config live only
     // on the tap-config payload, so key those in by tap number from there.
     const restockByTap = new Map((tapConfig?.taps ?? []).map((t) => [t.tap_number, t.restock_variation_id ?? ""]));
     const swapVarByTap = new Map((tapConfig?.taps ?? []).map((t) => [t.tap_number, t.swap_variation_id ?? ""]));
-    const swapVolByTap = new Map((tapConfig?.taps ?? []).map((t) => [t.tap_number, t.swap_volume_fl_oz != null ? String(t.swap_volume_fl_oz) : ""]));
     const src = stats?.taps ?? tapConfig?.taps ?? [];
     for (const t of src) {
       edits[t.tap_number] = {
@@ -286,7 +290,6 @@ export default function DraftStatsTab() {
         label: t.label ?? "",
         restock_variation_id: restockByTap.get(t.tap_number) ?? "",
         swap_variation_id: swapVarByTap.get(t.tap_number) ?? "",
-        swap_volume_fl_oz: swapVolByTap.get(t.tap_number) ?? "",
       };
     }
     setTapEdits(edits);
@@ -294,9 +297,9 @@ export default function DraftStatsTab() {
   }
 
   function getTapEdit(n: number) {
-    return tapEdits[n] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "", swap_volume_fl_oz: "" };
+    return tapEdits[n] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "" };
   }
-  function setTapEdit(n: number, field: "recipe_id" | "label" | "restock_variation_id" | "swap_variation_id" | "swap_volume_fl_oz", val: string) {
+  function setTapEdit(n: number, field: "recipe_id" | "label" | "restock_variation_id" | "swap_variation_id", val: string) {
     setTapEdits((e) => ({ ...e, [n]: { ...getTapEdit(n), [field]: val } }));
   }
 
@@ -319,12 +322,12 @@ export default function DraftStatsTab() {
 
   // Fill each tap's swap keg from its recipe's on-hand cold-storage kegs: the
   // sole SKU when there's one, else the largest-volume. Never clobbers a manual
-  // pick, and auto-fills the recount volume when empty.
+  // pick. Picking the keg IS picking the recount volume — nothing else to fill.
   function autoMapKegs() {
     setTapEdits((prev) => {
       const next = { ...prev };
       for (let n = 1; n <= (tapsToRender.length || 0); n++) {
-        const cur = next[n] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "", swap_volume_fl_oz: "" };
+        const cur = next[n] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "" };
         if (!cur.recipe_id || cur.swap_variation_id) continue;
         const kegs = kegOptionsByRecipe.get(cur.recipe_id) ?? [];
         if (kegs.length === 0) continue;
@@ -334,12 +337,7 @@ export default function DraftStatsTab() {
         const pick = pool.length === 1
           ? pool[0]
           : [...pool].sort((a, b) => (codedVolumeFor(b) ?? 0) - (codedVolumeFor(a) ?? 0))[0];
-        const vol = codedVolumeFor(pick);
-        next[n] = {
-          ...cur,
-          swap_variation_id: pick.variation_id,
-          swap_volume_fl_oz: vol != null ? String(vol) : "",
-        };
+        next[n] = { ...cur, swap_variation_id: pick.variation_id };
       }
       return next;
     });
@@ -349,14 +347,13 @@ export default function DraftStatsTab() {
     setSaving(true);
     const count = parseInt(tapCountInput) || 8;
     const taps = Array.from({ length: count }, (_, i) => {
-      const e = tapEdits[i + 1] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "", swap_volume_fl_oz: "" };
+      const e = tapEdits[i + 1] ?? { recipe_id: "", label: "", restock_variation_id: "", swap_variation_id: "" };
       return {
         tap_number: i + 1,
         recipe_id: e.recipe_id || null,
         label: e.label || null,
         restock_variation_id: e.restock_variation_id || null,
         swap_variation_id: e.swap_variation_id || null,
-        swap_volume_fl_oz: e.swap_volume_fl_oz ? Number(e.swap_volume_fl_oz) : null,
       };
     });
     try {
@@ -710,13 +707,7 @@ export default function DraftStatsTab() {
                               value={edit.swap_variation_id}
                               disabled={!edit.recipe_id}
                               title="Keg variation drained when this tap is swapped"
-                              onChange={(e) => {
-                                const opt = kegs.find((k) => k.variation_id === e.target.value);
-                                setTapEdit(tapNum, "swap_variation_id", e.target.value);
-                                // Recount target always comes from the keg's coded volume.
-                                const vol = opt ? codedVolumeFor(opt) : null;
-                                setTapEdit(tapNum, "swap_volume_fl_oz", vol != null ? String(vol) : "");
-                              }}
+                              onChange={(e) => setTapEdit(tapNum, "swap_variation_id", e.target.value)}
                             >
                               <option value="">— keg to drain —</option>
                               {kegs.map((k) => (
@@ -733,9 +724,15 @@ export default function DraftStatsTab() {
                           <div className="space-y-1">
                             <label className="block text-xs text-secondary">Full-keg volume — recount target</label>
                             <p className="text-xs text-body tabular-nums px-1 py-1" title="From the selected keg's packaging variation — not editable">
-                              {edit.swap_volume_fl_oz
-                                ? `${Number(edit.swap_volume_fl_oz).toLocaleString()} fl oz`
-                                : <span className="text-faint">— select a keg —</span>}
+                              {(() => {
+                                // Read straight off the currently selected keg, so what
+                                // this shows is what the recount will actually use.
+                                const picked = kegs.find((k) => k.variation_id === edit.swap_variation_id);
+                                const vol = picked ? codedVolumeFor(picked) : null;
+                                return vol != null
+                                  ? `${vol.toLocaleString()} fl oz`
+                                  : <span className="text-faint">— select a keg —</span>;
+                              })()}
                             </p>
                           </div>
                         </>

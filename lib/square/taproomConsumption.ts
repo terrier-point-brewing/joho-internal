@@ -147,7 +147,7 @@ export interface TapRestockLink {
   recipeId: string | null;
   beerName: string;
   swapVariationId: string | null;   // cold-storage packaging variation to drain
-  swapVolumeFlOz: number | null;    // full-keg recount target
+  swapVolumeFlOz: number | null;    // full-keg recount target — that variation's coded volume
 }
 
 /**
@@ -335,8 +335,9 @@ interface TapAssignmentRow {
   recipe_id: string | null;
   restock_variation_id: string | null;
   swap_variation_id: string | null;
-  swap_volume_fl_oz: number | null;
   recipes: { beer_name: string } | null;
+  // The swap keg's own coded volume — the recount target, joined not stored.
+  packaging_variations: { total_volume_fl_oz: number | null } | null;
 }
 
 /**
@@ -398,7 +399,10 @@ export async function deriveTaproomConsumption(
   // have a restock line configured).
   const { data: tapRows, error: tapErr } = await supabase
     .from("tap_assignments")
-    .select("tap_number, recipe_id, restock_variation_id, swap_variation_id, swap_volume_fl_oz, recipes(beer_name)");
+    // Plain embed for the swap keg's volume — one FK into packaging_variations,
+    // so unlike the tap_swap_transitions read below there is nothing to
+    // disambiguate and no constraint name to depend on.
+    .select("tap_number, recipe_id, restock_variation_id, swap_variation_id, recipes(beer_name), packaging_variations(total_volume_fl_oz)");
   if (tapErr) throw new Error(tapErr.message);
 
   const tapRestockLinks: TapRestockLink[] = [];
@@ -410,7 +414,7 @@ export async function deriveTaproomConsumption(
       recipeId: t.recipe_id,
       beerName: t.recipes?.beer_name ?? "",
       swapVariationId: t.swap_variation_id,
-      swapVolumeFlOz: t.swap_volume_fl_oz,
+      swapVolumeFlOz: t.packaging_variations?.total_volume_fl_oz ?? null,
     });
   }
 

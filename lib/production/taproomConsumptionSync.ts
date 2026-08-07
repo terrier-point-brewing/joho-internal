@@ -277,13 +277,14 @@ async function consumeSwapTransition(
   if (claimErr) throw new Error(`swap claim failed: ${claimErr.message}`);
   if ((claimedRows ?? []).length === 0) return { claimed: false, overdraftFlOz: 0, discrepancies };
 
-  // The keg physically changed, so the tap now pours the incoming beer.
+  // The keg physically changed, so the tap now pours the incoming beer. Only the
+  // variation moves — the recount target follows it, joined from that variation
+  // wherever it is read, so there is no second copy here to fall out of step.
   const { error: flipErr } = await supabase
     .from("tap_assignments")
     .update({
       recipe_id:         swap.toRecipeId,
       swap_variation_id: swap.toVariationId,
-      swap_volume_fl_oz: swap.toVolumeFlOz,
       updated_at:        nowIso,
     })
     .eq("tap_number", swap.tapNumber);
