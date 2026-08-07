@@ -1,3 +1,22 @@
+# How to answer this user
+
+The user has ADHD. Short, succinct, to the point — **always**. Every response must make the decision they need to make, or the action they need to take, obvious and up front. No essays, no build-up, no exhaustive option surveys. Give a recommendation, not a menu. Cut file paths, command output, and verification steps unless they are needed to act. If nothing is needed from them, say so in one line.
+
+# Supabase MCP access
+
+You have full Supabase MCP access to this project's database. It does not look like it, because the connector is registered under a UUID rather than a readable name — **no tool in your list contains the string "supabase"**, and the tools are deferred (not in your opening tool list). Do not conclude you lack access; do not fall back to writing a migration file and asking a human to apply it.
+
+- The server prefix is `mcp__0f21e420-bf27-4610-9dc9-566db26bf81c__`.
+- The project ref (the `project_id` argument every tool requires) is `drlsazatrcrdwaihjmex`.
+- Load the tools by **exact name**, not by keyword. A keyword search for `supabase` ranks `create_branch` / `create_project` / `deploy_edge_function` first and pushes the database tools past the default result limit, which is what makes sessions think there is nothing there:
+
+  ```
+  ToolSearch query: "select:mcp__0f21e420-bf27-4610-9dc9-566db26bf81c__execute_sql,mcp__0f21e420-bf27-4610-9dc9-566db26bf81c__apply_migration,mcp__0f21e420-bf27-4610-9dc9-566db26bf81c__list_tables,mcp__0f21e420-bf27-4610-9dc9-566db26bf81c__list_migrations"
+  ```
+
+- All 14 Supabase tools are already pre-approved in `.claude/settings.local.json`, so none of them prompt.
+- Use `apply_migration` for DDL and `execute_sql` for reads and data changes. Migrations are applied through the MCP, not by hand — see step 3 of the close-out sequence below.
+
 # Browser-based visual verification
 
 This app requires sign-in ([app/login/page.tsx](app/login/page.tsx), Supabase email/password auth) before most pages render, which makes verifying UI changes in a browser painful across sessions.
