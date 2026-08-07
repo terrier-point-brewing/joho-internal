@@ -11,7 +11,7 @@ import FilterSelect from "@/app/components/ui/FilterSelect";
 
 interface DepositBreakdownLine {
   id: string; ingredient_name: string; unit: string;
-  quantity_per_bbl: number; cost_per_unit: number; line_total_cents: number; sort_order: number;
+  quantity_per_bbl: number; cost_per_unit_usd: number; line_total_cents: number; sort_order: number;
 }
 interface DepositInvoiceListItem {
   id: string; invoice_number: string | null; invoice_date: string | null;
@@ -87,7 +87,7 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
                 <tr key={l.id} className="border-b border-line/50 last:border-0">
                   <td className="py-1 text-strong">{l.ingredient_name}</td>
                   <td className="py-1 text-right text-secondary">{l.quantity_per_bbl} {l.unit}</td>
-                  <td className="py-1 text-right text-secondary">{fmtUsd(l.cost_per_unit)}</td>
+                  <td className="py-1 text-right text-secondary">{fmtUsd(l.cost_per_unit_usd)}</td>
                   <td className="py-1 text-right text-body">{fmtUsd(l.line_total_cents / 100)}</td>
                 </tr>
               ))}

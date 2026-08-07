@@ -48,7 +48,7 @@ export async function GET() {
       ),
       export_invoice_material_components(
         id, recipe_id, beer_name, variant_label, packaging_format, packages,
-        units_per_package, component_role, component_name, unit_cost,
+        units_per_package, component_role, component_name, unit_cost_usd,
         quantity_used, line_total_cents, sort_order
       ),
       contract_brewing_partners!partner_id(company_name)

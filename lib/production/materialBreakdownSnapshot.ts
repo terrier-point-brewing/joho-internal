@@ -17,7 +17,7 @@ export interface MaterialComponentRow {
   units_per_package: number;
   component_role: string;
   component_name: string;
-  unit_cost: number | null;
+  unit_cost_usd: number | null;
   quantity_used: number;
   line_total_cents: number;
   sort_order: number;
@@ -43,7 +43,7 @@ export function flattenMaterialBreakdowns(breakdowns: MaterialLineBreakdown[]): 
           units_per_package: txn.unitsPerPackage,
           component_role: c.role,
           component_name: c.name,
-          unit_cost: c.unitCostDollars,
+          unit_cost_usd: c.unitCostDollars,
           quantity_used: c.quantity,
           line_total_cents: c.extendedCents,
           sort_order: rows.length,

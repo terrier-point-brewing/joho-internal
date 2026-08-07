@@ -51,7 +51,7 @@ const EMPTY_FORM = {
   name: "",
   partner_id: "",
   supplier_id: "",
-  unit_cost: "",
+  unit_cost_usd: "",
   volume_fl_oz: "",
   can_count: "",
   is_default: false,
@@ -145,7 +145,7 @@ export default function PackagingTab() {
       name:        item.name,
       partner_id:  item.partner_id  ?? "",
       supplier_id: item.supplier_id ?? "",
-      unit_cost:   item.unit_cost != null ? String(item.unit_cost) : "",
+      unit_cost_usd:   item.unit_cost_usd != null ? String(item.unit_cost_usd) : "",
       volume_fl_oz: item.volume_fl_oz != null ? String(item.volume_fl_oz) : "",
       can_count:   item.can_count != null ? String(item.can_count) : "",
       is_default:  item.is_default,
@@ -163,7 +163,7 @@ export default function PackagingTab() {
         type: item.type, name: item.name,
         partner_id: item.partner_id || null,
         supplier_id: item.supplier_id || null,
-        unit_cost: item.unit_cost, volume_fl_oz: item.volume_fl_oz,
+        unit_cost_usd: item.unit_cost_usd, volume_fl_oz: item.volume_fl_oz,
         can_count: item.can_count, is_default: newDefault,
       }),
     });
@@ -186,7 +186,7 @@ export default function PackagingTab() {
         name:        form.name,
         partner_id:  form.partner_id  || null,
         supplier_id: form.supplier_id || null,
-        unit_cost:   form.unit_cost ? parseFloat(form.unit_cost) : null,
+        unit_cost_usd:   form.unit_cost_usd ? parseFloat(form.unit_cost_usd) : null,
         volume_fl_oz: needsVolume(form.type) && form.volume_fl_oz ? parseFloat(form.volume_fl_oz) : null,
         can_count:   needsCanCount(form.type) && form.can_count ? parseInt(form.can_count) : null,
         is_default:  form.is_default,
@@ -296,8 +296,8 @@ export default function PackagingTab() {
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap">
-                            {item.unit_cost != null
-                              ? formatUnitCost(Number(item.unit_cost))
+                            {item.unit_cost_usd != null
+                              ? formatUnitCost(Number(item.unit_cost_usd))
                               : "—"}
                           </td>
                           <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap">
@@ -389,8 +389,8 @@ export default function PackagingTab() {
             </div>
 
             <Field label="Unit Cost ($)">
-              <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000" value={form.unit_cost}
-                onChange={(e) => setForm((f) => ({ ...f, unit_cost: e.target.value }))} />
+              <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000" value={form.unit_cost_usd}
+                onChange={(e) => setForm((f) => ({ ...f, unit_cost_usd: e.target.value }))} />
             </Field>
             <div className="rounded bg-accent-muted/20 border border-accent-border/40 px-3 py-2 text-xs text-accent-soft">
               Unit cost must be the <strong>landed cost</strong> — include freight and shipping. Use stock adjustments (Received) to recalculate this automatically when new inventory arrives.
@@ -454,7 +454,7 @@ export default function PackagingTab() {
               </div>
               <div>
                 <p className="text-xs text-muted mb-0.5">Unit cost</p>
-                <p className="text-primary font-medium">{adjItem.unit_cost != null ? formatUnitCost(Number(adjItem.unit_cost)) : "—"}</p>
+                <p className="text-primary font-medium">{adjItem.unit_cost_usd != null ? formatUnitCost(Number(adjItem.unit_cost_usd)) : "—"}</p>
               </div>
             </div>
 

@@ -249,15 +249,15 @@ export async function buildExciseTaxLines(
 // otherwise-valid invoice. Exported for unit testing.
 const MATERIAL_SLOT_SELECT = `
   packaging_variations!inner(
-    container:packaging_items!packaging_variations_container_id_fkey(name, unit_cost, can_count, type),
-    lid:packaging_items!packaging_variations_lid_id_fkey(name, unit_cost),
-    label:packaging_items!packaging_variations_label_id_fkey(name, unit_cost),
-    paktech:packaging_items!packaging_variations_paktech_id_fkey(name, unit_cost, can_count),
-    tray:packaging_items!packaging_variations_tray_id_fkey(name, unit_cost, can_count)
+    container:packaging_items!packaging_variations_container_id_fkey(name, unit_cost_usd, can_count, type),
+    lid:packaging_items!packaging_variations_lid_id_fkey(name, unit_cost_usd),
+    label:packaging_items!packaging_variations_label_id_fkey(name, unit_cost_usd),
+    paktech:packaging_items!packaging_variations_paktech_id_fkey(name, unit_cost_usd, can_count),
+    tray:packaging_items!packaging_variations_tray_id_fkey(name, unit_cost_usd, can_count)
   )
 `;
 
-interface SlotItem { name: string; unit_cost: number | null; can_count?: number | null }
+interface SlotItem { name: string; unit_cost_usd: number | null; can_count?: number | null }
 
 // Map a resolved variation's populated slot items to priced material components.
 function slotComponents(pv: Record<string, SlotItem | null>): MaterialComponent[] {
@@ -268,7 +268,7 @@ function slotComponents(pv: Record<string, SlotItem | null>): MaterialComponent[
   for (const [slot, role] of roleBySlot) {
     const item = pv[slot];
     if (!item) continue; // slot not populated on this variation
-    out.push({ role, name: item.name, unitCostDollars: item.unit_cost, canCount: item.can_count ?? null });
+    out.push({ role, name: item.name, unitCostDollars: item.unit_cost_usd, canCount: item.can_count ?? null });
   }
   return out;
 }

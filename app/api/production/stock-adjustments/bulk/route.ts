@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const { data: ingredientsData, error: fetchErr } = await supabase
     .from("ingredients")
-    .select("id, stock_quantity, cost_per_unit, unit")
+    .select("id, stock_quantity, cost_per_unit_usd, unit")
     .in("id", ids);
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
 
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     const { landedCostPerUnit, newStock, newCostPerUnit } = computeReceivedAdjustment({
       currentStock: current.stock_quantity ?? 0,
-      currentCostPerUnit: current.cost_per_unit ?? null,
+      currentCostPerUnit: current.cost_per_unit_usd ?? null,
       quantity,
       purchaseCost,
       shippingCost,
@@ -75,9 +75,9 @@ export async function POST(req: NextRequest) {
       type: "received",
       quantity,
       note: null,
-      cost_per_unit: purchaseCost,
-      total_value_change: quantity * landedCostPerUnit,
-      shipping_cost: shippingCost > 0 ? shippingCost : null,
+      cost_per_unit_usd: purchaseCost,
+      total_value_change_usd: quantity * landedCostPerUnit,
+      shipping_cost_usd: shippingCost > 0 ? shippingCost : null,
       unit: current.unit,
     });
     if (adjErr) { errors.push({ ingredient_id: line.ingredient_id, error: adjErr.message }); continue; }
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     const { error: costErr } = await supabase
       .from("ingredients")
-      .update({ cost_per_unit: newCostPerUnit })
+      .update({ cost_per_unit_usd: newCostPerUnit })
       .eq("id", line.ingredient_id);
     if (costErr) { errors.push({ ingredient_id: line.ingredient_id, error: costErr.message }); continue; }
 

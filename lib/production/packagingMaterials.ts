@@ -14,7 +14,7 @@ export type MaterialRole = "container" | "lid" | "label" | "paktech" | "tray";
 export interface MaterialComponent {
   role: MaterialRole;
   name: string;
-  unitCostDollars: number | null; // packaging_items.unit_cost
+  unitCostDollars: number | null; // packaging_items.unit_cost_usd
   canCount: number | null; // packaging_items.can_count (paktech/tray)
 }
 

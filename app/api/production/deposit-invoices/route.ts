@@ -22,7 +22,7 @@ export async function GET() {
       id, invoice_number, invoice_date, customer_name, partner_id,
       status, source, square_invoice_id, total_cents,
       deposit_invoice_ingredients(
-        id, ingredient_name, unit, quantity_per_bbl, cost_per_unit, line_total_cents, sort_order
+        id, ingredient_name, unit, quantity_per_bbl, cost_per_unit_usd, line_total_cents, sort_order
       ),
       contract_brewing_partners!partner_id(company_name),
       batch_allocations!allocation_id(

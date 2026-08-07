@@ -32,7 +32,7 @@ describe("computeMaterialCost", () => {
     expect(computeMaterialCost([txn])).toEqual({ totalCents: 1496, missingCostNames: [] });
   });
 
-  it("null unit_cost on a consumed component → billed $0 and named once (deduped)", () => {
+  it("null unit_cost_usd on a consumed component → billed $0 and named once (deduped)", () => {
     const noCostCan = { role: "container" as const, name: "12oz Can", unitCostDollars: null, canCount: null };
     const t1: MaterialTxnInput = { format: "loose", packages: 100, unitsPerPackage: 1, components: [noCostCan, lid] };
     const t2: MaterialTxnInput = { format: "loose", packages: 50, unitsPerPackage: 1, components: [noCostCan, lid] };

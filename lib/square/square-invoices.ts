@@ -23,7 +23,7 @@ export interface DepositCalculation {
     ingredient_id: string;
     name: string;
     quantity_per_bbl: number;
-    cost_per_unit: number;
+    cost_per_unit_usd: number;
     unit: string;
     line_total_usd: number;
   }>;
@@ -78,7 +78,7 @@ interface SquareOrderGetResponse {
 
 /**
  * Computes the ingredient deposit amount for a given allocation.
- * Formula: sum(ri.quantity_per_bbl × i.cost_per_unit) × batch.volume_bbl × (percentage / 100)
+ * Formula: sum(ri.quantity_per_bbl × i.cost_per_unit_usd) × batch.volume_bbl × (percentage / 100)
  */
 export async function calculateIngredientDeposit(
   supabase: SupabaseClient,
@@ -96,7 +96,7 @@ export async function calculateIngredientDeposit(
 
   const { data: recipeIngredients, error: riErr } = await supabase
     .from("recipe_ingredients")
-    .select("quantity_per_bbl, ingredients(id, name, unit, cost_per_unit)")
+    .select("quantity_per_bbl, ingredients(id, name, unit, cost_per_unit_usd)")
     .eq("recipe_id", batch.recipe_id);
 
   if (riErr) throw new Error(`Failed to fetch recipe ingredients: ${riErr.message}`);
@@ -108,11 +108,11 @@ export async function calculateIngredientDeposit(
   const breakdown: DepositCalculation["breakdown"] = [];
 
   for (const ri of rows) {
-    const ing = ri.ingredients as unknown as { id: string; name: string; unit: string; cost_per_unit: number | null } | null;
-    if (!ing || ing.cost_per_unit == null) continue;
+    const ing = ri.ingredients as unknown as { id: string; name: string; unit: string; cost_per_unit_usd: number | null } | null;
+    if (!ing || ing.cost_per_unit_usd == null) continue;
 
     const qtyPerBbl = Number(ri.quantity_per_bbl);
-    const costPerUnit = Number(ing.cost_per_unit);
+    const costPerUnit = Number(ing.cost_per_unit_usd);
     const lineTotal = qtyPerBbl * costPerUnit * volumeBbl;
 
     totalIngredientCostUsd += lineTotal;
@@ -120,14 +120,14 @@ export async function calculateIngredientDeposit(
       ingredient_id: ing.id,
       name: ing.name,
       quantity_per_bbl: qtyPerBbl,
-      cost_per_unit: costPerUnit,
+      cost_per_unit_usd: costPerUnit,
       unit: ing.unit,
       line_total_usd: lineTotal,
     });
   }
 
   const depositUsd = totalIngredientCostUsd * (percentage / 100);
-  // UNIT CROSSING: ingredient cost math runs in decimal USD dollars (cost_per_unit
+  // UNIT CROSSING: ingredient cost math runs in decimal USD dollars (cost_per_unit_usd
   // is a decimal column); Square invoice amounts are integer cents. Round → cents.
   const depositCents = dollarsToCents(depositUsd);
 

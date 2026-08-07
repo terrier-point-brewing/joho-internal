@@ -462,13 +462,13 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function calcToBreakdownInputs(calc: { breakdown: Array<{ ingredient_id: string; name: string; unit: string; quantity_per_bbl: number; cost_per_unit: number; line_total_usd: number }> }): BreakdownInput[] {
+function calcToBreakdownInputs(calc: { breakdown: Array<{ ingredient_id: string; name: string; unit: string; quantity_per_bbl: number; cost_per_unit_usd: number; line_total_usd: number }> }): BreakdownInput[] {
   return calc.breakdown.map((b) => ({
     ingredient_id: b.ingredient_id,
     name: b.name,
     unit: b.unit,
     quantity_per_bbl: b.quantity_per_bbl,
-    cost_per_unit: b.cost_per_unit,
+    cost_per_unit_usd: b.cost_per_unit_usd,
     weight: b.line_total_usd, // full-batch cost; volume/% cancel under scaling
   }));
 }

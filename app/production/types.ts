@@ -33,7 +33,7 @@ export interface PackagingItem {
   is_default: boolean;
   requires_label: boolean;
   stock_quantity: number;
-  unit_cost: number | null;
+  unit_cost_usd: number | null;
   volume_fl_oz: number | null;
   can_count: number | null;
   partner_id: string | null;
@@ -91,9 +91,9 @@ export interface PackagingStockAdjustment {
   quantity: number;
   type: PackagingAdjustmentType;
   note: string | null;
-  cost_per_unit: number | null;
-  total_value_change: number | null;
-  shipping_cost: number | null;
+  cost_per_unit_usd: number | null;
+  total_value_change_usd: number | null;
+  shipping_cost_usd: number | null;
   /** FK to the batch_transfer that triggered a "used" deduction, if any. */
   batch_transfer_id: string | null;
   created_at: string;
@@ -193,7 +193,7 @@ export interface Ingredient {
   /** Joined from contract_brewing_partners */
   contract_brewing_partners?: { company_name: string } | null;
   unit: string;
-  cost_per_unit: number | null;
+  cost_per_unit_usd: number | null;
   stock_quantity: number;
   alpha_acid: number | null;
   color_lovibond: number | null;
@@ -207,9 +207,9 @@ export interface StockAdjustment {
   type: AdjustmentType;
   note: string | null;
   batch_id: string | null;
-  cost_per_unit: number | null;
-  total_value_change: number | null;
-  shipping_cost: number | null;
+  cost_per_unit_usd: number | null;
+  total_value_change_usd: number | null;
+  shipping_cost_usd: number | null;
   /** Snapshot of the ingredient's unit at the time of the adjustment (e.g. "lbs", "oz"). */
   unit: string | null;
   created_at: string;

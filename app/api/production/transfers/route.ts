@@ -121,7 +121,7 @@ async function processTransferLine(
             await supabase.from("packaging_stock_adjustments").insert({
               packaging_item_id: d.id, quantity: -d.qty, type: "used",
               note: `${transfer_type === "kegging" ? "Kegging" : "Canning"} (${d.label}) — batch ${batch_id}`,
-              batch_transfer_id: transferRow.id, cost_per_unit: null, total_value_change: null,
+              batch_transfer_id: transferRow.id, cost_per_unit_usd: null, total_value_change_usd: null,
             });
           }
         }

@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { type, name, partner_id, supplier_id, unit_cost, volume_fl_oz, can_count, is_default } = body;
+  const { type, name, partner_id, supplier_id, unit_cost_usd, volume_fl_oz, can_count, is_default } = body;
 
   // Non-keg types: one default per type — clear existing default first
   if (is_default && type !== "keg") {
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       name,
       partner_id: partner_id || null,
       supplier_id: supplier_id || null,
-      unit_cost: unit_cost != null ? parseFloat(unit_cost) : null,
+      unit_cost_usd: unit_cost_usd != null ? parseFloat(unit_cost_usd) : null,
       volume_fl_oz: volume_fl_oz != null ? parseFloat(volume_fl_oz) : null,
       can_count: can_count != null ? parseInt(can_count) : null,
       is_default: is_default ?? false,

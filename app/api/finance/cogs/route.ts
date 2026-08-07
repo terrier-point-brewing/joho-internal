@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   let ingQuery = supabase
     .from("stock_adjustments")
     .select(`
-      id, batch_id, quantity, cost_per_unit, total_value_change, unit, created_at,
+      id, batch_id, quantity, cost_per_unit_usd, total_value_change_usd, unit, created_at,
       ingredients ( name, category ),
       brew_batches ( beer_name, batch_number )
     `)
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   let pkgQuery = supabase
     .from("packaging_stock_adjustments")
     .select(`
-      id, packaging_item_id, quantity, cost_per_unit, total_value_change, created_at,
+      id, packaging_item_id, quantity, cost_per_unit_usd, total_value_change_usd, created_at,
       packaging_items ( name, type )
     `)
     .eq("type", "used")
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     category:    (r.ingredients as { category?: string } | null)?.category ?? null,
     quantity:    r.quantity,
     unit:        r.unit,
-    cost_per_unit: r.cost_per_unit,
+    cost_per_unit_usd: r.cost_per_unit_usd,
     total_cost:  adjustmentCost(r),
     date:        r.created_at,
     type:        "ingredient" as const,
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
     category:     (r.packaging_items as { type?: string } | null)?.type ?? null,
     quantity:     r.quantity,
     unit:         null,
-    cost_per_unit: r.cost_per_unit,
+    cost_per_unit_usd: r.cost_per_unit_usd,
     total_cost:   adjustmentCost(r),
     date:         r.created_at,
     type:         "packaging" as const,
