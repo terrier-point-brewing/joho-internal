@@ -35,6 +35,8 @@ export interface CatalogSyncResult {
   deletionPassSkipped?: string;
   /** Renames that would have moved a stored volume. Reported for a human. */
   volumeMismatches: VolumeMismatch[];
+  /** Set when the link FK backfill failed. Non-fatal, but never silent. */
+  linkBackfillError?: string;
 }
 
 export interface CatalogSyncOptions {
@@ -293,9 +295,20 @@ export async function syncSquareCatalog(
 
   // Resolve catalog_variation_id on any link that lacks one — including links
   // re-pointed at a variation the mirror had not yet seen.
-  // Fire-and-forget; a failed backfill is not worth failing the sync over.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  void (db as any).rpc("backfill_recipe_link_variation_ids");
+  //
+  // AWAITED, not fired and forgotten. A supabase-js builder is lazy: the request
+  // is only sent when something calls `then`, so the previous `void db.rpc(...)`
+  // never issued it at all. The backfill had therefore never run from a sync,
+  // and 42 of 115 links sat with a null catalog_variation_id while every one of
+  // them was resolvable. Still non-fatal — a failed backfill is not worth losing
+  // the sync over — but now it fails loudly instead of silently not happening.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (db as any).rpc("backfill_recipe_link_variation_ids");
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    result.linkBackfillError = e instanceof Error ? e.message : String(e);
+  }
 
   return result;
 }

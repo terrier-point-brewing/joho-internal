@@ -56,7 +56,7 @@ function fakeDb(opts: { rows?: Record<string, { id: string }[]>; existing?: Exis
         return chain;
       },
     }),
-    rpc: (fn: string) => { rpcs.push(fn); return Promise.resolve({ error: null }); },
+    rpc: (fn: string) => { rpcs.push(fn); return Promise.resolve({ data: null, error: null }); },
   };
   return { db, upserts, updates, rpcs };
 }
@@ -130,6 +130,32 @@ describe("syncSquareCatalog", () => {
     await syncSquareCatalog(db);
 
     expect(rpcs).toContain("backfill_recipe_link_variation_ids");
+  });
+
+  // A supabase-js builder is lazy — it only issues its request when something
+  // calls `then`. The call used to be `void db.rpc(...)`, which never awaited and
+  // so never sent anything; the backfill had never once run from a sync, leaving
+  // 42 of 115 links with a null FK that was resolvable the whole time.
+  it("awaits the backfill so it actually runs, and reports a failure instead of swallowing it", async () => {
+    const rpcs: string[] = [];
+    const db = {
+      from: () => ({
+        select: () => ({ in: () => ({ data: [], error: null }) }),
+        upsert: (rows: Record<string, unknown>[]) => ({
+          select: () => ({ data: rows.map((_, i) => ({ id: `x-${i}` })), error: null }),
+        }),
+        update: () => { const c = { lt: () => c, eq: () => c, select: () => ({ data: [], error: null }) }; return c; },
+      }),
+      rpc: (fn: string) => { rpcs.push(fn); return Promise.resolve({ data: null, error: { message: "denied" } }); },
+    };
+    fetchItems.mockResolvedValue([ITEM]);
+    fetchCategories.mockResolvedValue([]);
+    fetchTaxes.mockResolvedValue([]);
+
+    const result = await syncSquareCatalog(db);
+
+    expect(rpcs).toContain("backfill_recipe_link_variation_ids");
+    expect(result.linkBackfillError).toBe("denied");
   });
 });
 
