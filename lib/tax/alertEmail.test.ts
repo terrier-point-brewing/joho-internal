@@ -20,7 +20,7 @@ const sampleParty: TaxPartyTemplate = {
 
 const sampleSchedule: TaxSchedule = {
   id: "SCHED_1",
-  party_key: "nc_dor_sales_use",
+  filing_key: "nc_dor_sales_use",
   frequency: "monthly",
   lead_days: 7,
   active: true,
@@ -32,7 +32,7 @@ const sampleSchedule: TaxSchedule = {
 const sampleTask: TaxTask = {
   id: "TASK_1",
   schedule_id: "SCHED_1",
-  party_key: "nc_dor_sales_use",
+  filing_key: "nc_dor_sales_use",
   period_start: "2026-06-01",
   period_end: "2026-06-30",
   due_date: "2026-07-20",

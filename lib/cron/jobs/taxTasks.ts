@@ -57,7 +57,7 @@ export async function runTaxTasks(supabase: SupabaseClient) {
     }
 
     try {
-      const party = getParty(task.party_key);
+      const party = getParty(task.filing_key);
       const { subject, html } = renderTaxAlertEmail(task, party, schedule);
       await sendEmail(ADMIN_EMAIL, subject, html);
       await markAlerted(supabase, task.id);

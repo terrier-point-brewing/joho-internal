@@ -7,8 +7,8 @@ import { listSquareTaxUsage } from "./squareTaxUsage";
  * Both chains terminate on `.in(...)`, so that's where the awaited value lives.
  */
 function stubSb(tables: {
-  tax_schedules?: { party_key: string }[];
-  tax_filing_profiles?: { party_key: string; values: Record<string, string> | null }[];
+  tax_schedules?: { filing_key: string }[];
+  tax_filing_profiles?: { filing_key: string; values: Record<string, string> | null }[];
   error?: { table: string; message: string };
 }): SupabaseClient {
   return {
@@ -32,11 +32,11 @@ const FOOD_BEV = "ARI25PLSGLDVIBUQITKTRNSX";
 describe("listSquareTaxUsage", () => {
   it("counts every active filing referencing a tax, including the same tax used by two parties", async () => {
     const usage = await listSquareTaxUsage(stubSb({
-      tax_schedules: [{ party_key: "nc_dor_sales_use" }, { party_key: "wake_county_food_beverage" }],
+      tax_schedules: [{ filing_key: "nc_dor_sales_use" }, { filing_key: "wake_county_food_beverage" }],
       tax_filing_profiles: [
-        { party_key: "nc_dor_sales_use", values: { general_sales_tax_id: GENERAL } },
+        { filing_key: "nc_dor_sales_use", values: { general_sales_tax_id: GENERAL } },
         {
-          party_key: "wake_county_food_beverage",
+          filing_key: "wake_county_food_beverage",
           values: { food_beverage_tax_id: FOOD_BEV, general_sales_tax_id: GENERAL },
         },
       ],
@@ -60,10 +60,10 @@ describe("listSquareTaxUsage", () => {
   it("ignores a party whose schedules are all inactive", async () => {
     // The stub returns only what an `active = true` filter would have matched.
     const usage = await listSquareTaxUsage(stubSb({
-      tax_schedules: [{ party_key: "wake_county_food_beverage" }],
+      tax_schedules: [{ filing_key: "wake_county_food_beverage" }],
       tax_filing_profiles: [
-        { party_key: "nc_dor_sales_use", values: { general_sales_tax_id: GENERAL } },
-        { party_key: "wake_county_food_beverage", values: { food_beverage_tax_id: FOOD_BEV } },
+        { filing_key: "nc_dor_sales_use", values: { general_sales_tax_id: GENERAL } },
+        { filing_key: "wake_county_food_beverage", values: { food_beverage_tax_id: FOOD_BEV } },
       ],
     }));
 
@@ -73,8 +73,8 @@ describe("listSquareTaxUsage", () => {
 
   it("omits taxes with no reference rather than mapping them to an empty list", async () => {
     const usage = await listSquareTaxUsage(stubSb({
-      tax_schedules: [{ party_key: "nc_dor_sales_use" }],
-      tax_filing_profiles: [{ party_key: "nc_dor_sales_use", values: {} }],
+      tax_schedules: [{ filing_key: "nc_dor_sales_use" }],
+      tax_filing_profiles: [{ filing_key: "nc_dor_sales_use", values: {} }],
     }));
 
     expect(usage.size).toBe(0);
@@ -82,9 +82,9 @@ describe("listSquareTaxUsage", () => {
 
   it("skips a blank stored value instead of counting an empty tax id", async () => {
     const usage = await listSquareTaxUsage(stubSb({
-      tax_schedules: [{ party_key: "wake_county_food_beverage" }],
+      tax_schedules: [{ filing_key: "wake_county_food_beverage" }],
       tax_filing_profiles: [
-        { party_key: "wake_county_food_beverage", values: { food_beverage_tax_id: "", general_sales_tax_id: GENERAL } },
+        { filing_key: "wake_county_food_beverage", values: { food_beverage_tax_id: "", general_sales_tax_id: GENERAL } },
       ],
     }));
 
@@ -94,7 +94,7 @@ describe("listSquareTaxUsage", () => {
 
   it("tolerates a party with no stored profile at all", async () => {
     const usage = await listSquareTaxUsage(stubSb({
-      tax_schedules: [{ party_key: "nc_dor_sales_use" }],
+      tax_schedules: [{ filing_key: "nc_dor_sales_use" }],
       tax_filing_profiles: [],
     }));
 
@@ -103,7 +103,7 @@ describe("listSquareTaxUsage", () => {
 
   it("throws rather than under-reporting when a query fails", async () => {
     await expect(listSquareTaxUsage(stubSb({
-      tax_schedules: [{ party_key: "nc_dor_sales_use" }],
+      tax_schedules: [{ filing_key: "nc_dor_sales_use" }],
       error: { table: "tax_filing_profiles", message: "boom" },
     }))).rejects.toThrow("boom");
   });

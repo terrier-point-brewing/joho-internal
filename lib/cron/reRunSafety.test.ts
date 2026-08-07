@@ -110,7 +110,7 @@ const stubTaxParty: TaxPartyTemplate = {
 function stubSchedule(): TaxSchedule {
   return {
     id: "sched-1",
-    party_key: stubTaxParty.key,
+    filing_key: stubTaxParty.key,
     frequency: "monthly",
     lead_days: 7,
     active: true,

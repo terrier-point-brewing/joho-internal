@@ -54,12 +54,12 @@ export interface WorksheetData {
 }
 
 export interface TaxSchedule {
-  id: string; party_key: string; frequency: Frequency;
+  id: string; filing_key: string; frequency: Frequency;
   lead_days: number; active: boolean; config: Record<string, unknown>;
   created_at: string; updated_at: string;
 }
 export interface TaxTask {
-  id: string; schedule_id: string; party_key: string;
+  id: string; schedule_id: string; filing_key: string;
   period_start: string; period_end: string; due_date: string;
   status: TaxTaskStatus; alert_sent_at: string | null;
   worksheet: WorksheetData | null;

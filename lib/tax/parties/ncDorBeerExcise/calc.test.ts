@@ -225,7 +225,7 @@ describe("computeBeerExciseWorksheet fallback", () => {
     const ctx: ComputeContext = {
       schedule: {
         id: "s1",
-        party_key: "nc_dor_beer_excise",
+        filing_key: "nc_dor_beer_excise",
         frequency: "monthly",
         lead_days: 10,
         active: true,
@@ -245,7 +245,7 @@ describe("computeBeerExciseWorksheet fallback", () => {
     const ctx: ComputeContext = {
       schedule: {
         id: "s1",
-        party_key: "nc_dor_beer_excise",
+        filing_key: "nc_dor_beer_excise",
         frequency: "monthly",
         lead_days: 10,
         active: true,
@@ -265,7 +265,7 @@ describe("computeBeerExciseWorksheet fallback", () => {
     const ctx: ComputeContext = {
       schedule: {
         id: "s1",
-        party_key: "nc_dor_beer_excise",
+        filing_key: "nc_dor_beer_excise",
         frequency: "monthly",
         lead_days: 10,
         active: true,
@@ -283,7 +283,7 @@ describe("computeBeerExciseWorksheet fallback", () => {
 
   it("flag_timely is 1 when computed before the period's due date", async () => {
     const ctx: ComputeContext = {
-      schedule: { id: "s1", party_key: "nc_dor_beer_excise", frequency: "monthly", lead_days: 10, active: true, config: {}, created_at: "", updated_at: "" },
+      schedule: { id: "s1", filing_key: "nc_dor_beer_excise", frequency: "monthly", lead_days: 10, active: true, config: {}, created_at: "", updated_at: "" },
       profile: {},
       period,
     };
@@ -293,7 +293,7 @@ describe("computeBeerExciseWorksheet fallback", () => {
 
   it("flag_timely is 0 when computed after the period's due date", async () => {
     const ctx: ComputeContext = {
-      schedule: { id: "s1", party_key: "nc_dor_beer_excise", frequency: "monthly", lead_days: 10, active: true, config: {}, created_at: "", updated_at: "" },
+      schedule: { id: "s1", filing_key: "nc_dor_beer_excise", frequency: "monthly", lead_days: 10, active: true, config: {}, created_at: "", updated_at: "" },
       profile: {},
       period,
     };

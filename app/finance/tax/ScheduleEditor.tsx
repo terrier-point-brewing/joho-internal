@@ -35,7 +35,7 @@ function seedRule(sched: TaxSchedule | null, party: TaxPartyMeta | undefined, fr
 }
 
 export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: ScheduleEditorProps) {
-  const [partyKey, setPartyKey] = useState(schedule?.party_key ?? parties[0]?.key ?? "");
+  const [partyKey, setPartyKey] = useState(schedule?.filing_key ?? parties[0]?.key ?? "");
   const selectedParty = parties.find((p) => p.key === partyKey);
 
   const [frequency, setFrequency] = useState<Frequency>(
@@ -102,7 +102,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
 
       const body = schedule
         ? { frequency, lead_days: Number(leadDays) || 0, config, active }
-        : { party_key: partyKey, frequency, lead_days: Number(leadDays) || 0, config };
+        : { filing_key: partyKey, frequency, lead_days: Number(leadDays) || 0, config };
 
       const res = schedule
         ? await fetch(`/api/tax/schedules/${schedule.id}`, {

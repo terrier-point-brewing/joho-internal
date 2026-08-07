@@ -84,15 +84,15 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
   });
   const partiesQuery = useTaxPartiesQuery();
   const task = taskQuery.data;
-  const party = partiesQuery.data?.find((p) => p.key === task?.party_key);
+  const party = partiesQuery.data?.find((p) => p.key === task?.filing_key);
   // Once a task is completed/submitted, its figures must be frozen — no
   // autosave PATCH, no recompute POST, no editable manual fields.
   const isCompleted = task?.status === "completed";
 
   const profileQuery = useQuery({
-    queryKey: queryKeys.tax.profile(task?.party_key ?? ""),
-    queryFn: () => fetchJson<Record<string, string>>(`/api/tax/profiles/${task!.party_key}`),
-    enabled: !!task?.party_key,
+    queryKey: queryKeys.tax.profile(task?.filing_key ?? ""),
+    queryFn: () => fetchJson<Record<string, string>>(`/api/tax/profiles/${task!.filing_key}`),
+    enabled: !!task?.filing_key,
   });
   const entityProfileQuery = useEntityProfileQuery();
   const representativeQuery = useLegalRepresentativeQuery();
@@ -247,14 +247,14 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
         <FinanceNav mobile />
         <BackLink href="/finance/tax?tab=open" label="Tax" />
         <PageHeader
-          title={party?.label ?? task.party_key}
+          title={party?.label ?? task.filing_key}
           description={`Period ${fmtDateLong(task.period_start)} – ${fmtDateLong(task.period_end)} · Due ${fmtDateLong(task.due_date)}`}
         />
       </StickyHeader>
 
       <div className="pb-4 sm:pb-8">
         <IdentityHeader
-          partyKey={task.party_key}
+          partyKey={task.filing_key}
           schema={party?.settingsSchema ?? []}
           values={profileQuery.data}
           entity={entityProfileQuery.data}
@@ -299,7 +299,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
               readOnly={isCompleted}
             />
           ) : (
-            <p className="text-sm text-faint">No worksheet UI registered for &ldquo;{task.party_key}&rdquo;.</p>
+            <p className="text-sm text-faint">No worksheet UI registered for &ldquo;{task.filing_key}&rdquo;.</p>
           )}
         </Card>
 
