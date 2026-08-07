@@ -1,7 +1,7 @@
-import { createClient } from "@supabase/supabase-js";
 import { unstable_cache } from "next/cache";
 import type { BrandCanon } from "./canon.types";
 import { seedCanon } from "./seedCanon";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 interface SupabaseLikeClient {
   from(table: string): {
@@ -60,18 +60,30 @@ export const seedFallbackClient: SupabaseLikeClient = {
   },
 };
 
-// Cookieless anon client. Published canon is readable by anon (RLS allows
-// SELECT where status='published'), so reading it touches no cookies()/
-// headers() — that's what keeps consumers (root layout, pages) statically
-// renderable instead of forcing the whole route tree dynamic.
-function createCookielessClient(): SupabaseLikeClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
+// Service-role client. The canon is presentation config the server renders
+// into <head> before it knows who is asking — BrandStyle/BrandChrome run in
+// the root layout on every route — so the read is a server concern and never
+// a per-user one. It used to go through the cookieless ANON client, which
+// meant brand_canon_versions had to stay readable over the public Data API
+// purely so the app could style its own pages. Reading it with the service
+// role instead let that policy be dropped entirely (see
+// 20261003090001_brand_tables_service_role_only.sql).
+//
+// Still cookieless, so the "no cookies()/headers()" property the anon client
+// was chosen for is preserved. (That property no longer decides anything on
+// its own: the root layout's getSessionUser() already opts the whole tree
+// into dynamic rendering — see app/layout.tsx.)
+//
+// Same shape as getBrandChromeEnabled() in lib/settings/brandChrome.server.ts,
+// which is the sibling read in this very layout: the root layout is
+// prerendered at build time (incl. /_not-found) where the service-role key is
+// absent and createSupabaseAdminClient() would throw, so guard on the key and
+// fall back to the seed there.
+function createServiceRoleClient(): SupabaseLikeClient {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return seedFallbackClient;
   }
-  const client = createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } });
-  return client as unknown as SupabaseLikeClient;
+  return createSupabaseAdminClient() as unknown as SupabaseLikeClient;
 }
 
 // Cached across requests under the 'brand-canon' tag. Phase 1's canon editor
@@ -87,8 +99,11 @@ function createCookielessClient(): SupabaseLikeClient {
 //
 // Five minutes is the trade: a schema-level change surfaces on its own without
 // a redeploy, and a UI publish is still instant via revalidateTag.
+// Not per-user, and never was: the cache key is constant because the canon is
+// the same document for every caller. Switching the client to service-role
+// doesn't change that — it only changes which credential fetches it.
 const fetchCanonCached = unstable_cache(
-  async () => getCanonFrom(createCookielessClient()),
+  async () => getCanonFrom(createServiceRoleClient()),
   ["brand-canon"],
   { tags: ["brand-canon"], revalidate: 300 },
 );
