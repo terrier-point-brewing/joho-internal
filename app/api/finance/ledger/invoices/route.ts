@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     .select(`
       *,
       contract_brewing_partners(company_name),
-      invoice_line_items!invoice_line_items_invoice_id_fkey( id, sort_order, line_item_name, description, note, category, quantity, unit_price_cents, discount_cents, net_sales_cents, total_cents, variation_name, square_catalog_variation_id, chart_of_accounts_id, chart_of_accounts!invoice_line_items_chart_of_accounts_id_fkey( id, account_name, account_number, account_type ) ),
+      invoice_line_items!invoice_line_items_invoice_id_fkey( id, sort_order, line_item_name, note, category, quantity, unit_price_cents, discount_cents, net_sales_cents, total_cents, variation_name, square_catalog_variation_id, chart_of_accounts_id, chart_of_accounts!invoice_line_items_chart_of_accounts_id_fkey( id, account_name, account_number, account_type ) ),
       invoice_batch_links(count)
     `)
     .order("invoice_date", { ascending: false });
@@ -117,7 +117,10 @@ export async function POST(req: NextRequest) {
         inv.line_items.map((li) => ({
           invoice_id:       invRow.id,
           sort_order:       li.sort_order,
-          description:      li.description,
+          // Imported rows have no Square catalog identity, so `line_item_name`
+          // stays null and the imported text lands in `note` — the same shape
+          // every other manually-entered line has.
+          note:             li.description,
           category:         classifyLineItem(li.description ?? ""),
           quantity:         li.quantity,
           unit_price_cents: li.unit_price_cents,

@@ -78,14 +78,40 @@ export function resolvePosBackfill(
   return updates;
 }
 
+/** A line item, as far as the label index cares. */
+export interface InvoiceLabelSource {
+  line_item_name: string | null;
+  variation_name?: string | null;
+  note: string | null;
+}
+
+/**
+ * The text key a line is matched on when it has no catalog variation to match by.
+ *
+ * Catalog-backed lines compose it from the atoms Square gave us, which is exactly
+ * the shape `autoMapInvoiceLineItems` builds its catalog-variation index under
+ * ("Item Name — Variation Name"). Manual lines have no catalog identity, so their
+ * note IS the label. This used to read a stored `description` column that held
+ * the same two things; composing on demand means the key cannot go stale when an
+ * item is renamed in the catalog.
+ */
+export function invoiceLineLabel(item: InvoiceLabelSource): string | null {
+  if (item.line_item_name) {
+    return item.variation_name
+      ? `${item.line_item_name} — ${item.variation_name}`
+      : item.line_item_name;
+  }
+  return item.note;
+}
+
 /**
  * Invoice line items: map from the line's own catalog variation id first (the
- * reliable key — a line carries its Square variation even when its description is
- * a free-text label), falling back to a description(lowercased) → CoA index for
+ * reliable key — a line carries its Square variation even when its label is
+ * free text), falling back to a label(lowercased) → CoA index for
  * manual/QuickBooks lines that have no variation.
  */
 export function resolveInvoiceBackfill(
-  allItems: { id: string; description: string | null; square_catalog_variation_id?: string | null; chart_of_accounts_id: string | null }[],
+  allItems: (InvoiceLabelSource & { id: string; square_catalog_variation_id?: string | null; chart_of_accounts_id: string | null })[],
   descToCoa: Map<string, string>,
   coaByVarId?: Map<string, string>,
 ): { id: string; chart_of_accounts_id: string }[] {
@@ -94,8 +120,9 @@ export function resolveInvoiceBackfill(
     if (item.chart_of_accounts_id) continue;
     const byVar = item.square_catalog_variation_id ? coaByVarId?.get(item.square_catalog_variation_id) : undefined;
     if (byVar) { updates.push({ id: item.id, chart_of_accounts_id: byVar }); continue; }
-    if (!item.description) continue;
-    const coaId = descToCoa.get(item.description.trim().toLowerCase());
+    const label = invoiceLineLabel(item);
+    if (!label) continue;
+    const coaId = descToCoa.get(label.trim().toLowerCase());
     if (coaId) updates.push({ id: item.id, chart_of_accounts_id: coaId });
   }
   return updates;
@@ -168,9 +195,9 @@ export async function autoMapPosLineItems(
 
 /**
  * IO wrapper for `POST /api/finance/ledger/invoices/auto-map`. Reproduces the
- * route's two-source description index (mapped siblings + catalog-variation
+ * route's two-source label index (mapped siblings + catalog-variation
  * mappings), adding an optional `variationIds` narrowing that restricts which
- * variation-derived descriptions are added to the index.
+ * variation-derived labels are added to the index.
  */
 export async function autoMapInvoiceLineItems(
   supabase: AdminClient,
@@ -178,7 +205,7 @@ export async function autoMapInvoiceLineItems(
 ): Promise<{ mapped: number; errors?: string[] }> {
   const { data: allItems, error } = await supabase
     .from("invoice_line_items")
-    .select("id, description, square_catalog_variation_id, chart_of_accounts_id, invoices!invoice_line_items_invoice_id_fkey!inner(invoice_date)")
+    .select("id, line_item_name, variation_name, note, square_catalog_variation_id, chart_of_accounts_id, invoices!invoice_line_items_invoice_id_fkey!inner(invoice_date)")
     .gte("invoices.invoice_date", `${opts.year}-01-01`)
     .lte("invoices.invoice_date", `${opts.year}-12-31`);
   if (error) throw new Error(error.message);
@@ -186,12 +213,13 @@ export async function autoMapInvoiceLineItems(
 
   const descToCoa = new Map<string, string>();
   // Variation-primary index: a line's own catalog variation → CoA (takes priority
-  // over description). Built from the same variation rows the description index uses.
+  // over the label). Built from the same variation rows the label index uses.
   const coaByVarId = new Map<string, string>();
-  // Source 1: description → CoA from already-mapped siblings.
+  // Source 1: label → CoA from already-mapped siblings.
   for (const item of allItems) {
-    if (item.chart_of_accounts_id && item.description) {
-      descToCoa.set(item.description.trim().toLowerCase(), item.chart_of_accounts_id as string);
+    const label = invoiceLineLabel(item);
+    if (item.chart_of_accounts_id && label) {
+      descToCoa.set(label.trim().toLowerCase(), item.chart_of_accounts_id as string);
     }
   }
   // Source 2: catalog variation mappings, keyed "item_name — variation_name" and plain item_name.

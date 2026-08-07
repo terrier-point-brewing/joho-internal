@@ -401,7 +401,7 @@ describe("syncSquareOrders — invoice-backed orders", () => {
 
     await syncSquareOrders(d.client, [withCarveOut]);
 
-    expect(lines(d).map((r) => [r.sort_order, r.description])).toEqual([[0, "Packaging Fee"], [1, "Delivery Fee"]]);
+    expect(lines(d).map((r) => [r.sort_order, r.line_item_name])).toEqual([[0, "Packaging Fee"], [1, "Delivery Fee"]]);
   });
 
   it("rebuilds the invoice's tax rows, which this path used to leave to somebody else", async () => {
