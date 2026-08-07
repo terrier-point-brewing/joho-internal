@@ -1,5 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { deriveTaproomConsumption, type ConsumptionKind, type AssemblyDiscrepancy } from "@/lib/square/taproomConsumption";
+import { deriveTaproomConsumption, trailingWindow, type ConsumptionKind, type AssemblyDiscrepancy } from "@/lib/square/taproomConsumption";
 import { setPhysicalCount, fetchCurrentCounts } from "@/lib/square/inventory";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
 import { pushInventoryToSquare } from "@/lib/production/pushInventoryToSquare";
@@ -97,8 +97,35 @@ export interface TaproomSyncResult {
   windowDays: number;
   /** True when another sync run held the lease lock and this run skipped entirely. */
   lockSkipped: boolean;
+  /**
+   * The span of Square activity this run actually inspected, or `null` when it
+   * never got to look because another run held the lease.
+   *
+   * A safety net that reports only what it recorded cannot be audited: "recorded
+   * 0" is what a healthy night looks like when the webhook already booked
+   * everything, and it is also what a run looking at the wrong window, or at
+   * nothing at all, looks like. Between 2026-07-06 and 2026-08-06 every one of
+   * the 25 successful nightly runs reported `recordedUnits: 0` while 55 units
+   * sat unbooked, and nothing in the summary could tell those two states apart.
+   * The window plus `unitsExamined` below are what make them distinguishable.
+   */
+  window: import("@/lib/square/taproomConsumption").ConsumptionWindow | null;
+  /** Consumption units the window yielded — the population the counters below partition. */
+  unitsExamined: number;
   recorded: RecordedLine[];
   recordedUnits: number;
+  /**
+   * Units that needed nothing because `export_transactions` already covered them.
+   * This is the healthy steady state behind the webhook.
+   */
+  alreadyRecorded: number;
+  /**
+   * Units this run tried to book and got nothing for. Distinct from
+   * `alreadyRecorded` in the one way that matters: something was owed and the
+   * run failed to book it, which is a fault rather than a no-op.
+   */
+  bookedNothing: number;
+  /** `alreadyRecorded + bookedNothing`. Retained so existing readers keep working. */
   skipped: number;
   totalRecordedQty: number;
   recountsApplied: number;
@@ -396,16 +423,19 @@ export async function runTaproomConsumptionSync(
   });
   if (lockErr) throw new Error(`taproom sync lock acquire failed: ${lockErr.message}`);
   if (!acquired) {
+    // `window: null` is the whole point: this run inspected nothing, which must
+    // not read like a run that inspected a window and found it clean.
     return {
-      shipmentId, windowDays: days, lockSkipped: true,
-      recorded: [], recordedUnits: 0, skipped: 0, totalRecordedQty: 0,
+      shipmentId, windowDays: days, lockSkipped: true, window: null, unitsExamined: 0,
+      recorded: [], recordedUnits: 0, alreadyRecorded: 0, bookedNothing: 0, skipped: 0, totalRecordedQty: 0,
       recountsApplied: 0, swapsConsumed: 0, packsBrokenDown: 0, packagingWarnings: [], discrepancies: [],
       squareWriteback: { applied: 0, planned: [], warnings: [], pushEnabled: PUSH_TO_SQUARE_ENABLED },
     };
   }
 
   try {
-  const { units, discrepancies: configDiscrepancies } = await deriveTaproomConsumption(supabase, { days });
+  const window = trailingWindow(new Date(), days);
+  const { units, discrepancies: configDiscrepancies } = await deriveTaproomConsumption(supabase, { days, window });
 
   const refs = [...new Set(units.map((u) => u.sourceRef))];
   const recorded = refs.length ? await recordedByRef(supabase, refs) : new Map<string, number>();
@@ -415,7 +445,8 @@ export async function runTaproomConsumptionSync(
   const recountWarnings: SyncDiscrepancy[] = [];
   const shrinkageWarnings: SyncDiscrepancy[] = [];
   const swapWarnings: SyncDiscrepancy[] = [];
-  let skipped = 0;
+  let alreadyRecorded = 0;
+  let bookedNothing = 0;
   let totalRecordedQty = 0;
   let recountsApplied = 0;
   let swapsConsumed = 0;
@@ -443,9 +474,9 @@ export async function runTaproomConsumptionSync(
   }
 
   for (const u of units) {
-    const alreadyRecorded = recorded.get(u.sourceRef) ?? 0;
-    const delta = remainingDelta(u.quantity, alreadyRecorded);
-    if (delta <= 0) { skipped++; continue; }
+    const unitAlreadyRecorded = recorded.get(u.sourceRef) ?? 0;
+    const delta = remainingDelta(u.quantity, unitAlreadyRecorded);
+    if (delta <= 0) { alreadyRecorded++; continue; }
 
     const res = await recordTaproomConsumption(supabase, {
       shipmentId,
@@ -475,7 +506,10 @@ export async function runTaproomConsumptionSync(
       totalRecordedQty += res.recordedQty;
 
     } else {
-      skipped++;
+      // Something was owed for this unit and none of it landed. Counted apart
+      // from `alreadyRecorded` — folding the two together is what let a run that
+      // booked nothing read exactly like a run with nothing to book.
+      bookedNothing++;
     }
 
     // Pour volume recorded beyond what the outgoing keg could hold — the mark of a
@@ -488,7 +522,7 @@ export async function runTaproomConsumptionSync(
     // (write off the pulled keg against the OLD beer, zero its Square draft SKU),
     // flip the tap and un-retire the incoming beer. Gated exactly like the recount
     // below so a unit that books nothing never claims.
-    if (u.swap && alreadyRecorded === 0 && res.recordedQty + res.shortfallQty > EPS) {
+    if (u.swap && unitAlreadyRecorded === 0 && res.recordedQty + res.shortfallQty > EPS) {
       const outcome = await consumeSwapTransition(
         supabase,
         u.swap,
@@ -505,13 +539,13 @@ export async function runTaproomConsumptionSync(
     }
 
     // Restock-driven swaps carry a recount. Fire it once — on the first run
-    // that durably records this swap (alreadyRecorded === 0), whether that
+    // that durably records this swap (unitAlreadyRecorded === 0), whether that
     // record was physical, phantom, or both — so the mapped draft SKU is
     // reset to full in Square even when cold storage had nothing to
     // physically deplete. Tying it to a persisted shipment row guarantees
-    // fire-once: subsequent runs see alreadyRecorded > 0 and skip.
+    // fire-once: subsequent runs see unitAlreadyRecorded > 0 and skip.
     // Best-effort: a Square failure is flagged, never fatal.
-    if (u.recount && alreadyRecorded === 0 && res.recordedQty + res.shortfallQty > EPS) {
+    if (u.recount && unitAlreadyRecorded === 0 && res.recordedQty + res.shortfallQty > EPS) {
       // Shrinkage for the keg that just blew: its full volume less every pour
       // transaction recorded since this tap's previous restock. The measurement
       // is unconditional (the overdraft has to be netted out of the recount
@@ -600,7 +634,7 @@ export async function runTaproomConsumptionSync(
     // Monotonic: a late-arriving older ring in the trailing window must not drag
     // the anchor backwards. Best-effort — a failure here only costs the next
     // keg's measurement its preferred path, and it falls back cleanly.
-    if (u.kind === "draft_swap" && u.tapNumber != null && alreadyRecorded === 0
+    if (u.kind === "draft_swap" && u.tapNumber != null && unitAlreadyRecorded === 0
         && res.recordedQty + res.shortfallQty > EPS) {
       const prior = lastRestockByTap.get(u.tapNumber) ?? null;
       if (!prior || restockAt > prior) {
@@ -673,9 +707,13 @@ export async function runTaproomConsumptionSync(
     shipmentId,
     windowDays: days,
     lockSkipped: false,
+    window,
+    unitsExamined: units.length,
     recorded: recordedLines,
     recordedUnits: recordedLines.length,
-    skipped,
+    alreadyRecorded,
+    bookedNothing,
+    skipped: alreadyRecorded + bookedNothing,
     totalRecordedQty: Math.round(totalRecordedQty * 10000) / 10000,
     recountsApplied,
     swapsConsumed,

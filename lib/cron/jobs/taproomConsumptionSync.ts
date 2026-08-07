@@ -19,10 +19,99 @@ import { fetchUnemailedPhantomAlerts, markPhantomAlertsEmailed } from "@/lib/pro
 import { renderPhantomAlertEmail } from "@/lib/production/phantomAlertEmail";
 import { sendEmail, ADMIN_EMAIL } from "@/lib/resend";
 
-const WINDOW_DAYS = 2;
+const JOB = "taproom-consumption-sync";
+
+/**
+ * Baseline look-back.
+ *
+ * Was 2 days, on the reasoning that the webhook books in real time and the cron
+ * only has to cover the last night. That holds only while every miss is a
+ * one-off. The misses this job exists to catch are not: a `recipe_square_links`
+ * row pointing at a Square variation that had been deleted and recreated hid
+ * Epic Hazy and Wiggo can sales for nine days (#387), and seven consecutive
+ * failed runs (2026-07-11 → 07-17) hid everything rung in that week. A 2-day
+ * window had already moved past both by the time anything ran successfully
+ * again, so the loss was permanent and silent.
+ *
+ * The sync records only `target − already_recorded` per source_ref, so a wider
+ * window re-derives more and writes exactly the same rows. The cost is a larger
+ * Square order page and a few more no-op comparisons; 40 days measured as three
+ * pages. Two weeks buys the slack to survive an outage that lasts a working week.
+ */
+const WINDOW_DAYS = 14;
+
+/**
+ * Ceiling on the catch-up widening below, so a long silence (a job disabled for
+ * a month, a restored-from-cold environment) cannot turn one night into an
+ * unbounded Square scan. A gap this large is a human's problem, not a cron's —
+ * the Export Bay's on-demand sync takes an explicit `?days=N` for that.
+ */
+const MAX_CATCHUP_DAYS = 45;
+
+export interface WindowPlan {
+  days: number;
+  /** End of the last window that was actually inspected, or null if unknown. */
+  coveredThrough: string | null;
+  /** True when the baseline was widened to reach back to `coveredThrough`. */
+  widened: boolean;
+}
+
+/**
+ * Choose this run's look-back so it reaches back to the last window that was
+ * genuinely inspected.
+ *
+ * The old job asked for a fixed 2 days every night regardless of what the
+ * previous night managed, which meant a failed run silently handed its days to
+ * nobody. Anchoring on the last *inspected* window instead makes the next
+ * successful run absorb the gap: seven failed nights become one 8-day window
+ * rather than seven days that no run ever looks at again.
+ *
+ * Only runs that recorded a window count as inspected — a run that threw, or one
+ * that skipped because another sync held the lease, never looked at anything and
+ * must not be allowed to advance the anchor.
+ */
+export async function planWindow(supabase: SupabaseClient, now: Date): Promise<WindowPlan> {
+  const { data, error } = await supabase
+    .from("cron_runs")
+    .select("detail")
+    .eq("job", JOB)
+    .eq("status", "success")
+    .not("detail->window->>endIso", "is", null)
+    .order("started_at", { ascending: false })
+    .limit(1);
+
+  // Best-effort: if the anchor can't be read we still run, just on the baseline.
+  // A missing anchor must never be the reason the safety net doesn't fire.
+  if (error) return { days: WINDOW_DAYS, coveredThrough: null, widened: false };
+
+  const row = (data ?? [])[0] as { detail?: { window?: { endIso?: string } } } | undefined;
+  const coveredThrough = row?.detail?.window?.endIso ?? null;
+  if (!coveredThrough) return { days: WINDOW_DAYS, coveredThrough: null, widened: false };
+
+  const gapMs = now.getTime() - Date.parse(coveredThrough);
+  if (!Number.isFinite(gapMs)) return { days: WINDOW_DAYS, coveredThrough, widened: false };
+
+  // +1 day of overlap: `trailingWindow` floors the start to a UTC day boundary,
+  // and the anchor is a mid-day instant, so covering the gap exactly could leave
+  // the hours either side of the boundary unexamined.
+  const gapDays = Math.ceil(gapMs / 86400000) + 1;
+  const days = Math.min(MAX_CATCHUP_DAYS, Math.max(WINDOW_DAYS, gapDays));
+  return { days, coveredThrough, widened: days > WINDOW_DAYS };
+}
 
 export async function runTaproomConsumptionJob(supabase: SupabaseClient) {
-  const result = await runTaproomConsumptionSync(supabase, { days: WINDOW_DAYS });
+  const plan = await planWindow(supabase, new Date());
+  const result = await runTaproomConsumptionSync(supabase, { days: plan.days });
+
+  // A run that never looked is a failed run, not a quiet one. Reported as an
+  // error so it lands in cron_runs with `status: error` and no window — which
+  // both surfaces it in the monitor and leaves the catch-up anchor where it was,
+  // so tomorrow's run widens to cover tonight instead of writing it off.
+  if (result.lockSkipped) {
+    throw new Error(
+      "taproom consumption sync skipped: another sync run held the lease, so no window was inspected",
+    );
+  }
 
   // Best-effort daily digest of open phantom-export alerts (draft swaps that
   // booked excise with no cold-storage stock). Email failure must not fail the
@@ -40,5 +129,5 @@ export async function runTaproomConsumptionJob(supabase: SupabaseClient) {
     phantomDigest = { error: err instanceof Error ? err.message : String(err) };
   }
 
-  return { ...result, phantomDigest };
+  return { ...result, catchUp: plan, phantomDigest };
 }

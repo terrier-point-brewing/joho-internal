@@ -6,7 +6,10 @@ import { it, expect, vi } from "vitest";
 // path (recordTaproomConsumption + setPhysicalCount) is untouched as the
 // shrinkage-capture source moves underneath it: ledger reconstruction → Square's
 // calculated on-hand → summed pour transactions.
-vi.mock("@/lib/square/taproomConsumption", () => ({ deriveTaproomConsumption: vi.fn() }));
+vi.mock("@/lib/square/taproomConsumption", async (orig) => ({
+  ...(await orig<typeof import("@/lib/square/taproomConsumption")>()),
+  deriveTaproomConsumption: vi.fn(),
+}));
 vi.mock("@/lib/production/recordTaproomConsumption", () => ({ recordTaproomConsumption: vi.fn() }));
 vi.mock("@/lib/square/inventory", () => ({ setPhysicalCount: vi.fn(), fetchCurrentCounts: vi.fn(), fetchPhysicalCounts: vi.fn() }));
 vi.mock("@/lib/production/reconcileSquareCanInventory", () => ({ reconcileSquareCanInventory: vi.fn(async () => ({ writes: [], skips: [], warnings: [], applied: 0 })) }));
