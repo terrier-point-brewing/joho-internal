@@ -1,5 +1,5 @@
 // The general-purpose provider: sums sign-normalized amounts from
-// pos_line_items, invoice_line_items, expenses and ramp_bank_ledger rows
+// pos_line_items, invoice_line_items, expenses and bank_ledger rows
 // DIRECTLY tagged to a balance-sheet account's chart_of_accounts_id (no
 // catalog-prefill fallback -- that's a P&L-page convenience, not a posted
 // GL fact), dated on or before periodEnd. Reuses normalizeSignedCents (the
@@ -186,7 +186,7 @@ async function sumRefunds(supabase: SupabaseClient, coaId: string, periodEnd: st
 }
 
 /**
- * ramp_bank_ledger carries more than one source. `include_in_gl` is what says
+ * bank_ledger carries more than one source. `include_in_gl` is what says
  * whether a row is an accounting fact or merely an imported bank line.
  *
  * Ramp's rows default to true and are unaffected. Plaid's Chase rows are
@@ -207,7 +207,7 @@ async function sumBank(supabase: SupabaseClient, coaId: string, periodEnd: strin
   const rows = await fetchAllRows<{ amount_cents: number | null } & InclusionFacts>(() =>
     inclusion.applyTo(
       supabase
-        .from("ramp_bank_ledger")
+        .from("bank_ledger")
         .select(`amount_cents, ${INCLUSION_COLUMNS}`)
         .eq("chart_of_accounts_id", coaId)
         .lte("transaction_date", periodEnd)

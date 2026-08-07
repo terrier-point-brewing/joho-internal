@@ -13,7 +13,7 @@ type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 /** Apply per-row CoA updates in bounded parallel chunks. Returns { mapped, errors? }. */
 async function applyLineItemUpdates(
   supabase: AdminClient,
-  table: "pos_line_items" | "invoice_line_items" | "ramp_bank_ledger",
+  table: "pos_line_items" | "invoice_line_items" | "bank_ledger",
   updates: { id: string; chart_of_accounts_id: string }[],
   extra?: Record<string, unknown>,
 ): Promise<{ mapped: number; errors?: string[] }> {
@@ -297,7 +297,7 @@ export async function autoMapBankLedger(
   // mean the moment anyone opted a source in, a backlog of rows would already
   // be mapped by a rule nobody applied to them on purpose.
   let rowQuery = supabase
-    .from("ramp_bank_ledger")
+    .from("bank_ledger")
     .select("id, source, counterparty_key, mapping_source, chart_of_accounts_id")
     .is("chart_of_accounts_id", null)
     .eq("include_in_gl", true)
@@ -328,5 +328,5 @@ export async function autoMapBankLedger(
     (cpRules ?? []).map((r) => [counterpartyRuleKey(r.source as string, r.counterparty_key as string), r.chart_of_accounts_id as string]),
   );
   const updates = resolveBankBackfill(rows, rules);
-  return applyLineItemUpdates(supabase, "ramp_bank_ledger", updates, { mapping_source: "rule" });
+  return applyLineItemUpdates(supabase, "bank_ledger", updates, { mapping_source: "rule" });
 }

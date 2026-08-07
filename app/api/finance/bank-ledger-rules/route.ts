@@ -68,7 +68,7 @@ export async function GET() {
   // rows here would hide the only thing the screen is for.
   const rows = await fetchAllRows<LedgerFacts>(() =>
     supabase
-      .from("ramp_bank_ledger")
+      .from("bank_ledger")
       .select("source, counterparty_key, counterparty_name, include_in_gl, transaction_date")
       .order("id", { ascending: true }),
   );

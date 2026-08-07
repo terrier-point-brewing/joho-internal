@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   // lines that are deliberately not accounting facts would make the real work
   // unfindable. Surfacing and mapping them is the separate GL Mapping work.
   let query = supabase
-    .from("ramp_bank_ledger")
+    .from("bank_ledger")
     .select(`id, source_transaction_id, amount_cents, currency_code, description, counterparty_name, source_account_name, destination_account_name, flow_type, affects_pl, transaction_date, qb_sync_status, qb_synced_at, qb_remote_id, chart_of_accounts_id, mapping_source, unmapped_accepted`)
     .eq("include_in_gl", true)
     .order("transaction_date", { ascending: false, nullsFirst: false });
@@ -49,7 +49,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const supabase = createSupabaseAdminClient();
-  const { data, error } = await supabase.from("ramp_bank_ledger").update(patch).eq("id", body.id).select("id, flow_type, affects_pl, chart_of_accounts_id, mapping_source, unmapped_accepted").single();
+  const { data, error } = await supabase.from("bank_ledger").update(patch).eq("id", body.id).select("id, flow_type, affects_pl, chart_of_accounts_id, mapping_source, unmapped_accepted").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }

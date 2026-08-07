@@ -444,7 +444,7 @@ describe("aggregateRows", () => {
     expect(exp.amountCentsByMonth["2026-01"]).toBe(-1500);
     expect(exp.mappingSource).toBe("rule");
 
-    const bank = rows.find((r) => r.sourceRef.table === "ramp_bank_ledger")!;
+    const bank = rows.find((r) => r.sourceRef.table === "bank_ledger")!;
     expect(bank.coaId).toBeNull();
     expect(bank.mappingSource).toBe("unmapped");
     expect(bank.amountCentsByMonth["2026-02"]).toBe(500);

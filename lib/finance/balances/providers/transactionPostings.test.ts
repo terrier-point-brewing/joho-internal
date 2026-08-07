@@ -1,5 +1,5 @@
 // Sums sign-normalized amounts from pos_line_items/invoice_line_items/
-// expenses/ramp_bank_ledger rows directly tagged to a BS account, using the
+// expenses/bank_ledger rows directly tagged to a BS account, using the
 // real normalizeSignedCents so the sign math can't drift from the
 // consolidated-financials aggregation path it replaces. A generic
 // table->rows fake stands in for Supabase; per-source filter correctness
@@ -80,7 +80,7 @@ function fakeClient(opts: {
         return chain;
       }
       if (table === "square_refunds") return paginated(opts.refundRows ?? [], table);
-      if (table === "ramp_bank_ledger") {
+      if (table === "bank_ledger") {
         // The DB gives every row a source and an include_in_gl (default true);
         // fixtures say so only when the test is about one of them.
         return paginated(
@@ -200,7 +200,7 @@ describe("transactionPostings — the filters are actually applied", () => {
   });
 
   it("counts only bank lines the ledger includes in the general ledger", async () => {
-    // ramp_bank_ledger carries more than one source now. Plaid's Chase rows are
+    // bank_ledger carries more than one source now. Plaid's Chase rows are
     // imported with include_in_gl false, because they exist so a Square transfer
     // can be recognised from the receiving side, not as postings. Without this
     // predicate they would land in this sum and change the reported balance of
@@ -210,7 +210,7 @@ describe("transactionPostings — the filters are actually applied", () => {
     // Existing Ramp rows default to true, so adding the filter changes no
     // figure that was ever reported.
     const calls = await callsFor({ coa: LIABILITY_COA, bankRows: [{ amount_cents: -1 }] });
-    expect(calls).toContain("ramp_bank_ledger.eq(include_in_gl,true)");
+    expect(calls).toContain("bank_ledger.eq(include_in_gl,true)");
   });
 });
 
@@ -227,8 +227,8 @@ describe("transactionPostings — bank-feed and counterparty rules", () => {
     const calls: string[] = [];
     const supabase = fakeClient({ coa: LIABILITY_COA, bankRows: [{ amount_cents: -30 }], glRules: [], calls });
     expect(await transactionPostings.compute(ctx(supabase))).toBe(30);
-    expect(calls).toContain("ramp_bank_ledger.eq(include_in_gl,true)");
-    expect(calls.some((c) => c.startsWith("ramp_bank_ledger.or("))).toBe(false);
+    expect(calls).toContain("bank_ledger.eq(include_in_gl,true)");
+    expect(calls.some((c) => c.startsWith("bank_ledger.or("))).toBe(false);
   });
 
   it("counts a feed somebody switched on, despite the importer having excluded its rows", async () => {

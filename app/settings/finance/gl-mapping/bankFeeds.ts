@@ -2,7 +2,7 @@
  * The small amount of shared vocabulary the two bank-feed-aware panels need.
  *
  * A bank feed is stored as a short code ("ramp", "plaid") because that is what
- * the importer writes into ramp_bank_ledger.source. A bookkeeper has never
+ * the importer writes into bank_ledger.source. A bookkeeper has never
  * heard of it, so nothing on screen shows the raw value — it is translated
  * here, once, and anything unrecognised is title-cased rather than hidden, so a
  * feed added later is still readable before anyone gets round to naming it.

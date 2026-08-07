@@ -445,7 +445,7 @@ Square stored balance  ──sweep──▶  Chase ····4077  ──transfer�
      (GL 1040)                        (GL 1020)
 ```
 
-The second hop is already visible: `ramp_bank_ledger` carries four `deposit`
+The second hop is already visible: `bank_ledger` carries four `deposit`
 rows from `TPB OPERATING FUNDS (···· 4077)` — $46,468.51 in June, $47,983.64 in
 July, the same order as Square's monthly takings. That is Chase → Ramp, **not**
 Square → Chase, so it is not usable as the outflow term directly. It is
@@ -474,7 +474,7 @@ reconciliation by `squareDrift.ts`. Migration
 
 Three things it settled that anything touching bank data inherits:
 
-**Chase rows live in `ramp_bank_ledger`, discriminated by `source`.** Not a
+**Chase rows live in `bank_ledger`, discriminated by `source`.** Not a
 parallel table. The table already carried `source` and `source_transaction_id`
 with a unique constraint across the pair. The name stays — ten modules read it,
 one under the verified P&L, and a rename buys nothing `source` does not.

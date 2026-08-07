@@ -3,7 +3,7 @@
  * in the ledger: card txns + bills + operating-expense bank debits → `expenses`
  * (one syncExpenseRecords call so GL + counterparty rules resolve together); all
  * other bank lines + Business-Account transfers (card statement payments) →
- * `ramp_bank_ledger`. Reused by the on-demand route, the daily cron, and the
+ * `bank_ledger`. Reused by the on-demand route, the daily cron, and the
  * webhook re-sync.
  */
 import { getRampTransactions, getRampBills, getRampBankTransactions, getRampBankAccounts, getRampTransfers, getRampStatements, normalizeCounterparty } from "@/lib/ramp";

@@ -75,7 +75,7 @@ export async function GET() {
   // whose counterparties someone is about to sit down and code.
   const ledger = await fetchAllRows<{ source: string; counterparty_key: string | null; counterparty_name: string | null }>(() =>
     supabase
-      .from("ramp_bank_ledger")
+      .from("bank_ledger")
       .select("source, counterparty_key, counterparty_name")
       .order("id", { ascending: true }),
   );

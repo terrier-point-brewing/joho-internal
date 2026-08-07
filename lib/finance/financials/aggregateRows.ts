@@ -98,7 +98,7 @@ export interface ExpenseRecord {
   payrollPeriod?: { start: string; end: string } | null;
 }
 
-/** ramp_bank_ledger row — same resolved-upstream shape as expenses. */
+/** bank_ledger row — same resolved-upstream shape as expenses. */
 export interface BankLedgerRecord {
   id: string;
   chartOfAccountsId: string | null;
@@ -261,7 +261,7 @@ function resolveInvoice(row: InvoiceLineRecord, coaMap: Map<string, CoaRecord>):
   // means unmapped.
   //
   // Limitation: invoice_line_items has no mapping_source column (unlike
-  // expenses/ramp_bank_ledger), and its chart_of_accounts_id is user-editable
+  // expenses/bank_ledger), and its chart_of_accounts_id is user-editable
   // via a dropdown (PATCH /api/finance/ledger/invoice-line-items). So a
   // hand-mapped line and a rule/prefill-mapped line are indistinguishable
   // here — "rule" below is a best-effort label, not a verified fact. Do NOT
@@ -426,7 +426,7 @@ export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
   }
   for (const row of input.bank) {
     const r = resolveExpenseLike(
-      "ramp_bank_ledger",
+      "bank_ledger",
       row.id,
       row.chartOfAccountsId,
       row.mappingSource,

@@ -3,7 +3,7 @@
  * say in it.
  *
  * ── What already existed, and what was missing ───────────────────────────────
- * `ramp_bank_ledger.include_in_gl` is a per-ROW decision made by whatever
+ * `bank_ledger.include_in_gl` is a per-ROW decision made by whatever
  * imported the row: Ramp's rows default true, Plaid writes its Chase rows false
  * (20260916090000_bank_ledger_plaid_source.sql). That is the right default and
  * it is why linking a bank cannot silently rewrite closed months.
@@ -109,7 +109,7 @@ export function counterpartyKeyOf(row: { counterparty_key?: string | null; count
 const SAFE_SOURCE = /^[a-z0-9_-]+$/i;
 
 /**
- * A resolved rule set, ready to filter a `ramp_bank_ledger` read.
+ * A resolved rule set, ready to filter a `bank_ledger` read.
  *
  * applyTo is generic in the builder without constraining it: writing
  * `T extends InclusionFilterable` makes TypeScript check that constraint

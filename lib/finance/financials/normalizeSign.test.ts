@@ -105,7 +105,7 @@ describe("normalizeSignedCents", () => {
   });
 
   // ── Bank's own ledger (statementSection "bank") is a deliberate carve-out
-  // from the liability fix: a ramp_bank_ledger row mapped back to the
+  // from the liability fix: a bank_ledger row mapped back to the
   // checking account itself represents the cash balance's own delta, not
   // cash spent to acquire some OTHER asset/pay down a liability. The raw
   // cash-direction sign already equals the desired cashOnHandCents sign, so
@@ -115,7 +115,7 @@ describe("normalizeSignedCents", () => {
   });
 
   // The "bank" section carve-out passes the raw cash-direction sign through
-  // UNCHANGED (not magnitude): ramp_bank_ledger rows on "bank" ARE the cash
+  // UNCHANGED (not magnitude): bank_ledger rows on "bank" ARE the cash
   // account's own ledger, so raw already expresses the balance delta. An
   // outflow (negative raw) must reduce cashOnHandCents, not inflate it --
   // see buildFinancials.ts's cashOnHandCents and normalizeSign.ts's header.
