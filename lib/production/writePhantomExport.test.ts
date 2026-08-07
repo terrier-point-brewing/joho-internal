@@ -109,6 +109,7 @@ const BASE_PARAMS = {
   variationId: "var-1",
   quantityKegs: 1,
   sourceRef: "square:order-123",
+  origin: "draft_swap" as const,
 };
 
 describe("writePhantomExport", () => {

@@ -53,6 +53,7 @@ const phantomTxRow = {
   volume_bbl: 0.4032,
   total_excise_tax_usd: 2.48,
   created_at: "2026-07-18T20:00:00Z",
+  phantom_origin: "draft_swap",
   recipes: { beer_name: "Vienna Lager" },
 };
 
@@ -71,6 +72,61 @@ function baseTables() {
   };
 }
 
+describe("phantom origin", () => {
+  // The bug this guards: recordTaproomConsumption books draft swaps, keg sales
+  // and can sales through one path, so every shortfall produced an identical
+  // phantom row. Export Bay read them all as draft swaps and resolveTapNumber —
+  // which matches on (recipe, swap variation) — handed a keg SALE the tap number
+  // of whichever tap happened to be pouring that beer. A wholesale keg sale then
+  // read as if a tap had been drained.
+  it("does not attach a tap number to a keg sale, even when the beer is on tap", async () => {
+    const { client } = makeSupabase({
+      ...baseTables(),
+      export_transactions: { rows: [{ ...phantomTxRow, phantom_origin: "keg_sale" }] },
+    });
+
+    const alerts = await fetchOpenPhantomAlerts(client);
+
+    expect(alerts[0].origin).toBe("keg_sale");
+    expect(alerts[0].tapNumber).toBeNull();
+  });
+
+  it("does not attach a tap number to a can sale", async () => {
+    const { client } = makeSupabase({
+      ...baseTables(),
+      export_transactions: {
+        rows: [{ ...phantomTxRow, phantom_origin: "can_sale", variant_label: "16oz Labeled Can 4-Pack" }],
+      },
+    });
+
+    const alerts = await fetchOpenPhantomAlerts(client);
+
+    expect(alerts[0].origin).toBe("can_sale");
+    expect(alerts[0].tapNumber).toBeNull();
+  });
+
+  it("leaves an unclassified legacy row unclassified rather than calling it a swap", async () => {
+    const { client } = makeSupabase({
+      ...baseTables(),
+      export_transactions: { rows: [{ ...phantomTxRow, phantom_origin: null }] },
+    });
+
+    const alerts = await fetchOpenPhantomAlerts(client);
+
+    expect(alerts[0].origin).toBeNull();
+    expect(alerts[0].tapNumber).toBeNull();
+  });
+
+  it("still resolves the tap for a genuine draft swap", async () => {
+    const { client } = makeSupabase(baseTables());
+
+    const alerts = await fetchOpenPhantomAlerts(client);
+
+    expect(alerts[0].origin).toBe("draft_swap");
+    expect(alerts[0].tapNumber).toBe(3);
+  });
+});
+
 describe("fetchOpenPhantomAlerts", () => {
   it("returns alerts joined to beer/tap/variation names", async () => {
     const { client, calls } = makeSupabase(baseTables());
@@ -80,6 +136,7 @@ describe("fetchOpenPhantomAlerts", () => {
         exportTransactionId: "et-1",
         recipeId: "r1",
         beerName: "Vienna Lager",
+        origin: "draft_swap",
         tapNumber: 3,
         variationId: "pv-1",
         variationName: "1/2 Keg",
@@ -142,6 +199,7 @@ describe("fetchEligibleLots", () => {
     exportTransactionId: "et-1",
     recipeId: "r1",
     beerName: "Vienna Lager",
+    origin: "draft_swap",
     tapNumber: 3,
     variationId: "pv-1",
     variationName: "Fortnight - 1/6 Keg",

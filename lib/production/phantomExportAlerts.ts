@@ -1,12 +1,21 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import type { PhantomOrigin } from "@/lib/production/writePhantomExport";
 
 /**
- * Phantom-export alerts: taproom draft-restock keg swaps that booked barrel
- * excise with no cold-storage stock to deduct. Each open alert is an
- * `export_transactions` row with `is_phantom = true` and
- * `alert_acknowledged_at IS NULL`; the daily digest additionally filters on
- * `alert_emailed_at IS NULL`.
+ * Phantom-export alerts: taproom bookings that carried barrel excise with no
+ * cold-storage stock to deduct. Each open alert is an `export_transactions` row
+ * with `is_phantom = true` and `alert_acknowledged_at IS NULL`; the daily digest
+ * additionally filters on `alert_emailed_at IS NULL`.
+ *
+ * NOT all of these are draft swaps, and this module used to assume they were.
+ * `recordTaproomConsumption` books draft swaps, keg sales and can sales through
+ * one path, so a wholesale keg sale that outran cold storage produced a phantom
+ * indistinguishable from a keg drained off a tap — and was then listed as a
+ * "draft swap" with a tap number attached to it. `phantom_origin` (see the
+ * 20260930090000 migration) carries the kind, and `origin` on the alert exposes
+ * it so each kind can be presented and reconciled on its own terms. A tap
+ * number is resolved for draft swaps only; nothing else drains a tap.
  *
  * `export_transactions` does not store `variation_id` (see
  * `exportInvoicePreview.ts`'s buildProductLines for the established
@@ -22,6 +31,13 @@ export interface PhantomAlert {
   exportTransactionId: string;
   recipeId: string;
   beerName: string;
+  /**
+   * Which consumption kind booked this row. Null only on a legacy row the
+   * backfill could not resolve to a container; treated as unclassified rather
+   * than silently folded into draft swaps.
+   */
+  origin: PhantomOrigin | null;
+  /** Draft swaps only — a sale drains no tap. */
   tapNumber: number | null;
   variationId: string;
   variationName: string;
@@ -59,6 +75,7 @@ interface PhantomTxRow {
   volume_bbl: number;
   total_excise_tax_usd: number;
   created_at: string;
+  phantom_origin: PhantomOrigin | null;
   recipes: { beer_name: string } | null;
 }
 
@@ -86,7 +103,7 @@ async function fetchPhantomAlerts(
   let query = supabase
     .from("export_transactions")
     .select(
-      "id, recipe_id, packaging_item_id, packaging_format, variant_label, quantity, volume_bbl, total_excise_tax_usd, created_at, recipes(beer_name)",
+      "id, recipe_id, packaging_item_id, packaging_format, variant_label, quantity, volume_bbl, total_excise_tax_usd, created_at, phantom_origin, recipes(beer_name)",
     )
     .eq("is_phantom", true)
     .is("alert_acknowledged_at", null);
@@ -103,11 +120,19 @@ async function fetchPhantomAlerts(
       containerId: row.packaging_item_id,
       format: row.packaging_format,
     });
-    const tapNumber = await resolveTapNumber(supabase, row.recipe_id, variationId);
+    // A tap number only means something for a swap. Resolving it for a sale
+    // invented an association — the lookup matches on (recipe, swap variation),
+    // so any keg sale of a beer that happens to be on tap picked up that tap's
+    // number and read as if the tap had been drained.
+    const tapNumber =
+      row.phantom_origin === "draft_swap"
+        ? await resolveTapNumber(supabase, row.recipe_id, variationId)
+        : null;
     alerts.push({
       exportTransactionId: row.id,
       recipeId: row.recipe_id,
       beerName: row.recipes?.beer_name ?? "",
+      origin: row.phantom_origin,
       tapNumber,
       variationId,
       variationName: row.variant_label,

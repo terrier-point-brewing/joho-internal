@@ -40,6 +40,7 @@ const baseParams = {
   variationId: "variation-1",
   sourceRef: "square-order-42",
   notes: "auto sync",
+  kind: "draft_swap" as const,
 };
 
 beforeEach(() => {
@@ -211,6 +212,27 @@ describe("recordTaproomConsumption break-down integration", () => {
     expect(result.shortfallQty).toBe(3);
     expect(result.exportTransactionIds).toEqual(["tx-physical", "tx-phantom"]);
     expect(result.breaks).toEqual([{ batchId: "B-040", fromVariationId: "pack", toVariationId: "single", toUnits: 4 }]);
+  });
+
+  // Every consumption kind books its shortfall through this one function, so
+  // the phantom row is the only place the kind can still be recovered later.
+  // Without it Export Bay listed can sales as draft swaps.
+  it.each([
+    ["draft_swap" as const],
+    ["keg_sale" as const],
+    ["can_sale" as const],
+  ])("stamps origin %s onto the phantom row it books", async (kind) => {
+    availableMock.mockResolvedValue(0);
+
+    await recordTaproomConsumption(supabase, {
+      ...baseParams,
+      kind,
+      quantity: 2,
+      sourceRef: "sqsale:x:2026-08-06",
+    });
+
+    expect(phantomMock).toHaveBeenCalledTimes(1);
+    expect(phantomMock.mock.calls[0][1]).toMatchObject({ origin: kind });
   });
 
   it("does not attempt a break when the target tier already has enough", async () => {

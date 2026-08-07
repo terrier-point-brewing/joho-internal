@@ -7,10 +7,12 @@ import { apiError } from "@/lib/utils/api";
 export const dynamic = "force-dynamic";
 
 // GET /api/production/taproom-consumption/phantom-alerts
-// Open phantom draft-swap alerts (taproom keg swaps that booked barrel excise
-// with no cold-storage stock), each with the same-size cold-storage lots
-// (variation + batch) now eligible to resolve it. Drives the Export Bay "swaps
-// with missing stock" list.
+// Open phantom alerts (taproom bookings that carried barrel excise with no
+// cold-storage stock), each with the cold-storage lots (variation + batch) now
+// eligible to resolve it. Drives the Export Bay "booked without cold-storage
+// stock" list. Each alert carries an `origin` — draft_swap, keg_sale or
+// can_sale — because the list mixes drained tap kegs with sales that outran
+// stock, and only the first kind has a tap.
 // Gated at `read`, not `operate`: this is the Export Bay reconciliation
 // indicator, and brewer holds `production.export: operate` (so reaches the tab)
 // but only `taproom.performance: read`. Gating the GET at `operate` 403'd every

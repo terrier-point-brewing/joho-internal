@@ -136,6 +136,8 @@ describe("writeExportTransaction", () => {
         notes: null,
         over_allocation: false,
         is_phantom: false,
+        // A regular shipment has no origin to disambiguate — only phantoms do.
+        phantom_origin: null,
         // Defaults to 0 — kegs carry no canning loss, and callers that don't
         // pass one must not silently inflate a Packaging Materials charge.
         packaging_loss_pct: 0,
