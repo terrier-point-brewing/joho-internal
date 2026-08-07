@@ -1,7 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { depleteColdStorageInventory } from "./coldStorageDepletion";
 import { checkAndCompleteBatch } from "./batchCompletion";
-import { swapPerKegFlOz, SWAP_VOLUME_TOLERANCE_FL_OZ } from "./phantomExportAlerts";
+import { phantomPerUnitFlOz, SWAP_VOLUME_TOLERANCE_FL_OZ } from "./phantomExportAlerts";
 
 /**
  * Actions on an open phantom-export alert (a taproom keg swap that booked
@@ -37,6 +37,20 @@ interface PhantomRow {
   volume_bbl: number;
   is_phantom: boolean;
   alert_acknowledged_at: string | null;
+}
+
+/** Container type the phantom row was booked against, or null if unreadable. */
+async function fetchBookedContainerType(
+  supabase: SupabaseClient,
+  packagingItemId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("packaging_items")
+    .select("type")
+    .eq("id", packagingItemId);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as { type: string | null }[];
+  return rows[0]?.type ?? null;
 }
 
 /** Load an open (phantom, unacknowledged) export row or throw a 400-worthy error. */
@@ -78,16 +92,28 @@ export async function reconcilePhantomExport(
   if (pvErr) throw new Error(pvErr.message);
   const variation = ((pvData ?? []) as unknown as ChosenVariationRow[])[0];
   if (!variation) throw new PhantomReconcileError("Selected packaging variation not found.");
-  if (variation.container?.type !== "keg") throw new PhantomReconcileError("Selected variation is not a keg.");
 
-  // Same-size guard: excise/volume were booked for this keg size and are never
-  // recomputed, so only a same-volume keg may resolve the alert.
-  const perKeg = swapPerKegFlOz(row.volume_bbl, row.quantity);
+  // Same-container-type guard. This used to insist on a keg, which made a can
+  // sale that outran cold storage unresolvable even against the exact matching
+  // cans. The rule was never really "must be a keg" — it is "must be the same
+  // kind of thing the row was booked against".
+  const bookedType = await fetchBookedContainerType(supabase, row.packaging_item_id);
+  if (!bookedType || variation.container?.type !== bookedType) {
+    throw new PhantomReconcileError(
+      `Selected variation is a ${variation.container?.type ?? "unknown"} but the booking was a ${bookedType ?? "unknown"}.`,
+    );
+  }
+
+  // Same-size guard: excise/volume were booked for this unit size and are never
+  // recomputed, so only a same-volume unit may resolve the alert. A near miss is
+  // resolved by putting the right stock in cold storage first, never by relaxing
+  // this — the booked excise has to stay true to what left.
+  const perUnit = phantomPerUnitFlOz(row.volume_bbl, row.quantity);
   if (
     variation.total_volume_fl_oz == null ||
-    Math.abs(Number(variation.total_volume_fl_oz) - perKeg) > SWAP_VOLUME_TOLERANCE_FL_OZ
+    Math.abs(Number(variation.total_volume_fl_oz) - perUnit) > SWAP_VOLUME_TOLERANCE_FL_OZ
   ) {
-    throw new PhantomReconcileError("Selected keg is a different size than the booked swap.");
+    throw new PhantomReconcileError("Selected stock is a different size than what was booked.");
   }
 
   // The chosen lot must hold enough of this recipe/variation/batch to cover the

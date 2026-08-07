@@ -55,6 +55,8 @@ function tables(overrides: Record<string, { rows: unknown[] | null; error?: stri
   return {
     export_transactions: { rows: [openPhantom] },
     packaging_variations: { rows: [sameVariation] },
+    // Container type of the BOOKED row — the match is scoped to it.
+    packaging_items: { rows: [{ type: "keg" }] },
     cold_storage_inventory: { rows: [{ quantity_on_hand: 2 }] },
     ...overrides,
   };
@@ -104,11 +106,25 @@ describe("reconcilePhantomExport", () => {
     expect(depleteColdStorageInventory).not.toHaveBeenCalled();
   });
 
-  it("rejects a non-keg variation", async () => {
+  it("rejects a variation whose container type differs from the booking", async () => {
     const canVar = { ...sameVariation, container: { type: "can" } };
     const { client } = makeSupabase(tables({ packaging_variations: { rows: [canVar] } }));
     await expect(reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-1", batchId: "b1" }))
-      .rejects.toThrow(/not a keg/i);
+      .rejects.toThrow(/but the booking was a keg/i);
+  });
+
+  // The rule was never "must be a keg" — it is "must be the same kind of thing
+  // that was booked". A can booking resolves against matching can stock, which
+  // the keg-only check made impossible.
+  it("accepts a can variation when the booking itself was a can", async () => {
+    const canVar = { ...sameVariation, name: "16oz Can 4-Pack", total_volume_fl_oz: 64, container: { type: "can" } };
+    const { client } = makeSupabase(tables({
+      export_transactions: { rows: [{ ...openPhantom, volume_bbl: 0.0161 }] }, // 64 fl oz
+      packaging_variations: { rows: [canVar] },
+      packaging_items: { rows: [{ type: "can" }] },
+    }));
+    await reconcilePhantomExport(client, { exportTransactionId: "et-1", variationId: "pv-1", batchId: "b1" });
+    expect(depleteColdStorageInventory).toHaveBeenCalled();
   });
 
   it("rejects when the chosen variation is not found", async () => {

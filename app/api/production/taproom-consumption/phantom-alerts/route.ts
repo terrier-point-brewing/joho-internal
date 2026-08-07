@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { fetchOpenPhantomAlerts, fetchEligibleLots } from "@/lib/production/phantomExportAlerts";
+import { fetchOpenPhantomAlerts, fetchLotOptions } from "@/lib/production/phantomExportAlerts";
 import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,10 @@ export async function GET() {
   try {
     const alerts = await fetchOpenPhantomAlerts(supabase);
     const withLots = await Promise.all(
-      alerts.map(async (alert) => ({ ...alert, eligibleLots: await fetchEligibleLots(supabase, alert) })),
+      alerts.map(async (alert) => {
+        const { eligible, alternatives } = await fetchLotOptions(supabase, alert);
+        return { ...alert, eligibleLots: eligible, alternativeLots: alternatives };
+      }),
     );
     return NextResponse.json({ alerts: withLots });
   } catch (err) {

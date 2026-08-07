@@ -112,6 +112,8 @@ interface PhantomAlert {
   recipeId: string;
   beerName: string;
   origin: "draft_swap" | "keg_sale" | "can_sale" | null;
+  /** Container type the row was booked against — matching is scoped to it. */
+  containerType: string | null;
   /** Draft swaps only. */
   tapNumber: number | null;
   variationId: string;
@@ -121,6 +123,13 @@ interface PhantomAlert {
   exciseUsd: number;
   occurredAt: string;
   eligibleLots: PhantomEligibleLot[];
+  /** Same container type, but cannot resolve the row — and why. */
+  alternativeLots: {
+    variationName: string;
+    batchCode: string;
+    onHand: number;
+    reason: "different_size" | "not_enough";
+  }[];
 }
 
 interface CustomerRecipeGroup {
@@ -194,6 +203,20 @@ function PhantomAlertRow({
   dismissing: boolean;
 }) {
   const hasLots = alert.eligibleLots.length > 0;
+
+  // Why Resolve is unavailable, in the operator's terms. An empty picker said
+  // nothing at all — "no matching stock" and "no stock of any kind" look the
+  // same from an absent dropdown, and only the first is fixed by moving stock.
+  const blockedReason = hasLots
+    ? null
+    : alert.alternativeLots.length === 0
+      ? `No ${alert.containerType ?? "matching"} stock of ${alert.beerName} is in cold storage at all.`
+      : `Needs ${alert.quantityKegs} × ${alert.variationName}. Cold storage holds ` +
+        alert.alternativeLots
+          .map((l) => `${l.onHand} × ${l.variationName}${l.batchCode ? ` (${l.batchCode})` : ""}`)
+          .join(", ") +
+        ".";
+
   return (
     <Card padding="p-3" className="flex items-center justify-between gap-3">
       <div className="flex flex-col gap-1 min-w-0">
@@ -206,6 +229,7 @@ function PhantomAlertRow({
         <span className="text-xs text-muted">
           {fmtDate(alert.occurredAt)} · {alert.quantityKegs} × {alert.variationName} · {alert.volumeBbl.toFixed(2)} BBL
         </span>
+        {blockedReason && <span className="text-xs text-warning">{blockedReason}</span>}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {hasLots && (
@@ -222,16 +246,19 @@ function PhantomAlertRow({
             ))}
           </select>
         )}
-        {hasLots && (
-          <button
-            type="button"
-            onClick={onResolve}
-            disabled={!selectedLotKey || resolving}
-            className="btn-primary"
-          >
-            {resolving ? "…" : "Resolve"}
-          </button>
-        )}
+        {/* Always rendered, disabled when nothing matches. A hidden button reads
+            as broken; a disabled one with the reason attached teaches the rule —
+            reconciliation demands exact matching stock, so the fix is to put the
+            right stock in cold storage, not to loosen the match. */}
+        <button
+          type="button"
+          onClick={onResolve}
+          disabled={!hasLots || !selectedLotKey || resolving}
+          title={blockedReason ?? undefined}
+          className="btn-primary"
+        >
+          {resolving ? "…" : "Resolve"}
+        </button>
         <button
           type="button"
           onClick={onDismiss}
