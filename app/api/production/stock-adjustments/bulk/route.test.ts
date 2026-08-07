@@ -12,8 +12,8 @@ let recorded: Recorded[] = [];
 let rpcCalls: { name: string; args: unknown }[] = [];
 
 const INGREDIENTS = [
-  { id: "ing-1", stock_quantity: 100, cost_per_unit: 2.0, unit: "lb" },
-  { id: "ing-2", stock_quantity: 50, cost_per_unit: 1.0, unit: "oz" },
+  { id: "ing-1", stock_quantity: 100, cost_per_unit_usd: 2.0, unit: "lb" },
+  { id: "ing-2", stock_quantity: 50, cost_per_unit_usd: 1.0, unit: "oz" },
 ];
 
 function makeChain(table: string) {
@@ -116,8 +116,8 @@ describe("POST /api/production/stock-adjustments/bulk", () => {
     expect(json.results).toHaveLength(2);
 
     const adjInserts = recorded.filter((r) => r.table === "stock_adjustments" && r.op === "insert");
-    expect((adjInserts[0].payload as { shipping_cost: number }).shipping_cost).toBe(16);
-    expect((adjInserts[1].payload as { shipping_cost: number }).shipping_cost).toBe(1.6);
+    expect((adjInserts[0].payload as { shipping_cost_usd: number }).shipping_cost_usd).toBe(16);
+    expect((adjInserts[1].payload as { shipping_cost_usd: number }).shipping_cost_usd).toBe(1.6);
 
     expect(rpcCalls).toEqual([
       { name: "adjust_ingredient_stock", args: { p_id: "ing-1", p_delta: 10 } },

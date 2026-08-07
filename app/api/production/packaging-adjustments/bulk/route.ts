@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const { data: itemsData, error: fetchErr } = await supabase
     .from("packaging_items")
-    .select("id, stock_quantity, unit_cost")
+    .select("id, stock_quantity, unit_cost_usd")
     .in("id", ids);
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
 
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
 
     const { landedCostPerUnit, newStock, newCostPerUnit } = computeReceivedAdjustment({
       currentStock: Number(current.stock_quantity ?? 0),
-      currentCostPerUnit: current.unit_cost != null ? Number(current.unit_cost) : null,
+      currentCostPerUnit: current.unit_cost_usd != null ? Number(current.unit_cost_usd) : null,
       quantity,
       purchaseCost,
       shippingCost,
@@ -77,15 +77,15 @@ export async function POST(req: NextRequest) {
       type: "received",
       quantity,
       note: null,
-      cost_per_unit: purchaseCost,
-      shipping_cost: shippingCost > 0 ? shippingCost : null,
-      total_value_change: quantity * landedCostPerUnit,
+      cost_per_unit_usd: purchaseCost,
+      shipping_cost_usd: shippingCost > 0 ? shippingCost : null,
+      total_value_change_usd: quantity * landedCostPerUnit,
     });
     if (adjErr) { errors.push({ packaging_item_id: line.packaging_item_id, error: adjErr.message }); continue; }
 
     const { error: updErr } = await supabase
       .from("packaging_items")
-      .update({ stock_quantity: newStock, unit_cost: newCostPerUnit })
+      .update({ stock_quantity: newStock, unit_cost_usd: newCostPerUnit })
       .eq("id", line.packaging_item_id);
     if (updErr) { errors.push({ packaging_item_id: line.packaging_item_id, error: updErr.message }); continue; }
 

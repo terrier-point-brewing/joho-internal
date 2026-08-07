@@ -33,13 +33,13 @@ export async function POST(req: NextRequest) {
   // Fetch current state
   const { data: item } = await supabase
     .from("packaging_items")
-    .select("stock_quantity, unit_cost")
+    .select("stock_quantity, unit_cost_usd")
     .eq("id", packaging_item_id)
     .single();
   if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
 
   const currentStock = Number(item.stock_quantity ?? 0);
-  const currentCost  = item.unit_cost != null ? Number(item.unit_cost) : null;
+  const currentCost  = item.unit_cost_usd != null ? Number(item.unit_cost_usd) : null;
 
   let delta: number;
   if (type === "inventory_count") {
@@ -75,17 +75,17 @@ export async function POST(req: NextRequest) {
       quantity: delta,
       type,
       note: note || null,
-      cost_per_unit: type === "received" && purchase_cost ? Number(purchase_cost) : null,
-      shipping_cost: type === "received" && shipping_cost != null ? Number(shipping_cost) : null,
-      total_value_change: totalValueChange,
+      cost_per_unit_usd: type === "received" && purchase_cost ? Number(purchase_cost) : null,
+      shipping_cost_usd: type === "received" && shipping_cost != null ? Number(shipping_cost) : null,
+      total_value_change_usd: totalValueChange,
     })
     .select()
     .single();
   if (adjErr) return NextResponse.json({ error: adjErr.message }, { status: 500 });
 
-  // Update stock_quantity (and optionally unit_cost)
+  // Update stock_quantity (and optionally unit_cost_usd)
   const updatePayload: Record<string, number | null> = { stock_quantity: currentStock + delta };
-  if (type === "received" && newCostPerUnit != null) updatePayload.unit_cost = newCostPerUnit;
+  if (type === "received" && newCostPerUnit != null) updatePayload.unit_cost_usd = newCostPerUnit;
 
   await supabase.from("packaging_items").update(updatePayload).eq("id", packaging_item_id);
 

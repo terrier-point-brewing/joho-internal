@@ -267,11 +267,11 @@ function pvStub(variationsByKey: Record<string, unknown[]>): SupabaseClient {
 // One case variation: 12oz can $0.15, lid $0.05, label $0.02, paktech(4) $0.30, tray(24) $0.40
 const caseVariationRow = {
   packaging_variations: {
-    container: { name: "12oz Can", unit_cost: 0.15, can_count: null, type: "can" },
-    lid: { name: "Lid", unit_cost: 0.05 },
-    label: { name: "Label", unit_cost: 0.02 },
-    paktech: { name: "PakTech 4", unit_cost: 0.30, can_count: 4 },
-    tray: { name: "Tray 24", unit_cost: 0.40, can_count: 24 },
+    container: { name: "12oz Can", unit_cost_usd: 0.15, can_count: null, type: "can" },
+    lid: { name: "Lid", unit_cost_usd: 0.05 },
+    label: { name: "Label", unit_cost_usd: 0.02 },
+    paktech: { name: "PakTech 4", unit_cost_usd: 0.30, can_count: 4 },
+    tray: { name: "Tray 24", unit_cost_usd: 0.40, can_count: 24 },
   },
 };
 
@@ -302,7 +302,7 @@ describe("buildPackagingMaterialLines", () => {
     // Two label-variants share the same can + case format; the export shipped the
     // pricier-label one. Matching by variant_label must pick THAT variation's cost,
     // never the other. Pricey label $0.99 vs base $0.02 → 48 cans × extra 97¢ = +4656¢.
-    const pricey = { packaging_variations: { ...caseVariationRow.packaging_variations, label: { name: "Pricey Label", unit_cost: 0.99 } } };
+    const pricey = { packaging_variations: { ...caseVariationRow.packaging_variations, label: { name: "Pricey Label", unit_cost_usd: 0.99 } } };
     const supabase = pvStub({
       "r1|Fortnight Cheap Case": [caseVariationRow],   // label $0.02
       "r1|Fortnight Pricey Case": [pricey],            // label $0.99
@@ -341,8 +341,8 @@ describe("buildPackagingMaterialLines", () => {
   it("surfaces a missing-cost warning while still billing the priced components", async () => {
     const noCostCanVariation = {
       packaging_variations: {
-        container: { name: "12oz Can", unit_cost: null, can_count: null, type: "can" },
-        lid: { name: "Lid", unit_cost: 0.05 },
+        container: { name: "12oz Can", unit_cost_usd: null, can_count: null, type: "can" },
+        lid: { name: "Lid", unit_cost_usd: 0.05 },
         label: null, paktech: null, tray: null,
       },
     };
@@ -394,8 +394,8 @@ describe("buildPackagingMaterialLines", () => {
   it("keeps separate breakdown entries for different variations on one recipe", async () => {
     const looseVariation = {
       packaging_variations: {
-        container: { name: "12oz Can", unit_cost: 0.15, can_count: null, type: "can" },
-        lid: { name: "Lid", unit_cost: 0.05 }, label: null, paktech: null, tray: null,
+        container: { name: "12oz Can", unit_cost_usd: 0.15, can_count: null, type: "can" },
+        lid: { name: "Lid", unit_cost_usd: 0.05 }, label: null, paktech: null, tray: null,
       },
     };
     const supabase = pvStub({ [`r1|${CASE_LABEL}`]: [caseVariationRow], "r1|Fortnight Loose": [looseVariation] });

@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
 
         const { data: allRecipeIngredients, error: riErr } = await supabase
           .from("recipe_ingredients")
-          .select("ingredient_id, quantity_per_bbl, ingredients(cost_per_unit, unit, category)")
+          .select("ingredient_id, quantity_per_bbl, ingredients(cost_per_unit_usd, unit, category)")
           .eq("recipe_id", batch.recipe_id);
         if (riErr) return NextResponse.json({ error: riErr.message }, { status: 500 });
 
@@ -183,11 +183,11 @@ export async function POST(req: NextRequest) {
         if (batchRowErr) return NextResponse.json({ error: batchRowErr.message }, { status: 500 });
 
         if (recipeIngredients?.length) {
-          type IngMeta = { cost_per_unit: number | null; unit: string | null };
+          type IngMeta = { cost_per_unit_usd: number | null; unit: string | null };
           const adjustments = recipeIngredients.map((ri) => {
             const qty     = ri.quantity_per_bbl * turnVol;
             const ingMeta = (ri.ingredients as unknown as IngMeta | null);
-            const costPU  = ingMeta?.cost_per_unit ?? null;
+            const costPU  = ingMeta?.cost_per_unit_usd ?? null;
             const unit    = ingMeta?.unit ?? null;
             return {
               ingredient_id:      ri.ingredient_id,
@@ -195,8 +195,8 @@ export async function POST(req: NextRequest) {
               type:               "batch_use" as const,
               note:               `Turn start — ${batchRow?.batch_number ?? batch_id}: ${batchRow?.beer_name ?? ""}`,
               batch_id,
-              cost_per_unit:      costPU,
-              total_value_change: costPU != null ? -qty * costPU : null,
+              cost_per_unit_usd:      costPU,
+              total_value_change_usd: costPU != null ? -qty * costPU : null,
               unit,
             };
           });

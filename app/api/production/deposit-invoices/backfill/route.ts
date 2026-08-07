@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
 
     const { data: ris, error: risErr } = await db
       .from("recipe_ingredients")
-      .select("id, ingredient_id, quantity_per_bbl, ingredients(id, name, unit, cost_per_unit)")
+      .select("id, ingredient_id, quantity_per_bbl, ingredients(id, name, unit, cost_per_unit_usd)")
       .eq("recipe_id", recipeId);
     if (risErr) { fail(inv, `error:recipe_ingredients:${risErr.message}`); continue; }
 
@@ -67,10 +67,10 @@ export async function POST(req: NextRequest) {
     });
     const ingredientsNow = new Map<string, IngredientNow>(
       (ris ?? []).map((r) => {
-        const rr = r as unknown as { ingredient_id: string; ingredients: { id: string; name: string; unit: string; cost_per_unit: number | null } };
+        const rr = r as unknown as { ingredient_id: string; ingredients: { id: string; name: string; unit: string; cost_per_unit_usd: number | null } };
         return [rr.ingredient_id, {
           id: rr.ingredients.id, name: rr.ingredients.name, unit: rr.ingredients.unit,
-          cost_per_unit: rr.ingredients.cost_per_unit == null ? null : Number(rr.ingredients.cost_per_unit),
+          cost_per_unit_usd: rr.ingredients.cost_per_unit_usd == null ? null : Number(rr.ingredients.cost_per_unit_usd),
         }] as const;
       })
     );

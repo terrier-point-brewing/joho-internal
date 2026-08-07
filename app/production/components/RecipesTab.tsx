@@ -57,7 +57,7 @@ const STAGE_BADGES: Record<"brewhouse" | "fermenter" | "brite", { label: string;
 function recipeCostPerTurn(r: Recipe): number {
   const bbl = r.expected_yield_bbl ?? 1;
   return r.recipe_ingredients.reduce(
-    (sum, ri) => sum + ri.quantity_per_bbl * bbl * (ri.ingredients.cost_per_unit ?? 0),
+    (sum, ri) => sum + ri.quantity_per_bbl * bbl * (ri.ingredients.cost_per_unit_usd ?? 0),
     0,
   );
 }
@@ -476,20 +476,20 @@ export default function RecipesTab() {
                                 {items.map((ri, idx) => {
                                   const ing = ri.ingredients;
                                   const qtyPerTurn = ri.quantity_per_bbl * (r.expected_yield_bbl ?? 1);
-                                  const costPerLine = qtyPerTurn * (ing.cost_per_unit ?? 0);
+                                  const costPerLine = qtyPerTurn * (ing.cost_per_unit_usd ?? 0);
                                   return (
                                     <tr key={ri.id} className={`border-b border-line/40 ${idx % 2 !== 0 ? "bg-surface/20" : ""}`}>
                                       <td className="px-4 py-2 text-strong pl-6">{ing.name}</td>
                                       <td className="px-4 py-2 text-muted text-right tabular-nums">
-                                        {ing.cost_per_unit != null
-                                          ? `${formatCurrency(Number(ing.cost_per_unit))} / ${ing.unit}`
+                                        {ing.cost_per_unit_usd != null
+                                          ? `${formatCurrency(Number(ing.cost_per_unit_usd))} / ${ing.unit}`
                                           : "—"}
                                       </td>
                                       <td className="px-4 py-2 text-secondary text-right tabular-nums">
                                         {qtyPerTurn.toLocaleString(undefined, { maximumFractionDigits: 4 })} {ing.unit}
                                       </td>
                                       <td className="px-4 py-2 text-body text-right tabular-nums">
-                                        {ing.cost_per_unit != null
+                                        {ing.cost_per_unit_usd != null
                                           ? formatCurrency(costPerLine)
                                           : "—"}
                                       </td>
@@ -755,8 +755,8 @@ export default function RecipesTab() {
                         : [];
                       const ing = ingredients.find((ing) => ing.id === line.ingredient_id);
                       const costPerTurnLine =
-                        ing?.cost_per_unit != null && line.quantity_per_turn
-                          ? ing.cost_per_unit * parseFloat(line.quantity_per_turn.replace(/,/g, ""))
+                        ing?.cost_per_unit_usd != null && line.quantity_per_turn
+                          ? ing.cost_per_unit_usd * parseFloat(line.quantity_per_turn.replace(/,/g, ""))
                           : null;
                       return (
                         <div key={i} className="rounded border border-line p-3 space-y-2">
@@ -843,8 +843,8 @@ export default function RecipesTab() {
                           : [];
                         const ing = ingredients.find((ing) => ing.id === line.ingredient_id);
                         const costPerTurnLine =
-                          ing?.cost_per_unit != null && line.quantity_per_turn
-                            ? ing.cost_per_unit * parseFloat(line.quantity_per_turn.replace(/,/g, ""))
+                          ing?.cost_per_unit_usd != null && line.quantity_per_turn
+                            ? ing.cost_per_unit_usd * parseFloat(line.quantity_per_turn.replace(/,/g, ""))
                             : null;
                         return (
                           <tr key={i} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
@@ -869,8 +869,8 @@ export default function RecipesTab() {
                               </select>
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs text-muted tabular-nums whitespace-nowrap">
-                              {ing?.cost_per_unit != null
-                                ? `${formatCurrency(Number(ing.cost_per_unit))} / ${ing.unit}`
+                              {ing?.cost_per_unit_usd != null
+                                ? `${formatCurrency(Number(ing.cost_per_unit_usd))} / ${ing.unit}`
                                 : "—"}
                             </td>
                             <td className="px-3 py-1.5 w-32">

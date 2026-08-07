@@ -27,13 +27,13 @@ describe("flattenMaterialBreakdowns", () => {
       {
         recipe_id: "r1", beer_name: "Fortnight", variant_label: "Fortnight Loose",
         packaging_format: "loose", packages: 100, units_per_package: 1,
-        component_role: "container", component_name: "12oz Can", unit_cost: 0.15,
+        component_role: "container", component_name: "12oz Can", unit_cost_usd: 0.15,
         quantity_used: 100, line_total_cents: 1500, sort_order: 0,
       },
       {
         recipe_id: "r1", beer_name: "Fortnight", variant_label: "Fortnight Loose",
         packaging_format: "loose", packages: 100, units_per_package: 1,
-        component_role: "lid", component_name: "Lid", unit_cost: 0.05,
+        component_role: "lid", component_name: "Lid", unit_cost_usd: 0.05,
         quantity_used: 100, line_total_cents: 500, sort_order: 1,
       },
     ]);
@@ -69,7 +69,7 @@ describe("flattenMaterialBreakdowns", () => {
     const rows = flattenMaterialBreakdowns([
       lineBreakdown("r1", null, [{ format: "loose", packages: 5, unitsPerPackage: 1, components: [noCostCan] }]),
     ]);
-    expect(rows[0]).toMatchObject({ unit_cost: null, quantity_used: 5, line_total_cents: 0, beer_name: null });
+    expect(rows[0]).toMatchObject({ unit_cost_usd: null, quantity_used: 5, line_total_cents: 0, beer_name: null });
   });
 
   it("returns no rows for an empty snapshot", () => {

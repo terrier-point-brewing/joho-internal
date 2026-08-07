@@ -44,13 +44,13 @@ export async function GET(req: NextRequest) {
     getRampTransactions(from, to),
     supabase
       .from("stock_adjustments")
-      .select("total_value_change, cost_per_unit, quantity")
+      .select("total_value_change_usd, cost_per_unit_usd, quantity")
       .eq("type", "batch_use")
       .gte("created_at", from)
       .lte("created_at", to + "T23:59:59"),
     supabase
       .from("packaging_stock_adjustments")
-      .select("total_value_change, cost_per_unit, quantity")
+      .select("total_value_change_usd, cost_per_unit_usd, quantity")
       .eq("type", "used")
       .gte("created_at", from)
       .lte("created_at", to + "T23:59:59"),

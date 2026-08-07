@@ -5,7 +5,7 @@ export interface BreakdownInput {
   name: string;
   unit: string;
   quantity_per_bbl: number;
-  cost_per_unit: number;
+  cost_per_unit_usd: number;
   /** Relative cost weight; common factors (volume, %) cancel under scaling. */
   weight: number;
 }
@@ -15,7 +15,7 @@ export interface BreakdownLine {
   ingredient_name: string;
   unit: string;
   quantity_per_bbl: number;
-  cost_per_unit: number;
+  cost_per_unit_usd: number;
   line_total_cents: number;
   sort_order: number;
 }
@@ -51,7 +51,7 @@ export function buildBreakdownLines(
     ingredient_name: i.name,
     unit: i.unit,
     quantity_per_bbl: i.quantity_per_bbl,
-    cost_per_unit: i.cost_per_unit,
+    cost_per_unit_usd: i.cost_per_unit_usd,
     line_total_cents: cents[idx],
     sort_order: idx,
   }));
@@ -80,7 +80,7 @@ export async function snapshotDepositBreakdown(
       ingredient_name: l.ingredient_name,
       unit: l.unit,
       quantity_per_bbl: l.quantity_per_bbl,
-      cost_per_unit: l.cost_per_unit,
+      cost_per_unit_usd: l.cost_per_unit_usd,
       line_total_cents: l.line_total_cents,
       sort_order: l.sort_order,
     }))

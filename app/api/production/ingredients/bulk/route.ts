@@ -9,7 +9,7 @@ interface BulkRow {
   name: string;
   category?: string | null;
   unit: string;
-  cost_per_unit?: number | null;
+  cost_per_unit_usd?: number | null;
   stock_quantity?: number;
 }
 
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     name:           r.name.trim(),
     category:       r.category && validCategories.has(r.category) ? (r.category as IngredientCategory) : null,
     unit:           r.unit.trim(),
-    cost_per_unit:  r.cost_per_unit ?? null,
+    cost_per_unit_usd:  r.cost_per_unit_usd ?? null,
     stock_quantity: r.stock_quantity ?? 0,
     supplier_id:    null,
     partner_id:     null,

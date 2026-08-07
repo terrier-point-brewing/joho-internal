@@ -1,6 +1,6 @@
 // lib/square/square-invoices.test.ts
 //
-// Tests the dollars → cents seam in calculateIngredientDeposit. cost_per_unit is
+// Tests the dollars → cents seam in calculateIngredientDeposit. cost_per_unit_usd is
 // a decimal USD column; the deposit math runs in dollars and crosses to integer
 // cents (deposit_cents) via dollarsToCents. We drive the pure math with a thin
 // Supabase stub that returns a fixed batch + recipe_ingredients and assert the
@@ -19,7 +19,7 @@ interface BatchRow {
 
 interface RecipeIngredientRow {
   quantity_per_bbl: number;
-  ingredients: { id: string; name: string; unit: string; cost_per_unit: number | null } | null;
+  ingredients: { id: string; name: string; unit: string; cost_per_unit_usd: number | null } | null;
 }
 
 /**
@@ -57,7 +57,7 @@ describe("calculateIngredientDeposit", () => {
     // $12.342 → dollarsToCents → round(1234.2) = 1234 cents.
     const result = await calculateIngredientDeposit(
       stub(batch, [
-        { quantity_per_bbl: 2, ingredients: { id: "i1", name: "Malt", unit: "lb", cost_per_unit: 0.6171 } },
+        { quantity_per_bbl: 2, ingredients: { id: "i1", name: "Malt", unit: "lb", cost_per_unit_usd: 0.6171 } },
       ]),
       "b1",
       100
@@ -73,7 +73,7 @@ describe("calculateIngredientDeposit", () => {
     // total $12.342 × 50% = $6.171 → round(617.1) = 617 cents.
     const result = await calculateIngredientDeposit(
       stub(batch, [
-        { quantity_per_bbl: 2, ingredients: { id: "i1", name: "Malt", unit: "lb", cost_per_unit: 0.6171 } },
+        { quantity_per_bbl: 2, ingredients: { id: "i1", name: "Malt", unit: "lb", cost_per_unit_usd: 0.6171 } },
       ]),
       "b1",
       50
@@ -85,8 +85,8 @@ describe("calculateIngredientDeposit", () => {
     // (1 × 1.005 + 1 × 2.00) × 1 bbl = $3.005 total → round(300.5) = 301 cents.
     const result = await calculateIngredientDeposit(
       stub({ ...batch, volume_bbl: 1 }, [
-        { quantity_per_bbl: 1, ingredients: { id: "i1", name: "Hops", unit: "oz", cost_per_unit: 1.005 } },
-        { quantity_per_bbl: 1, ingredients: { id: "i2", name: "Yeast", unit: "pkg", cost_per_unit: 2.0 } },
+        { quantity_per_bbl: 1, ingredients: { id: "i1", name: "Hops", unit: "oz", cost_per_unit_usd: 1.005 } },
+        { quantity_per_bbl: 1, ingredients: { id: "i2", name: "Yeast", unit: "pkg", cost_per_unit_usd: 2.0 } },
       ]),
       "b1",
       100
@@ -94,11 +94,11 @@ describe("calculateIngredientDeposit", () => {
     expect(result.deposit_cents).toBe(301);
   });
 
-  it("skips ingredients with a null cost_per_unit", async () => {
+  it("skips ingredients with a null cost_per_unit_usd", async () => {
     const result = await calculateIngredientDeposit(
       stub({ ...batch, volume_bbl: 1 }, [
-        { quantity_per_bbl: 1, ingredients: { id: "i1", name: "Water", unit: "gal", cost_per_unit: null } },
-        { quantity_per_bbl: 4, ingredients: { id: "i2", name: "Malt", unit: "lb", cost_per_unit: 0.25 } },
+        { quantity_per_bbl: 1, ingredients: { id: "i1", name: "Water", unit: "gal", cost_per_unit_usd: null } },
+        { quantity_per_bbl: 4, ingredients: { id: "i2", name: "Malt", unit: "lb", cost_per_unit_usd: 0.25 } },
       ]),
       "b1",
       100

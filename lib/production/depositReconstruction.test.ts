@@ -16,25 +16,25 @@ const rirow = (over: Partial<AuditRow>): AuditRow => ({
 });
 
 const ingredientsNow = new Map([
-  ["i1", { id: "i1", name: "Malt", unit: "lb", cost_per_unit: 5 }],
-  ["i2", { id: "i2", name: "Hops", unit: "oz", cost_per_unit: 3 }],
+  ["i1", { id: "i1", name: "Malt", unit: "lb", cost_per_unit_usd: 5 }],
+  ["i2", { id: "i2", name: "Hops", unit: "oz", cost_per_unit_usd: 3 }],
 ]);
 
 describe("reconstructFieldAsOf", () => {
   it("returns the latest new_data value at or before asOf", () => {
     const rows = [
-      irow({ changed_at: "2026-01-10T00:00:00Z", new_data: { cost_per_unit: 2 } }),
-      irow({ changed_at: "2026-02-10T00:00:00Z", new_data: { cost_per_unit: 5 } }),
+      irow({ changed_at: "2026-01-10T00:00:00Z", new_data: { cost_per_unit_usd: 2 } }),
+      irow({ changed_at: "2026-02-10T00:00:00Z", new_data: { cost_per_unit_usd: 5 } }),
     ];
-    expect(reconstructFieldAsOf(rows, "cost_per_unit", "2026-01-20T00:00:00Z", 9)).toBe(2);
-    expect(reconstructFieldAsOf(rows, "cost_per_unit", "2026-03-01T00:00:00Z", 9)).toBe(5);
+    expect(reconstructFieldAsOf(rows, "cost_per_unit_usd", "2026-01-20T00:00:00Z", 9)).toBe(2);
+    expect(reconstructFieldAsOf(rows, "cost_per_unit_usd", "2026-03-01T00:00:00Z", 9)).toBe(5);
   });
   it("uses the earliest old_data when asOf precedes all changes", () => {
-    const rows = [irow({ changed_at: "2026-02-10T00:00:00Z", old_data: { cost_per_unit: 2 }, new_data: { cost_per_unit: 5 } })];
-    expect(reconstructFieldAsOf(rows, "cost_per_unit", "2026-01-01T00:00:00Z", 9)).toBe(2);
+    const rows = [irow({ changed_at: "2026-02-10T00:00:00Z", old_data: { cost_per_unit_usd: 2 }, new_data: { cost_per_unit_usd: 5 } })];
+    expect(reconstructFieldAsOf(rows, "cost_per_unit_usd", "2026-01-01T00:00:00Z", 9)).toBe(2);
   });
   it("falls back to the current value when there is no audit history", () => {
-    expect(reconstructFieldAsOf([], "cost_per_unit", "2026-01-01T00:00:00Z", 9)).toBe(9);
+    expect(reconstructFieldAsOf([], "cost_per_unit_usd", "2026-01-01T00:00:00Z", 9)).toBe(9);
   });
 });
 
@@ -45,10 +45,10 @@ describe("reconstructBreakdownAsOf", () => {
       currentRecipeIngredients: [{ recipe_ingredient_id: "r1", ingredient_id: "i1", quantity_per_bbl: 10 }],
       ingredientsNow,
       recipeIngredientAudit: [rirow({ record_id: "r1", changed_at: "2026-01-01T00:00:00Z", new_data: { id: "r1", recipe_id: "rec", ingredient_id: "i1", quantity_per_bbl: 10 } })],
-      ingredientAudit: [irow({ record_id: "i1", changed_at: "2026-03-01T00:00:00Z", old_data: { cost_per_unit: 2 }, new_data: { cost_per_unit: 5 } })],
+      ingredientAudit: [irow({ record_id: "i1", changed_at: "2026-03-01T00:00:00Z", old_data: { cost_per_unit_usd: 2 }, new_data: { cost_per_unit_usd: 5 } })],
     });
     expect(out).toHaveLength(1);
-    expect(out[0].cost_per_unit).toBe(2);
+    expect(out[0].cost_per_unit_usd).toBe(2);
     expect(out[0].weight).toBe(20);
   });
 

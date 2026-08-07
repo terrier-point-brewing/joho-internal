@@ -38,20 +38,29 @@ const CATEGORY_OPTIONS = INGREDIENT_CATEGORIES.map((c) => ({
 
 // ─── CSV bulk upload ──────────────────────────────────────────────────────────
 
-const BULK_COLUMNS = ["name", "category", "unit", "cost_per_unit", "stock_quantity"] as const;
+const BULK_COLUMNS = ["name", "category", "unit", "cost_per_unit_usd", "stock_quantity"] as const;
 type BulkCol = typeof BULK_COLUMNS[number];
+
+/**
+ * Header spellings still accepted for a column, so spreadsheets saved before
+ * `cost_per_unit` grew its `_usd` suffix keep importing. Only the header is
+ * tolerated — everything downstream uses the current name.
+ */
+const BULK_COLUMN_ALIASES: Partial<Record<BulkCol, readonly string[]>> = {
+  cost_per_unit_usd: ["cost_per_unit"],
+};
 
 interface ParsedRow {
   name: string;
   category: string;
   unit: string;
-  cost_per_unit: string;
+  cost_per_unit_usd: string;
   stock_quantity: string;
   _errors: string[];
 }
 
 const TEMPLATE_CSV =
-  "name,category,unit,cost_per_unit,stock_quantity\n" +
+  "name,category,unit,cost_per_unit_usd,stock_quantity\n" +
   "Cascade Hops,Hops,oz,0.45,240\n" +
   "Pale Malt 2-Row,Malt,lb,0.85,500\n";
 
@@ -88,11 +97,13 @@ function parseCSV(text: string): ParsedRow[] {
   const dataLines = hasHeader ? lines.slice(1) : lines;
 
   // Build column index map from header (or assume positional)
-  const colIndex: Record<BulkCol, number> = { name: 0, category: 1, unit: 2, cost_per_unit: 3, stock_quantity: 4 };
+  const colIndex: Record<BulkCol, number> = { name: 0, category: 1, unit: 2, cost_per_unit_usd: 3, stock_quantity: 4 };
   if (hasHeader) {
     BULK_COLUMNS.forEach((col) => {
-      const idx = firstCols.indexOf(col);
-      if (idx !== -1) colIndex[col] = idx;
+      for (const spelling of [col, ...(BULK_COLUMN_ALIASES[col] ?? [])]) {
+        const idx = firstCols.indexOf(spelling);
+        if (idx !== -1) { colIndex[col] = idx; break; }
+      }
     });
   }
 
@@ -106,20 +117,20 @@ function parseCSV(text: string): ParsedRow[] {
       const name          = get("name");
       const category      = get("category");
       const unit          = get("unit");
-      const cost_per_unit = get("cost_per_unit");
+      const cost_per_unit_usd = get("cost_per_unit_usd");
       const stock_quantity = get("stock_quantity");
 
       const errors: string[] = [];
       if (!name)  errors.push("name is required");
       if (!unit)  errors.push("unit is required");
-      if (cost_per_unit && isNaN(parseFloat(cost_per_unit)))
-        errors.push("cost_per_unit must be a number");
+      if (cost_per_unit_usd && isNaN(parseFloat(cost_per_unit_usd)))
+        errors.push("cost_per_unit_usd must be a number");
       if (stock_quantity && isNaN(parseFloat(stock_quantity)))
         errors.push("stock_quantity must be a number");
       if (category && !VALID_CATEGORIES.has(category))
         errors.push(`unknown category "${category}"`);
 
-      return { name, category, unit, cost_per_unit, stock_quantity, _errors: errors };
+      return { name, category, unit, cost_per_unit_usd, stock_quantity, _errors: errors };
     });
 }
 
@@ -167,7 +178,7 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
         name:           r.name,
         category:       r.category || null,
         unit:           r.unit,
-        cost_per_unit:  r.cost_per_unit ? parseFloat(r.cost_per_unit) : null,
+        cost_per_unit_usd:  r.cost_per_unit_usd ? parseFloat(r.cost_per_unit_usd) : null,
         stock_quantity: r.stock_quantity ? parseFloat(r.stock_quantity) : 0,
       }));
       const res = await fetch("/api/production/ingredients/bulk", {
@@ -210,7 +221,7 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
           <span className="font-mono text-secondary">name</span>,{" "}
           <span className="font-mono text-secondary">category</span>,{" "}
           <span className="font-mono text-secondary">unit</span>,{" "}
-          <span className="font-mono text-secondary">cost_per_unit</span>,{" "}
+          <span className="font-mono text-secondary">cost_per_unit_usd</span>,{" "}
           <span className="font-mono text-secondary">stock_quantity</span>.
           A header row is optional.
         </p>
@@ -239,7 +250,7 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
           <textarea
             className="inp font-mono text-xs resize-none"
             rows={6}
-            placeholder={"name,category,unit,cost_per_unit,stock_quantity\nCascade Hops,Hops,oz,0.45,240"}
+            placeholder={"name,category,unit,cost_per_unit_usd,stock_quantity\nCascade Hops,Hops,oz,0.45,240"}
             value={csvText}
             onChange={handleTextChange}
           />
@@ -297,7 +308,7 @@ function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () 
                     <td className={`px-3 py-1.5 font-medium ${r._errors.length > 0 ? "text-danger" : "text-strong"}`}>{r.name || <span className="text-disabled">—</span>}</td>
                     <td className="px-3 py-1.5 text-secondary">{r.category || <span className="text-disabled">—</span>}</td>
                     <td className="px-3 py-1.5 text-secondary">{r.unit || <span className="text-disabled">—</span>}</td>
-                    <td className="px-3 py-1.5 text-right text-secondary tabular-nums">{r.cost_per_unit || <span className="text-disabled">—</span>}</td>
+                    <td className="px-3 py-1.5 text-right text-secondary tabular-nums">{r.cost_per_unit_usd || <span className="text-disabled">—</span>}</td>
                     <td className="px-3 py-1.5 text-right text-secondary tabular-nums">{r.stock_quantity || "0"}</td>
                   </tr>
                 ))}
@@ -345,7 +356,7 @@ const ADJUSTMENT_TYPES: {
   { value: "inventory_count", label: "Inventory Count", hint: "Enter the new actual stock total",  sign: "count"    },
 ];
 
-const ING_EMPTY = { name: "", category: "" as IngredientCategory | "", supplier_id: "", partner_id: "", unit: "", cost_per_unit: "", stock_quantity: "0", alpha_acid: "", color_lovibond: "" };
+const ING_EMPTY = { name: "", category: "" as IngredientCategory | "", supplier_id: "", partner_id: "", unit: "", cost_per_unit_usd: "", stock_quantity: "0", alpha_acid: "", color_lovibond: "" };
 
 function fmtValue(v: number | null | undefined) {
   return formatCurrency(v);
@@ -388,7 +399,7 @@ export default function IngredientsTab() {
     useTableControls(ingredients, INGREDIENT_CONTROLS, { prefix: "ing_" });
 
   // Bulk edit
-  type BulkRow = { id: string; name: string; unit: string; cost_per_unit: string };
+  type BulkRow = { id: string; name: string; unit: string; cost_per_unit_usd: string };
   const [bulkEditMode, setBulkEditMode] = useState(false);
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -399,7 +410,7 @@ export default function IngredientsTab() {
         id: ing.id,
         name: ing.name,
         unit: ing.unit,
-        cost_per_unit: ing.cost_per_unit != null ? String(ing.cost_per_unit) : "",
+        cost_per_unit_usd: ing.cost_per_unit_usd != null ? String(ing.cost_per_unit_usd) : "",
       }))
     );
     setBulkEditMode(true);
@@ -414,7 +425,7 @@ export default function IngredientsTab() {
           if (
             orig?.name === row.name &&
             orig?.unit === row.unit &&
-            String(orig?.cost_per_unit ?? "") === row.cost_per_unit
+            String(orig?.cost_per_unit_usd ?? "") === row.cost_per_unit_usd
           )
             return Promise.resolve();
           // res.ok must be checked: fetch resolves on 4xx, so an unauthorized
@@ -429,7 +440,7 @@ export default function IngredientsTab() {
               supplier_id: orig?.supplier_id ?? null,
               partner_id: orig?.partner_id ?? null,
               unit: row.unit,
-              cost_per_unit: row.cost_per_unit !== "" ? parseFloat(row.cost_per_unit) : null,
+              cost_per_unit_usd: row.cost_per_unit_usd !== "" ? parseFloat(row.cost_per_unit_usd) : null,
               stock_quantity: orig?.stock_quantity ?? 0,
             }),
           }).then(async (res) => {
@@ -457,7 +468,7 @@ export default function IngredientsTab() {
       supplier_id: ing.supplier_id ?? "",
       partner_id: ing.partner_id ?? "",
       unit: ing.unit,
-      cost_per_unit: ing.cost_per_unit != null ? String(ing.cost_per_unit) : "",
+      cost_per_unit_usd: ing.cost_per_unit_usd != null ? String(ing.cost_per_unit_usd) : "",
       stock_quantity: String(ing.stock_quantity),
       alpha_acid: ing.alpha_acid != null ? String(ing.alpha_acid) : "",
       color_lovibond: ing.color_lovibond != null ? String(ing.color_lovibond) : "",
@@ -476,7 +487,7 @@ export default function IngredientsTab() {
         supplier_id: ingForm.supplier_id || null,
         partner_id: ingForm.partner_id || null,
         unit: ingForm.unit,
-        cost_per_unit: ingForm.cost_per_unit !== "" ? parseFloat(ingForm.cost_per_unit) : null,
+        cost_per_unit_usd: ingForm.cost_per_unit_usd !== "" ? parseFloat(ingForm.cost_per_unit_usd) : null,
         stock_quantity: parseFloat(ingForm.stock_quantity) || 0,
         alpha_acid: ingForm.alpha_acid !== "" ? parseFloat(ingForm.alpha_acid) : null,
         color_lovibond: ingForm.color_lovibond !== "" ? parseFloat(ingForm.color_lovibond) : null,
@@ -558,7 +569,7 @@ export default function IngredientsTab() {
   const previewCost     = parseFloat(adjPurchaseCost) || 0;
   const previewShipping = parseFloat(adjShippingCost) || 0;
   const currentStock = adjIngredient?.stock_quantity ?? 0;
-  const currentCost  = adjIngredient?.cost_per_unit ?? null;
+  const currentCost  = adjIngredient?.cost_per_unit_usd ?? null;
   const currentValue = currentCost != null ? currentStock * currentCost : null;
   const newStock     = currentStock + previewQty;
   const landedPerUnit = previewQty > 0 ? (previewCost * previewQty + previewShipping) / previewQty : previewCost;
@@ -673,7 +684,7 @@ export default function IngredientsTab() {
                     </thead>
                     <tbody>
                       {items.map((ing, i) => {
-                        const totalValue = ing.cost_per_unit != null ? ing.cost_per_unit * ing.stock_quantity : null;
+                        const totalValue = ing.cost_per_unit_usd != null ? ing.cost_per_unit_usd * ing.stock_quantity : null;
                         const bulkRow = bulkRows.find((r) => r.id === ing.id);
                         if (bulkEditMode && bulkRow) {
                           return (
@@ -690,8 +701,8 @@ export default function IngredientsTab() {
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, unit: e.target.value } : r))} />
                               </td>
                               <td className="px-2 py-1.5">
-                                <input type="number" step="0.0001" min="0" className="inp-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit}
-                                  onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, cost_per_unit: e.target.value } : r))} />
+                                <input type="number" step="0.0001" min="0" className="inp-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit_usd}
+                                  onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, cost_per_unit_usd: e.target.value } : r))} />
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums">
                                 <span className={Number(ing.stock_quantity) < 0 ? "text-danger" : "text-body"}>
@@ -717,7 +728,7 @@ export default function IngredientsTab() {
                             </td>
                             <td className="px-3 py-2.5 text-secondary whitespace-nowrap">{ing.unit}</td>
                             <td className="px-3 py-2.5 text-body text-right tabular-nums whitespace-nowrap">
-                              {ing.cost_per_unit != null ? formatUnitCost(Number(ing.cost_per_unit)) : "—"}
+                              {ing.cost_per_unit_usd != null ? formatUnitCost(Number(ing.cost_per_unit_usd)) : "—"}
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
                               <span className={Number(ing.stock_quantity) < 0 ? "text-danger" : "text-body"}>
@@ -809,8 +820,8 @@ export default function IngredientsTab() {
               </Field>
               <Field label="Cost per Unit ($)">
                 <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000"
-                  value={ingForm.cost_per_unit}
-                  onChange={(e) => setIngForm((f) => ({ ...f, cost_per_unit: e.target.value }))} />
+                  value={ingForm.cost_per_unit_usd}
+                  onChange={(e) => setIngForm((f) => ({ ...f, cost_per_unit_usd: e.target.value }))} />
               </Field>
             </div>
             <div className="rounded bg-accent-muted/20 border border-accent-border/40 px-3 py-2 text-xs text-accent-soft">
@@ -855,7 +866,7 @@ export default function IngredientsTab() {
               <div>
                 <p className="text-xs text-muted mb-0.5">Unit cost</p>
                 <p className="text-primary font-medium">
-                  {adjIngredient.cost_per_unit != null ? formatUnitCost(Number(adjIngredient.cost_per_unit)) : "—"}
+                  {adjIngredient.cost_per_unit_usd != null ? formatUnitCost(Number(adjIngredient.cost_per_unit_usd)) : "—"}
                 </p>
               </div>
               <div>

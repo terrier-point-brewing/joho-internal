@@ -30,13 +30,13 @@ export async function POST(req: NextRequest) {
   // Fetch current ingredient state upfront (needed for all paths)
   const { data: ing, error: ingErr } = await supabase
     .from("ingredients")
-    .select("stock_quantity, cost_per_unit, unit")
+    .select("stock_quantity, cost_per_unit_usd, unit")
     .eq("id", ingredient_id)
     .single();
   if (ingErr) return NextResponse.json({ error: ingErr.message }, { status: 500 });
 
   const currentQty  = ing?.stock_quantity ?? 0;
-  const currentCost = ing?.cost_per_unit  ?? null;
+  const currentCost = ing?.cost_per_unit_usd  ?? null;
 
   let delta: number;
   if (type === "inventory_count") {
@@ -74,9 +74,9 @@ export async function POST(req: NextRequest) {
       type,
       quantity:           delta,
       note:               note || null,
-      cost_per_unit:      adjCostPerUnit,
-      total_value_change: totalValueChange,
-      shipping_cost:      shipping_cost != null && Number(shipping_cost) > 0 ? Number(shipping_cost) : null,
+      cost_per_unit_usd:      adjCostPerUnit,
+      total_value_change_usd: totalValueChange,
+      shipping_cost_usd:  shipping_cost != null && Number(shipping_cost) > 0 ? Number(shipping_cost) : null,
       unit:               ing?.unit ?? null,   // snapshot unit at write time
     })
     .select()
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
 
   // Update ingredient cost if it changed
   if (newCostPerUnit != null && newCostPerUnit !== currentCost) {
-    const { error: costErr } = await supabase.from("ingredients").update({ cost_per_unit: newCostPerUnit }).eq("id", ingredient_id);
+    const { error: costErr } = await supabase.from("ingredients").update({ cost_per_unit_usd: newCostPerUnit }).eq("id", ingredient_id);
     if (costErr) return NextResponse.json({ error: costErr.message }, { status: 500 });
   }
 

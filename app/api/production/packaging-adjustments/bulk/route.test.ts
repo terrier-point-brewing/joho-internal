@@ -11,8 +11,8 @@ interface Recorded { table: string; op: "insert" | "update"; payload: unknown; e
 let recorded: Recorded[] = [];
 
 const PACKAGING_ITEMS = [
-  { id: "pkg-1", stock_quantity: 200, unit_cost: 0.1 },
-  { id: "pkg-2", stock_quantity: 500, unit_cost: 0.05 },
+  { id: "pkg-1", stock_quantity: 200, unit_cost_usd: 0.1 },
+  { id: "pkg-2", stock_quantity: 500, unit_cost_usd: 0.05 },
 ];
 
 function makeChain(table: string) {
@@ -101,7 +101,7 @@ describe("POST /api/production/packaging-adjustments/bulk", () => {
 
     const adjInserts = recorded.filter((r) => r.table === "packaging_stock_adjustments" && r.op === "insert");
     // 100:300 quantity split of $40 -> $10.00 / $30.00
-    expect((adjInserts[0].payload as { shipping_cost: number }).shipping_cost).toBe(10);
-    expect((adjInserts[1].payload as { shipping_cost: number }).shipping_cost).toBe(30);
+    expect((adjInserts[0].payload as { shipping_cost_usd: number }).shipping_cost_usd).toBe(10);
+    expect((adjInserts[1].payload as { shipping_cost_usd: number }).shipping_cost_usd).toBe(30);
   });
 });

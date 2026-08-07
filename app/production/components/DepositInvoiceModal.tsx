@@ -218,7 +218,7 @@ export function DepositInvoiceModal({
                       <div key={i} className="flex justify-between px-3 py-1.5 text-xs">
                         <span className="text-secondary">{item.name}</span>
                         <span className="text-muted tabular-nums ml-4">
-                          {item.quantity_per_bbl.toFixed(3)} {item.unit}/BBL × {fmtUsd(item.cost_per_unit)} × {batchBbl?.toFixed(2)} BBL = <span className="text-body">{fmtUsd(item.line_total_usd)}</span>
+                          {item.quantity_per_bbl.toFixed(3)} {item.unit}/BBL × {fmtUsd(item.cost_per_unit_usd)} × {batchBbl?.toFixed(2)} BBL = <span className="text-body">{fmtUsd(item.line_total_usd)}</span>
                         </span>
                       </div>
                     ))}

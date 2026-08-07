@@ -55,14 +55,19 @@ batch_conversions                ← replaced channel='conversion' allocations +
   new-child route was removed 2026-07-04; its capability lives in the transfers path.)
 
 ingredients
-  id, name, supplier, unit, cost_per_unit, stock_quantity, created_at
+  id, name, supplier, unit, cost_per_unit_usd, stock_quantity, created_at
 
 stock_adjustments
   id, ingredient_id, quantity (signed), type, note, batch_id,
-  cost_per_unit, total_value_change, created_at
+  cost_per_unit_usd, total_value_change_usd, shipping_cost_usd, created_at
   type: received | used | waste | inventory_count | batch_use
   "received" type: purchase_cost in POST body → server computes weighted avg cost,
-  updates ingredients.cost_per_unit, stores cost_per_unit + total_value_change on adj row
+  updates ingredients.cost_per_unit_usd, stores cost_per_unit_usd +
+  total_value_change_usd on adj row
+  The `_usd` suffix is load-bearing: these are DECIMAL DOLLARS, unlike the
+  `*_cents` integer columns Square amounts land in. POST body fields
+  (purchase_cost, shipping_cost) stay unsuffixed — they are request params, not
+  columns.
 
 recipes
   id, beer_name, brewery, expected_yield_bbl, steps, notes, created_at
@@ -80,7 +85,7 @@ batch_workflow_steps
   Supabase join: equipment(id,name,type)
 
 packaging_items
-  id, type, name, supplier, unit_cost, brewery, volume_fl_oz, can_count, created_at
+  id, type, name, supplier, unit_cost_usd, brewery, volume_fl_oz, can_count, created_at
   type: keg | can | lid | paktech | tray
 ```
 

@@ -20,7 +20,7 @@ export interface IngredientNow {
   id: string;
   name: string;
   unit: string;
-  cost_per_unit: number | null;
+  cost_per_unit_usd: number | null;
 }
 
 function num(v: unknown): number | null {
@@ -146,7 +146,7 @@ export function reconstructBreakdownAsOf(params: {
 
     const ing = ingredientsNow.get(state.ingredient_id);
     const ingRows = ingByRecord.get(state.ingredient_id) ?? [];
-    const cost = reconstructFieldAsOf(ingRows, "cost_per_unit", asOf, ing?.cost_per_unit ?? NaN);
+    const cost = reconstructFieldAsOf(ingRows, "cost_per_unit_usd", asOf, ing?.cost_per_unit_usd ?? NaN);
     if (!Number.isFinite(cost)) continue;
 
     let name = ing?.name ?? null;
@@ -163,7 +163,7 @@ export function reconstructBreakdownAsOf(params: {
       name,
       unit,
       quantity_per_bbl: state.quantity_per_bbl,
-      cost_per_unit: cost,
+      cost_per_unit_usd: cost,
       weight: state.quantity_per_bbl * cost,
     });
   }

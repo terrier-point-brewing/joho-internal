@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildBreakdownLines, type BreakdownInput } from "./depositBreakdown";
 
 const mk = (name: string, weight: number): BreakdownInput => ({
-  ingredient_id: name, name, unit: "lb", quantity_per_bbl: 1, cost_per_unit: weight, weight,
+  ingredient_id: name, name, unit: "lb", quantity_per_bbl: 1, cost_per_unit_usd: weight, weight,
 });
 
 describe("buildBreakdownLines", () => {
