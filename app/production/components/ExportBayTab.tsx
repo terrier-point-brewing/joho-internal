@@ -1135,7 +1135,7 @@ function WriteOffModal({ alloc, partnerName, recipeName, onClose, onDone }: {
 // ── SyncConsumptionModal ─────────────────────────────────────────────────────────
 
 interface SyncDiscrepancy {
-  kind: "unconfigured_draft_swap" | "short_stock";
+  kind: "unconfigured_draft_swap" | "short_stock" | "dead_square_link";
   recipeId: string;
   beerName?: string;
   swapCount?: number;
@@ -1144,13 +1144,20 @@ interface SyncDiscrepancy {
   requestedQty?: number;
   recordedQty?: number;
   shortfallQty?: number;
+  squareVariationId?: string;
+  packaging?: string;
+  itemName?: string | null;
+  variationName?: string | null;
+  reason?: "deleted_in_square" | "missing_from_catalog";
 }
 
 interface SyncResult {
   windowDays: number;
   recorded: { kind: string; label: string; recordedQty: number }[];
   recordedUnits: number;
-  skipped: number;
+  unitsExamined: number;
+  alreadyRecorded: number;
+  bookedNothing: number;
   totalRecordedQty: number;
   discrepancies: SyncDiscrepancy[];
 }
@@ -1181,6 +1188,7 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
 
   const configDiscs = result?.discrepancies.filter((d) => d.kind === "unconfigured_draft_swap") ?? [];
   const shortDiscs  = result?.discrepancies.filter((d) => d.kind === "short_stock") ?? [];
+  const deadDiscs   = result?.discrepancies.filter((d) => d.kind === "dead_square_link") ?? [];
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
@@ -1211,12 +1219,24 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
         {result && (
           <div className="space-y-3 text-xs">
             <div className="rounded border border-line px-3 py-2 text-secondary">
-              Recorded <span className="text-strong tabular-nums">{result.recordedUnits}</span> unit
-              {result.recordedUnits !== 1 ? "s" : ""}
+              Examined <span className="text-strong tabular-nums">{result.unitsExamined}</span> unit
+              {result.unitsExamined !== 1 ? "s" : ""} over the last {result.windowDays}d
+              {" · "}recorded <span className="text-strong tabular-nums">{result.recordedUnits}</span>
               {" "}(<span className="text-strong tabular-nums">{result.totalRecordedQty}</span> total)
-              {" · "}<span className="tabular-nums">{result.skipped}</span> already up to date
-              {" · "}last {result.windowDays}d
+              {" · "}<span className="tabular-nums">{result.alreadyRecorded}</span> already up to date
             </div>
+
+            {/*
+              A unit the run tried to book and got nothing for. Previously counted
+              into the same "already up to date" figure as a genuine no-op, which
+              made a run that booked nothing indistinguishable from a clean one.
+            */}
+            {result.bookedNothing > 0 && (
+              <p className="text-danger">
+                <span className="tabular-nums">{result.bookedNothing}</span> unit
+                {result.bookedNothing !== 1 ? "s" : ""} had something owed and booked nothing.
+              </p>
+            )}
 
             {configDiscs.length > 0 && (
               <div>
@@ -1239,6 +1259,29 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
                   {shortDiscs.map((d, i) => (
                     <li key={`${d.variationId}-${i}`} className="text-muted">
                       {d.label} — recorded {d.recordedQty}, {d.shortfallQty} short. Check the missing kegging entry.
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/*
+              Listed first and in the danger colour: a mapping pointing at a
+              variation Square no longer has takes its beer out of this sync's
+              sight entirely, so every other figure above is measured over an
+              incomplete population until it is repaired.
+            */}
+            {deadDiscs.length > 0 && (
+              <div>
+                <p className="text-danger font-medium mb-1">Mapping points at a deleted Square variation</p>
+                <ul className="space-y-1">
+                  {deadDiscs.map((d) => (
+                    <li key={d.squareVariationId} className="text-muted">
+                      {d.itemName ?? d.recipeId}{d.variationName ? ` · ${d.variationName}` : ""} ({d.packaging ?? ""})
+                      {" — "}
+                      {d.reason === "deleted_in_square"
+                        ? "deleted in Square. Its sales book nothing until it is re-mapped."
+                        : "not in the catalog mirror. Run the Square catalog sync, then re-map it if it is still missing."}
                     </li>
                   ))}
                 </ul>

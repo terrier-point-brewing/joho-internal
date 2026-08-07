@@ -10,11 +10,19 @@ import {
   staleSwaps,
   type PendingTapSwap,
 } from "@/lib/taproom/tapSwaps";
+import { findDeadLinks } from "./linkHealth";
 
 /** A queued swap unrung for this long is surfaced as a discrepancy, never auto-expired. */
 const STALE_SWAP_DAYS = 7;
 
 export type ConsumptionKind = "keg_sale" | "can_sale" | "draft_swap";
+
+/** The span of Square activity a single reconcile pass actually looked at. */
+export interface ConsumptionWindow {
+  startIso: string;
+  endIso: string;
+  days: number;
+}
 
 /**
  * Trailing reconcile window: from the UTC day boundary `days` back, up to *now*.
@@ -24,10 +32,10 @@ export type ConsumptionKind = "keg_sale" | "can_sale" | "draft_swap";
  * today (e.g. a Draft Restock a bartender just fired), which is exactly the case
  * the webhook exists to catch.
  */
-export function trailingWindow(now: Date, days: number): { startIso: string; endIso: string } {
+export function trailingWindow(now: Date, days: number): ConsumptionWindow {
   const start = new Date(now.getTime() - days * 86400000);
   start.setUTCHours(0, 0, 0, 0);
-  return { startIso: start.toISOString(), endIso: now.toISOString() };
+  return { startIso: start.toISOString(), endIso: now.toISOString(), days };
 }
 
 /** Square recount to apply after a unit is first recorded (draft keg swaps only). */
@@ -116,12 +124,35 @@ export interface LinkMissingVariationDiscrepancy {
   variationName: string;
 }
 
+/**
+ * A mapping pointed at a Square variation that no longer exists.
+ *
+ * The most damaging shape of miss this sync has, because it is invisible from
+ * the inside: sales are fetched by the ids the links hold, so a dead id simply
+ * stops matching anything and the run looks like a quiet night. That is how nine
+ * days of Epic Hazy can sales drained nothing and reported nothing.
+ *
+ * Detection lives in `findDeadLinks` and is cheap — one read of the catalog
+ * mirror, no Square round trip — so it runs on every reconcile rather than only
+ * when somebody opens the Taproom drift panel.
+ */
+export interface DeadLinkDiscrepancy {
+  kind: "dead_square_link";
+  recipeId: string;
+  squareVariationId: string;
+  packaging: string;
+  itemName: string | null;
+  variationName: string | null;
+  reason: "deleted_in_square" | "missing_from_catalog";
+}
+
 export type AssemblyDiscrepancy =
   | ConfigDiscrepancy
   | UnmappedRestockDiscrepancy
   | StaleQueuedSwapDiscrepancy
   | UnmappedSaleDiscrepancy
-  | LinkMissingVariationDiscrepancy;
+  | LinkMissingVariationDiscrepancy
+  | DeadLinkDiscrepancy;
 
 // keg/can Square SKU -> cold-storage variation
 export interface KegCanLink {
@@ -347,9 +378,12 @@ interface TapAssignmentRow {
  */
 export async function deriveTaproomConsumption(
   supabase: SupabaseClient,
-  opts: { days: number },
+  opts: { days: number; window?: ConsumptionWindow },
 ): Promise<{ units: ConsumptionUnit[]; discrepancies: AssemblyDiscrepancy[] }> {
-  const { startIso: startDate, endIso: endDate } = trailingWindow(new Date(), opts.days);
+  // The caller may hand down the window it intends to report, so the span named
+  // in a run summary is provably the span that was queried rather than a second
+  // computation of "now" that could drift from it.
+  const { startIso: startDate, endIso: endDate } = opts.window ?? trailingWindow(new Date(), opts.days);
 
   const { data: linkRows, error: linkErr } = await supabase
     .from("recipe_square_links")
@@ -519,10 +553,31 @@ export async function deriveTaproomConsumption(
     nowIso: new Date().toISOString(),
   });
 
+  // A mapping pointing at a variation Square no longer has cannot be found by
+  // assembling sales — its sales never arrive to be assembled. It is read off the
+  // catalog mirror instead, and reported here so a broken mapping raises itself
+  // on the nightly run rather than waiting for someone to open the drift panel.
+  // Best-effort: this is a report about the run, and losing it must never cost
+  // the reconciliation the run just did.
+  let deadLinks: DeadLinkDiscrepancy[] = [];
+  try {
+    deadLinks = (await findDeadLinks(supabase)).map((d) => ({
+      kind: "dead_square_link" as const,
+      recipeId: d.recipeId,
+      squareVariationId: d.squareVariationId,
+      packaging: d.packaging,
+      itemName: d.itemName,
+      variationName: d.variationName,
+      reason: d.reason,
+    }));
+  } catch (e) {
+    console.error("[taproom-sync] dead-link check failed", e instanceof Error ? e.message : String(e));
+  }
+
   // Half-finished mappings are found while loading links, not while assembling,
   // so they join the assembler's own findings here.
   return {
     ...assembled,
-    discrepancies: [...assembled.discrepancies, ...halfMappedLinks],
+    discrepancies: [...assembled.discrepancies, ...halfMappedLinks, ...deadLinks],
   };
 }

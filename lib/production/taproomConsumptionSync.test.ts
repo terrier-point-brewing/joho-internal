@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/square/taproomConsumption", () => ({ deriveTaproomConsumption: vi.fn() }));
+// Partial: the sync computes the window it reports with the real `trailingWindow`
+// and hands it to derive, so only derive itself is stubbed.
+vi.mock("@/lib/square/taproomConsumption", async (orig) => ({
+  ...(await orig<typeof import("@/lib/square/taproomConsumption")>()),
+  deriveTaproomConsumption: vi.fn(),
+}));
 vi.mock("@/lib/production/recordTaproomConsumption", () => ({ recordTaproomConsumption: vi.fn() }));
 vi.mock("@/lib/square/inventory", () => ({
   setPhysicalCount: vi.fn(),
@@ -276,6 +281,8 @@ describe("runTaproomConsumptionSync", () => {
     expect(derive).not.toHaveBeenCalled();
     expect(record).not.toHaveBeenCalled();
     expect(res.recorded).toHaveLength(0);
+    // Nothing was inspected, so there is no window to claim one was.
+    expect(res.window).toBeNull();
   });
 
   it("acquires the lock, runs, and releases it on a normal run", async () => {
@@ -301,7 +308,50 @@ describe("runTaproomConsumptionSync", () => {
       fakeSupabase([{ source_ref: "sqsale:sv1:2026-07-03", quantity: 3 }]), { days: 2 });
     expect(record).not.toHaveBeenCalled();
     expect(res.skipped).toBe(1);
+    expect(res.alreadyRecorded).toBe(1);
+    expect(res.bookedNothing).toBe(0);
     expect(res.recorded).toHaveLength(0);
+  });
+
+  // A run that recorded nothing is the healthy steady state behind the webhook,
+  // and it is also what a run that saw nothing looks like. These three cases pin
+  // down what now tells them apart.
+  it("reports the window it inspected and the population it examined", async () => {
+    derive.mockResolvedValue({ units: [unit(), canUnit()], discrepancies: [] });
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([
+        { source_ref: "sqsale:sv1:2026-07-03", quantity: 3 },
+        { source_ref: "sqsale:sv-can:2026-07-03", quantity: 2 },
+      ]), { days: 14 });
+
+    expect(res.recordedUnits).toBe(0);      // nothing owed
+    expect(res.unitsExamined).toBe(2);      // ...but two units were genuinely looked at
+    expect(res.alreadyRecorded).toBe(2);
+    expect(res.window?.days).toBe(14);
+    expect(res.window?.startIso).toBeDefined();
+    // The window handed to derive is the one reported, not a second "now".
+    expect(derive).toHaveBeenCalledWith(expect.anything(), { days: 14, window: res.window });
+  });
+
+  it("distinguishes a blind run from a clean one", async () => {
+    derive.mockResolvedValue({ units: [], discrepancies: [] });
+    const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 14 });
+
+    // Same recordedUnits as the clean run above, but `unitsExamined: 0` says the
+    // window yielded nothing to check — the shape the dead-link months had.
+    expect(res.recordedUnits).toBe(0);
+    expect(res.unitsExamined).toBe(0);
+    expect(res.window).not.toBeNull();
+  });
+
+  it("counts a unit that owed something and booked nothing apart from a no-op", async () => {
+    derive.mockResolvedValue({ units: [unit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 0, shortfallQty: 0, exportTransactionIds: [], breaks: [], warnings: [] });
+    const res = await runTaproomConsumptionSync(fakeSupabase([]), { days: 14 });
+
+    expect(res.bookedNothing).toBe(1);
+    expect(res.alreadyRecorded).toBe(0);
+    expect(res.skipped).toBe(1); // the old single counter, which said only "1 skipped"
   });
 
   it("records only the remaining delta", async () => {
