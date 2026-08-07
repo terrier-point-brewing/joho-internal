@@ -102,7 +102,7 @@ export async function ensureTasksForSchedule(
   today: Date = new Date(),
   lookbackDays: number = DEFAULT_LOOKBACK_DAYS,
 ): Promise<{ created: number }> {
-  const party = getParty(schedule.party_key);
+  const party = getParty(schedule.filing_key);
   const periods = periodsNeedingTasks(schedule.frequency, today, lookbackDays, party);
   if (periods.length === 0) return { created: 0 };
 
@@ -110,7 +110,7 @@ export async function ensureTasksForSchedule(
 
   const rows = periods.map((p) => ({
     schedule_id: schedule.id,
-    party_key: schedule.party_key,
+    filing_key: schedule.filing_key,
     period_start: p.start,
     period_end: p.end,
     due_date: resolveDueDate(p.end, rule),
@@ -128,7 +128,7 @@ export async function ensureTasksForSchedule(
 interface AlertCandidateRow {
   id: string;
   schedule_id: string;
-  party_key: string;
+  filing_key: string;
   period_start: string;
   period_end: string;
   due_date: string;
@@ -166,7 +166,7 @@ export async function tasksNeedingAlert(sb: SupabaseClient, today: Date): Promis
   return eligible.map((row): TaxTask => ({
     id: row.id,
     schedule_id: row.schedule_id,
-    party_key: row.party_key,
+    filing_key: row.filing_key,
     period_start: row.period_start,
     period_end: row.period_end,
     due_date: row.due_date,
@@ -208,7 +208,7 @@ export interface ListTasksFilter {
 export async function listTasks(sb: SupabaseClient, filter: ListTasksFilter = {}): Promise<TaxTask[]> {
   let query = sb.from("tax_tasks").select("*").order("due_date", { ascending: true });
   if (filter.status) query = query.eq("status", filter.status);
-  if (filter.partyKey) query = query.eq("party_key", filter.partyKey);
+  if (filter.partyKey) query = query.eq("filing_key", filter.partyKey);
   if (filter.scheduleId) query = query.eq("schedule_id", filter.scheduleId);
   const { data, error } = await query;
   if (error) throw new Error(error.message);

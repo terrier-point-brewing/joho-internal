@@ -5,7 +5,7 @@ import { listSchedules, createSchedule, updateSchedule, setScheduleActive, getSc
 
 const sampleSchedule: TaxSchedule = {
   id: "SCHED_1",
-  party_key: "nc_dor_su",
+  filing_key: "nc_dor_su",
   frequency: "monthly",
   lead_days: 7,
   active: true,
@@ -56,7 +56,7 @@ describe("listSchedules", () => {
 
     await listSchedules(client, { partyKey: "nc_dor_su", activeOnly: true });
 
-    expect(recorded).toEqual(["party_key", "active"]);
+    expect(recorded).toEqual(["filing_key", "active"]);
   });
 
   it("throws with the Supabase error message on query failure", async () => {
@@ -132,11 +132,11 @@ describe("createSchedule", () => {
       }),
     } as unknown as SupabaseClient;
 
-    const result = await createSchedule(client, { party_key: "nc_dor_su", frequency: "monthly" });
+    const result = await createSchedule(client, { filing_key: "nc_dor_su", frequency: "monthly" });
 
     expect(result).toEqual(sampleSchedule);
     expect(recorded[0].payload).toMatchObject({
-      party_key: "nc_dor_su",
+      filing_key: "nc_dor_su",
       frequency: "monthly",
       lead_days: 7,
       active: true,
@@ -156,7 +156,7 @@ describe("createSchedule", () => {
     } as unknown as SupabaseClient;
 
     await createSchedule(client, {
-      party_key: "nc_dor_su",
+      filing_key: "nc_dor_su",
       frequency: "quarterly",
       lead_days: 14,
       active: false,
@@ -218,14 +218,14 @@ describe("setScheduleActive", () => {
 });
 
 describe("listActivePartyKeys", () => {
-  it("returns distinct party_key values from active schedules only", async () => {
+  it("returns distinct filing_key values from active schedules only", async () => {
     // listActivePartyKeys calls listSchedules(sb, { activeOnly: true }), which
     // issues .eq("active", true) — the stub simulates the DB already having
     // applied that filter, matching the existing stub convention in this file
     // (see "applies partyKey and activeOnly filters when provided" above).
     const activeRows: TaxSchedule[] = [
-      { ...sampleSchedule, id: "s1", party_key: "nc_dor_beer_excise", active: true },
-      { ...sampleSchedule, id: "s2", party_key: "nc_dor_beer_excise", active: true },
+      { ...sampleSchedule, id: "s1", filing_key: "nc_dor_beer_excise", active: true },
+      { ...sampleSchedule, id: "s2", filing_key: "nc_dor_beer_excise", active: true },
     ];
     const client = {
       from: () => {

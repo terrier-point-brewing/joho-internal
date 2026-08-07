@@ -118,7 +118,7 @@ type Recorded = { table: string; op: string; payload?: unknown; args?: unknown[]
 function makeSchedule(overrides: Partial<TaxSchedule> = {}): TaxSchedule {
   return {
     id: "SCHED_1",
-    party_key: "stub-party",
+    filing_key: "stub-party",
     frequency: "monthly",
     lead_days: 7,
     active: true,
@@ -159,14 +159,14 @@ describe("ensureTasksForSchedule", () => {
     expect(recorded[0].payload).toEqual([
       {
         schedule_id: "SCHED_1",
-        party_key: "stub-party",
+        filing_key: "stub-party",
         period_start: "2026-05-01",
         period_end: "2026-05-31",
         due_date: "2026-06-20",
       },
       {
         schedule_id: "SCHED_1",
-        party_key: "stub-party",
+        filing_key: "stub-party",
         period_start: "2026-06-01",
         period_end: "2026-06-30",
         due_date: "2026-07-20",
@@ -306,7 +306,7 @@ describe("getTask / listTasks / saveWorksheet / completeTask", () => {
   const sampleTask: TaxTask = {
     id: "T1",
     schedule_id: "SCHED_1",
-    party_key: "stub-party",
+    filing_key: "stub-party",
     period_start: "2026-06-01",
     period_end: "2026-06-30",
     due_date: "2026-07-31",
@@ -358,7 +358,7 @@ describe("getTask / listTasks / saveWorksheet / completeTask", () => {
     const result = await listTasks(client, { status: "open", partyKey: "stub-party", scheduleId: "SCHED_1" });
 
     expect(result).toEqual([sampleTask]);
-    expect(recorded).toEqual(["status", "party_key", "schedule_id"]);
+    expect(recorded).toEqual(["status", "filing_key", "schedule_id"]);
   });
 
   it("saveWorksheet updates the worksheet column and returns the updated row", async () => {

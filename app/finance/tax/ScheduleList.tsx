@@ -87,7 +87,7 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
               <li key={schedule.id} className="flex items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
                   <p className="text-sm text-strong truncate">
-                    {partyLabel.get(schedule.party_key) ?? schedule.party_key}
+                    {partyLabel.get(schedule.filing_key) ?? schedule.filing_key}
                   </p>
                   <p className="text-xs text-faint">
                     {FREQUENCY_LABEL[schedule.frequency] ?? schedule.frequency} · {schedule.lead_days}d lead
@@ -125,7 +125,7 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
       {deactivating && (
         <ConfirmDialog
           title="Deactivate schedule?"
-          message={`Deactivate the ${partyLabel.get(deactivating.party_key) ?? deactivating.party_key} ${deactivating.frequency} schedule? Existing tasks are unaffected.`}
+          message={`Deactivate the ${partyLabel.get(deactivating.filing_key) ?? deactivating.filing_key} ${deactivating.frequency} schedule? Existing tasks are unaffected.`}
           confirmLabel="Deactivate"
           tone="danger"
           busy={busyId === deactivating.id}

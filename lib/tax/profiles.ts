@@ -21,7 +21,7 @@ export async function getProfile(sb: SupabaseClient, party: string): Promise<Tax
   const { data, error } = await sb
     .from("tax_filing_profiles")
     .select("values")
-    .eq("party_key", party)
+    .eq("filing_key", party)
     .maybeSingle();
   if (error) throw new Error(error.message);
   return ((data as { values?: TaxFilingProfileValues } | null)?.values as TaxFilingProfileValues | undefined) ?? {};
@@ -43,8 +43,8 @@ export async function putProfile(
   const { error } = await sb
     .from("tax_filing_profiles")
     .upsert(
-      { party_key: party, values: merged, updated_at: new Date().toISOString() },
-      { onConflict: "party_key" },
+      { filing_key: party, values: merged, updated_at: new Date().toISOString() },
+      { onConflict: "filing_key" },
     );
   if (error) throw new Error(error.message);
 }

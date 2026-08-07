@@ -4,7 +4,7 @@
  * Maps a party's `worksheetComponent` key (`TaxPartyTemplate.worksheetComponent`,
  * served by `GET /api/tax/parties`) to the React module that renders its
  * editable worksheet. `TaxWorksheetShell` (party-agnostic chrome) looks the
- * component up here instead of switching on `party_key` directly, so adding
+ * component up here instead of switching on `filing_key` directly, so adding
  * a new party template only needs one new entry in `WORKSHEET_MODULES`.
  */
 import type { ComponentType } from "react";

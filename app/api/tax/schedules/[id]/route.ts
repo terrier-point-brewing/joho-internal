@@ -30,7 +30,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (patch.frequency) {
       const existing = await getSchedule(sb, id);
       if (!existing) return apiError("Schedule not found", 404);
-      const template = getParty(existing.party_key);
+      const template = getParty(existing.filing_key);
       if (!template.supportedFrequencies.includes(patch.frequency)) {
         return apiError(
           `${template.label} does not support frequency "${patch.frequency}" (supported: ${template.supportedFrequencies.join(", ")})`,

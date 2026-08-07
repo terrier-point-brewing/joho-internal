@@ -322,7 +322,7 @@ describe("computeNcDorWorksheet", () => {
     const ctx: ComputeContext = {
       schedule: {
         id: "s1",
-        party_key: "nc_dor_sales_use",
+        filing_key: "nc_dor_sales_use",
         frequency: "monthly",
         lead_days: 10,
         active: true,

@@ -58,15 +58,15 @@ describe("getProfile", () => {
 });
 
 describe("putProfile", () => {
-  it("upserts merged values on party_key and stamps updated_at", async () => {
+  it("upserts merged values on filing_key and stamps updated_at", async () => {
     const { client, recorded } = makeClient({ contact_name: "Jamie", fein: "12-3456789" });
     await putProfile(client, "nc_dor_sales_use", { contact_name: "Alex" });
 
     expect(recorded).toHaveLength(1);
     expect(recorded[0].table).toBe("tax_filing_profiles");
-    expect(recorded[0].opts).toEqual({ onConflict: "party_key" });
+    expect(recorded[0].opts).toEqual({ onConflict: "filing_key" });
     expect(recorded[0].payload).toMatchObject({
-      party_key: "nc_dor_sales_use",
+      filing_key: "nc_dor_sales_use",
       values: { contact_name: "Alex", fein: "12-3456789" },
       updated_at: expect.any(String),
     });
@@ -88,7 +88,7 @@ describe("putProfile", () => {
     await putProfile(client, "nc_dor_sales_use", { contact_name: "Jamie" });
 
     expect(recorded[0].payload).toMatchObject({
-      party_key: "nc_dor_sales_use",
+      filing_key: "nc_dor_sales_use",
       values: { contact_name: "Jamie" },
     });
   });

@@ -20,7 +20,7 @@ export async function getSchedule(sb: SupabaseClient, id: string): Promise<TaxSc
 
 export async function listSchedules(sb: SupabaseClient, filter: ListSchedulesFilter = {}): Promise<TaxSchedule[]> {
   let query = sb.from("tax_schedules").select("*").order("created_at", { ascending: true });
-  if (filter.partyKey) query = query.eq("party_key", filter.partyKey);
+  if (filter.partyKey) query = query.eq("filing_key", filter.partyKey);
   if (filter.activeOnly) query = query.eq("active", true);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -28,7 +28,7 @@ export async function listSchedules(sb: SupabaseClient, filter: ListSchedulesFil
 }
 
 export interface CreateScheduleInput {
-  party_key: string;
+  filing_key: string;
   frequency: Frequency;
   lead_days?: number;
   active?: boolean;
@@ -39,7 +39,7 @@ export async function createSchedule(sb: SupabaseClient, input: CreateScheduleIn
   const { data, error } = await sb
     .from("tax_schedules")
     .insert({
-      party_key: input.party_key,
+      filing_key: input.filing_key,
       frequency: input.frequency,
       lead_days: input.lead_days ?? 7,
       active: input.active ?? true,
@@ -68,8 +68,8 @@ export async function setScheduleActive(sb: SupabaseClient, id: string, active: 
   return updateSchedule(sb, id, { active });
 }
 
-/** Distinct `party_key` values across every currently-active schedule — thin wrapper over `listSchedules`, not a new query. */
+/** Distinct `filing_key` values across every currently-active schedule — thin wrapper over `listSchedules`, not a new query. */
 export async function listActivePartyKeys(sb: SupabaseClient): Promise<string[]> {
   const schedules = await listSchedules(sb, { activeOnly: true });
-  return [...new Set(schedules.map((s) => s.party_key))];
+  return [...new Set(schedules.map((s) => s.filing_key))];
 }

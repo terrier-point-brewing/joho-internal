@@ -35,8 +35,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     const schedule = await getSchedule(sb, task.schedule_id);
     if (!schedule) return NextResponse.json({ error: "Schedule not found" }, { status: 404 });
 
-    const party = getParty(task.party_key);
-    const profile = await getProfile(sb, task.party_key);
+    const party = getParty(task.filing_key);
+    const profile = await getProfile(sb, task.filing_key);
 
     const ctx: ComputeContext = {
       schedule,

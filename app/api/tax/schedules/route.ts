@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = (await req.json()) as CreateScheduleInput;
-    const template = getParty(body.party_key);
+    const template = getParty(body.filing_key);
     if (!template.supportedFrequencies.includes(body.frequency)) {
       return apiError(
         `${template.label} does not support frequency "${body.frequency}" (supported: ${template.supportedFrequencies.join(", ")})`,

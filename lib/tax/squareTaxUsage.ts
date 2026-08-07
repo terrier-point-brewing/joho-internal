@@ -46,18 +46,18 @@ export async function listSquareTaxUsage(
   const partyKeys = parties.map((p) => p.key);
 
   const [schedules, profiles] = await Promise.all([
-    sb.from("tax_schedules").select("party_key").eq("active", true).in("party_key", partyKeys),
-    sb.from("tax_filing_profiles").select("party_key, values").in("party_key", partyKeys),
+    sb.from("tax_schedules").select("filing_key").eq("active", true).in("filing_key", partyKeys),
+    sb.from("tax_filing_profiles").select("filing_key, values").in("filing_key", partyKeys),
   ]);
   if (schedules.error) throw new Error(schedules.error.message);
   if (profiles.error) throw new Error(profiles.error.message);
 
   const activeParties = new Set(
-    ((schedules.data ?? []) as { party_key: string }[]).map((r) => r.party_key),
+    ((schedules.data ?? []) as { filing_key: string }[]).map((r) => r.filing_key),
   );
   const valuesByParty = new Map(
-    ((profiles.data ?? []) as { party_key: string; values: Record<string, string> | null }[]).map(
-      (r) => [r.party_key, r.values ?? {}],
+    ((profiles.data ?? []) as { filing_key: string; values: Record<string, string> | null }[]).map(
+      (r) => [r.filing_key, r.values ?? {}],
     ),
   );
 

@@ -38,8 +38,8 @@ export default function TaskList({ tasks, schedules, parties, status }: TaskList
 
   const controlsConfig = useMemo<ControlsConfig<TaxTask>>(
     () => ({
-      search: [{ param: "q", accessor: (t) => [partyLabel.get(t.party_key), t.notes, t.confirmation_number] }],
-      filters: [{ param: "party", accessor: (t) => t.party_key }],
+      search: [{ param: "q", accessor: (t) => [partyLabel.get(t.filing_key), t.notes, t.confirmation_number] }],
+      filters: [{ param: "party", accessor: (t) => t.filing_key }],
     }),
     [partyLabel],
   );
@@ -96,7 +96,7 @@ export default function TaskList({ tasks, schedules, parties, status }: TaskList
                 <TaskRow
                   key={task.id}
                   task={task}
-                  label={partyLabel.get(task.party_key) ?? task.party_key}
+                  label={partyLabel.get(task.filing_key) ?? task.filing_key}
                   tone={URGENCY_TONE[urgency]}
                   statusLabel={URGENCY_LABEL[urgency]}
                 />
@@ -115,7 +115,7 @@ export default function TaskList({ tasks, schedules, parties, status }: TaskList
               <TaskRow
                 key={task.id}
                 task={task}
-                label={partyLabel.get(task.party_key) ?? task.party_key}
+                label={partyLabel.get(task.filing_key) ?? task.filing_key}
                 tone={task.status === "completed" ? "success" : "neutral"}
                 statusLabel={task.status === "completed" ? "Completed" : "Skipped"}
               />

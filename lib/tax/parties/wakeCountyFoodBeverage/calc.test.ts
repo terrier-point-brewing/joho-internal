@@ -106,7 +106,7 @@ function ctxWith(profile: Record<string, string>): ComputeContext {
   return {
     schedule: {
       id: "s1",
-      party_key: "wake_county_food_beverage",
+      filing_key: "wake_county_food_beverage",
       frequency: "monthly",
       lead_days: 10,
       active: true,
