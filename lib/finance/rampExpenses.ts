@@ -137,6 +137,21 @@ export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
 }
 
 
+/**
+ * The `expenses` columns of an ExpenseRecord. The account's name and code are
+ * NOT among them: both describe the ACCOUNT rather than the transaction, so
+ * they live once on expense_account_mappings (keyed source +
+ * external_account_id) instead of being copied onto every row. Readers derive
+ * the name from there; the code is consumed during the sync itself
+ * (matchAccountToCoa) and never needed again.
+ */
+export function toExpenseRow(rec: ExpenseRecord): Omit<ExpenseRecord, "external_account_name" | "external_account_code"> {
+  const row: Partial<ExpenseRecord> = { ...rec };
+  delete row.external_account_name;
+  delete row.external_account_code;
+  return row as Omit<ExpenseRecord, "external_account_name" | "external_account_code">;
+}
+
 export async function syncExpenseRecords(
   supabase: AdminClient,
   records: ExpenseRecord[],
@@ -148,16 +163,20 @@ export async function syncExpenseRecords(
   if (coaErr) throw new Error(`Load chart of accounts failed: ${coaErr.message}`);
   const coa = (accountRows ?? []) as CoaAccountRef[];
 
-  // Existing rules for this source.
+  // Existing rules for this source. The name comes back too: since `expenses`
+  // no longer stores its own copy, this row is the only place the account's
+  // display name lives, so the sync has to keep it current (below).
   const { data: ruleRows, error: ruleErr } = await supabase
     .from("expense_account_mappings")
-    .select("external_account_id, chart_of_accounts_id")
+    .select("external_account_id, external_account_name, chart_of_accounts_id")
     .eq("source", SOURCE);
   if (ruleErr) throw new Error(`Load expense mappings failed: ${ruleErr.message}`);
 
   const ruleByAccountId = new Map<string, RuleRef>();
+  const ruleNameByAccountId = new Map<string, string | null>();
   for (const r of ruleRows ?? []) {
     ruleByAccountId.set(r.external_account_id, { external_account_id: r.external_account_id, chart_of_accounts_id: r.chart_of_accounts_id });
+    ruleNameByAccountId.set(r.external_account_id, r.external_account_name);
   }
 
   // Create a rule for every external account in this batch we haven't seen
@@ -199,6 +218,27 @@ export async function syncExpenseRecords(
       .from("expense_account_mappings")
       .upsert(newRules, { onConflict: "source,external_account_id" });
     if (error) throw new Error(`Insert expense mappings failed: ${error.message}`);
+  }
+
+  // Ramp can rename a GL account after we first recorded it. `expenses` used to
+  // carry its own copy of the name, re-written on every sync, so a rename showed
+  // up on the Transactions screen immediately. Now that the name is derived from
+  // this row, refresh it here or the screen would freeze on whatever the account
+  // was called the day it first appeared. Only the name: the code column on this
+  // table is Ramp's own account id, which is a different value from anything
+  // `expenses` ever stored, and no sync should quietly rewrite it.
+  const renamed = [...distinct.entries()].filter(([accountId, ext]) => {
+    if (!ext.name) return false;
+    const known = ruleNameByAccountId.get(accountId);
+    return known !== undefined && known !== ext.name;
+  });
+  for (const [accountId, ext] of renamed) {
+    const { error } = await supabase
+      .from("expense_account_mappings")
+      .update({ external_account_name: ext.name })
+      .eq("source", SOURCE)
+      .eq("external_account_id", accountId);
+    if (error) throw new Error(`Refresh expense mapping name failed: ${error.message}`);
   }
 
   // Counterparty rules (for bank-sourced rows with no GL coding).
@@ -262,7 +302,7 @@ export async function syncExpenseRecords(
     if (resolved.chart_of_accounts_id) mapped++;
     else unmapped++;
     return {
-      ...rec,
+      ...toExpenseRow(rec),
       chart_of_accounts_id: resolved.chart_of_accounts_id,
       mapping_source:       resolved.mapping_source,
       synced_at:            syncedAt,

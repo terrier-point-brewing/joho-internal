@@ -36,6 +36,11 @@ export interface ExpenseRecord {
   accounting_date:       string | null;
   // The account this expense is coded against in the source system. When the
   // source mirrors the chart of accounts (as Ramp does), this drives auto-map.
+  //
+  // Only `external_account_id` is a column on `expenses`. The name and code
+  // describe the ACCOUNT, not this transaction, so they are carried here just
+  // long enough for syncExpenseRecords to create/refresh the account's row in
+  // expense_account_mappings -- readers derive the name from there.
   external_account_id:   string | null;
   external_account_name: string | null;
   external_account_code: string | null;

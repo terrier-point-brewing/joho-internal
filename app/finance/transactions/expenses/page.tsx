@@ -56,8 +56,8 @@ interface ExpenseRow {
   transaction_time: string | null;
   accounting_date: string | null;
   external_account_id: string | null;
+  /** Derived by the API from expense_account_mappings -- not a column on `expenses`. */
   external_account_name: string | null;
-  external_account_code: string | null;
   counterparty_key: string | null;
   qb_sync_status: string | null;
   qb_synced_at: string | null;
