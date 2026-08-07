@@ -225,22 +225,39 @@ export function buildGraphData(
     const hasKeg = pkgEntries.some(e => e.stage === "kegging");
     const hasCan = pkgEntries.some(e => e.stage === "canning");
 
+    // A packaging run of several variations writes one entry AND one transfer per
+    // variation (transfers/route.ts loops the packaging_lines), all stamped with
+    // the same date. Date alone therefore matches every line to every node, and
+    // the run's total loss gets redrawn on each variation's node. Claim each
+    // transfer as it is consumed so it can only be counted once.
+    const claimedTransferIds = new Set<string>();
+    // The entry's volume_bbl is the line volume the route wrote it from, stored at
+    // 3dp; the transfer keeps full precision. Compare at the entry's resolution.
+    const isSameLine = (a: number | null | undefined, b: number | null | undefined) =>
+      a != null && b != null && Math.round(Number(a) * 1000) === Math.round(Number(b) * 1000);
+
     for (let i = 0; i < pkgEntries.length; i++) {
       const e = pkgEntries[i];
       // Only attribute shrinkage to a completed run (actual_end set). Without this
       // guard, two runs sharing the same tank can both match the same transfer when
       // one entry's planned date range overlaps the other's actual transfer date.
-      const pkgShrinkage = (batch && e.actual_end)
-        ? allTransfers
-            .filter(t => {
-              if (t.batch_id !== batch.id || t.to_tank_id !== e.equipment_id || t.transfer_type !== e.stage) return false;
-              const entryStart = (e.actual_start ?? "").slice(0, 10);
-              const entryEnd   = e.actual_end!.slice(0, 10);
-              const txDate     = (t.transferred_at ?? "").slice(0, 10);
-              return !entryStart || (txDate >= entryStart && txDate <= entryEnd);
-            })
-            .reduce((sum, t) => sum + Number(t.shrinkage_bbl ?? 0), 0)
-        : 0;
+      let lines: BatchTransfer[] = [];
+      if (batch && e.actual_end) {
+        const unclaimed = allTransfers.filter(t => {
+          if (claimedTransferIds.has(t.id)) return false;
+          if (t.batch_id !== batch.id || t.to_tank_id !== e.equipment_id || t.transfer_type !== e.stage) return false;
+          const entryStart = (e.actual_start ?? "").slice(0, 10);
+          const entryEnd   = e.actual_end!.slice(0, 10);
+          const txDate     = (t.transferred_at ?? "").slice(0, 10);
+          return !entryStart || (txDate >= entryStart && txDate <= entryEnd);
+        });
+        const ownLine = unclaimed.find(t => isSameLine(e.volume_bbl, t.volume_bbl));
+        // No volume match — hand-written or pre-`volume_bbl` rows. Let this entry
+        // absorb the rest of the run rather than dropping the loss off the graph.
+        lines = ownLine ? [ownLine] : unclaimed;
+        for (const t of lines) claimedTransferIds.add(t.id);
+      }
+      const pkgShrinkage = lines.reduce((sum, t) => sum + Number(t.shrinkage_bbl ?? 0), 0);
       addNode(e.id, "entryNode", 3 + i, row, {
         entry: e,
         packagingShrinkageBbl: pkgShrinkage > 0.001 ? pkgShrinkage : undefined,

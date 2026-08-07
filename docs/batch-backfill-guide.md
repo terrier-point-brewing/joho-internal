@@ -201,7 +201,9 @@ One row per stage, chained via `downstream_entry_id`. Insert from terminal stage
 - `volume_bbl` on a CLOSED entry = volume that arrived at that stage
 - `volume_bbl` on the OPEN (terminal) entry = volume **currently remaining** in the tank. The equipment schedule graph (`buildGraphData.ts → partialDrainInfo`) adds back departed transfer volumes (including shrinkage) to reconstruct the "arrived" total for display — so set the DB value to actual remaining, not original arrived.
 
-**Conditioning entry with partial packaging done:** Set `volume_bbl = (original arrived) - (sum of all packaging transfers volume_bbl+shrinkage_bbl from that tank)`. Example: 40 arrived, kegged 8.997+canned 4.065+1.938 shrinkage → conditioning `volume_bbl = 40 - 8.997 - 4.065 - 1.938 = 25.000`. The graph then shows "25.00 / 40.00 BBL remaining".
+**Conditioning entry with partial packaging done:** Set `volume_bbl = (original arrived) - (sum of all packaging transfers volume_bbl+shrinkage_bbl from that tank)`. Illustrative example: 40 arrived, kegged 8.997 + canned 4.065 + 1.938 shrinkage → conditioning `volume_bbl = 40 - 8.997 - 4.065 - 1.938 = 25.000`. The graph then shows "25.00 / 40.00 BBL remaining".
+
+Once that entry CLOSES (`actual_end` set), the rule inverts: `arrivedVolume` in `buildGraphData.ts` reconstructs the arrived total from the ledger only while `actual_end IS NULL`, and reads `volume_bbl` verbatim otherwise. So set a closed entry back to the **arrived** volume — leaving it at the last "remaining" value makes the node claim that little ever arrived.
 
 **`planned_conversion` schedule entries:** The `stage='planned_conversion'` row in `batch_schedule_entries` is filtered out of the equipment schedule graph — it has no visible node. The conversion node is driven entirely by `batch_conversions` and `brew_batches.converted_from_batch_id`. Insert it for completeness, but it has no functional effect on graph rendering.
 - `actual_start`/`actual_end`/`completed_at` = real dates when known
@@ -305,15 +307,31 @@ WHERE bta.batch_id = '<batch_id>';
 
 ---
 
-## Batches Backfilled (as of 2026-06-27)
+## Correcting a Batch That Was Closed Out Prematurely
+
+A closed batch's ledger sums to exactly its `volume_bbl` (that is what made `batch_exhaustion.is_exhausted` flip). So no correction is ever a single edit: change one number and something else must absorb the difference, or the batch stops balancing and the Volume Breakdown grows a phantom.
+
+Rules learned from the 2026-08-07 B-028 correction:
+
+1. **Physical counts are fixed; shrinkage is the plug.** Keg and case quantities are things a human counted. When volume has to move, move it through `shrinkage_bbl` on the run that emptied the tank — never by inventing or deleting packaged units.
+2. **A conversion correction propagates into the child batch.** Reducing a conversion's `volume_bbl` means the child received less, so its `brew_batches.volume_bbl` and `converted_volume_bbl` both drop — and the child's own ledger now over-consumes by the same amount. Absorb it in the child's tank-emptying shrinkage, exactly as in rule 1.
+3. **Re-opening a tank means un-cancelling, not re-inserting.** `finalizeConversion` cancels the source's schedule entry and stamps `released_at` on its assignment. To put the batch back in the tank, clear `cancelled_at`/`cancellation_reason` on the existing entry and push `released_at` out to the real empty-out date. `one_active_assignment_per_tank` only bites when `released_at IS NULL`, so confirm no other batch occupied the tank in the reopened window first.
+4. **Replay the route's side effects, not just the transfer row.** A kegging run added by hand still owes: one `batch_transfers` row per variation, a `cold_storage_inventory` upsert, a `packaging_items` decrement plus its `packaging_stock_adjustments` row, and one `batch_schedule_entries` row per line (`notes = 'Unscheduled additional kegging'`). Shrinkage splits across lines by the formula above.
+5. **Verify against `batch_exhaustion`, not the transfer list.** `remaining_bbl` must land at 0 for every batch you touched, parent and child.
+
+Do the whole thing in one `do $$ ... $$` block so a constraint violation rolls back rather than leaving a half-corrected batch. Record before/after in `audit_log` (`operation` must be `'INSERT'`/`'UPDATE'`/`'DELETE'` — the check constraint rejects anything else) and tag the edited rows' `notes`.
+
+---
+
+## Batches Backfilled (as of 2026-06-27, B-028/B-038 corrected 2026-08-07)
 
 | Batch | Status | Notes |
 |-------|--------|-------|
 | B-023 (Carolina Wheat Wave, 40 bbl) | ✅ Complete | Brewed 5/14 in B-1 → Tank 12. 30 bbl converted 6/8 to B-030 via Tank 12→Tank 33 direct. 10 bbl moved to Tank 21 for conditioning. Kegged 6/11: 16× ½ keg + 12× ⅙ keg. |
 | B-030 (Blackberry Lemon Wheat, 30 bbl) | ✅ Complete | Conversion child of B-023. Tank 33 brite. Kegged 6/11: 33× ½ + 33× ⅙ = 21.997 bbl. Kegged 6/18: 3× ½ + 29× ⅙ = 6.331 bbl, shrinkage 1.672 bbl. Closed. |
 | B-021, B-022, B-029 | ✅ Already correct | Live app wrote these; `cold_storage_inventory` and transfers already present and verified. |
-| B-028 (Carolina Brown Ale, 40 bbl) | ✅ Complete | Brewed 5/21 in B-1 → Tank 31 (fermenter). Conditioning in same tank (Tank 31) from 6/17. Kegged 6/18: 8× ½ keg (4.000 bbl) + 30× ⅙ keg (4.997 bbl). Canned 6/25: 42× 16oz case (4.065 bbl) + 1.938 bbl shrinkage. 25 bbl pending conversion to B-038 on 7/13 from Tank 31 → Tank 33. Conditioning `volume_bbl=25` (currently remaining in tank; the graph reconstructs 40 bbl arrived via `partialDrainInfo`). Cold storage: 8× ½ keg, 30× ⅙ keg, 42× 16oz case. |
-| B-038 (Pumpkin Ale, 25 bbl) | ⏳ Awaiting conversion | Conversion child of B-028. Planned 7/13: 25 bbl from Tank 31 → Tank 33 (brite). Planned canning 7/15: 4 bbl. Schedule entries created; `batch_conversions` row inserted (converted_at=NULL). Execute conversion transfer on 7/13 via the live app or backfill at that time. |
+| B-028 (Carolina Brown Ale, 40 bbl) | ✅ Complete | **Corrected 2026-08-07 — see below.** Brewed 5/21 in B-1 → Tank 31 (fermenter). Conditioning in same tank (Tank 31) 6/17 → 8/7. Kegged 6/18: 8× ½ keg (4.000 bbl) + 30× ⅙ keg (4.997 bbl). Canned 6/25: 42× 16oz case (4.065 bbl), **no shrinkage**. Converted 7/3: **23.5 bbl** Tank 31 → Tank 33, no shrinkage. Kegged 8/7: 3× ½ keg (1.500 bbl) + 6× ⅙ keg (0.999 bbl), 0.9385 bbl shrinkage — the tank heel that emptied FV 31. |
+| B-038 (Pumpkin Ale, 23.5 bbl) | ✅ Complete | Conversion child of B-028, executed 7/3 (Tank 31 → Tank 33, brite). Canned 7/17, kegged 7/20 and 7/22. Its 7/22 kegging shrinkage (0.5025 bbl) is the plug that absorbs the 1 bbl the inbound conversion was corrected down by. |
 | B-032 | ⏳ Pending | Brew day 6/5, 20 bbl, Tank 14 fermenter. No transfers inserted yet. Confirm transfer dates with user before inserting. |
 
 ---
