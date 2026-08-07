@@ -12,7 +12,7 @@
  * ── These rows do not reach the books, and that is enforced ──────────────────
  * Read this before changing what is written.
  *
- * ramp_bank_ledger is read by providers/transactionPostings.ts and by
+ * bank_ledger is read by providers/transactionPostings.ts and by
  * financials/fetchSources.ts, which feed the balance sheet, the profit and loss,
  * the cash-flow statement and the transactions grid — all verified and in
  * production use. A Chase row reaching that aggregation would silently change
@@ -105,7 +105,7 @@ export interface SyncOutcome {
   errors: string[];
 }
 
-/** A ramp_bank_ledger row as this module writes it. */
+/** A bank_ledger row as this module writes it. */
 export interface LedgerRow {
   source: string;
   source_transaction_id: string;
@@ -261,7 +261,7 @@ async function loadPriorCoding(
   if (transactionIds.length === 0) return out;
 
   const { data, error } = await supabase
-    .from("ramp_bank_ledger")
+    .from("bank_ledger")
     .select("source_transaction_id, flow_type, affects_pl, include_in_gl, chart_of_accounts_id, mapping_source")
     .eq("source", PLAID_LEDGER_SOURCE)
     .in("source_transaction_id", transactionIds);
@@ -300,7 +300,7 @@ async function writePage(
     // (source, source_transaction_id) — the ledger was half-generalised for a
     // second source before there was one.
     const { error } = await supabase
-      .from("ramp_bank_ledger")
+      .from("bank_ledger")
       .upsert(rows, { onConflict: "source,source_transaction_id" });
     if (error) throw new Error(error.message);
   }
@@ -312,7 +312,7 @@ async function writePage(
     // happened as far as the bank is concerned, and leaving it behind would let
     // a reversed deposit keep explaining a month's drift forever.
     const { error } = await supabase
-      .from("ramp_bank_ledger")
+      .from("bank_ledger")
       .delete()
       .eq("source", PLAID_LEDGER_SOURCE)
       .in("source_transaction_id", removedIds);

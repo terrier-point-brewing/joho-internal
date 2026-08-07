@@ -38,7 +38,7 @@ export interface ExpenseFilterable {
  *   plain non-generic overload. Both emit the identical `state=eq.CLEARED`.
  * - Manually excluded rows are duplicates/data artifacts and never belong on ANY
  *   statement -- P&L, cash flow, or balance sheet. This is stricter than
- *   ramp_bank_ledger.affects_pl (which the balance sheet deliberately ignores)
+ *   bank_ledger.affects_pl (which the balance sheet deliberately ignores)
  *   because an excluded expense's real cash movement is carried by another row.
  */
 export function applyExpenseStatementFilters<T extends ExpenseFilterable>(q: T, cashOnly: boolean): T {

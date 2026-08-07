@@ -184,7 +184,7 @@ describe("toLedgerRow", () => {
 
   /**
    * ── The safety property ────────────────────────────────────────────────────
-   * ramp_bank_ledger feeds the balance sheet, the profit and loss, the cash-flow
+   * bank_ledger feeds the balance sheet, the profit and loss, the cash-flow
    * statement and the transactions grid, all of which are verified and in
    * production use. A Chase row reaching that aggregation would change reported
    * figures across up to two years of imported history, silently.

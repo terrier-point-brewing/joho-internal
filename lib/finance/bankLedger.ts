@@ -26,7 +26,7 @@ export type FlowType =
 export interface BankClassification {
   flow_type:         FlowType;
   affects_pl:        boolean;
-  is_expense:        boolean;   // true ⇒ routes to `expenses`; else `ramp_bank_ledger`
+  is_expense:        boolean;   // true ⇒ routes to `expenses`; else `bank_ledger`
   direction:         "inflow" | "outflow";
   counterparty_name: string;
   counterparty_key:  string;
@@ -122,7 +122,7 @@ function isCodedByHand(c: PruneCandidate): boolean {
  * skip set.
  *
  * The third bucket resolves a genuine conflict. The feed now says this line is
- * not an expense at all, and its cash is already carried by the ramp_bank_ledger
+ * not an expense at all, and its cash is already carried by the bank_ledger
  * row -- but a person coded it, and resolveExpenseMapping treats that pin as
  * authoritative over every rule (including a pin that deliberately points at
  * nothing). Deleting would discard the decision; keeping it live would
@@ -313,7 +313,7 @@ export async function syncBankLedger(
   const existing = new Map<string, { mapping_source: string; chart_of_accounts_id: string | null; flow_type: FlowType; affects_pl: boolean }>();
   for (const ids of chunk(records.map((r) => r.source_transaction_id), 500)) {
     const { data, error } = await supabase
-      .from("ramp_bank_ledger")
+      .from("bank_ledger")
       .select("source_transaction_id, mapping_source, chart_of_accounts_id, flow_type, affects_pl")
       .eq("source", "ramp")
       .in("source_transaction_id", ids);
@@ -370,7 +370,7 @@ export async function syncBankLedger(
   });
 
   for (const batch of chunk(rows, 500)) {
-    const { error } = await supabase.from("ramp_bank_ledger").upsert(batch, { onConflict: "source,source_transaction_id" });
+    const { error } = await supabase.from("bank_ledger").upsert(batch, { onConflict: "source,source_transaction_id" });
     if (error) throw new Error(`Upsert bank ledger failed: ${error.message}`);
   }
   return { imported: records.length, by_flow_type };

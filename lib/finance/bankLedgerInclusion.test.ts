@@ -4,7 +4,7 @@
  *
  * The profit and loss, the cash-flow statement, the transactions grid and the
  * balance sheet are verified and in production use, and every one of them reads
- * ramp_bank_ledger through this module. So what has to be proved is not "the
+ * bank_ledger through this module. So what has to be proved is not "the
  * rules work" but "no rules means nothing moved": with an empty rule set the
  * query built is the SAME CALL the readers made before this module existed --
  * `.eq("include_in_gl", true)`, not a differently-spelled equivalent -- and the

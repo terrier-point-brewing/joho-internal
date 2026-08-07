@@ -456,7 +456,7 @@ export async function fetchBank(supabase: SupabaseClient, range: DateRange, stat
     transaction_date: string;
     mapping_source: string | null;
   } & InclusionFacts>(() => {
-    // ramp_bank_ledger rows are settled bank-account movement by definition --
+    // bank_ledger rows are settled bank-account movement by definition --
     // there is no separate "cleared" concept to filter on for cash_flow mode.
     //
     // include_in_gl separates an accounting fact from a bank line that was
@@ -467,14 +467,14 @@ export async function fetchBank(supabase: SupabaseClient, range: DateRange, stat
     // inclusion.applyTo widens it to a feed an operator has since switched on.
     let q = inclusion.applyTo(
       supabase
-        .from("ramp_bank_ledger")
+        .from("bank_ledger")
         .select(`id, chart_of_accounts_id, amount_cents, transaction_date, mapping_source, ${INCLUSION_COLUMNS}`)
         .lte("transaction_date", range.endDateStr)
         .order("id", { ascending: true }),
     );
     if (range.startDateStr) q = q.gte("transaction_date", range.startDateStr);
 
-    // ramp_bank_ledger mixes true P&L movement (interest_income) with rows that
+    // bank_ledger mixes true P&L movement (interest_income) with rows that
     // never belong on the P&L/cash-flow statement -- internal_transfer,
     // bill_settlement, card_settlement, deposit, unclassified (20260725
     // migration's affects_pl flag). Including those in pl/cash_flow

@@ -117,7 +117,7 @@ export async function readBankLines(
   if (!feed) return null;
 
   const { data, error } = await supabase
-    .from("ramp_bank_ledger")
+    .from("bank_ledger")
     .select("amount_cents, description, original_description, counterparty_name")
     .eq("source", PLAID_LEDGER_SOURCE)
     .eq("connection_id", feed.connectionId)

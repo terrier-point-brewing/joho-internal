@@ -15,7 +15,7 @@
  *      Σ(rows by channel) === Σ(rows by coaId) === Σ(section subtotals).
  *   3. Independent SQL ground truth — a from-scratch recompute of revenue /
  *      COGS / expenses / net income directly from pos_line_items,
- *      invoice_line_items, expenses, ramp_bank_ledger, square_refunds and
+ *      invoice_line_items, expenses, bank_ledger, square_refunds and
  *      chart_of_accounts, applying the SAME sign/section rules the pipeline
  *      should produce (see normalizeSign.ts's header comment), but
  *      re-implemented here rather than imported — importing
@@ -229,7 +229,7 @@ async function computeGroundTruth(supabase: SupabaseClient, months: string[]) {
     supabase,
     (from, to) =>
       supabase
-        .from("ramp_bank_ledger")
+        .from("bank_ledger")
         .select("id, amount_cents, chart_of_accounts_id, transaction_date")
         // Mirrors fetchSources' own predicate. This script exists to prove the
         // two paths agree, so it has to filter on exactly what the real one does.
