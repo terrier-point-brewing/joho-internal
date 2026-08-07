@@ -10,10 +10,15 @@ export const dynamic = "force-dynamic";
 // The cold_storage_transforms journal, newest first — every internal
 // reformatting of finished goods held in cold storage. Two kinds land here:
 //
-//   * Keg Transform — a human cracked a 1/2 keg into sixtels. Lossy: the
-//     shrinkage column is real beer that no longer exists.
+//   * Keg Transform — a human reshaped kegs, either way round: a 1/2 keg split
+//     into sixtels, or sixtels combined back into a 1/2 keg. Lossy in both
+//     directions: the shrinkage column is real beer that no longer exists.
 //   * Pack Break — the taproom sold a single from a sealed case and
 //     applyBreakDown cracked one automatically. Lossless by construction.
+//
+// shrinkage_fl_oz can be very slightly NEGATIVE on a build-up (3 x 661 - 1984 =
+// -1). That is whole-fl-oz storage showing through, not beer appearing; the DB
+// constraint caps it at half an ounce per unit. Consumers treat it as zero.
 //
 // This is the ONLY read surface for that journal, and the only place in the app
 // where transform shrinkage is visible at all: the batch volume ledger
@@ -71,7 +76,7 @@ export async function GET() {
       occurred_at: row.occurred_at as string,
       batch_id: row.batch_id as string,
       recipe_id: (row.recipe_id as string | null) ?? null,
-      // Kind comes from what was physically cracked, not from whether an actor
+      // Kind comes from what was physically reshaped, not from whether an actor
       // is recorded — a keg transform is a keg transform however it got here.
       kind: fromVar?.container?.type === "keg" ? ("keg_transform" as const) : ("pack_break" as const),
       beer_name: batch?.beer_name ?? null,
