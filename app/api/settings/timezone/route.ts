@@ -47,7 +47,7 @@ export async function PUT(req: NextRequest) {
     const { error } = await supabase
       .from("system_settings")
       .upsert(
-        { key: BREWERY_TIMEZONE_KEY, value: body.timezone, updated_at: new Date().toISOString() },
+        { key: BREWERY_TIMEZONE_KEY, value: body.timezone },
         { onConflict: "key" },
       );
     if (error) throw error;

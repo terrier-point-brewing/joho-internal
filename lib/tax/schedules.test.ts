@@ -172,7 +172,7 @@ describe("createSchedule", () => {
 });
 
 describe("updateSchedule", () => {
-  it("updates the given patch fields and stamps updated_at", async () => {
+  it("updates the given patch fields", async () => {
     const recorded: Recorded[] = [];
     const client = {
       from: (table: string) => ({
@@ -190,7 +190,7 @@ describe("updateSchedule", () => {
     const result = await updateSchedule(client, "SCHED_1", { lead_days: 10 });
 
     expect(result.lead_days).toBe(10);
-    expect(recorded[0].payload).toMatchObject({ lead_days: 10, updated_at: expect.any(String) });
+    expect(recorded[0].payload).toMatchObject({ lead_days: 10 });
   });
 });
 

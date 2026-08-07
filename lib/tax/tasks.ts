@@ -188,7 +188,7 @@ export async function markAlerted(sb: SupabaseClient, taskId: string): Promise<v
   const nowIso = new Date().toISOString();
   const { error } = await sb
     .from("tax_tasks")
-    .update({ alert_sent_at: nowIso, updated_at: nowIso })
+    .update({ alert_sent_at: nowIso })
     .eq("id", taskId);
   if (error) throw new Error(error.message);
 }
@@ -218,7 +218,7 @@ export async function listTasks(sb: SupabaseClient, filter: ListTasksFilter = {}
 export async function saveWorksheet(sb: SupabaseClient, id: string, worksheet: WorksheetData): Promise<TaxTask> {
   const { data, error } = await sb
     .from("tax_tasks")
-    .update({ worksheet, updated_at: new Date().toISOString() })
+    .update({ worksheet })
     .eq("id", id)
     .select("*")
     .single();
@@ -246,7 +246,6 @@ export async function completeTask(sb: SupabaseClient, id: string, input: Comple
       notes: input.notes,
       completed_at: nowIso,
       completed_by: input.userId,
-      updated_at: nowIso,
     })
     .eq("id", id)
     .select("*")

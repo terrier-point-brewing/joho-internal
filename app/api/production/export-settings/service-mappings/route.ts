@@ -64,7 +64,6 @@ export async function PUT(req: NextRequest) {
     square_catalog_variation_id: DISCOUNT_TYPES.includes(body.service_type as typeof DISCOUNT_TYPES[number]) ? null : (body.square_catalog_variation_id ?? null),
     square_catalog_discount_id: DISCOUNT_TYPES.includes(body.service_type as typeof DISCOUNT_TYPES[number]) ? (body.square_catalog_discount_id ?? null) : null,
     display_name: body.display_name,
-    updated_at: new Date().toISOString(),
   };
 
   const supabase = createSupabaseAdminClient();

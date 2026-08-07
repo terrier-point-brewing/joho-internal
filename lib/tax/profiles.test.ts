@@ -58,7 +58,7 @@ describe("getProfile", () => {
 });
 
 describe("putProfile", () => {
-  it("upserts merged values on filing_key and stamps updated_at", async () => {
+  it("upserts merged values on filing_key", async () => {
     const { client, recorded } = makeClient({ contact_name: "Jamie", fein: "12-3456789" });
     await putProfile(client, "nc_dor_sales_use", { contact_name: "Alex" });
 
@@ -68,7 +68,6 @@ describe("putProfile", () => {
     expect(recorded[0].payload).toMatchObject({
       filing_key: "nc_dor_sales_use",
       values: { contact_name: "Alex", fein: "12-3456789" },
-      updated_at: expect.any(String),
     });
   });
 

@@ -18,6 +18,15 @@ function stubSb(opts: {
     b.select = () => b;
     b.order = () => b;
     b.eq = (_c: string, v: string) => { (b as { _id?: string })._id = v; return b; };
+    // `select().eq()` with no `.range()` terminates the chain — that is the
+    // existence probe setSalesTaxAccount runs when a patch has nothing to write.
+    b.then = (resolve: (v: unknown) => unknown) => {
+      const id = (b as { _id?: string })._id;
+      const data = table === "square_tax_accounts"
+        ? rows.filter((r) => id === undefined || r.square_tax_id === id)
+        : [];
+      return Promise.resolve({ data, error: null }).then(resolve);
+    };
     b.range = (f: number, t: number) => {
       const data =
         table === "square_tax_accounts" ? rows
@@ -89,7 +98,7 @@ describe("listSalesTaxAccounts", () => {
 });
 
 describe("setSalesTaxAccount", () => {
-  it("updates the row's account and stamps updated_at", async () => {
+  it("updates the row's account and leaves updated_at to the trigger", async () => {
     const seen: { patch: Record<string, unknown>; id: string }[] = [];
     const sb = stubSb({
       existing: [], observedPos: [],
@@ -99,7 +108,27 @@ describe("setSalesTaxAccount", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0].id).toBe("TAX_GEN");
     expect(seen[0].patch.chart_of_accounts_id).toBe("COA_1");
-    expect(typeof seen[0].patch.updated_at).toBe("string");
+    expect(seen[0].patch).not.toHaveProperty("updated_at");
+  });
+
+  it("sends no update at all when the patch carries neither field", async () => {
+    // updated_at used to make this payload non-empty. Without it an empty patch
+    // would be an empty PostgREST body, which is a 400 — so the function has to
+    // skip the write instead of sending one.
+    const seen: { patch: Record<string, unknown>; id: string }[] = [];
+    const sb = stubSb({
+      existing: [{ square_tax_id: "TAX_GEN" }], observedPos: [],
+      onUpdate: (patch, id) => seen.push({ patch: patch as Record<string, unknown>, id }),
+    });
+    await setSalesTaxAccount(sb, "TAX_GEN", {});
+    expect(seen).toHaveLength(0);
+  });
+
+  it("still rejects an unknown id when the patch is empty", async () => {
+    // The no-write path must keep the unknown-id contract, or the settings page
+    // would report success for a tax that isn't there.
+    const sb = stubSb({ existing: [], observedPos: [] });
+    await expect(setSalesTaxAccount(sb, "NOPE", {})).rejects.toThrow("unknown square_tax_id: NOPE");
   });
 
   it("accepts null to clear a mapping", async () => {

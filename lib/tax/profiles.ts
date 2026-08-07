@@ -43,7 +43,7 @@ export async function putProfile(
   const { error } = await sb
     .from("tax_filing_profiles")
     .upsert(
-      { filing_key: party, values: merged, updated_at: new Date().toISOString() },
+      { filing_key: party, values: merged },
       { onConflict: "filing_key" },
     );
   if (error) throw new Error(error.message);

@@ -129,7 +129,6 @@ export async function PUT(
           created_by: existing?.created_by ?? session.user.id,
           created_at: existing?.created_at ?? nowIso,
           updated_by: session.user.id,
-          updated_at: nowIso,
         };
       }),
       { onConflict: "pay_period_id,employee_id,work_date" }

@@ -100,15 +100,25 @@ export async function setSalesTaxAccount(
   squareTaxId: string,
   patch: { chartOfAccountsId?: string | null; excluded?: boolean },
 ): Promise<void> {
-  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const update: Record<string, unknown> = {};
   if ("chartOfAccountsId" in patch) update.chart_of_accounts_id = patch.chartOfAccountsId;
   if ("excluded" in patch) update.excluded = patch.excluded;
 
-  const { data, error } = await sb
-    .from("square_tax_accounts")
-    .update(update)
-    .eq("square_tax_id", squareTaxId)
-    .select("square_tax_id");
+  // `updated_at` used to sit in this payload and doubled as the guarantee that
+  // it was never empty. The trigger owns the timestamp now, so a patch carrying
+  // neither field would send an empty body, which PostgREST rejects. Nothing to
+  // write is not an error -- but the caller still gets the unknown-id check
+  // below, so a bogus id fails the same way it would with a real edit.
+  const { data, error } = Object.keys(update).length === 0
+    ? await sb
+        .from("square_tax_accounts")
+        .select("square_tax_id")
+        .eq("square_tax_id", squareTaxId)
+    : await sb
+        .from("square_tax_accounts")
+        .update(update)
+        .eq("square_tax_id", squareTaxId)
+        .select("square_tax_id");
   if (error) throw new Error(error.message);
   // An UPDATE matching zero rows returns no PostgREST error -- without this
   // check the route would reply {ok:true} and the UI would show "saved" for a

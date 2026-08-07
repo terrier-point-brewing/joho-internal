@@ -14,7 +14,6 @@
 
 export interface RetirePayload {
   recipe_id: string;
-  updated_at: string;
   is_retired: boolean;
   /** Mirrors `is_retired`: the retirement timestamp, or null once un-retired. */
   retired_at: string | null;
@@ -33,7 +32,6 @@ export function buildRetirePayload(
 ): RetirePayload {
   return {
     recipe_id: recipeId,
-    updated_at: nowIso,
     is_retired: isRetired,
     retired_at: isRetired ? nowIso : null,
     retired_notes: notes || null,

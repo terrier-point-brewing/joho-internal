@@ -145,13 +145,13 @@ describe("saveRegistrations", () => {
     const insertCall = recorded.find((r) => r.op === "insert");
     const insertPayload = insertCall?.payload as Array<Record<string, unknown>>;
     expect(insertPayload).toHaveLength(1);
-    expect(insertPayload[0]).toMatchObject({ authority_key: "nc_abc", updated_at: expect.any(String) });
+    expect(insertPayload[0]).toMatchObject({ authority_key: "nc_abc" });
     expect(insertPayload[0]).not.toHaveProperty("id");
 
     const upsertCall = recorded.find((r) => r.op === "upsert");
     const upsertPayload = upsertCall?.payload as { rows: Array<Record<string, unknown>>; opts: unknown };
     expect(upsertPayload.rows).toHaveLength(1);
-    expect(upsertPayload.rows[0]).toMatchObject({ id: "r1", authority_key: "irs", updated_at: expect.any(String) });
+    expect(upsertPayload.rows[0]).toMatchObject({ id: "r1", authority_key: "irs" });
     expect(upsertPayload.opts).toMatchObject({ onConflict: "id" });
   });
 

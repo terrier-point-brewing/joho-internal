@@ -11,7 +11,6 @@ describe("buildRetirePayload", () => {
     const p = buildRetirePayload("recipe-1", true, NOW);
     expect(p).toEqual({
       recipe_id: "recipe-1",
-      updated_at: NOW,
       is_retired: true,
       retired_at: NOW,
       retired_notes: null,
@@ -41,10 +40,12 @@ describe("buildRetirePayload", () => {
     expect(buildRetirePayload("r", false, NOW, null).retired_notes).toBeNull();
   });
 
-  it("always sets updated_at to the caller's clock", () => {
-    // The helper is pure — no internal Date.now() — so callers can stamp one
-    // timestamp across several writes in the same request.
-    expect(buildRetirePayload("r", true, NOW).updated_at).toBe(NOW);
-    expect(buildRetirePayload("r", false, NOW).updated_at).toBe(NOW);
+  it("leaves updated_at to the database trigger", () => {
+    // taproom_recipe_settings carries a BEFORE INSERT OR UPDATE trigger that
+    // stamps updated_at, so sending one from here would just be overwritten.
+    // `nowIso` is still the caller's clock for retired_at, which is a business
+    // fact rather than a row-write time.
+    expect(buildRetirePayload("r", true, NOW)).not.toHaveProperty("updated_at");
+    expect(buildRetirePayload("r", false, NOW)).not.toHaveProperty("updated_at");
   });
 });

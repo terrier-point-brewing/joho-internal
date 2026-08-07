@@ -110,7 +110,7 @@ describe("buildInvoiceLookup", () => {
 
 describe("buildOrderPayload", () => {
   it("maps money fields to cents and prefers closed_at for the transaction date", () => {
-    const p = buildOrderPayload(order, null, "2026-07-06T00:00:00Z");
+    const p = buildOrderPayload(order, null);
     expect(p).toMatchObject({
       square_order_id: "ORDER_1",
       location_id: "LOC_1",
@@ -123,19 +123,18 @@ describe("buildOrderPayload", () => {
       discount_cents: 50,
       status: "COMPLETED",
       invoice_id: null,
-      updated_at: "2026-07-06T00:00:00Z",
     });
   });
 
   it("passes through the invoice id when invoice-backed", () => {
-    expect(buildOrderPayload(order, "INV_9", "2026-07-06T00:00:00Z").invoice_id).toBe("INV_9");
+    expect(buildOrderPayload(order, "INV_9").invoice_id).toBe("INV_9");
   });
 
   it("falls back to updated_at then created_at when closed_at is missing", () => {
     const noClose = { ...order, closed_at: undefined };
-    expect(buildOrderPayload(noClose, null, "x").transaction_date).toBe("2026-07-01T10:05:00Z");
+    expect(buildOrderPayload(noClose, null).transaction_date).toBe("2026-07-01T10:05:00Z");
     const created = { ...order, closed_at: undefined, updated_at: undefined };
-    expect(buildOrderPayload(created, null, "x").transaction_date).toBe("2026-07-01T10:00:00Z");
+    expect(buildOrderPayload(created, null).transaction_date).toBe("2026-07-01T10:00:00Z");
   });
 });
 

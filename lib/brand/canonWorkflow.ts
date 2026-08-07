@@ -115,7 +115,7 @@ export async function getDraft(client: SupabaseLikeClient): Promise<BrandCanon> 
     if (changed) {
       const { error } = await client
         .from(TABLE)
-        .update({ document: canon, updated_at: new Date().toISOString() })
+        .update({ document: canon })
         .eq("id", existing.id);
       assertOk(error, "backfill canon item ids");
     }
@@ -192,7 +192,7 @@ export async function saveDraftSection(
 
   const { error } = await client
     .from(TABLE)
-    .update({ document: nextDocument, updated_at: new Date().toISOString() })
+    .update({ document: nextDocument })
     .eq("id", existing.id);
   assertOk(error, "save the canon draft section");
 }
@@ -208,7 +208,7 @@ export async function saveDraft(client: SupabaseLikeClient, document: unknown): 
   if (existing) {
     const { error } = await client
       .from(TABLE)
-      .update({ document: parsed, updated_at: new Date().toISOString() })
+      .update({ document: parsed })
       .eq("id", existing.id);
     assertOk(error, "save the canon draft");
   } else {

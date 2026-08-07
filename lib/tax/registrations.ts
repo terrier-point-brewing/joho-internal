@@ -62,9 +62,8 @@ export async function saveRegistrations(sb: SupabaseClient, rows: TaxRegistratio
     if (deleteError) throw new Error(deleteError.message);
   }
 
-  const now = new Date().toISOString();
-  const inserts = rows.filter((row) => !row.id).map((row) => ({ ...row, updated_at: now }));
-  const upserts = rows.filter((row) => row.id).map((row) => ({ ...row, updated_at: now }));
+  const inserts = rows.filter((row) => !row.id);
+  const upserts = rows.filter((row) => row.id);
 
   // PostgREST rejects a heterogeneous batch (mixing id-less and id-bearing
   // rows) in a single upsert — it sends id=NULL for the id-less rows, which

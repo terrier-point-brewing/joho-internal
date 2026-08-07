@@ -86,7 +86,6 @@ describe("putBankAccount", () => {
       routing_number: "021000021",
       account_number: "999",
       account_name: "New Name",
-      updated_at: expect.any(String),
     });
   });
 

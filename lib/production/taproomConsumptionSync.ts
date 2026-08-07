@@ -312,7 +312,6 @@ async function consumeSwapTransition(
     .update({
       recipe_id:         swap.toRecipeId,
       swap_variation_id: swap.toVariationId,
-      updated_at:        nowIso,
     })
     .eq("tap_number", swap.tapNumber);
   if (flipErr) throw new Error(`tap flip failed: ${flipErr.message}`);

@@ -85,7 +85,6 @@ describe("putEntityProfile", () => {
     expect(recorded[0].payload).toMatchObject({
       id: true,
       legal_name: "New",
-      updated_at: expect.any(String),
     });
   });
 

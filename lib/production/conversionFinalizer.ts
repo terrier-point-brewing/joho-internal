@@ -163,7 +163,7 @@ export async function finalizeConversion(
     // 3. Cancel the source's spurious open schedule entry on the destination tank.
     await supabase
       .from("batch_schedule_entries")
-      .update({ cancelled_at: new Date().toISOString(), cancellation_reason: "conversion: destination belongs to target batch", updated_at: new Date().toISOString() })
+      .update({ cancelled_at: new Date().toISOString(), cancellation_reason: "conversion: destination belongs to target batch" })
       .eq("batch_id", sourceBatchId).eq("equipment_id", toTankId)
       .is("cancelled_at", null).is("actual_end", null);
 
@@ -201,7 +201,7 @@ export async function finalizeConversion(
         .maybeSingle();
       const row = entry as { id: string; actual_start: string | null } | null;
       if (row) {
-        const updates: Record<string, unknown> = { volume_bbl: volumeBbl, updated_at: new Date().toISOString() };
+        const updates: Record<string, unknown> = { volume_bbl: volumeBbl };
         if (row.actual_start == null) updates.actual_start = today;
         await supabase.from("batch_schedule_entries").update(updates).eq("id", row.id);
       } else {

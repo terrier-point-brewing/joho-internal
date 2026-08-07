@@ -34,7 +34,7 @@ export async function PUT(req: NextRequest) {
   const supabase = createSupabaseAdminClient();
   const { error } = await supabase
     .from("system_settings")
-    .upsert({ key: "floorplan_grid", value: { cols, rows }, updated_at: new Date().toISOString() });
+    .upsert({ key: "floorplan_grid", value: { cols, rows } });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ cols, rows });

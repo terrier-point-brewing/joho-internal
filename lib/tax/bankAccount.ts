@@ -51,7 +51,7 @@ export async function putBankAccount(sb: SupabaseClient, values: BankAccountValu
 
   const { error } = await sb
     .from("tax_bank_account")
-    .upsert({ id: true, ...merged, updated_at: new Date().toISOString() }, { onConflict: "id" });
+    .upsert({ id: true, ...merged }, { onConflict: "id" });
   if (error) throw new Error(error.message);
 }
 

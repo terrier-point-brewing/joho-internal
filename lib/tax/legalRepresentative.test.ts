@@ -80,7 +80,6 @@ describe("putLegalRepresentative", () => {
       id: true,
       ssn: "999",
       name: "New Name",
-      updated_at: expect.any(String),
     });
   });
 

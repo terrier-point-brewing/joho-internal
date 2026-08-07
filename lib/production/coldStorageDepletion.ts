@@ -66,7 +66,7 @@ export async function depleteColdStorageInventory(
     if (newQty <= 0.0001) {
       await supabase.from("cold_storage_inventory").delete().eq("id", row.id);
     } else {
-      await supabase.from("cold_storage_inventory").update({ quantity_on_hand: newQty, updated_at: new Date().toISOString() }).eq("id", row.id);
+      await supabase.from("cold_storage_inventory").update({ quantity_on_hand: newQty }).eq("id", row.id);
     }
     depleted.push({ batchId: row.batch_id, depletedQty: take });
     qtyLeft -= take;

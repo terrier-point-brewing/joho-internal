@@ -214,7 +214,7 @@ async function reconcileSchedule(
           if (from_tank_id === to_tank_id) {
             await supabase
               .from("batch_schedule_entries")
-              .update({ actual_end: today, updated_at: new Date().toISOString() })
+              .update({ actual_end: today })
               .eq("batch_id", batch_id)
               .eq("stage", "fermenting")
               .eq("equipment_id", to_tank_id)
@@ -267,7 +267,7 @@ async function reconcileSchedule(
         const newVol = Number(accumulating.volume_bbl ?? 0) + Number(volume_bbl ?? 0);
         await supabase
           .from("batch_schedule_entries")
-          .update({ volume_bbl: newVol, updated_at: new Date().toISOString() })
+          .update({ volume_bbl: newVol })
           .eq("id", accumulating.id);
         arrivedEntryId = accumulating.id;
         scheduleUpdate.push({ action: "accumulated", entry_id: accumulating.id, equipment_name: destTankInfo.name, was_deviation: false });
@@ -280,7 +280,7 @@ async function reconcileSchedule(
         if (!upstreamStage) return;
         await supabase
           .from("batch_schedule_entries")
-          .update({ downstream_entry_id: newEntryId, updated_at: new Date().toISOString() })
+          .update({ downstream_entry_id: newEntryId })
           .eq("batch_id", batch_id)
           .eq("stage", upstreamStage)
           .is("cancelled_at", null);
@@ -295,7 +295,7 @@ async function reconcileSchedule(
           // plan's volume_bbl otherwise stays stale at the original estimate.
           // For non-packaging stages this also seeds the baseline that later
           // partial-arrival top-ups (the "accumulating" branch above) add onto.
-          const updates: Record<string, string | number> = { actual_start: today, updated_at: new Date().toISOString() };
+          const updates: Record<string, string | number> = { actual_start: today };
           if (isPackagingStage) {
             updates.actual_end = today;
             if (volume_bbl != null) updates.volume_bbl = volume_bbl;
@@ -318,7 +318,7 @@ async function reconcileSchedule(
 
           await supabase
             .from("batch_schedule_entries")
-            .update({ cancelled_at: new Date().toISOString(), cancellation_reason: `Batch transferred to ${destTankInfo.name} instead`, updated_at: new Date().toISOString() })
+            .update({ cancelled_at: new Date().toISOString(), cancellation_reason: `Batch transferred to ${destTankInfo.name} instead` })
             .eq("id", existing.id);
 
           const { data: newEntry } = await supabase
@@ -387,7 +387,6 @@ async function reconcileSchedule(
               .from("batch_schedule_entries")
               .update({
                 volume_bbl: newVol,
-                updated_at: new Date().toISOString(),
                 ...(exhausted ? {
                   cancelled_at: new Date().toISOString(),
                   cancellation_reason: "Volume fulfilled by other packaging runs",
@@ -467,7 +466,7 @@ async function reconcileSchedule(
         if (activeEntry) {
           await supabase
             .from("batch_schedule_entries")
-            .update({ actual_end: today, updated_at: new Date().toISOString() })
+            .update({ actual_end: today })
             .eq("id", activeEntry.id);
           scheduleUpdate.push({ action: "actual_end_set", entry_id: activeEntry.id, equipment_name: srcTankInfo.name });
 
@@ -477,7 +476,7 @@ async function reconcileSchedule(
           if (activeEntry.downstream_entry_id) {
             await supabase
               .from("batch_schedule_entries")
-              .update({ actual_end: today, updated_at: new Date().toISOString() })
+              .update({ actual_end: today })
               .eq("id", activeEntry.downstream_entry_id)
               .is("cancelled_at", null)
               .not("actual_start", "is", null)
@@ -533,7 +532,7 @@ async function reconcileSchedule(
         if (resolvedSrcStage) {
           await supabase
             .from("batch_schedule_entries")
-            .update({ volume_bbl: netInTank, updated_at: new Date().toISOString() })
+            .update({ volume_bbl: netInTank })
             .eq("id", srcActiveEntry!.id);
         }
       }
@@ -564,7 +563,7 @@ async function reconcileSchedule(
         // Mark the arrived destination entry as the new split branch
         await supabase
           .from("batch_schedule_entries")
-          .update({ planned_branch: branchName, updated_at: new Date().toISOString() })
+          .update({ planned_branch: branchName })
           .eq("id", arrivedEntryId!);
 
         // Scale source branch (main) downstream packaging proportionally
@@ -581,7 +580,6 @@ async function reconcileSchedule(
           await Promise.all(srcPkgEntries.map(e =>
             supabase.from("batch_schedule_entries").update({
               volume_bbl: Math.round(Number(e.volume_bbl) * srcRatio * 100) / 100,
-              updated_at: new Date().toISOString(),
             }).eq("id", e.id),
           ));
         }
@@ -629,7 +627,6 @@ async function upsertColdStorageInventory(
       .update({
         quantity_on_hand: Number(existing.quantity_on_hand) + quantity_delta,
         source_transfer_id,
-        updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
   } else {

@@ -50,7 +50,6 @@ export async function POST(req: NextRequest) {
     square_catalog_variation_id: body.square_catalog_variation_id,
     square_catalog_discount_id: null,
     display_name: body.display_name,
-    updated_at: new Date().toISOString(),
   }));
 
   const { error: upsertErr } = await supabase
