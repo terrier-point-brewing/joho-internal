@@ -21,8 +21,6 @@
 -- DRAFT, say) into a hard ingestion failure. The bug is about casing, so the
 -- constraint is about casing.
 
-begin;
-
 -- 30 bank rows written as 'cleared'. Row-set proof that this is semantics-
 -- preserving: the set selected by state ILIKE 'cleared' and the set selected by
 -- upper(state) = 'CLEARED' are the same 162 rows both before and after.
@@ -34,5 +32,3 @@ update public.expenses
 alter table public.expenses
   add constraint expenses_state_upper_check
   check (state is null or (state = upper(state) and state <> ''));
-
-commit;
