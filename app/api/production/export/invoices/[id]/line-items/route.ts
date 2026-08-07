@@ -102,14 +102,14 @@ export async function PATCH(
   // Load current line items.
   const { data: currentItems, error: itemsErr } = await supabase
     .from("invoice_line_items")
-    .select("id, sort_order, description, note, quantity, unit_price_cents, total_cents, square_catalog_variation_id, chart_of_accounts_id")
+    .select("id, sort_order, note, quantity, unit_price_cents, total_cents, square_catalog_variation_id, chart_of_accounts_id")
     .eq("invoice_id", invoiceId)
     .order("sort_order");
   if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 });
 
   // Build updated items list.
   type StoredItem = {
-    id: string; sort_order: number; description: string | null; note: string | null;
+    id: string; sort_order: number; note: string | null;
     quantity: number; unit_price_cents: number; total_cents: number;
     square_catalog_variation_id: string | null; chart_of_accounts_id?: string | null;
   };
@@ -123,9 +123,8 @@ export async function PATCH(
     const newItem: StoredItem = {
       id: crypto.randomUUID(),
       sort_order: updatedItems.length,
-      // The canonical read-back below overwrites `description` with the catalog
-      // label; these values only survive if that read-back fails.
-      description: body.note,
+      // The canonical read-back below fills in catalog identity; this value only
+      // survives as-is if that read-back fails.
       note: body.note,
       quantity: body.quantity,
       unit_price_cents: body.unit_price_cents,
@@ -148,12 +147,6 @@ export async function PATCH(
         ? {
             ...item,
             note: body.note ?? item.note,
-            // Catalog-backed lines take their name from Square, so `description`
-            // stays the catalog label. Custom lines have no note on Square — the
-            // note IS the name, so it doubles as the description there.
-            description: item.square_catalog_variation_id
-              ? item.description
-              : body.note ?? item.description,
             quantity: nextQty,
             unit_price_cents: nextPrice,
             total_cents: nextQty * nextPrice,
@@ -179,12 +172,12 @@ export async function PATCH(
     return NextResponse.json({ error: "Failed to cancel existing Square draft" }, { status: 500 });
   }
 
-  // `description` on the draft becomes the Square line's note (catalog lines) or
-  // its name (custom lines). Sending the stored `description` here would replace
-  // every real note with the catalog label, so the note always wins.
+  // `description` here is the Square draft's field, not a column: it becomes the
+  // Square line's note (catalog lines) or its name (custom lines). The stored
+  // `note` is the only free text we hold, so it is what we send.
   const lineItemsForSquare = updatedItems.map((item) => ({
     id: item.id,
-    description: item.note ?? item.description ?? "",
+    description: item.note ?? "",
     quantity: item.quantity,
     unitPriceCents: item.unit_price_cents,
     squareCatalogVariationId: item.square_catalog_variation_id,
@@ -229,8 +222,8 @@ export async function PATCH(
 
   // Re-persist line items from the recreated Square order, through the same
   // mapper the sync and the generate read-back use. That's what splits the
-  // catalog label (`description`) from the line's note (`note`) and classifies
-  // `category` — a hand-rolled insert here would flatten both.
+  // catalog identity (`line_item_name`/`variation_name`) from the line's note
+  // (`note`) and classifies `category` — a hand-rolled insert flattens both.
   let linesPersisted = false;
   try {
     const [orders, catalogItems] = await Promise.all([
@@ -269,14 +262,13 @@ export async function PATCH(
 
   if (!linesPersisted) {
     // Fallback: persist the draft values so the invoice is never left empty; a
-    // later sync reconciles descriptions, notes, and categories.
+    // later sync reconciles catalog identity, notes, and categories.
     const { error: deleteErr } = await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
     if (deleteErr) return NextResponse.json({ error: deleteErr.message }, { status: 500 });
     const { error: insertErr } = await supabase.from("invoice_line_items").insert(
       updatedItems.map((item, i) => ({
         invoice_id: invoiceId,
         sort_order: i,
-        description: item.description,
         note: item.note,
         category: "other_services",
         quantity: item.quantity,

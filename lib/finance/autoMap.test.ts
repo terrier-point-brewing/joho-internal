@@ -92,58 +92,102 @@ describe("resolvePosBackfill", () => {
 });
 
 describe("resolveInvoiceBackfill", () => {
-  const byDesc = new Map<string, string>([["hazy ipa — 1/6 bbl", "coa-dist"]]);
+  const byDesc = new Map<string, string>([
+    ["hazy ipa — 1/6 bbl", "coa-dist"],
+    ["keg cleaning service", "coa-svc"],
+  ]);
 
-  it("maps an unmapped item by lowercased description", () => {
+  it("maps a catalog-backed line by its composed label", () => {
     const out = resolveInvoiceBackfill(
-      [{ id: "il1", description: "Hazy IPA — 1/6 BBL", chart_of_accounts_id: null }],
+      [{ id: "il1", line_item_name: "Hazy IPA", variation_name: "1/6 BBL", note: null, chart_of_accounts_id: null }],
       byDesc,
     );
     expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-dist" }]);
+  });
+
+  it("composes the label from line_item_name alone when there is no variation", () => {
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", line_item_name: "Keg Cleaning Service", variation_name: null, note: null, chart_of_accounts_id: null }],
+      byDesc,
+    );
+    expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-svc" }]);
+  });
+
+  it("uses the note as the label for a manual line with no catalog identity", () => {
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", line_item_name: null, variation_name: null, note: "Hazy IPA — 1/6 BBL", chart_of_accounts_id: null }],
+      byDesc,
+    );
+    expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-dist" }]);
+  });
+
+  it("ignores the note on a catalog-backed line, which is a note and not a label", () => {
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", line_item_name: "Mystery Item", variation_name: null, note: "Hazy IPA — 1/6 BBL", chart_of_accounts_id: null }],
+      byDesc,
+    );
+    expect(out).toEqual([]);
   });
 
   it("never overwrites an already-mapped item", () => {
     const out = resolveInvoiceBackfill(
-      [{ id: "il1", description: "Hazy IPA — 1/6 BBL", chart_of_accounts_id: "coa-x" }],
+      [{ id: "il1", line_item_name: "Hazy IPA", variation_name: "1/6 BBL", note: null, chart_of_accounts_id: "coa-x" }],
       byDesc,
     );
     expect(out).toEqual([]);
   });
 
-  it("skips items whose description has no match", () => {
+  it("skips items whose label has no match", () => {
     const out = resolveInvoiceBackfill(
-      [{ id: "il1", description: "Mystery", chart_of_accounts_id: null }],
+      [{ id: "il1", line_item_name: null, variation_name: null, note: "Mystery", chart_of_accounts_id: null }],
       byDesc,
     );
     expect(out).toEqual([]);
   });
 
-  it("maps by catalog variation id (primary) even when the description does not match", () => {
+  it("skips a line that has neither catalog identity nor a note", () => {
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", line_item_name: null, variation_name: null, note: null, chart_of_accounts_id: null }],
+      byDesc,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it("maps by catalog variation id (primary) even when the label does not match", () => {
     const byVar = new Map<string, string>([["VAR1", "coa-var"]]);
     const out = resolveInvoiceBackfill(
-      [{ id: "il1", description: "Packaging Fee", square_catalog_variation_id: "VAR1", chart_of_accounts_id: null }],
+      [{ id: "il1", line_item_name: "Packaging Fee", variation_name: null, note: null, square_catalog_variation_id: "VAR1", chart_of_accounts_id: null }],
       byDesc,
       byVar,
     );
     expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-var" }]);
   });
 
-  it("prefers the variation match over a conflicting description match", () => {
+  it("prefers the variation match over a conflicting label match", () => {
     const byVar = new Map<string, string>([["VAR1", "coa-var"]]);
     const out = resolveInvoiceBackfill(
-      [{ id: "il1", description: "Hazy IPA — 1/6 BBL", square_catalog_variation_id: "VAR1", chart_of_accounts_id: null }],
+      [{ id: "il1", line_item_name: "Hazy IPA", variation_name: "1/6 BBL", note: null, square_catalog_variation_id: "VAR1", chart_of_accounts_id: null }],
       byDesc,
       byVar,
     );
     expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-var" }]);
   });
 
-  it("falls back to description when the line has no variation id", () => {
+  it("falls back to the label when the line has no variation id", () => {
     const out = resolveInvoiceBackfill(
-      [{ id: "il1", description: "Hazy IPA — 1/6 BBL", square_catalog_variation_id: null, chart_of_accounts_id: null }],
+      [{ id: "il1", line_item_name: "Hazy IPA", variation_name: "1/6 BBL", note: null, square_catalog_variation_id: null, chart_of_accounts_id: null }],
       byDesc,
       new Map(),
     );
     expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-dist" }]);
+  });
+
+  it("keys a renamed catalog item off its CURRENT name, which a stored copy could not", () => {
+    const byCurrent = new Map<string, string>([["epic hazy ipa (keg) — 1/2 keg", "coa-keg"]]);
+    const out = resolveInvoiceBackfill(
+      [{ id: "il1", line_item_name: "Epic Hazy IPA (Keg)", variation_name: "1/2 Keg", note: null, chart_of_accounts_id: null }],
+      byCurrent,
+    );
+    expect(out).toEqual([{ id: "il1", chart_of_accounts_id: "coa-keg" }]);
   });
 });

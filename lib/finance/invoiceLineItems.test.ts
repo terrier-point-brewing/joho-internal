@@ -9,6 +9,14 @@ import {
 } from "./invoiceLineItems";
 import type { Order } from "@/types/square";
 
+/**
+ * The label a row renders as. Composed, never stored — these assertions used to
+ * read a `description` column that held this exact concatenation until it was
+ * dropped for going stale against renamed catalog items.
+ */
+const label = (r: { line_item_name: string | null; variation_name: string | null }) =>
+  r.line_item_name && r.variation_name ? `${r.line_item_name} — ${r.variation_name}` : r.line_item_name;
+
 const emptyIndexes: LineItemIndexes = {
   kegIndex: new Map(),
   canVariationOz: new Map(),
@@ -232,7 +240,7 @@ describe("buildInvoiceLineItemRows", () => {
     );
     const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
     // The middle line is dropped, so the survivors must renumber 0,1 — not 0,2.
-    expect(rows.map((r) => r.description)).toEqual(["Vienna Lager (Keg) — 1/6 Keg", "Packaging Fee"]);
+    expect(rows.map(label)).toEqual(["Vienna Lager (Keg) — 1/6 Keg", "Packaging Fee"]);
     expect(rows.map((r) => r.sort_order)).toEqual([0, 1]);
   });
 
@@ -272,7 +280,7 @@ describe("buildInvoiceLineItemRows", () => {
       [1, { chart_of_accounts_id: "COA-DELIVERY" }],
     ]);
     const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, existing);
-    expect(rows.map((r) => r.description)).toEqual(["Packaging Fee", "Delivery Fee"]);
+    expect(rows.map(label)).toEqual(["Packaging Fee", "Delivery Fee"]);
     expect(rows.map((r) => r.chart_of_accounts_id)).toEqual(["COA-PACKAGING", "COA-DELIVERY"]);
   });
 
@@ -350,7 +358,7 @@ describe("persistInvoiceLineItems", () => {
     expect(error).toBeUndefined();
     // With a gapped sort_order ([0, 3]) the `> rows.length - 1` cleanup would delete
     // the Delivery Fee row it had just written.
-    expect(db.rows().map((r) => r.description)).toEqual(["Packaging Fee", "Delivery Fee"]);
+    expect(db.rows().map(label)).toEqual(["Packaging Fee", "Delivery Fee"]);
   });
 
   it("still deletes rows left over from a longer previous sync", async () => {
@@ -358,12 +366,12 @@ describe("persistInvoiceLineItems", () => {
       { uid: "a", quantity: "1", name: "Packaging Fee", gross_sales_money: { amount: 1200, currency: "USD" }, total_money: { amount: 1200, currency: "USD" } },
     ]);
     const rows = buildInvoiceLineItemRows("INV1", order, emptyIndexes, new Map());
-    const stale = { ...rows[0], sort_order: 1, description: "Removed Line" };
+    const stale = { ...rows[0], sort_order: 1, line_item_name: "Removed Line" };
     const db = invoiceLineItemsStub([{ ...rows[0] }, stale]);
 
     await persistInvoiceLineItems(db.client, "INV1", rows);
 
-    expect(db.rows().map((r) => r.description)).toEqual(["Packaging Fee"]);
+    expect(db.rows().map(label)).toEqual(["Packaging Fee"]);
   });
 });
 

@@ -34,9 +34,14 @@ export interface LineItemIndexes {
 export interface CanonicalLineItemRow {
   invoice_id: string;
   sort_order: number;
+  /**
+   * The line's label, as two atoms. Callers that need a display string compose
+   * `line_item_name — variation_name`; there is deliberately no stored copy of
+   * that composition, because one existed until 2026-08 and had already gone
+   * stale against renamed catalog items.
+   */
   line_item_name: string | null;
   variation_name: string | null;
-  description: string;
   note: string | null;
   category: InvoiceLineCategory | null;
   quantity: number;
@@ -183,7 +188,6 @@ export function buildInvoiceLineItemRows(
       sort_order: sortOrder,
       line_item_name: lineName || null,
       variation_name: varName || null,
-      description: li.name + (varName ? ` — ${varName}` : ""),
       note: li.note ?? null,
       category,
       quantity: qty,
@@ -218,7 +222,6 @@ export function buildInvoiceLineItemRows(
       sort_order: sortOrder,
       line_item_name: label,
       variation_name: null,
-      description: label,
       note: null,
       category: "discount",
       quantity: 1,

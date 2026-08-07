@@ -23,7 +23,10 @@ export interface InvoiceLineItem {
   id: string;
   invoice_id: string;
   sort_order: number;
-  description: string | null;
+  /** Catalog identity; compose `line_item_name — variation_name` to display. */
+  line_item_name: string | null;
+  /** Free text a human typed. On manual lines this doubles as the label. */
+  note: string | null;
   category: InvoiceLineCategory | null;
   quantity: number;
   unit_price_cents: number;

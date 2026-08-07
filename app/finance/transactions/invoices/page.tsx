@@ -68,7 +68,6 @@ interface CoARef { id: string; account_name: string; account_number: string | nu
 interface InvoiceLineItemRow {
   id: string;
   sort_order: number | null;
-  description: string;
   line_item_name: string | null;
   note: string | null;
   category: string | null;
@@ -291,19 +290,27 @@ function InvoiceLineItemRow({
 
   async function handleCoaChange(id: string | null) { setCoaId(id); await save({ chart_of_accounts_id: id }); }
 
+  const noteCell = item.line_item_name ? item.note : null;
+
   return (
     <div className="border-t border-line/30 hover:bg-surface/20 transition-colors">
       {/* Main row */}
       <div className={`${LINE_GRID_COLS} px-10 py-2 text-xs items-start`}>
+        {/*
+          A manual line has no catalog identity, so its `note` IS its label and
+          belongs in the label column — repeating it under Note would just print
+          the same string twice. Only catalog-backed lines have a note that is
+          genuinely distinct from the label.
+        */}
         <div className="min-w-0 pt-0.5">
           <span className="text-secondary truncate block">
             {item.line_item_name
               ? item.line_item_name + (item.variation_name ? ` — ${item.variation_name}` : "")
-              : item.description}
+              : item.note}
           </span>
         </div>
-        <span className={item.note ? "text-body truncate block pt-0.5" : "text-faint truncate block pt-0.5"}>
-          {item.note ?? "—"}
+        <span className={noteCell ? "text-body truncate block pt-0.5" : "text-faint truncate block pt-0.5"}>
+          {noteCell ?? "—"}
         </span>
         <span className="text-faint text-right tabular-nums pt-0.5">{item.quantity ?? 1}×</span>
         <span className="text-muted text-right tabular-nums font-mono pt-0.5">

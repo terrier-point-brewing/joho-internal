@@ -243,7 +243,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
         if (!linesPersisted) {
           await adminSupabase.from("invoice_line_items").upsert(
             {
-              invoice_id: ledgerInvoiceId, sort_order: 0, description: "Ingredient Deposit",
+              invoice_id: ledgerInvoiceId, sort_order: 0, note: "Ingredient Deposit",
               category: "ingredient_deposit", quantity: 1,
               unit_price_cents: calculation.deposit_cents, total_cents: calculation.deposit_cents,
               square_catalog_variation_id: mapping.square_catalog_variation_id,

@@ -12,35 +12,31 @@ import FilterBar from "@/app/components/ui/FilterBar";
 import SortableTh from "@/app/components/ui/SortableTh";
 import type { ControlsConfig } from "@/lib/table/types";
 
+/**
+ * A line item is two things and only two things: a LABEL and a NOTE.
+ *
+ * The label is `line_item_name` (+ `variation_name` when the catalog has one),
+ * composed at the point of display — never stored. The note is `note`, free text
+ * a human typed, and a null `note` means the line genuinely has no note.
+ *
+ * Until 2026-08 a third column, `description`, straddled both: Square-synced rows
+ * kept a concatenated copy of the label in it, while manually-entered rows (which
+ * have no catalog identity) used it for the note text. That forced every reader
+ * to branch on `line_item_name` to work out which of the two it was holding, and
+ * the stored copy had already gone stale on rows whose catalog item was renamed.
+ * The column is gone; the manual rows' text was backfilled into `note`.
+ */
 interface InvoiceLineItem {
   id: string;
   sort_order: number;
   line_item_name: string | null;
   variation_name: string | null;
-  /** Catalog-derived label ("Packaging Fee — 1/6 Keg"), NOT the note. */
-  description: string | null;
-  /** The note attached to the line item on the Square invoice. */
   note: string | null;
   category: string | null;
   quantity: number;
   unit_price_cents: number;
   total_cents: number;
   square_catalog_variation_id: string | null;
-}
-
-/**
- * The note as it reads on the physical Square invoice.
- *
- * Square-synced rows carry catalog identity (`line_item_name`) and keep the
- * catalog label in `description`, the real note in `note` — so a null `note`
- * there means the line genuinely has no note, and falling back to `description`
- * would just echo the item label back as a bogus note. Rows written by the
- * non-Square fallback insert paths have no catalog identity and only ever had
- * `description`, which for them IS the note text.
- */
-function lineItemNote(li: InvoiceLineItem): string | null {
-  if (li.note) return li.note;
-  return li.line_item_name ? null : li.description ?? null;
 }
 
 interface InvoiceShipment {
@@ -180,7 +176,7 @@ function InvoiceExpandedPanel({
 
   function startEdit(li: InvoiceLineItem) {
     setEditingId(li.id);
-    setEditNote(lineItemNote(li) ?? "");
+    setEditNote(li.note ?? "");
     setEditQty(String(li.quantity));
     setEditPrice((li.unit_price_cents / 100).toFixed(2));
     setActionError(null);
@@ -365,7 +361,7 @@ function InvoiceExpandedPanel({
                 ? `${li.line_item_name}${li.variation_name ? ` · ${li.variation_name}` : ""}`
                 : null;
               const itemLabel = catName ?? storedName;
-              const note = lineItemNote(li);
+              const note = li.note;
               const isEditing = editingId === li.id;
               const inpCls = "inp-sm";
 
