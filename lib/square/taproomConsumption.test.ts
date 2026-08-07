@@ -6,7 +6,7 @@
 // its tap. Unmapped / unconfigured restocks surface as discrepancies; nothing is
 // inferred from physical-count crossings anymore.
 import { describe, it, expect } from "vitest";
-import { assembleConsumption, trailingWindow, type KegCanLink, type DraftLink, type TapRestockLink } from "./taproomConsumption";
+import { assembleConsumption, selectSaleLink, trailingWindow, type KegCanLink, type DraftLink, type TapRestockLink } from "./taproomConsumption";
 import type { RestockLineEvent } from "./inventory";
 import type { PendingTapSwap } from "@/lib/taproom/tapSwaps";
 
@@ -31,6 +31,7 @@ const kegLink: KegCanLink = {
   kind: "keg_sale",
   beerName: "Porter",
   variationName: "1/6 BBL Keg",
+  partnerId: null,
 };
 
 const canLink: KegCanLink = {
@@ -40,6 +41,7 @@ const canLink: KegCanLink = {
   kind: "can_sale",
   beerName: "Hazy IPA",
   variationName: "16oz 4-pack",
+  partnerId: null,
 };
 
 function empty() {
@@ -374,5 +376,90 @@ describe("assembleConsumption — queued swap transitions", () => {
       pendingSwaps: [pendingSwap({ openedAt: "2026-07-01T00:00:00Z" })],
     });
     expect(discrepancies).toHaveLength(0);
+  });
+});
+
+
+describe("selectSaleLink", () => {
+  // Square has ONE "Vienna Lager (Keg) · 1/6 Keg" button; production holds two
+  // real packagings behind it — the house keg and the Fortnight-branded one.
+  // Both links are correct. A taproom sale is house stock by definition, because
+  // a partner's branded keg leaves on a distribution or contract shipment rather
+  // than over the bar.
+  const house: KegCanLink = {
+    squareVariationId: "sq-vienna-sixth",
+    recipeId: "r-vienna",
+    variationId: "pv-house",
+    kind: "keg_sale",
+    beerName: "Vienna Lager",
+    variationName: "1/6 Keg",
+    partnerId: null,
+  };
+  const fortnight: KegCanLink = { ...house, variationId: "pv-fortnight", variationName: "Fortnight - 1/6 Keg", partnerId: "partner-fortnight" };
+
+  it("takes the house variation over a partner one", () => {
+    expect(selectSaleLink([house, fortnight])).toEqual({ link: house, ambiguous: false });
+  });
+
+  // Order used to decide this: the map was keyed on the Square SKU and simply
+  // took whichever row the database returned last. An 18 July sale booked the
+  // house keg; a 10 July sale booked later from the same rows took Fortnight.
+  it("gives the same answer whichever order the rows arrive in", () => {
+    expect(selectSaleLink([fortnight, house]).link).toBe(house);
+    expect(selectSaleLink([house, fortnight]).link).toBe(house);
+  });
+
+  it("passes a lone link straight through, partner or not", () => {
+    expect(selectSaleLink([fortnight])).toEqual({ link: fortnight, ambiguous: false });
+    expect(selectSaleLink([])).toEqual({ link: null, ambiguous: false });
+  });
+
+  it("flags, but still decides, when no candidate is house stock", () => {
+    const other = { ...fortnight, variationId: "pv-other", partnerId: "partner-other" };
+    const { link, ambiguous } = selectSaleLink([fortnight, other]);
+    expect(ambiguous).toBe(true);
+    expect(link).toBeTruthy();
+    // Deterministic, so the books do not move between runs while it is unresolved.
+    expect(selectSaleLink([other, fortnight]).link).toBe(link);
+  });
+
+  it("flags two house candidates rather than guessing between beers", () => {
+    const otherBeer = { ...house, recipeId: "r-bba", variationId: "pv-house-2", beerName: "BBA Groundhog" };
+    const { ambiguous } = selectSaleLink([house, otherBeer]);
+    expect(ambiguous).toBe(true);
+  });
+});
+
+describe("assembleConsumption — one Square SKU claimed by several links", () => {
+  const house: KegCanLink = {
+    squareVariationId: "sq-vienna-sixth",
+    recipeId: "r-vienna",
+    variationId: "pv-house",
+    kind: "keg_sale",
+    beerName: "Vienna Lager",
+    variationName: "1/6 Keg",
+    partnerId: null,
+  };
+  const fortnight: KegCanLink = { ...house, variationId: "pv-fortnight", variationName: "Fortnight - 1/6 Keg", partnerId: "partner-fortnight" };
+
+  it("books the sale against house stock", () => {
+    const { units } = assembleConsumption({
+      salesByDay: new Map([["sq-vienna-sixth\t2026-07-10", 1]]),
+      kegCanLinks: [fortnight, house],
+      draftLinks: [],
+      restockEvents: [],
+    });
+    expect(units).toHaveLength(1);
+    expect(units[0].variationId).toBe("pv-house");
+  });
+
+  it("does not report an ambiguity when the house rule settles it", () => {
+    const { discrepancies } = assembleConsumption({
+      salesByDay: new Map([["sq-vienna-sixth\t2026-07-10", 1]]),
+      kegCanLinks: [fortnight, house],
+      draftLinks: [],
+      restockEvents: [],
+    });
+    expect(discrepancies.filter((d) => d.kind === "ambiguous_sale_link")).toEqual([]);
   });
 });

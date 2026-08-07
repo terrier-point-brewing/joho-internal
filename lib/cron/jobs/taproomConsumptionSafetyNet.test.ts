@@ -45,6 +45,8 @@ const linkToDeadVariation: KegCanLink = {
   kind: "can_sale",
   beerName: "Epic Hazy IPA",
   variationName: "Regular - 16oz 4-Pack",
+  // House packaging — nothing here turns on the partner preference.
+  partnerId: null,
 };
 
 describe("reproduction — a sale the run cannot see", () => {
