@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Give a git worktree the .env.local it can never inherit.
+# Give a git worktree the gitignored files it can never inherit.
 #
 # .env.local is gitignored, and `git worktree add` only materializes TRACKED
 # files. So every new worktree starts without one, the Next middleware throws
@@ -7,6 +7,13 @@
 # route 500s — including the ones that look static. `npm run build` fails the
 # same way at the prerender step, after compile and TypeScript have passed,
 # which makes it read like a code failure when it is a setup one.
+#
+# .claude/settings.local.json is gitignored for the same reason and fails the
+# same way, just less loudly: a worktree without it loses the whole permission
+# allowlist and the sandbox network/filesystem config, so a session that ran
+# clean in the main checkout suddenly prompts on every push, typecheck, and
+# Supabase query. Linking it also means an approval granted in one worktree is
+# an approval everywhere, instead of N allowlists drifting apart.
 #
 # Wired as a SessionStart hook so it runs before anyone notices. Symlinks
 # rather than copies: rotate a key in the main checkout and every worktree
@@ -39,24 +46,29 @@ if [ "$worktree_root" = "$main_root" ]; then
   exit 0
 fi
 
-src="$main_root/.env.local"
-dst="$worktree_root/.env.local"
+for rel in .env.local .claude/settings.local.json; do
+  src="$main_root/$rel"
+  dst="$worktree_root/$rel"
 
-# No source to link, or something is already there. Either way, hands off.
-if [ ! -f "$src" ]; then
-  exit 0
-fi
-if [ -e "$dst" ] || [ -L "$dst" ]; then
-  exit 0
-fi
+  # No source to link, or something is already there. Either way, hands off.
+  [ -f "$src" ] || continue
+  if [ -e "$dst" ] || [ -L "$dst" ]; then
+    continue
+  fi
 
-if ln -s "$src" "$dst" 2>/dev/null; then
-  echo "Linked .env.local from the main checkout (worktrees do not inherit gitignored files)."
-elif cp "$src" "$dst" 2>/dev/null; then
-  # Filesystems that refuse symlinks still get a working worktree; the copy is
-  # a point-in-time snapshot, so a later key rotation will not reach it.
-  chmod 600 "$dst" 2>/dev/null || true
-  echo "Copied .env.local from the main checkout (symlink unavailable on this filesystem)."
-fi
+  # .claude/ is tracked so it normally exists, but do not assume it.
+  mkdir -p "$(dirname "$dst")" 2>/dev/null || continue
+
+  if ln -s "$src" "$dst" 2>/dev/null; then
+    echo "Linked $rel from the main checkout (worktrees do not inherit gitignored files)."
+  elif cp "$src" "$dst" 2>/dev/null; then
+    # Filesystems that refuse symlinks still get a working worktree; the copy is
+    # a point-in-time snapshot, so a later key rotation will not reach it.
+    case "$rel" in
+      .env.local) chmod 600 "$dst" 2>/dev/null || true ;;
+    esac
+    echo "Copied $rel from the main checkout (symlink unavailable on this filesystem)."
+  fi
+done
 
 exit 0
