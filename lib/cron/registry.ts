@@ -79,6 +79,18 @@ export const CRON_JOBS: CronJobMeta[] = [
     manualNote:    "An expense that turns out to be a transfer between accounts is removed so nothing is counted twice. One that has been split by hand, excluded, or matched to a pay period is kept.",
   },
   {
+    job:           "square-catalog-sync",
+    path:          "/api/cron/square-catalog-sync",
+    // Ahead of the two jobs that read the mirror: the consumption sync at 07:00
+    // and the inventory push at 07:15.
+    schedule:      "45 6 * * *",
+    scheduleLabel: "Daily · 06:45 UTC",
+    description:   "Refreshes the local copy of the Square catalogue: item and price names, and which products Square has retired. Nothing else can tell that a product was retired, because Square only ever reports what still exists.",
+    maxAgeHours:   25,
+    manualRun:     "start",
+    manualNote:    "Safe to run at any time. It never changes the pour size recorded for a product — that figure is what past sales were measured against, so a product renamed in Square is reported for someone to look at rather than changed here. A product newly linked to a recipe is copied over the moment it is linked and does not wait for this.",
+  },
+  {
     job:           "taproom-consumption-sync",
     path:          "/api/cron/taproom-consumption-sync",
     schedule:      "0 7 * * *",
