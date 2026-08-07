@@ -217,7 +217,6 @@ export async function syncSquareCatalog(
         track_inventory:       v.item_variation_data.track_inventory ?? null,
         sellable:              v.item_variation_data.sellable ?? null,
         stockable:             v.item_variation_data.stockable ?? null,
-        service_duration_ms:   v.item_variation_data.service_duration ?? null,
         inventory_unit:        inferInventoryUnit(variationName),
         volume_fl_oz_per_unit: volumeFlOzPerUnit(variationName),
         is_deleted:            false,

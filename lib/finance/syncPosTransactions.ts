@@ -175,7 +175,6 @@ export function buildPosLineItems(
     return {
       order_id: orderDbId,
       square_line_item_uid: li.uid,
-      square_catalog_object_id: varId,
       square_variation_id: varId,
       name: li.name ?? "",
       variation_name: li.variation_name ?? null,
