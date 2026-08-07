@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
 
         if (existing) {
           // Resolve a placeholder entry (no equipment yet) or stamp actual_start
-          const updates: Record<string, string> = { actual_start: today, updated_at: new Date().toISOString() };
+          const updates: Record<string, string> = { actual_start: today };
           if (!existing.equipment_id) updates.equipment_id = tank_id;
           await supabase.from("batch_schedule_entries").update(updates).eq("id", existing.id);
         } else {

@@ -168,7 +168,7 @@ export async function applyBreakDown(
       if (error) throw new Error(error.message);
     } else {
       const { error } = await supabase.from("cold_storage_inventory")
-        .update({ quantity_on_hand: remaining, updated_at: new Date().toISOString() }).eq("id", srcRow.id);
+        .update({ quantity_on_hand: remaining }).eq("id", srcRow.id);
       if (error) throw new Error(error.message);
     }
 
@@ -184,7 +184,7 @@ export async function applyBreakDown(
     const childRow = (childRows ?? [])[0];
     if (childRow) {
       const { error } = await supabase.from("cold_storage_inventory")
-        .update({ quantity_on_hand: Number(childRow.quantity_on_hand) + op.toUnits, updated_at: new Date().toISOString() })
+        .update({ quantity_on_hand: Number(childRow.quantity_on_hand) + op.toUnits })
         .eq("id", childRow.id);
       if (error) throw new Error(error.message);
     } else {

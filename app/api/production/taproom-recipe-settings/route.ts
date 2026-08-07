@@ -29,7 +29,6 @@ export async function PATCH(req: NextRequest) {
     const now = new Date().toISOString();
     const payload: Record<string, unknown> = {
       recipe_id,
-      updated_at: now,
     };
 
     // Shared with the tap-swap queue route, which retires the outgoing beer.

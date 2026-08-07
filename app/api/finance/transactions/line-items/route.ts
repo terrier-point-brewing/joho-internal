@@ -19,7 +19,6 @@ export async function PATCH(req: NextRequest) {
   const supabase = createSupabaseAdminClient();
 
   const patch: Record<string, unknown> = {
-    updated_at: new Date().toISOString(),
   };
   if ("chart_of_accounts_id" in body) {
     patch.chart_of_accounts_id = body.chart_of_accounts_id;

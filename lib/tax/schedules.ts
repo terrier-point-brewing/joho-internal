@@ -56,7 +56,7 @@ export type UpdateScheduleInput = Partial<Pick<TaxSchedule, "frequency" | "lead_
 export async function updateSchedule(sb: SupabaseClient, id: string, patch: UpdateScheduleInput): Promise<TaxSchedule> {
   const { data, error } = await sb
     .from("tax_schedules")
-    .update({ ...patch, updated_at: new Date().toISOString() })
+    .update(patch)
     .eq("id", id)
     .select("*")
     .single();

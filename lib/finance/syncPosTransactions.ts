@@ -118,8 +118,8 @@ export function buildInvoiceLookup(rows: InvoiceLookupRow[]): Map<string, string
   );
 }
 
-/** Row for the `square_orders` upsert. Pure — `nowIso` passed in for testing. */
-export function buildOrderPayload(order: Order, invoiceId: string | null, nowIso: string) {
+/** Row for the `square_orders` upsert. Pure. `updated_at` is the trigger's job. */
+export function buildOrderPayload(order: Order, invoiceId: string | null) {
   return {
     square_order_id: order.id,
     location_id: order.location_id,
@@ -133,7 +133,6 @@ export function buildOrderPayload(order: Order, invoiceId: string | null, nowIso
     status: order.state ?? "COMPLETED",
     raw_data: order as object,
     invoice_id: invoiceId,
-    updated_at: nowIso,
   };
 }
 
@@ -288,9 +287,8 @@ export async function syncSquareOrders(
   const { getPosCoA } = buildCoaResolvers(mappingsRes.data ?? []);
   const invoiceIdByOrderId = buildInvoiceLookup(invoiceRes.data ?? []);
 
-  const nowIso = new Date().toISOString();
   const orderPayloads = orders.map((order) =>
-    buildOrderPayload(order, invoiceIdByOrderId.get(order.id) ?? null, nowIso),
+    buildOrderPayload(order, invoiceIdByOrderId.get(order.id) ?? null),
   );
 
   const upsertedIds = new Map<string, string>(); // square_order_id → db id

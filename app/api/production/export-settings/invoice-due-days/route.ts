@@ -30,7 +30,7 @@ export async function PUT(req: NextRequest) {
   const supabase = createSupabaseAdminClient();
   const { error } = await supabase
     .from("system_settings")
-    .upsert({ key: "export_invoice_due_days", value: days, updated_at: new Date().toISOString() });
+    .upsert({ key: "export_invoice_due_days", value: days });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ days });

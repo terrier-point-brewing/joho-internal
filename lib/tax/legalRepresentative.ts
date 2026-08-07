@@ -53,6 +53,6 @@ export async function putLegalRepresentative(sb: SupabaseClient, values: LegalRe
 
   const { error } = await sb
     .from("tax_legal_representative")
-    .upsert({ id: true, ...merged, updated_at: new Date().toISOString() }, { onConflict: "id" });
+    .upsert({ id: true, ...merged }, { onConflict: "id" });
   if (error) throw new Error(error.message);
 }

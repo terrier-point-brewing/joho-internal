@@ -71,7 +71,7 @@ export async function PUT(req: NextRequest) {
       await adminSupabase
         .from("system_settings")
         .upsert(
-          { key: "tap_count", value: tap_count, updated_at: new Date().toISOString() },
+          { key: "tap_count", value: tap_count },
           { onConflict: "key" }
         );
     }
@@ -80,7 +80,7 @@ export async function PUT(req: NextRequest) {
       await adminSupabase
         .from("system_settings")
         .upsert(
-          { key: "draft_restock_item_id", value: draft_restock_item_id, updated_at: new Date().toISOString() },
+          { key: "draft_restock_item_id", value: draft_restock_item_id },
           { onConflict: "key" }
         );
     }
@@ -96,7 +96,6 @@ export async function PUT(req: NextRequest) {
               label:                tap.label || null,
               restock_variation_id: tap.restock_variation_id || null,
               swap_variation_id:    tap.swap_variation_id || null,
-              updated_at:           new Date().toISOString(),
             },
             { onConflict: "tap_number" }
           );

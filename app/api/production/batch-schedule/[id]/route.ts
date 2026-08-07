@@ -14,7 +14,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = await req.json();
   const { equipment_id, stage, planned_start, planned_end, actual_start, actual_end, notes, cancelled_at, cancellation_reason, downstream_entry_id, volume_bbl } = body;
 
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const updates: Record<string, unknown> = {};
   if (equipment_id !== undefined) updates.equipment_id = equipment_id;
   if (stage !== undefined) updates.stage = stage;
   if (planned_start !== undefined) updates.planned_start = planned_start;
@@ -26,6 +26,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (cancellation_reason !== undefined) updates.cancellation_reason = cancellation_reason;
   if (downstream_entry_id !== undefined) updates.downstream_entry_id = downstream_entry_id;
   if (volume_bbl !== undefined) updates.volume_bbl = volume_bbl;
+
+  // `updated_at` used to seed this object and doubled as the guarantee that it
+  // was never empty. The trigger owns the timestamp now, so a body with no
+  // recognised field would send an empty update, which PostgREST rejects with a
+  // opaque error. Say what actually went wrong instead.
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "no updatable fields in request body" }, { status: 400 });
+  }
 
   // Fetch current row before update to detect first-time actual_start on brewhouse
   const { data: before } = await supabase
@@ -69,7 +77,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (planned_start !== undefined) {
     await supabase
       .from("batch_schedule_entries")
-      .update({ planned_end: planned_start, updated_at: new Date().toISOString() })
+      .update({ planned_end: planned_start })
       .eq("downstream_entry_id", id)
       .is("cancelled_at", null);
   }

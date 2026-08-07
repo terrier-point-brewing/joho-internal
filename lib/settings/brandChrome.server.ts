@@ -45,7 +45,6 @@ export async function setBrandChromeEnabled(enabled: boolean, updatedBy?: string
   const { error } = await supabase.from("system_settings").upsert({
     key: BRAND_CHROME_KEY,
     value: enabled,
-    updated_at: new Date().toISOString(),
     ...(updatedBy ? { updated_by: updatedBy } : {}),
   });
   if (error) throw new Error("Failed to save brand-chrome setting");

@@ -44,7 +44,7 @@ describe("normalizeRefund", () => {
 
 describe("buildRefundRow", () => {
   it("builds the upsert row with linked order db id and contra account", () => {
-    const row = buildRefundRow(normalizeRefund(refund), "ORDER_DB_1", "COA_CONTRA", "2026-07-06T00:00:00Z");
+    const row = buildRefundRow(normalizeRefund(refund), "ORDER_DB_1", "COA_CONTRA");
     expect(row).toMatchObject({
       square_refund_id: "REFUND_1",
       square_order_id: "ORDER_9",
@@ -55,12 +55,11 @@ describe("buildRefundRow", () => {
       status: "COMPLETED",
       refunded_at: "2026-07-05T12:05:00Z",
       chart_of_accounts_id: "COA_CONTRA",
-      updated_at: "2026-07-06T00:00:00Z",
     });
   });
 
   it("tolerates an unlinked order and unmapped contra account (nulls)", () => {
-    const row = buildRefundRow(normalizeRefund({ id: "R3" }), null, null, "t");
+    const row = buildRefundRow(normalizeRefund({ id: "R3" }), null, null);
     expect(row.order_id).toBeNull();
     expect(row.chart_of_accounts_id).toBeNull();
     expect(row.square_refund_id).toBe("R3");

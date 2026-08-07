@@ -65,12 +65,11 @@ export function normalizeRefund(refund: RefundLike): NormalizedRefund {
   };
 }
 
-/** Build the `square_refunds` upsert row. Pure — `nowIso` passed in for testing. */
+/** Build the `square_refunds` upsert row. Pure. `updated_at` is the trigger's job. */
 export function buildRefundRow(
   n: NormalizedRefund,
   orderDbId: string | null,
   coaId: string | null,
-  nowIso: string,
 ) {
   return {
     square_refund_id: n.squareRefundId,
@@ -84,7 +83,6 @@ export function buildRefundRow(
     refunded_at: n.refundedAt,
     chart_of_accounts_id: coaId,
     raw_data: n.raw,
-    updated_at: nowIso,
   };
 }
 
@@ -136,9 +134,8 @@ export async function syncRefunds(
     for (const row of data ?? []) orderDbIdBysquare.set(row.square_order_id, row.id);
   }
 
-  const nowIso = new Date().toISOString();
   const rows = normalized.map((n) =>
-    buildRefundRow(n, n.squareOrderId ? orderDbIdBysquare.get(n.squareOrderId) ?? null : null, coaId, nowIso),
+    buildRefundRow(n, n.squareOrderId ? orderDbIdBysquare.get(n.squareOrderId) ?? null : null, coaId),
   );
 
   const errors: string[] = [];
