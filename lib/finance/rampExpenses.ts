@@ -27,6 +27,18 @@ type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 /** All expenses imported by this adapter carry source = 'ramp'. */
 const SOURCE = "ramp" as const;
 
+/**
+ * `expenses.state` is upper-case-only (CHECK `expenses_state_upper_check`) so the
+ * statements can match it with .eq() — mixed casing here once silently dropped
+ * every bank/payroll row off the cash-flow statement. Ramp already sends upper-
+ * case for the values we've seen, but nothing upstream validates that (lib/ramp.ts
+ * passes `state`/`status` straight through), so fold it here rather than trust it.
+ * Ramp's absent-value sentinel is "", which becomes null.
+ */
+function normalizeState(raw: string | null | undefined): string | null {
+  return raw ? raw.toUpperCase() : null;
+}
+
 export interface RampSyncResult {
   imported:           number;
   mapped:             number;
@@ -52,7 +64,7 @@ export function rampTxnToExpenseRecord(txn: RampTransaction): ExpenseRecord {
     merchant_name:         txn.merchant_name || null,
     merchant_category:     txn.merchant_category_code_description || null,
     sk_category_name:      txn.sk_category_name || null,
-    state:                 txn.state || null,
+    state:                 normalizeState(txn.state),
     card_holder_name:      holder || null,
     department_name:       txn.card_holder.department_name || null,
     transaction_time:      txn.user_transaction_time || null,
@@ -85,7 +97,7 @@ export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
     merchant_name:      bill.vendor_name || null,
     merchant_category:  null,
     sk_category_name:   null,
-    state:              bill.status || null,
+    state:              normalizeState(bill.status),
     card_holder_name:   null,
     department_name:    null,
     transaction_time:   bill.issued_at || null,

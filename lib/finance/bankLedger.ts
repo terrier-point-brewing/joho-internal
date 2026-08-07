@@ -248,8 +248,11 @@ function bankLineToExpenseRecord(line: RampBankLine, c: BankClassification): Exp
     merchant_category:     null,
     sk_category_name:      null,
     // A bank line only lands here once it has posted to the account, so it is settled
-    // by definition — surface it as "cleared" (green) alongside card/bill statuses.
-    state:                 "cleared",
+    // by definition — surface it as "CLEARED" (green) alongside card/bill statuses.
+    // Upper-case is mandatory: expenses.state carries an upper-case-only CHECK so
+    // the statements can compare it with .eq(). This writer used to emit lower-case
+    // and that is exactly what broke the cash-flow statement once.
+    state:                 "CLEARED",
     card_holder_name:      null,
     department_name:       null,
     transaction_time:      line.date || null,

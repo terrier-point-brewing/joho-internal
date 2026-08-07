@@ -58,6 +58,15 @@ describe("rampBillToExpenseRecords", () => {
     expect(recs[1]).toMatchObject({ qb_sync_status: "BILL_SYNCED", qb_remote_id: "qb-bill-9" });
   });
 
+  // expenses.state is upper-case-only (CHECK expenses_state_upper_check) so the
+  // statements can match it exactly. Ramp's status is passed straight through by
+  // lib/ramp.ts with no allow-list, so the fold has to happen on write.
+  it("upper-cases the bill status and nulls Ramp's empty-string sentinel", () => {
+    expect(rampBillToExpenseRecords(bill({ status: "paid" }))[0].state).toBe("PAID");
+    expect(rampBillToExpenseRecords(bill({ status: "Partially_Paid" }))[0].state).toBe("PARTIALLY_PAID");
+    expect(rampBillToExpenseRecords(bill({ status: "" }))[0].state).toBeNull();
+  });
+
   it("falls back to a single uncoded record when a bill has no line items", () => {
     const recs = rampBillToExpenseRecords(bill({ line_items: [] }));
     expect(recs).toHaveLength(1);
@@ -87,6 +96,14 @@ describe("rampTxnToExpenseRecord", () => {
       qb_synced_at: "2026-06-16T02:00:00Z",
       qb_remote_id: null,
     });
+  });
+
+  // See the bill-status test above: the column enforces upper-case, so the
+  // adapter must normalize rather than trust Ramp's casing.
+  it("upper-cases the transaction state and nulls Ramp's empty-string sentinel", () => {
+    expect(rampTxnToExpenseRecord(txn({ state: "cleared" })).state).toBe("CLEARED");
+    expect(rampTxnToExpenseRecord(txn({ state: "Declined" })).state).toBe("DECLINED");
+    expect(rampTxnToExpenseRecord(txn({ state: "" })).state).toBeNull();
   });
 
   it("nulls empty strings and a missing GL account", () => {

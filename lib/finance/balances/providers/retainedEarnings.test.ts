@@ -21,7 +21,7 @@ function fakeClient(tables: Record<string, unknown[]>): SupabaseClient {
       gte: () => chain,
       is: () => chain,
       or: () => chain,
-      ilike: () => chain,
+      filter: () => chain,
       in: () => chain,
       order: () => chain,
       range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
