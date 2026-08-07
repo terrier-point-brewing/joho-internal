@@ -41,8 +41,6 @@ export async function GET(req: NextRequest) {
       transaction_time,
       accounting_date,
       external_account_id,
-      external_account_name,
-      external_account_code,
       counterparty_key,
       counterparty_label,
       qb_sync_status,
@@ -68,6 +66,8 @@ export async function GET(req: NextRequest) {
 
   const rows = (data ?? []) as {
     id: string;
+    source: string;
+    external_account_id: string | null;
     chart_of_accounts_id: string | null;
     amount_cents: number;
     excluded_at: string | null;
@@ -78,16 +78,36 @@ export async function GET(req: NextRequest) {
   // Payroll-match state + resolved GL line(s) per expense, batched (not
   // per-row) so the Transactions UI can render match/split state without a
   // second round-trip per row.
+  //
+  // The source account's display name is a property of the account, not of the
+  // transaction, so it lives once on expense_account_mappings (keyed source +
+  // external_account_id) rather than being copied onto every expense row.
   const ids = rows.map((r) => r.id);
-  const [matchesResult, splitsResult] = await Promise.all([
+  const externalAccountIds = Array.from(
+    new Set(rows.map((r) => r.external_account_id).filter((v): v is string => v !== null)),
+  );
+  const [matchesResult, splitsResult, accountsResult] = await Promise.all([
     supabase.from("payroll_period_expense_matches").select("expense_id, pay_period_id, matched_component").in("expense_id", ids),
     supabase
       .from("expense_gl_splits")
       .select("expense_id, chart_of_accounts_id, amount_cents, split_source, memo")
       .in("expense_id", ids),
+    externalAccountIds.length > 0
+      ? supabase
+          .from("expense_account_mappings")
+          .select("source, external_account_id, external_account_name")
+          .in("external_account_id", externalAccountIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   if (matchesResult.error) return NextResponse.json({ error: matchesResult.error.message }, { status: 500 });
   if (splitsResult.error) return NextResponse.json({ error: splitsResult.error.message }, { status: 500 });
+  if (accountsResult.error) return NextResponse.json({ error: accountsResult.error.message }, { status: 500 });
+
+  const accountKey = (source: string, externalAccountId: string) => `${source}::${externalAccountId}`;
+  const accountNameByKey = new Map(
+    (accountsResult.data as { source: string; external_account_id: string; external_account_name: string | null }[])
+      .map((a) => [accountKey(a.source, a.external_account_id), a.external_account_name]),
+  );
 
   const matchByExpense = new Map<string, { payPeriodId: string; matchedComponent: "net_pay" | "taxes" | null }>(
     (matchesResult.data as { expense_id: string; pay_period_id: string; matched_component: string | null }[]).map((r) => [
@@ -157,7 +177,10 @@ export async function GET(req: NextRequest) {
       chartOfAccountsId: row.chart_of_accounts_id,
       amountCents: row.amount_cents,
     });
-    return { ...row, payrollMatch, glLines };
+    const external_account_name = row.external_account_id
+      ? accountNameByKey.get(accountKey(row.source, row.external_account_id)) ?? null
+      : null;
+    return { ...row, external_account_name, payrollMatch, glLines };
   });
 
   return NextResponse.json(enriched);

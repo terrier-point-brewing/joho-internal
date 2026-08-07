@@ -135,7 +135,7 @@ type Row = Record<string, unknown>;
  * upsert() captures the written rows.
  */
 function makeClient(cfg: { coa: Row[]; rules: Row[]; existing: Row[]; existingSelectError?: string }) {
-  const captured = { ruleUpserts: [] as Row[], expenseUpserts: [] as Row[] };
+  const captured = { ruleUpserts: [] as Row[], expenseUpserts: [] as Row[], ruleUpdates: [] as Row[] };
 
   function query(baseData: Row[], errorMessage?: string) {
     const filters: ((r: Row) => boolean)[] = [];
@@ -164,6 +164,17 @@ function makeClient(cfg: { coa: Row[]; rules: Row[]; existing: Row[]; existingSe
           if (table === "expense_account_mappings") captured.ruleUpserts.push(...rows);
           if (table === "expenses")                 captured.expenseUpserts.push(...rows);
           return Promise.resolve({ error: null });
+        },
+        update(patch: Row) {
+          const applied: Row = { ...patch };
+          const u = {
+            eq(col: string, val: unknown) { applied[col] = val; return u; },
+            then(res: (v: { error: null }) => unknown) {
+              if (table === "expense_account_mappings") captured.ruleUpdates.push(applied);
+              return Promise.resolve({ error: null }).then(res);
+            },
+          };
+          return u;
         },
       };
     },
@@ -218,6 +229,52 @@ describe("syncRampExpenses", () => {
     expect(res.new_rules).toBe(0);
     expect(res.mapped).toBe(1);
     expect(captured.expenseUpserts[0]).toMatchObject({ chart_of_accounts_id: "coa-1", mapping_source: "rule" });
+  });
+
+  // The account's name/code are properties of the ACCOUNT, so they live on
+  // expense_account_mappings and are never copied onto an expense row. Writing
+  // them here is what let the two copies drift apart in the first place.
+  it("does not persist the account name or code onto the expense row", async () => {
+    const { client, captured } = makeClient({
+      coa: [{ id: "coa-1", account_name: "Marketing", account_number: "6000" }],
+      rules: [],
+      existing: [],
+    });
+
+    await syncRampExpenses(client, [glTxn("t1", { id: "gl-1", external_id: "6000", name: "Marketing" })]);
+
+    expect(captured.expenseUpserts[0]).not.toHaveProperty("external_account_name");
+    expect(captured.expenseUpserts[0]).not.toHaveProperty("external_account_code");
+    // The id stays -- it is the key the read-side join derives the name through.
+    expect(captured.expenseUpserts[0]).toMatchObject({ external_account_id: "gl-1" });
+    // ...and the account row carrying that name is written before the expense.
+    expect(captured.ruleUpserts[0]).toMatchObject({ external_account_id: "gl-1", external_account_name: "Marketing", external_account_code: "6000" });
+  });
+
+  it("refreshes the mapping's name when the source renames the account", async () => {
+    const { client, captured } = makeClient({
+      coa: [{ id: "coa-1", account_name: "Marketing", account_number: "6000" }],
+      rules: [{ source: "ramp", external_account_id: "gl-1", external_account_name: "Marketing", chart_of_accounts_id: "coa-1" }],
+      existing: [],
+    });
+
+    await syncRampExpenses(client, [glTxn("t1", { id: "gl-1", external_id: "6000", name: "Advertising & Marketing" })]);
+
+    expect(captured.ruleUpdates).toEqual([
+      { external_account_name: "Advertising & Marketing", source: "ramp", external_account_id: "gl-1" },
+    ]);
+  });
+
+  it("leaves the mapping alone when the name is unchanged", async () => {
+    const { client, captured } = makeClient({
+      coa: [{ id: "coa-1", account_name: "Marketing", account_number: "6000" }],
+      rules: [{ source: "ramp", external_account_id: "gl-1", external_account_name: "Marketing", chart_of_accounts_id: "coa-1" }],
+      existing: [],
+    });
+
+    await syncRampExpenses(client, [glTxn("t1", { id: "gl-1", external_id: "6000", name: "Marketing" })]);
+
+    expect(captured.ruleUpdates).toEqual([]);
   });
 
   it("preserves a manual per-expense override across re-sync", async () => {
