@@ -65,7 +65,7 @@ function LabelEditor({ ctx }: { ctx: ReleaseComponentContext }) {
 }
 
 function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: BrandLabel }) {
-  const { release, guide, homage } = ctx;
+  const { release, guide } = ctx;
   const updateLabel = useUpdateLabel();
   const { data: seasons = [] } = useSeasons();
   const { data: recipes = [] } = useRecipesQuery();
@@ -113,7 +113,6 @@ function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: Bran
       // The chassis narrative the guide panel above shows, quoted into the
       // commission so the artist reads the same words the founder published.
       guide.label.intro ? `From our brand guide: ${guide.label.intro}` : null,
-      homage || null,
       "",
       "Requirements:",
       "- The illustration lives inside a bordered art window; compose for that frame.",
@@ -121,7 +120,7 @@ function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: Bran
       "- Illustrate the single moment the release's name points to.",
     ].filter((l): l is string => l !== null);
     return lines.join("\n");
-  }, [release, season, recipe, guide, homage]);
+  }, [release, season, recipe, guide]);
 
   const stageChips: { label: string; status: StageStatus }[] = [
     { label: "Illustration", status: illustrationStatus(draft.illustration) },

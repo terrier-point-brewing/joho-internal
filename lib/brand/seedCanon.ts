@@ -298,8 +298,6 @@ export const seedCanon: BrandCanon = {
   // art direction for an illustration that does not exist yet — none of these
   // are commissioned — so the guide shows the brief in the empty slot.
   illustrationLaw: {
-    homage:
-      "Style homage is permitted, including Ghibli-adjacent, when it serves the story and stays within the rules above.",
     pairs: [
       {
         title: "Illustrate the moment the name points to",

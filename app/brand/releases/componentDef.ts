@@ -25,9 +25,6 @@ export interface ReleaseComponentContext {
    * in page.tsx. Components render this; they never hold guide prose of their
    * own. See lib/brand/releaseGuide.ts. */
   guide: ReleaseGuide;
-  /** The illustration law's homage line — quoted by the artist-brief composer,
-   * and the one piece of canon that belongs to no single card. */
-  homage: string;
   /** The linked recipe's packaging-variation links (empty until a recipe is
    * linked). Shared context because several components read them: Product
    * Codes edits them, Label warns off them. */

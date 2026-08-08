@@ -29,7 +29,6 @@ export default async function ReleasesPage() {
     <ReleasesWorkbench
       guide={resolveReleaseGuide(canon)}
       description={firstParagraph(canon, "release")}
-      homage={canon.illustrationLaw?.homage ?? ""}
     />
   );
 }

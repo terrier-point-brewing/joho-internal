@@ -102,8 +102,6 @@ function visual(canon: BrandCanon): string[] {
   const law = canon.illustrationLaw;
   const lines = intro(canon, "visual");
 
-  if (law?.homage) lines.push(law.homage, "");
-
   // Each rule as its pair, not as two lists. An agent given "ALWAYS flat
   // vector" and "NEVER photorealism" ten lines apart has to work out that they
   // are one rule; stated together it can't miss which failure a rule guards

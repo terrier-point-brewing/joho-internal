@@ -45,11 +45,9 @@ const RELEASE_COMPONENTS: ReleaseComponentDef[] = [
 export default function ReleasesWorkbench({
   guide,
   description,
-  homage,
 }: {
   guide: ReleaseGuide;
   description: string;
-  homage: string;
 }) {
   const { data: releases = [], isLoading, error } = useReleases();
   const createRelease = useCreateRelease();
@@ -124,7 +122,7 @@ export default function ReleasesWorkbench({
 
         {/* Frame */}
         {selected ? (
-          <ReleaseFrame key={selected.id} release={selected} guide={guide} homage={homage} />
+          <ReleaseFrame key={selected.id} release={selected} guide={guide} />
         ) : (
           <Card>
             <p className="text-sm text-secondary">Select a release, or add one to begin.</p>
@@ -139,11 +137,9 @@ export default function ReleasesWorkbench({
 function ReleaseFrame({
   release,
   guide,
-  homage,
 }: {
   release: BrandRelease;
   guide: ReleaseGuide;
-  homage: string;
 }) {
   const { data: labels = [] } = useLabels();
   const { data: seasons = [] } = useSeasons();
@@ -162,7 +158,7 @@ function ReleaseFrame({
     ? allVariationLinks.filter((l) => l.recipe_id === release.recipe_id)
     : [];
 
-  const ctx: ReleaseComponentContext = { release, label, recipe, guide, homage, containers };
+  const ctx: ReleaseComponentContext = { release, label, recipe, guide, containers };
   const statuses = RELEASE_COMPONENTS.map((c) => c.status(ctx));
   const readyCount = statuses.filter((s) => s === "done").length;
   const active = RELEASE_COMPONENTS.find((c) => c.key === activeKey) ?? RELEASE_COMPONENTS[0];
