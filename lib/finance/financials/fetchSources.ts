@@ -500,28 +500,76 @@ export async function fetchBank(supabase: SupabaseClient, range: DateRange, stat
   }));
 }
 
+/** A refund's line detail, when the app issued it and knows what came off what. */
+interface RefundLineJoin {
+  id: string;
+  amount_cents: number | null;
+  invoice_line_items: { chart_of_accounts_id: string | null } | null;
+}
+
+/**
+ * Refunds, exploded to their line detail where it exists.
+ *
+ * A refund with no `refund_lines` posts as one row against the single
+ * contra-revenue account `syncRefunds` pinned on it. That is right for a $6
+ * taproom refund and for any refund someone issued in the Square dashboard,
+ * because Square hands back a bare dollar amount with no line attribution.
+ *
+ * A refund the app issued DOES know, and posting it as one lump would be wrong:
+ * an invoice credit spanning packaging fees, excise and materials would show
+ * revenue leaving three accounts and returning to a fourth. Excise especially —
+ * that is a pass-through liability, and netting it against revenue misstates
+ * both. So those explode to one row per credited line, each carrying the
+ * account already mapped on the ORIGINAL invoice line. No new mapping rules, and
+ * a later remap of the invoice line carries its credits with it.
+ *
+ * The exploded rows' ids are `refund_lines` ids, not `square_refunds` ids.
+ */
 export async function fetchRefunds(supabase: SupabaseClient, range: DateRange): Promise<RefundRecord[]> {
   const data = await fetchAllRows<{
     id: string;
     chart_of_accounts_id: string | null;
     amount_cents: number | null;
     refunded_at: string;
+    refund_lines: RefundLineJoin[] | null;
   }>(() => {
     let q = supabase
       .from("square_refunds")
-      .select("id, chart_of_accounts_id, amount_cents, refunded_at")
+      .select(
+        "id, chart_of_accounts_id, amount_cents, refunded_at, refund_lines(id, amount_cents, invoice_line_items(chart_of_accounts_id))",
+      )
       .eq("status", "COMPLETED")
       .lt("refunded_at", range.end)
       .order("id", { ascending: true });
     if (range.start) q = q.gte("refunded_at", range.start);
     return q;
   });
-  return data.map((r) => ({
-    id: r.id,
-    chartOfAccountsId: r.chart_of_accounts_id,
-    amountCents: r.amount_cents ?? 0,
-    refundedAt: r.refunded_at,
-  }));
+
+  const out: RefundRecord[] = [];
+  for (const r of data) {
+    const lines = r.refund_lines ?? [];
+    if (lines.length === 0) {
+      out.push({
+        id: r.id,
+        chartOfAccountsId: r.chart_of_accounts_id,
+        amountCents: r.amount_cents ?? 0,
+        refundedAt: r.refunded_at,
+      });
+      continue;
+    }
+    for (const line of lines) {
+      out.push({
+        id: line.id,
+        // Falls back to the refund's contra account only when the invoice line
+        // it came off is itself unmapped — the credit is then unmapped for the
+        // same reason the sale was, which is the honest reading.
+        chartOfAccountsId: line.invoice_line_items?.chart_of_accounts_id ?? r.chart_of_accounts_id,
+        amountCents: line.amount_cents ?? 0,
+        refundedAt: r.refunded_at,
+      });
+    }
+  }
+  return out;
 }
 
 /**

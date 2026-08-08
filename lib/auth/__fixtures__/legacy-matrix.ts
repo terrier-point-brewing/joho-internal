@@ -45,6 +45,11 @@ export interface LegacyRow {
  * PATCH production/shipments/[id] was added on 2026-07-30 for the shipment
  * editor — a new call site with no legacy equivalent, at the same exportOperate
  * gate as every other export-mutating route.
+ * The three production/export refund call sites were added on 2026-08-08 for
+ * the unified refund flow (credit a paid invoice; list and explain refunds
+ * issued in the Square dashboard). All brand-new, no legacy equivalent, and all
+ * at exportOperate — issuing a refund is an export-mutating action, and the
+ * list sits in the same panel rather than earning a read-level gate of its own.
  * PATCH and DELETE production/exports/[id] were REMOVED on 2026-07-30 along with
  * the route itself: both mutated the export ledger with no guards and no
  * compensating writes (DELETE dropped a row without restoring cold-storage
@@ -193,6 +198,10 @@ export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "production/export/invoices/[id]/line-items", method: "PATCH", legacy: ["brewer"], capability: "exportOperate" },
   { route: "production/export/invoices", method: "GET", legacy: ["viewer", "brewer", "manager"], capability: "exportRead", intentionalChange: { viewer: false, reason: "API-only; app/production/layout.tsx already redirects viewers" } },
   { route: "production/floorplan-settings", method: "PUT", legacy: [], capability: "equipmentManage" },
+  { route: "production/export/invoices/[id]/refund", method: "GET", legacy: [], capability: "exportOperate", intentionalChange: { brewer: true, reason: "New call site, no legacy equivalent — gated with the rest of the export-mutating routes at exportOperate, which brewer holds" } },
+  { route: "production/export/invoices/[id]/refund", method: "POST", legacy: [], capability: "exportOperate", intentionalChange: { brewer: true, reason: "New call site, no legacy equivalent — gated with the rest of the export-mutating routes at exportOperate, which brewer holds" } },
+  { route: "production/export/refunds", method: "GET", legacy: [], capability: "exportOperate", intentionalChange: { brewer: true, reason: "New call site, no legacy equivalent — lives in the same panel as the refund action, so it shares its gate rather than earning a read level of its own" } },
+  { route: "production/export/refunds/[id]/classify", method: "POST", legacy: [], capability: "exportOperate", intentionalChange: { brewer: true, reason: "New call site, no legacy equivalent — gated with the rest of the export-mutating routes at exportOperate, which brewer holds" } },
   { route: "production/shipments/[id]", method: "PATCH", legacy: ["brewer"], capability: "exportOperate" },
   { route: "production/ingredients/[id]", method: "PATCH", legacy: ["brewer"], capability: "ingredientMasterEdit", intentionalChange: { brewer: false, reason: "ingredients/packaging PATCH and DELETE — decision 5" } },
   { route: "production/ingredients/[id]", method: "DELETE", legacy: ["brewer"], capability: "ingredientMasterEdit", intentionalChange: { brewer: false, reason: "ingredients/packaging PATCH and DELETE — decision 5" } },

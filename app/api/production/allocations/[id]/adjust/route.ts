@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createRefund } from "@/lib/square/refunds";
+import { issueDepositReduction, RefundError } from "@/lib/finance/issueRefund";
 
 export const dynamic = "force-dynamic";
 
@@ -58,38 +58,41 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     );
   }
 
-  // 4. Pure proportional math against the amount actually paid — never a
-  // fresh calculateIngredientDeposit() call against current ingredient costs.
+  // 4. Hand off to the shared refund service. The proportional math lives there
+  // now, unchanged — against the amount actually paid, never a fresh
+  // calculateIngredientDeposit() at current ingredient costs — but the refund is
+  // recorded in `square_refunds` alongside every other kind, tagged
+  // `deposit_reduction`, instead of only in this allocation's three columns.
   const currentPercentage = Number(allocation.percentage);
   const paidCents = Number(allocation.deposit_amount_paid_cents);
 
-  if (currentPercentage <= 0) {
-    return NextResponse.json(
-      { error: "Allocation has an invalid percentage (<= 0) — cannot compute refund. Contact support." },
-      { status: 500 }
-    );
-  }
-
-  const refundAmountCents = Math.round(paidCents * (1 - newPercentage / currentPercentage));
-
-  const reason = `Allocation percentage reduced from ${currentPercentage}% to ${newPercentage}%`;
-
   let refund;
   try {
-    refund = await createRefund(allocation.square_payment_id, refundAmountCents, reason);
+    refund = await issueDepositReduction(supabase, {
+      allocationId: id,
+      currentPercentage,
+      newPercentage,
+      paidCents,
+      squarePaymentId: allocation.square_payment_id,
+      squareOrderId: allocation.square_deposit_order_id ?? null,
+    });
   } catch (e: unknown) {
+    if (e instanceof RefundError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Square refund failed" },
       { status: 500 }
     );
   }
+  const refundAmountCents = refund.refundAmountCents;
 
   // Only write the row once the refund has actually succeeded.
   const { data: updated, error: updateErr } = await supabase
     .from("batch_allocations")
     .update({
       percentage: newPercentage,
-      square_refund_id: refund.refundId,
+      square_refund_id: refund.squareRefundId,
       refund_amount_cents: refundAmountCents,
       refunded_at: new Date().toISOString(),
     })
@@ -99,10 +102,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   if (updateErr) {
     return NextResponse.json(
-      { error: `Refund succeeded (id: ${refund.refundId}) but saving the new percentage failed: ${updateErr.message}. Do not retry the refund — fix the allocation row manually.` },
+      { error: `Refund succeeded (id: ${refund.squareRefundId}) but saving the new percentage failed: ${updateErr.message}. Do not retry the refund — fix the allocation row manually.` },
       { status: 500 }
     );
   }
 
-  return NextResponse.json({ allocation: updated, refundAmountCents, refundId: refund.refundId });
+  return NextResponse.json({ allocation: updated, refundAmountCents, refundId: refund.squareRefundId });
 }
