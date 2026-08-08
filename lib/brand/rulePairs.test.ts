@@ -103,8 +103,8 @@ describe("the seeded visual identity law", () => {
     }
   });
 
-  it("keeps style homage out of the cards — it has no failure opposite it", () => {
-    expect(seedCanon.illustrationLaw.homage).toContain("Style homage is permitted");
+  it("has retired style homage — no seed line, and no card standing in for one", () => {
+    expect("homage" in seedCanon.illustrationLaw).toBe(false);
     expect(pairs.some((p) => p.title.toLowerCase().includes("homage"))).toBe(false);
   });
 });

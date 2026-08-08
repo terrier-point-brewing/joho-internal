@@ -9,7 +9,7 @@ import ListField from "./ListField";
 type Law = BrandCanon["illustrationLaw"];
 
 /**
- * Editor for the illustration law: the paired rules, plus the homage line.
+ * Editor for the illustration law: the paired rules.
  *
  * Edited as PAIRS because that is what they are. The previous editor was one
  * flat list with a Do/Don't dropdown per row, which let a rule be written with
@@ -18,8 +18,9 @@ type Law = BrandCanon["illustrationLaw"];
  * it. Here both halves of a rule are always on screen together, so an
  * unanswered rule is visible as an empty column rather than invisible.
  *
- * Saving writes `pairs` and drops the legacy `rules` list, so a document
- * migrates itself the first time an admin touches this tab.
+ * Saving writes `pairs` and drops the legacy `rules` list — and the retired
+ * `homage` line with it — so a document migrates itself the first time an
+ * admin touches this tab.
  */
 export default function VisualLawFields({
   draft,
@@ -38,9 +39,11 @@ export default function VisualLawFields({
   function writeLaw(next: Partial<Law>) {
     // `rules` is deliberately not carried over — the paired shape replaces it,
     // and keeping both would leave two sources of truth for one subtab.
+    // `homage` is dropped for the same reason: it is retired, and each rule's
+    // own nuance line carries that kind of caveat now.
     onChange({
       ...draft,
-      illustrationLaw: { homage: law?.homage, pairs, ...next },
+      illustrationLaw: { pairs, ...next },
     });
   }
 
@@ -89,20 +92,6 @@ export default function VisualLawFields({
           </div>
         )}
       />
-
-      <label className="flex flex-col gap-1">
-        <span className="text-2xs uppercase tracking-wide text-muted">Style homage</span>
-        <textarea
-          className="inp min-h-16 text-sm"
-          value={law?.homage ?? ""}
-          onChange={(e) => writeLaw({ homage: e.target.value || undefined })}
-          placeholder="A permission, not a rule — shown beneath the introduction, above the cards."
-        />
-        <span className="text-xs text-faint">
-          Kept out of the card set: it is a permission with no failure opposite it, so it has no
-          don&apos;t to pair with.
-        </span>
-      </label>
     </div>
   );
 }

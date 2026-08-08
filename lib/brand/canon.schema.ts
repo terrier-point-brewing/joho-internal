@@ -415,8 +415,9 @@ export const canonSchema = z.object({
      */
     rules: ruleListSchema.optional(),
     /**
-     * Permission, not a rule — so it sits beneath the introduction rather than
-     * in the card set, where it was the one entry with no failure opposite it.
+     * Retired. Nothing writes or renders it any more — each rule's own nuance
+     * line carries that kind of caveat — but archived versions still hold it,
+     * and those must keep validating on read.
      */
     homage: z.string().optional(),
   }),

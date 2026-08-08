@@ -67,7 +67,6 @@ describe("compileBrandMarkdown", () => {
     // what stops it applying the rule literally to a case nobody wrote down.
     const full = compile({
       illustrationLaw: {
-        homage: "Style homage is permitted when it serves the story.",
         pairs: [
           {
             id: "p1",
@@ -84,7 +83,6 @@ describe("compileBrandMarkdown", () => {
     expect(full).toContain("ALWAYS: Hard-edged flats.");
     expect(full).toContain("NEVER: Photorealism.");
     expect(full).toContain("Why: Realism makes the place a record instead of a memory.");
-    expect(full).toContain("Style homage is permitted when it serves the story.");
   });
 
   it("never renders an object as [object Object]", () => {
