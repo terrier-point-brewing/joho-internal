@@ -5,6 +5,7 @@ import {
   archiveAsset,
   assetFileUrl,
   createAsset,
+  deleteAsset,
   listAssets,
   normalizeVariant,
   resolveAsset,
@@ -65,7 +66,10 @@ interface Row extends BrandAsset {
   approved_at?: string | null;
 }
 
-function fakeClient(initialRows: Row[]) {
+// `otherTables` holds the non-asset brand tables deleteAsset's reference sweep
+// reads. Every one of them is scanned whole, so the fake serves them as plain
+// row arrays keyed by table name; an unlisted table reads as empty.
+function fakeClient(initialRows: Row[], otherTables: Record<string, unknown[]> = {}) {
   const rows: Row[] = [...initialRows];
   let idCounter = rows.length;
 
@@ -73,10 +77,17 @@ function fakeClient(initialRows: Row[]) {
     return rows.filter((r) => filters.every(([col, val]) => (r as never)[col] === val));
   }
 
-  function chain(filters: [string, string][]) {
+  function chain(filters: [string, string][], table: string) {
+    // Thenable as well as chainable, mirroring a PostgREST builder: the sweep
+    // awaits `select("*")` directly, while every other read still chains
+    // .eq()/.limit() off it.
     return {
+      then(resolve: (value: { data: unknown[]; error: null }) => unknown) {
+        const data = table === "brand_assets" ? applyFilters(filters) : (otherTables[table] ?? []);
+        return Promise.resolve({ data, error: null }).then(resolve);
+      },
       eq(column: string, value: string) {
-        return chain([...filters, [column, value]]);
+        return chain([...filters, [column, value]], table);
       },
       order(_column: string, _opts?: { ascending?: boolean }) {
         return Promise.resolve({
@@ -92,10 +103,20 @@ function fakeClient(initialRows: Row[]) {
 
   return {
     rows,
-    from() {
+    from(table: string = "brand_assets") {
       return {
         select(_cols: string) {
-          return chain([]);
+          return chain([], table);
+        },
+        delete() {
+          return {
+            eq(column: string, value: string) {
+              for (let i = rows.length - 1; i >= 0; i--) {
+                if ((rows[i] as never)[column] === value) rows.splice(i, 1);
+              }
+              return Promise.resolve({ error: null });
+            },
+          };
         },
         insert(row: Partial<Row>) {
           return {
@@ -345,5 +366,71 @@ describe("normalizeVariant", () => {
     expect(normalizeVariant("")).toBe("default");
     expect(normalizeVariant(null)).toBe("default");
     expect(normalizeVariant("///")).toBe("default");
+  });
+});
+
+describe("deleteAsset", () => {
+  it("removes an archived, unreferenced asset and returns it for storage cleanup", async () => {
+    const client = fakeClient([
+      baseRow({ id: "gone", status: "archived", storage_path: "wordmark/gone.svg" }),
+      baseRow({ id: "keep", status: "approved" }),
+    ]);
+
+    const removed = await deleteAsset(client as never, "gone");
+
+    // The row's storage_path is what the route needs to delete the bytes, so it
+    // has to come back from the same call that proved the delete was allowed.
+    expect(removed.storage_path).toBe("wordmark/gone.svg");
+    expect(client.rows.map((r) => r.id)).toEqual(["keep"]);
+  });
+
+  it("refuses to delete an approved or draft asset", async () => {
+    // Archiving is the reversible retirement step, and going through it first
+    // is what stops a live mark disappearing in one click.
+    const client = fakeClient([
+      baseRow({ id: "live", status: "approved" }),
+      baseRow({ id: "wip", status: "draft" }),
+    ]);
+
+    await expect(deleteAsset(client as never, "live")).rejects.toThrow(/Archive this asset/);
+    await expect(deleteAsset(client as never, "wip")).rejects.toThrow(/Archive this asset/);
+    expect(client.rows).toHaveLength(2);
+  });
+
+  it("refuses when a real FK column still names the asset", async () => {
+    // brand_labels.chop_glyph_asset_id is ON DELETE SET NULL, so Postgres would
+    // accept this delete and silently blank the label's chop.
+    const client = fakeClient([baseRow({ id: "chop", status: "archived" })], {
+      brand_labels: [{ id: "l1", name: "Epic Hazy", chop_glyph_asset_id: "chop" }],
+    });
+
+    await expect(deleteAsset(client as never, "chop")).rejects.toThrow(/label "Epic Hazy"/);
+    expect(client.rows).toHaveLength(1);
+  });
+
+  it("refuses when only an unconstrained jsonb reference names the asset", async () => {
+    // No FK protects motif_set / asset_refs / canon assetIds at all — these are
+    // the references the sweep exists for.
+    const client = fakeClient([baseRow({ id: "motif", status: "archived" })], {
+      brand_seasons: [{ id: "s1", name: "Autumn 2026", motif_set: [{ assetId: "motif" }] }],
+    });
+
+    await expect(deleteAsset(client as never, "motif")).rejects.toThrow(/season "Autumn 2026"/);
+  });
+
+  it("names every referencing row, so one delete surfaces all the work", async () => {
+    const client = fakeClient([baseRow({ id: "x", status: "archived" })], {
+      brand_labels: [{ id: "l1", name: "Epic Hazy", chop_glyph_asset_id: "x" }],
+      brand_outputs: [{ id: "o1", rendition: "can-16oz", asset_refs: [{ slot: "chop", assetId: "x" }] }],
+    });
+
+    await expect(deleteAsset(client as never, "x")).rejects.toThrow(
+      /label "Epic Hazy".*output "can-16oz"/,
+    );
+  });
+
+  it("throws for an unknown id rather than reporting a silent no-op", async () => {
+    const client = fakeClient([]);
+    await expect(deleteAsset(client as never, "nope")).rejects.toThrow(/Asset not found/);
   });
 });

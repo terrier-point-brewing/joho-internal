@@ -89,6 +89,22 @@ export function useUpdateAssetMeta() {
   });
 }
 
+/**
+ * Permanently removes an archived asset and its file.
+ *
+ * Its own verb rather than another PATCH action: this is the only call in the
+ * library that cannot be undone, and the server refuses it for anything that is
+ * still approved, still a draft, or still referenced elsewhere.
+ */
+export function useDeleteAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      requestJson<{ ok: true }>(`/api/brand/assets/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.brandAssets.all() }),
+  });
+}
+
 export function useArchiveAsset() {
   const qc = useQueryClient();
   return useMutation({
