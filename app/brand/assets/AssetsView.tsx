@@ -5,6 +5,7 @@ import PageHeader from "@/app/components/PageHeader";
 import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import type { Tone } from "@/app/components/ui/tone";
 import {
   BRAND_ASSET_KINDS,
@@ -13,7 +14,13 @@ import {
   type BrandAssetKind,
 } from "@/lib/brand/assets";
 import AssetMeta from "./AssetMeta";
-import { useApproveAsset, useArchiveAsset, useAssets, useUploadAsset } from "./useAssets";
+import {
+  useApproveAsset,
+  useArchiveAsset,
+  useAssets,
+  useDeleteAsset,
+  useUploadAsset,
+} from "./useAssets";
 
 // Every kind the API and the database accept, so the library can actually take
 // one of each. `font`, `example` and `label_art` were missing here: the Type
@@ -39,6 +46,10 @@ export default function AssetsView() {
   const upload = useUploadAsset();
   const approve = useApproveAsset();
   const archive = useArchiveAsset();
+  const remove = useDeleteAsset();
+
+  // The asset a Delete click is asking about, held until the dialog is answered.
+  const [pendingDelete, setPendingDelete] = useState<BrandAsset | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [kind, setKind] = useState<BrandAssetKind>("logo");
@@ -71,7 +82,19 @@ export default function AssetsView() {
     setAltText("");
   }
 
-  const mutationError = upload.error ?? approve.error ?? archive.error;
+  const mutationError = upload.error ?? approve.error ?? archive.error ?? remove.error;
+
+  async function handleDelete() {
+    if (!pendingDelete) return;
+    try {
+      await remove.mutateAsync(pendingDelete.id);
+    } catch {
+      /* surfaced by the banner via remove.error — the refusal reasons ("still
+         in use by label X") are the point, so the dialog closes either way and
+         leaves the message on screen. */
+    }
+    setPendingDelete(null);
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -182,7 +205,10 @@ export default function AssetsView() {
                     />
                   </div>
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-xs text-secondary truncate">{asset.variant}</span>
+                    {/* Format, not the slug — the slug moved into AssetMeta as an
+                        editable field, and showing it twice invites editing the
+                        copy that does nothing. */}
+                    <span className="text-xs text-secondary truncate uppercase">{asset.format}</span>
                     <Badge tone={STATUS_TONE[asset.status]}>{asset.status}</Badge>
                   </div>
                   <AssetMeta asset={asset} />
@@ -207,6 +233,20 @@ export default function AssetsView() {
                         Archive
                       </button>
                     )}
+                    {/* Delete is offered only once a file is archived. Archiving
+                        stays the reversible way to retire something; this is for
+                        clearing out a mistaken upload, and the server enforces
+                        the same rule. */}
+                    {asset.status === "archived" && (
+                      <button
+                        type="button"
+                        className="btn-danger btn-xxs"
+                        disabled={remove.isPending}
+                        onClick={() => setPendingDelete(asset)}
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </Card>
               ))}
@@ -217,6 +257,23 @@ export default function AssetsView() {
 
       {assets && assets.length === 0 && (
         <p className="text-sm text-muted">No assets uploaded yet.</p>
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete this asset?"
+          message={
+            <>
+              <strong>{pendingDelete.title || pendingDelete.variant}</strong> (
+              {pendingDelete.kind.replace("_", " ")}, {pendingDelete.format.toUpperCase()}) and its
+              file will be removed permanently. This cannot be undone.
+            </>
+          }
+          confirmLabel="Delete permanently"
+          busy={remove.isPending}
+          onConfirm={handleDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
       )}
           </>
         )}

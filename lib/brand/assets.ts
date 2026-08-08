@@ -94,6 +94,9 @@ export interface SupabaseLikeClient {
     update(patch: Record<string, unknown>): {
       eq(column: string, value: string): Promise<{ error: unknown }>;
     };
+    delete(): {
+      eq(column: string, value: string): Promise<{ error: unknown }>;
+    };
   };
 }
 
@@ -290,4 +293,108 @@ export async function updateAssetMeta(
 
   const { error } = await client.from(TABLE).update(patch).eq("id", id);
   if (error) throw new Error("Failed to update asset details");
+}
+
+// ── Deletion ────────────────────────────────────────────────────────────────
+
+/**
+ * Every table that can name an asset, whether by a real foreign key or by an
+ * id buried in jsonb, plus the column to describe the offending row by.
+ *
+ * The jsonb references are the reason this list exists at all. Three columns
+ * carry a real FK (`brand_labels.chop_glyph_asset_id`,
+ * `brand_templates.chop_glyph_asset_id`, `brand_seasons.season_logo_asset_id`)
+ * and all three are ON DELETE SET NULL, so the database would happily let a
+ * delete through and quietly blank them. The rest —`brand_seasons.motif_set`,
+ * `brand_outputs.asset_refs`, `brand_labels` illustration `asset_ids`, and the
+ * `assetId`/`assetIds` keys inside a canon document — have no constraint at
+ * all, and would be left pointing at nothing.
+ */
+const ASSET_REFERENCE_TABLES: { table: string; label: string; describe: string[] }[] = [
+  { table: "brand_labels", label: "label", describe: ["name", "slug"] },
+  { table: "brand_templates", label: "template", describe: ["name", "slug"] },
+  { table: "brand_seasons", label: "season", describe: ["name", "slug"] },
+  { table: "brand_outputs", label: "output", describe: ["rendition"] },
+  { table: "brand_canon_versions", label: "canon version", describe: ["version", "status"] },
+  { table: "brand_releases", label: "release", describe: ["name", "slug"] },
+];
+
+/** A loose view of the client for the sweep — whole rows, untyped. */
+export interface SweepClient {
+  from(table: string): {
+    select(columns: string): Promise<{ data: Record<string, unknown>[] | null; error: unknown }>;
+    delete(): { eq(column: string, value: string): Promise<{ error: unknown }> };
+  };
+}
+
+function describeRow(row: Record<string, unknown>, fields: string[]): string {
+  for (const field of fields) {
+    const value = row[field];
+    if (typeof value === "string" && value.trim()) return value;
+    if (typeof value === "number") return String(value);
+  }
+  return String(row.id ?? "unknown");
+}
+
+/**
+ * Everything that still names this asset, as prose a person can act on.
+ *
+ * Deliberately a stringify-and-search over whole rows rather than a column-by-
+ * column query. The references are spread across three real FK columns and at
+ * least four untyped jsonb shapes (`motif_set`, `asset_refs`, illustration
+ * `asset_ids`, and canon's `assetId`/`assetIds`), and a canon document nests
+ * them arbitrarily deep. Enumerating those paths means this function silently
+ * stops being exhaustive the first time someone adds a fifth shape — and the
+ * failure mode is a permanently deleted file that a label still points at. A
+ * uuid is specific enough that a substring match over the row has no realistic
+ * false positive, and these tables are small enough to scan.
+ */
+export async function findAssetReferences(client: SweepClient, id: string): Promise<string[]> {
+  const hits: string[] = [];
+  for (const { table, label, describe } of ASSET_REFERENCE_TABLES) {
+    const { data } = await client.from(table).select("*");
+    for (const row of data ?? []) {
+      if (JSON.stringify(row).includes(id)) {
+        hits.push(`${label} "${describeRow(row, describe)}"`);
+      }
+    }
+  }
+  return hits;
+}
+
+/**
+ * Permanently removes an asset row. The caller deletes the Storage object.
+ *
+ * Two gates, because this is the one irreversible action in the library:
+ *
+ *  1. The asset must already be archived. Archiving is the reversible step and
+ *     stays the normal way to retire a file; deletion is for clearing out a
+ *     mistaken upload, and going through archived first means nothing live can
+ *     vanish in a single click.
+ *  2. Nothing may still reference it. See findAssetReferences — the FKs are ON
+ *     DELETE SET NULL, so without this check the database would accept the
+ *     delete and blank a label's chop instead of refusing.
+ */
+export async function deleteAsset(
+  client: SupabaseLikeClient & SweepClient,
+  id: string,
+): Promise<BrandAsset> {
+  const { data: rows } = await client.from(TABLE).select("*").eq("id", id).limit(1);
+  const target = (rows as BrandAsset[] | null)?.[0];
+  if (!target) throw new Error("Asset not found");
+
+  if (target.status !== "archived") {
+    throw new Error("Archive this asset before deleting it — only archived files can be deleted.");
+  }
+
+  const refs = await findAssetReferences(client, id);
+  if (refs.length > 0) {
+    throw new Error(
+      `Still in use by ${refs.join(", ")} — point those at another file first, then delete this one.`,
+    );
+  }
+
+  const { error } = await client.from(TABLE).delete().eq("id", id);
+  if (error) throw new Error("Failed to delete asset");
+  return target;
 }

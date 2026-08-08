@@ -1,7 +1,11 @@
 /**
- * Approve/archive a single brand asset. Admin-only — approving flips the
+ * Approve/archive/delete a single brand asset. Admin-only — approving flips the
  * asset live for `resolveAsset` consumers (guide viewer, etc.), archiving
  * removes it from consideration without deleting the Storage object.
+ *
+ * DELETE is the one irreversible action here, and takes the row AND the bytes.
+ * It is reachable only from the archived state and only when nothing still
+ * references the asset — see deleteAsset() for why both gates are needed.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
@@ -10,6 +14,7 @@ import { apiError } from "@/lib/utils/api";
 import {
   approveAsset,
   archiveAsset,
+  deleteAsset,
   updateAssetMeta,
   MARK_SHAPES,
   MARK_ORIENTATIONS,
@@ -18,6 +23,8 @@ import {
 } from "@/lib/brand/assets";
 
 export const dynamic = "force-dynamic";
+
+const BUCKET = "brand-assets";
 
 /** Every field this route lets a caller rewrite, besides approve/archive. */
 const META_FIELDS = [
@@ -83,6 +90,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         { status: 400 },
       );
     }
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return apiError(err);
+  }
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    await requirePermission(CAP.brandAssetsManage); // admin only
+  } catch (res) {
+    return res as Response;
+  }
+
+  const { id } = await params;
+  try {
+    const supabase = createSupabaseAdminClient();
+    // Row first: it is what enforces the archived + unreferenced gates, and it
+    // hands back the storage_path. Bytes second — an orphaned Storage object is
+    // recoverable clutter, whereas a row pointing at bytes that are already gone
+    // is a broken card in the library.
+    const asset = await deleteAsset(supabase as unknown as Parameters<typeof deleteAsset>[0], id);
+    await supabase.storage.from(BUCKET).remove([asset.storage_path]);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
