@@ -85,7 +85,7 @@ export default async function BrandGuidePage() {
         voice: <VoiceView canon={canon} />,
         visual: <VisualIdentityView canon={canon} assetsById={assetsById} />,
         agent: <AgentRulesView canon={canon} />,
-        color: <ColorView canon={canon} assetsById={assetsById} />,
+        color: <ColorView canon={canon} />,
         type: <TypeView canon={canon} />,
         marks: (
           <MarksView
