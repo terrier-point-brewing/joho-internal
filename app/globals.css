@@ -261,6 +261,24 @@ body {
   font-family: var(--font-brand-body);
 }
 
+/* ── Artwork grounds ────────────────────────────────────────────────────────
+   The box an uploaded mark is displayed in. A mark is usually one flat colour
+   on a transparent background, so the ground is what decides whether it is
+   visible at all — see lib/brand/svgColor.ts, which measures the artwork's own
+   luminance, and lib/brand/rasterLuminance.ts, which does the same for a PNG.
+
+   Deliberately FIXED, not themed. The ink in an uploaded file does not change
+   when the app flips to dark mode, so the ground that contrasts with it must
+   not change either: a pale wordmark needs a dark ground in both themes. These
+   used to be `bg-brand-canvas` / `bg-brand-primary`, which invert with the
+   theme and therefore inverted the contrast they existed to guarantee — the
+   pale mark went back to being invisible in exactly one of the two themes.
+
+   Artwork that carries its own contrast takes `bg-brand-surface` instead
+   (the themed default) and is not covered by these. */
+.artwork-ground-dark  { background: #1c1f26; }  /* for pale artwork */
+.artwork-ground-light { background: #f2ede2; }  /* for dark artwork */
+
 } /* end @layer components */
 
 /* Markdown brew steps rendering */

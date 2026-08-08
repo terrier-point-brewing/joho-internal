@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { BrandAsset } from "@/lib/brand/assets";
 import { assetFileUrl } from "@/lib/brand/assets";
 import { pickDisplayAsset } from "@/lib/brand/marks";
-import type { ArtworkGround } from "@/lib/brand/svgColor";
+import { luminanceForImage } from "@/lib/brand/rasterLuminance";
+import { groundForLuminance, type ArtworkGround } from "@/lib/brand/svgColor";
 
 /**
  * A mark's artwork, with a switch between the formats it ships in.
@@ -30,13 +31,19 @@ const DISPLAYABLE = new Set(["svg", "png", "jpg", "jpeg", "webp", "gif"]);
  *
  * Identity marks are usually one flat colour on a transparent background, so a
  * pale wordmark on the default pale surface renders as an empty box — the
- * upload looks broken when it is fine. `grounds` comes from reading the artwork
- * itself (lib/brand/svgColor.ts), keyed by asset id so the box follows the
- * switch rather than staying on whatever the first file needed.
+ * upload looks broken when it is fine. `grounds` comes from measuring the
+ * artwork itself (lib/brand/svgColor.ts), applied per variation so the SVG and
+ * the PNG of one drawing can't disagree across the format switch.
+ *
+ * `light`/`dark` are fixed colours rather than brand tokens: the ink in an
+ * uploaded file doesn't flip with the app's theme, so the ground chosen to
+ * contrast with it mustn't either. See the artwork-ground block in globals.css.
+ * `neutral` is the artwork that carries its own contrast, and that one does
+ * follow the theme — there's nothing to protect.
  */
 const GROUND_CLASS: Record<ArtworkGround, string> = {
-  light: "bg-brand-canvas",
-  dark: "bg-brand-primary",
+  light: "artwork-ground-light",
+  dark: "artwork-ground-dark",
   neutral: "bg-brand-surface",
 };
 
@@ -59,7 +66,24 @@ export default function MarkArtwork({
     () => pickDisplayAsset(assets)?.id ?? null,
   );
   const display = viewable.find((a) => a.id === selectedId) ?? viewable[0] ?? null;
-  const ground = display ? (grounds[display.id] ?? "neutral") : "neutral";
+
+  // A variation that ships only as a raster has no server-side measurement —
+  // reading a PNG's ink there would mean decoding the image on the server, for
+  // a background choice. Measured off the rendered <img> instead, which costs a
+  // canvas draw on a file the browser has already decoded to show it. One
+  // measurement for the whole card: `assets` is one variation, one drawing.
+  const [measured, setMeasured] = useState<ArtworkGround | null>(null);
+  const known = display ? grounds[display.id] : undefined;
+  const ground = known ?? measured ?? "neutral";
+
+  const measure = useCallback(
+    (event: React.SyntheticEvent<HTMLImageElement>) => {
+      if (known || measured) return;
+      const stats = luminanceForImage(event.currentTarget);
+      if (stats) setMeasured(groundForLuminance(stats));
+    },
+    [known, measured],
+  );
 
   return (
     <div>
@@ -71,6 +95,7 @@ export default function MarkArtwork({
           <img
             src={assetFileUrl(display.id)}
             alt={display.alt_text || alt}
+            onLoad={measure}
             className="max-h-full max-w-full w-auto object-contain"
           />
         ) : (
