@@ -11,6 +11,7 @@ import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
 import SortableTh from "@/app/components/ui/SortableTh";
 import type { ControlsConfig } from "@/lib/table/types";
+import { CreditInvoiceModal } from "./CreditInvoiceModal";
 
 /**
  * A line item is two things and only two things: a LABEL and a NOTE.
@@ -124,6 +125,8 @@ function InvoiceExpandedPanel({
   const [addMappingId, setAddMappingId] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [creditOpen, setCreditOpen] = useState(false);
+  const queryClient = useQueryClient();
 
   // Inline line-item editing (Draft only).
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -575,7 +578,7 @@ function InvoiceExpandedPanel({
       </div>
 
       {/* Actions */}
-      {(isDraft || (isSquare && !isPaid)) && (
+      {(isDraft || isPaid || (isSquare && !isPaid)) && (
         <div className={`${panelClass} flex items-center gap-2`}>
           {isDraft && (
             <button
@@ -595,8 +598,31 @@ function InvoiceExpandedPanel({
               {actionLoading ? "Syncing…" : "Sync from Square"}
             </button>
           )}
+          {/* Only a settled invoice can be credited — an unpaid one is edited or
+              voided in Square instead, which is what the Draft actions above do. */}
+          {isPaid && (
+            <button
+              onClick={() => setCreditOpen(true)}
+              disabled={actionLoading}
+              className="btn-secondary"
+            >
+              Credit Invoice
+            </button>
+          )}
           {actionError && <span className="text-xs text-danger">{actionError}</span>}
         </div>
+      )}
+
+      {creditOpen && (
+        <CreditInvoiceModal
+          invoiceId={invoice.id}
+          invoiceNumber={invoice.invoice_number}
+          onClose={() => setCreditOpen(false)}
+          onDone={() => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.production.exportInvoices() });
+            queryClient.invalidateQueries({ queryKey: queryKeys.production.coldStorage() });
+          }}
+        />
       )}
     </div>
   );

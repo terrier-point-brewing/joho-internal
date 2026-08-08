@@ -4,7 +4,7 @@
 // buildFinancials.test.ts, which mocks fetchFinancialsSources wholesale).
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchExpenses, fetchInvoiceLines, fetchBank } from "./fetchSources";
+import { fetchExpenses, fetchInvoiceLines, fetchBank, fetchRefunds } from "./fetchSources";
 
 interface ExpensesRow {
   id: string;
@@ -436,5 +436,76 @@ describe("fetchBank", () => {
     const client = fakeBankClient([{ id: "b0" }]);
     await fetchBank(client, RANGE, "pl");
     expect(client.calls).toContain("eq(affects_pl,true)");
+  });
+});
+
+/**
+ * `square_refunds` with the `refund_lines(... invoice_line_items(...))` join
+ * embedded. Only `.range()` needs to return data — fetchAllRows paginates the
+ * same way the expenses stub above does.
+ */
+function fakeRefundClient(rows: unknown[]) {
+  const client = {
+    from(table: string) {
+      if (table !== "square_refunds") throw new Error(`unexpected table ${table}`);
+      const chain: Record<string, unknown> = {
+        select: () => chain,
+        eq: () => chain,
+        lt: () => chain,
+        gte: () => chain,
+        order: () => chain,
+        range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
+      };
+      return chain;
+    },
+  };
+  return client as unknown as SupabaseClient;
+}
+
+describe("fetchRefunds", () => {
+  it("posts a refund with no line detail as one row on the contra account", async () => {
+    const client = fakeRefundClient([
+      { id: "r0", chart_of_accounts_id: "contra", amount_cents: 600, refunded_at: "2026-07-02", refund_lines: [] },
+    ]);
+    const rows = await fetchRefunds(client, RANGE);
+    expect(rows).toEqual([
+      { id: "r0", chartOfAccountsId: "contra", amountCents: 600, refundedAt: "2026-07-02" },
+    ]);
+  });
+
+  it("explodes an app-issued refund onto each original line's own account", async () => {
+    const client = fakeRefundClient([
+      {
+        id: "r1",
+        chart_of_accounts_id: "contra",
+        amount_cents: 9000,
+        refunded_at: "2026-07-03",
+        refund_lines: [
+          { id: "l1", amount_cents: 5000, invoice_line_items: { chart_of_accounts_id: "gl_packaging" } },
+          { id: "l2", amount_cents: 4000, invoice_line_items: { chart_of_accounts_id: "gl_excise" } },
+        ],
+      },
+    ]);
+    const rows = await fetchRefunds(client, RANGE);
+    expect(rows.map((r) => [r.id, r.chartOfAccountsId, r.amountCents])).toEqual([
+      ["l1", "gl_packaging", 5000],
+      ["l2", "gl_excise", 4000],
+    ]);
+    // The explode must not change the money, only where it lands.
+    expect(rows.reduce((s, r) => s + r.amountCents, 0)).toBe(9000);
+  });
+
+  it("falls back to the contra account when the original line is itself unmapped", async () => {
+    const client = fakeRefundClient([
+      {
+        id: "r2",
+        chart_of_accounts_id: "contra",
+        amount_cents: 1000,
+        refunded_at: "2026-07-04",
+        refund_lines: [{ id: "l3", amount_cents: 1000, invoice_line_items: { chart_of_accounts_id: null } }],
+      },
+    ]);
+    const rows = await fetchRefunds(client, RANGE);
+    expect(rows[0].chartOfAccountsId).toBe("contra");
   });
 });

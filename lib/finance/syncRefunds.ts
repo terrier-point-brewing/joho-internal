@@ -134,9 +134,32 @@ export async function syncRefunds(
     for (const row of data ?? []) orderDbIdBysquare.set(row.square_order_id, row.id);
   }
 
-  const rows = normalized.map((n) =>
-    buildRefundRow(n, n.squareOrderId ? orderDbIdBysquare.get(n.squareOrderId) ?? null : null, coaId),
-  );
+  // Link the refund to the invoice it was raised against, when there is one.
+  // This is what makes an invoice refund someone issued in the Square dashboard
+  // show up as "needs a reason" (reason_code null + invoice_id set) instead of
+  // disappearing into the contra account unexplained. Taproom POS refunds match
+  // nothing here and stay invoice-less, which is correct — there is no invoice
+  // and nothing for a human to decide.
+  const invoiceIdByOrder = new Map<string, string>();
+  if (orderIds.length > 0) {
+    const { data } = await supabase
+      .from("invoices")
+      .select("id, raw_data->>square_order_id")
+      .in("raw_data->>square_order_id", orderIds);
+    for (const row of (data ?? []) as { id: string; square_order_id: string | null }[]) {
+      if (row.square_order_id) invoiceIdByOrder.set(row.square_order_id, row.id);
+    }
+  }
+
+  const rows = normalized.map((n) => ({
+    ...buildRefundRow(n, n.squareOrderId ? orderDbIdBysquare.get(n.squareOrderId) ?? null : null, coaId),
+    // `origin` and `reason_code` are deliberately absent: the upsert writes only
+    // the columns it names, so a refund the app issued keeps its reason and its
+    // line detail when this sync sees the webhook it just caused.
+    ...(n.squareOrderId && invoiceIdByOrder.has(n.squareOrderId)
+      ? { invoice_id: invoiceIdByOrder.get(n.squareOrderId) }
+      : {}),
+  }));
 
   const errors: string[] = [];
   let synced = 0;
