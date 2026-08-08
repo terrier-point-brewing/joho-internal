@@ -68,26 +68,70 @@ export function luminance(hex: string): number {
 export type ArtworkGround = "light" | "dark" | "neutral";
 
 /**
- * Which ground an SVG should sit on.
+ * How light the artwork's own ink is, and how far it spreads.
  *
- * `neutral` when the artwork has no colours to read, or spans both ends of the
- * range (a multi-colour mark reads acceptably either way, and guessing would be
- * worse than the default surface).
+ * Deliberately a measurement rather than a colour or a class name: the same
+ * number has to answer the question for an SVG (colours parsed out of the
+ * markup) and for a PNG (pixels averaged off a canvas), and a stored class name
+ * would have to be re-derived every time the rendering rule changes.
  */
-export function groundForSvg(svg: string): ArtworkGround {
-  const colors = extractSvgColors(svg);
-  if (colors.length === 0) return "neutral";
+export interface ArtworkLuminance {
+  /** Mean WCAG luminance of the artwork's ink, 0–1. */
+  mean: number;
+  /** Lightest minus darkest — how much contrast the artwork carries itself. */
+  spread: number;
+}
 
+export function luminanceStats(colors: string[]): ArtworkLuminance | null {
+  if (colors.length === 0) return null;
   const lums = colors.map(luminance);
-  const lightest = Math.max(...lums);
-  const darkest = Math.min(...lums);
+  return {
+    mean: lums.reduce((sum, l) => sum + l, 0) / lums.length,
+    spread: Math.max(...lums) - Math.min(...lums),
+  };
+}
 
-  // Spans most of the range — light-on-dark artwork that carries its own
-  // contrast. Leave it alone.
-  if (lightest - darkest > 0.5) return "neutral";
+/**
+ * Which ground a measured piece of artwork should sit on.
+ *
+ * `neutral` when there was nothing to measure, or when the artwork spans most
+ * of the luminance range — a mark that carries its own light-on-dark contrast
+ * reads acceptably either way, and guessing would be worse than the default
+ * surface. Mid-luminance ink (around 0.5) has no good answer in either
+ * direction, so it takes the neutral surface rather than flip-flopping on a
+ * rounding difference between the SVG and the PNG of one drawing.
+ */
+export function groundForLuminance(stats: ArtworkLuminance | null): ArtworkGround {
+  if (!stats) return "neutral";
+  if (stats.spread > 0.5) return "neutral";
+  if (stats.mean > PIVOT - BAND && stats.mean < PIVOT + BAND) return "neutral";
+  // Pale artwork gets a dark ground and dark artwork gets a pale one.
+  return stats.mean > PIVOT ? "dark" : "light";
+}
 
-  const average = lums.reduce((sum, l) => sum + l, 0) / lums.length;
-  // 0.5 is the midpoint of the luminance range, so pale artwork gets a dark
-  // ground and dark artwork gets a pale one.
-  return average > 0.5 ? "dark" : "light";
+/**
+ * Where a colour stops contrasting better with black than with white — the
+ * crossover of the two WCAG contrast ratios, and NOT 0.5. Luminance is a
+ * gamma-corrected quantity, so mid-grey (#808080) sits at 0.216, and splitting
+ * at the arithmetic midpoint would send most of the visible range to a pale
+ * ground including colours that are plainly light.
+ */
+const PIVOT = 0.1791;
+
+/**
+ * Half-width of the dead band around the pivot. Ink this close to the crossover
+ * contrasts about equally either way, so there is no answer worth committing
+ * to — and committing anyway means an SVG and its PNG can land on opposite
+ * grounds over a rounding difference.
+ */
+const BAND = 0.05;
+
+/** The luminance of an SVG's ink, read from the colours it paints with. */
+export function luminanceForSvg(svg: string): ArtworkLuminance | null {
+  return luminanceStats(extractSvgColors(svg));
+}
+
+/** Which ground an SVG should sit on. */
+export function groundForSvg(svg: string): ArtworkGround {
+  return groundForLuminance(luminanceForSvg(svg));
 }

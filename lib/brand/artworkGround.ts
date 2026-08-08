@@ -1,20 +1,30 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { BrandAsset } from "./assets";
-import { groundForSvg, type ArtworkGround } from "./svgColor";
+import { groundForLuminance, luminanceForSvg, type ArtworkGround, type ArtworkLuminance } from "./svgColor";
 
 const BUCKET = "brand-assets";
 
+/** A variation is one drawing; (kind, variant) is what identifies it. */
+const variationKey = (asset: BrandAsset) => `${asset.kind}::${asset.variant}`;
+
 /**
- * Reads each SVG asset and decides which ground keeps it legible.
+ * Reads each variation's artwork and decides which ground keeps it legible.
+ *
+ * Measured from the SVG, then applied to every file of the same variation. The
+ * SVG and the PNG under one variant are the same drawing, so measuring only the
+ * file that happens to be readable and letting the others fall back to the
+ * default surface meant the box changed colour when you flipped the format
+ * switch — the PNG of a pale wordmark went back to rendering as an empty box.
  *
  * Done at render rather than at upload so assets uploaded before this existed
  * are covered without anyone re-uploading them. Safe to repeat: an asset row is
  * immutable once written (a replacement is a new row with a new id), so the
  * answer for a given id never changes.
  *
- * Non-SVG formats return `neutral` without a fetch — reading dominant colour
- * out of a raster would mean decoding the image, which is a lot of work for a
- * background choice.
+ * A variation that ships only as a raster gets no entry at all. Decoding a PNG
+ * server-side would mean an image library for a background choice; the viewer
+ * measures those off a canvas instead (see MarkArtwork), which is free because
+ * it has already downloaded and decoded the file to show it.
  */
 export async function groundsForAssets(
   assets: BrandAsset[],
@@ -24,18 +34,30 @@ export async function groundsForAssets(
 
   const admin = createSupabaseAdminClient();
 
-  const entries = await Promise.all(
-    svgs.map(async (asset): Promise<[string, ArtworkGround]> => {
+  const measured = await Promise.all(
+    svgs.map(async (asset): Promise<[string, ArtworkLuminance | null]> => {
       try {
         const { data, error } = await admin.storage.from(BUCKET).download(asset.storage_path);
-        if (error || !data) return [asset.id, "neutral"];
-        return [asset.id, groundForSvg(await data.text())];
+        if (error || !data) return [variationKey(asset), null];
+        return [variationKey(asset), luminanceForSvg(await data.text())];
       } catch {
         // A background choice is never worth failing a page render over.
-        return [asset.id, "neutral"];
+        return [variationKey(asset), null];
       }
     }),
   );
 
-  return new Map(entries);
+  // Keyed by variation, so a variation whose SVG failed to download still picks
+  // up the answer from another SVG under the same variant rather than losing it.
+  const byVariation = new Map<string, ArtworkLuminance>();
+  for (const [key, stats] of measured) {
+    if (stats && !byVariation.has(key)) byVariation.set(key, stats);
+  }
+
+  const out = new Map<string, ArtworkGround>();
+  for (const asset of assets) {
+    const stats = byVariation.get(variationKey(asset));
+    if (stats) out.set(asset.id, groundForLuminance(stats));
+  }
+  return out;
 }
