@@ -100,6 +100,29 @@ export interface SupabaseLikeClient {
 const TABLE = "brand_assets";
 
 /**
+ * Canonicalizes a variation slug.
+ *
+ * The slug is a grouping key, not prose: every file typed under the same slug
+ * lands on one card. That makes it silently unforgiving — "Square Paper",
+ * "square-paper " and "square-paper" are three cards to the database and one
+ * card to the person who typed them. So the slug is normalized at every write
+ * (upload and rename alike) rather than trusted as entered.
+ *
+ * An empty result falls back to "default", matching the upload route's prior
+ * behaviour for an omitted variant.
+ */
+export function normalizeVariant(raw: string | null | undefined): string {
+  const slug = (raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || "default";
+}
+
+/**
  * Pure: the URL an asset's bytes are served from.
  *
  * The `brand-assets` bucket is PRIVATE (migration 20260903), so there is no
@@ -214,13 +237,46 @@ export async function archiveAsset(client: SupabaseLikeClient, id: string): Prom
  * An empty string clears the field rather than storing "", so a cleared title
  * falls back to the variant the same way an unset one does. `season_id` is the
  * exception — it is an id, not prose, so it is passed through as null or as-is.
+ *
+ * `variant` is editable too, and re-files the asset onto a different card. It
+ * is deliberately NOT restricted to unused slugs: the slug's entire job is to
+ * gather a variation's files onto one card, so moving an SVG onto the slug its
+ * PNG already uses is the common, correct edit. The only thing that cannot
+ * happen is two APPROVED files of the same kind, slug AND format — that is what
+ * the brand_assets_one_approved index forbids — so that single case is checked
+ * here and reported as prose instead of surfacing as a constraint violation.
  */
 export async function updateAssetMeta(
   client: SupabaseLikeClient,
   id: string,
-  meta: { title?: string; alt_text?: string } & MarkFacets,
+  meta: { title?: string; alt_text?: string; variant?: string } & MarkFacets,
 ): Promise<void> {
   const patch: Record<string, string | null> = {};
+  if (meta.variant !== undefined) {
+    const variant = normalizeVariant(meta.variant);
+    const { data: rows } = await client.from(TABLE).select("*").eq("id", id).limit(1);
+    const target = rows?.[0];
+    if (!target) throw new Error("Asset not found");
+
+    if (variant !== target.variant) {
+      if (target.status === "approved") {
+        const { data: clash } = await client
+          .from(TABLE)
+          .select("*")
+          .eq("kind", target.kind)
+          .eq("variant", variant)
+          .eq("format", target.format)
+          .eq("status", "approved")
+          .limit(1);
+        if (clash?.[0] && clash[0].id !== id) {
+          throw new Error(
+            `"${variant}" already has an approved ${target.format.toUpperCase()} — archive that file first, or move this one while it is a draft.`,
+          );
+        }
+      }
+      patch.variant = variant;
+    }
+  }
   if (meta.title !== undefined) patch.title = meta.title.trim() || null;
   if (meta.alt_text !== undefined) patch.alt_text = meta.alt_text.trim() || null;
   if (meta.description !== undefined) patch.description = meta.description?.trim() || null;

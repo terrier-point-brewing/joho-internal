@@ -17,6 +17,7 @@ import {
   BRAND_ASSET_KINDS,
   MARK_SHAPES,
   MARK_ORIENTATIONS,
+  normalizeVariant,
   type BrandAssetKind,
   type MarkShape,
   type MarkOrientation,
@@ -76,8 +77,11 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    // Normalized, not trusted as typed: the slug groups a variation's files
+    // onto one card, so "Square Paper" and "square-paper" have to be the same
+    // slug rather than two cards that look like a bug.
     const variantRaw = formData.get("variant");
-    const variant = typeof variantRaw === "string" && variantRaw ? variantRaw : "default";
+    const variant = normalizeVariant(typeof variantRaw === "string" ? variantRaw : null);
 
     // Human metadata, both optional. `title` names the asset in pickers, which
     // otherwise show a storage variant; `alt_text` is the description a screen

@@ -6,6 +6,7 @@ import {
   assetFileUrl,
   createAsset,
   listAssets,
+  normalizeVariant,
   resolveAsset,
   updateAssetMeta,
   type BrandAsset,
@@ -279,5 +280,70 @@ describe("updateAssetMeta", () => {
     const before = JSON.stringify(client.rows);
     await updateAssetMeta(client as never, "a1", {});
     expect(JSON.stringify(client.rows)).toBe(before);
+  });
+
+  it("re-files an asset onto another slug", async () => {
+    const client = fakeClient([baseRow({ id: "a1", variant: "square-paper" })]);
+    await updateAssetMeta(client as never, "a1", { variant: "wide-indigo" });
+
+    const row = client.rows.find((r) => r.id === "a1")!;
+    expect(row.variant).toBe("wide-indigo");
+  });
+
+  it("normalizes a slug typed as prose", async () => {
+    const client = fakeClient([baseRow({ id: "a1" })]);
+    await updateAssetMeta(client as never, "a1", { variant: "  Square Paper  " });
+
+    expect(client.rows.find((r) => r.id === "a1")!.variant).toBe("square-paper");
+  });
+
+  it("allows moving onto a slug another FORMAT already occupies", async () => {
+    // The whole point of the slug: an SVG and a PNG of one variation share it
+    // and land on one card. Only same-format approved rows collide.
+    const client = fakeClient([
+      baseRow({ id: "svg", variant: "square-paper", format: "svg", status: "approved" }),
+      baseRow({ id: "png", variant: "stray", format: "png", status: "approved" }),
+    ]);
+    await updateAssetMeta(client as never, "png", { variant: "square-paper" });
+
+    expect(client.rows.find((r) => r.id === "png")!.variant).toBe("square-paper");
+  });
+
+  it("refuses a move that would put two approved files of one format on a slug", async () => {
+    const client = fakeClient([
+      baseRow({ id: "a", variant: "square-paper", format: "svg", status: "approved" }),
+      baseRow({ id: "b", variant: "wide-indigo", format: "svg", status: "approved" }),
+    ]);
+
+    await expect(
+      updateAssetMeta(client as never, "b", { variant: "square-paper" }),
+    ).rejects.toThrow(/already has an approved SVG/);
+    expect(client.rows.find((r) => r.id === "b")!.variant).toBe("wide-indigo");
+  });
+
+  it("lets a DRAFT move onto a slug whose same-format file is approved", async () => {
+    // A draft replacement for an approved file has to be able to sit on the
+    // same slug — approveAsset archives the incumbent at approve time.
+    const client = fakeClient([
+      baseRow({ id: "live", variant: "square-paper", format: "svg", status: "approved" }),
+      baseRow({ id: "new", variant: "scratch", format: "svg", status: "draft" }),
+    ]);
+    await updateAssetMeta(client as never, "new", { variant: "square-paper" });
+
+    expect(client.rows.find((r) => r.id === "new")!.variant).toBe("square-paper");
+  });
+});
+
+describe("normalizeVariant", () => {
+  it("lowercases, trims and hyphenates so one variation stays one card", () => {
+    expect(normalizeVariant("  Square Paper ")).toBe("square-paper");
+    expect(normalizeVariant("square_paper")).toBe("square-paper");
+    expect(normalizeVariant("Square  --  Paper")).toBe("square-paper");
+  });
+
+  it("falls back to 'default' for an empty or punctuation-only slug", () => {
+    expect(normalizeVariant("")).toBe("default");
+    expect(normalizeVariant(null)).toBe("default");
+    expect(normalizeVariant("///")).toBe("default");
   });
 });
