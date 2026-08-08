@@ -21,6 +21,7 @@ export const dynamic = "force-dynamic";
 
 /** Every field this route lets a caller rewrite, besides approve/archive. */
 const META_FIELDS = [
+  "variant",
   "title",
   "alt_text",
   "season_id",
@@ -42,6 +43,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try {
     const body = (await req.json().catch(() => ({}))) as {
       action?: string;
+      variant?: string;
       title?: string;
       alt_text?: string;
     } & MarkFacets;

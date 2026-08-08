@@ -114,8 +114,10 @@ export default function MarksEditor({ draft }: { draft?: BrandCanon }) {
     onUpload: (formData: FormData) => upload.mutate(formData),
     onApprove: (id: string) => approve.mutate(id),
     onArchive: (id: string) => archive.mutate(id),
-    onSaveMeta: (id: string, meta: MarkFacets & { title?: string; alt_text?: string }) =>
-      updateMeta.mutate({ id, ...meta }),
+    onSaveMeta: (
+      id: string,
+      meta: MarkFacets & { variant?: string; title?: string; alt_text?: string },
+    ) => updateMeta.mutate({ id, ...meta }),
   };
 
   return (
@@ -167,12 +169,25 @@ function MarkKindEditor({
   onUpload: (formData: FormData) => void;
   onApprove: (id: string) => void;
   onArchive: (id: string) => void;
-  onSaveMeta: (id: string, meta: MarkFacets & { title?: string; alt_text?: string }) => void;
+  onSaveMeta: (
+    id: string,
+    meta: MarkFacets & { variant?: string; title?: string; alt_text?: string },
+  ) => void;
 }) {
   const isChop = kind === "chop_glyph";
   const [file, setFile] = useState<File | null>(null);
   const [draft, setDraft] = useState<Draft>(BLANK_DRAFT);
   const [editing, setEditing] = useState<string | null>(null);
+
+  // The slugs already in use for this kind, offered as a picker on both the
+  // upload form and the rename field. Adding a second file to an existing
+  // variation means typing its slug EXACTLY, and until this list existed the
+  // only place the slug appeared was a hover tooltip — so the normal case
+  // (upload the PNG of a variation whose SVG is already here) was a memory test.
+  const knownSlugs = useMemo(
+    () => Array.from(new Set(assets.map((a) => a.variant))).sort(),
+    [assets],
+  );
 
   function handleUpload(e: FormEvent) {
     e.preventDefault();
@@ -227,10 +242,16 @@ function MarkKindEditor({
               <input
                 id={`mark-variant-${kind}`}
                 className="inp-sm"
+                list={`mark-slugs-${kind}`}
                 value={draft.variant}
                 onChange={(e) => setDraft({ ...draft, variant: e.target.value })}
                 placeholder={isChop ? "lantern" : "square-paper"}
               />
+              <datalist id={`mark-slugs-${kind}`}>
+                {knownSlugs.map((slug) => (
+                  <option key={slug} value={slug} />
+                ))}
+              </datalist>
             </Field>
             <Field label="Label" htmlFor={`mark-title-${kind}`} grow>
               <input
@@ -283,11 +304,18 @@ function MarkKindEditor({
               </div>
 
               <div className="flex items-center justify-between gap-1">
-                <span className="text-xs text-secondary truncate" title={asset.variant}>
+                <span className="text-xs text-secondary truncate">
                   {asset.title || asset.variant}
                 </span>
                 <Badge tone={STATUS_TONE[asset.status]}>{asset.status}</Badge>
               </div>
+
+              {/* The slug is shown, not tooltipped. It is the one field you have
+                  to reproduce exactly to add a second file to this variation,
+                  and a title set on the card used to hide it completely. */}
+              <code className="text-2xs font-mono text-muted truncate" title={asset.variant}>
+                {asset.variant}
+              </code>
 
               <p className="text-2xs text-muted">
                 {asset.format.toUpperCase()} ·{" "}
@@ -371,7 +399,7 @@ function AssetDetailsForm({
   seasons: { id: string; name: string }[];
   paletteNames: string[];
   busy: boolean;
-  onSave: (meta: MarkFacets & { title: string; alt_text: string }) => void;
+  onSave: (meta: MarkFacets & { variant: string; title: string; alt_text: string }) => void;
 }) {
   const [draft, setDraft] = useState<Draft>({
     variant: asset.variant,
@@ -387,9 +415,23 @@ function AssetDetailsForm({
 
   return (
     <div className="flex flex-col gap-2 border-t border-line pt-2">
-      {/* The variant slug is deliberately not editable here: it is what groups
-          a variation's files onto one card, and silently re-keying one file of
-          a pair would split the card in two. Re-upload to re-file. */}
+      {/* Editing the slug re-files this file onto a different card. Typing a
+          slug another file already uses is the POINT, not a mistake — that is
+          how an SVG and a PNG of one variation end up on one card — so the
+          field offers the existing slugs rather than reserving them. */}
+      <Field
+        label={isChop ? "Chop slug" : "Variation slug"}
+        htmlFor={`edit-variant-${asset.id}`}
+        hint={isChop ? undefined : "Same slug = same card"}
+      >
+        <input
+          id={`edit-variant-${asset.id}`}
+          className="inp-sm"
+          list={`mark-slugs-${asset.kind}`}
+          value={draft.variant}
+          onChange={(e) => setDraft({ ...draft, variant: e.target.value })}
+        />
+      </Field>
       <Field label="Label" htmlFor={`edit-title-${asset.id}`}>
         <input
           id={`edit-title-${asset.id}`}
@@ -424,6 +466,7 @@ function AssetDetailsForm({
         disabled={busy}
         onClick={() =>
           onSave({
+            variant: draft.variant,
             title: draft.title,
             alt_text: draft.alt_text,
             description: draft.description,

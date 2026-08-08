@@ -80,7 +80,7 @@ export function useUpdateAssetMeta() {
     mutationFn: ({
       id,
       ...meta
-    }: { id: string; title?: string; alt_text?: string } & MarkFacets) =>
+    }: { id: string; variant?: string; title?: string; alt_text?: string } & MarkFacets) =>
       requestJson<{ ok: true }>(`/api/brand/assets/${id}`, {
         method: "PATCH",
         body: JSON.stringify(meta),
