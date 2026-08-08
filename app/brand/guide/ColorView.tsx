@@ -1,12 +1,9 @@
-import type { BrandAsset } from "@/lib/brand/assets";
 import type { BrandCanon, RoleName } from "@/lib/brand/canon.types";
-import { normalizeRules } from "@/lib/brand/guideRules";
 import { resolveRole, rolesByPaletteKey } from "@/lib/brand/paletteLinks";
 import { ROLE_NAMES, resolveDarkRoles, resolveLightRoles } from "@/lib/brand/tokens";
 import SubHead from "./blocks/SubHead";
 import SwatchCard from "./blocks/SwatchCard";
 import RatioBar from "./blocks/RatioBar";
-import RuleGrid from "./blocks/RuleGrid";
 
 /**
  * What each role is for.
@@ -94,27 +91,19 @@ function ThemeRow({
 }
 
 /**
- * Color view: the palette (the ink deck), the theme (what binds to it), the
- * usage ratios, and the forbidden combinations.
+ * Color view: the palette (the ink deck), the usage ratios, and the theme
+ * (what binds to the palette).
  *
  * Palette and theme are shown as two halves of one relationship rather than two
  * unrelated lists: each swatch says which roles it drives, and each role says
  * which color it came from. That link was previously invisible in the guide and
  * only half-visible in the editor.
  */
-export default function ColorView({
-  canon,
-  assetsById,
-}: {
-  canon: BrandCanon;
-  /** Resolved assets, so illustrated rules can use their authored alt text. */
-  assetsById?: Map<string, BrandAsset>;
-}) {
+export default function ColorView({ canon }: { canon: BrandCanon }) {
   const lightRoles = resolveLightRoles(canon);
   const darkRoles = resolveDarkRoles(canon, lightRoles);
   const drivesLight = rolesByPaletteKey(canon, "light");
   const drivesDark = rolesByPaletteKey(canon, "dark");
-  const forbidden = normalizeRules(canon.colorForbidden, "dont");
 
   // Core first, then neutrals. Entries predating the tier split fall in with
   // the neutrals, which is where all four of them belong.
@@ -151,7 +140,21 @@ export default function ColorView({
         </section>
       ))}
 
-      <section className="mb-8">
+      {canon.usageRatios.length > 0 && (
+        <section className="mb-8">
+          <SubHead
+            title="Usage"
+            description="Roughly how much of a composition each role should occupy."
+          />
+          <RatioBar ratios={canon.usageRatios} hexForRole={(role) => lightRoles[role]} />
+        </section>
+      )}
+
+      {/* Theme sits last of the three. Usage answers "how much of each?", which
+          a reader asks straight after seeing the swatches; the role table
+          answers "what binds to what?", which is reference material you come
+          back to rather than read through on the way down. */}
+      <section>
         <SubHead
           title="Theme"
           description="Every surface binds to one of these thirteen roles. Each row shows the palette color behind it in each mode."
@@ -179,29 +182,6 @@ export default function ColorView({
           ))}
         </div>
       </section>
-
-      {canon.usageRatios.length > 0 && (
-        <section className="mb-8">
-          <SubHead
-            title="Usage"
-            description="Roughly how much of a composition each role should occupy."
-          />
-          <RatioBar ratios={canon.usageRatios} hexForRole={(role) => lightRoles[role]} />
-        </section>
-      )}
-
-      {/* Forbidden combinations, as illustrated rules rather than a tiny list.
-          "Seal Red on Indigo vibrates" is a claim you have to take on trust
-          until you see it, so each rule carries an image slot. */}
-      {forbidden.length > 0 && (
-        <section>
-          <SubHead
-            title="Forbidden"
-            description="Combinations that must never ship. Each one fails a review on its own."
-          />
-          <RuleGrid rules={forbidden} assetsById={assetsById} />
-        </section>
-      )}
     </>
   );
 }

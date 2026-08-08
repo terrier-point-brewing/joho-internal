@@ -3,10 +3,19 @@ import { assetFileUrl, type BrandAsset } from "@/lib/brand/assets";
 /**
  * The one place brand imagery is sized.
  *
- * Every uploaded asset lands in the same aspect-locked box with
- * `object-contain`, so a 4000px screenshot and a 200px SVG render identically
- * and nothing an admin uploads can distort the grid around it. Centralising
- * that is the point — per-view sizing is how upload-driven layouts drift.
+ * Every uploaded asset lands in the same aspect-locked box and is scaled to
+ * FILL it (`object-cover`, centred), so a 4000px screenshot and a 200px SVG
+ * render identically and nothing an admin uploads can distort the grid around
+ * it. Centralising that is the point — per-view sizing is how upload-driven
+ * layouts drift.
+ *
+ * Cover, not contain: uploads arrive at slightly different ratios, and letting
+ * each one letterbox inside its frame left every panel with a different band of
+ * empty surface — the frames read as mismatched even though they aren't. Filling
+ * crops the overflowing edge instead, which is the cheaper loss: these are
+ * example images shown for comparison, and the comparison depends on the frames
+ * looking identical. Anything where the edges are load-bearing (a mark with
+ * mandated clear space) should be uploaded pre-padded to the frame's ratio.
  *
  * With no `assetId` it renders a neutral placeholder rather than collapsing:
  * phase 2 ships the structure before the artwork exists, so an empty slot has
@@ -67,7 +76,7 @@ export default function AssetImage({
           <img
             src={assetFileUrl(assetId)}
             alt={description}
-            className="max-h-full max-w-full w-auto object-contain"
+            className="h-full w-full object-cover object-center"
           />
         ) : (
           // The empty slot names what belongs in it. "Artwork pending" alone
