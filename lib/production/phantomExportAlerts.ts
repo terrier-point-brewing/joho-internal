@@ -1,6 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import type { PhantomOrigin } from "@/lib/production/writePhantomExport";
+import { planTransform, type PhantomTransformPlan } from "@/lib/production/phantomTransformPlan";
 
 /**
  * Phantom-export alerts: taproom bookings that carried barrel excise with no
@@ -116,6 +117,7 @@ interface RecipeVariationRow {
 }
 
 interface ColdStorageLotRow {
+  id: string;
   batch_id: string;
   variation_id: string;
   quantity_on_hand: number;
@@ -279,20 +281,22 @@ export async function fetchUnemailedPhantomAlerts(supabase: SupabaseClient): Pro
 export async function fetchLotOptions(
   supabase: SupabaseClient,
   alert: PhantomAlert,
-): Promise<{ eligible: EligibleLot[]; alternatives: AlternativeLot[] }> {
+): Promise<{ eligible: EligibleLot[]; alternatives: AlternativeLot[]; transforms: PhantomTransformPlan[] }> {
   const { data, error } = await supabase
     .from("cold_storage_inventory")
     .select(
-      "batch_id, variation_id, quantity_on_hand, brew_batches(batch_number), packaging_variations(name, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(type))",
+      "id, batch_id, variation_id, quantity_on_hand, brew_batches(batch_number), packaging_variations(name, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(type))",
     )
     .eq("recipe_id", alert.recipeId);
   if (error) throw new Error(error.message);
 
   const perUnit = phantomPerUnitFlOz(alert.volumeBbl, alert.quantityKegs);
   const rows = (data ?? []) as unknown as ColdStorageLotRow[];
+  const target = await fetchTargetVariation(supabase, alert.variationId);
 
   const eligible: EligibleLot[] = [];
   const alternatives: AlternativeLot[] = [];
+  const transforms: PhantomTransformPlan[] = [];
 
   for (const r of rows) {
     const pv = r.packaging_variations;
@@ -309,6 +313,25 @@ export async function fetchLotOptions(
       Math.abs(Number(pv.total_volume_fl_oz) - perUnit) <= SWAP_VOLUME_TOLERANCE_FL_OZ;
     if (!sameSize) {
       alternatives.push({ variationName, batchCode, onHand, reason: "different_size" });
+      // Wrong shape is not necessarily a dead end: a case of cans can become
+      // the cans that were rung. Offered as a PROPOSAL only — see
+      // phantomTransformPlan for why nothing here happens on its own.
+      if (target) {
+        const plan = planTransform({
+          lotId: r.id,
+          lotVariationId: r.variation_id,
+          lotVariationName: variationName,
+          lotVolumeFlOz: Number(pv.total_volume_fl_oz ?? 0),
+          onHand,
+          batchId: r.batch_id,
+          batchCode,
+          targetVariationId: target.id,
+          targetVariationName: target.name,
+          targetVolumeFlOz: target.volumeFlOz,
+          unitsNeeded: alert.quantityKegs,
+        });
+        if (plan) transforms.push(plan);
+      }
       continue;
     }
     if (onHand < alert.quantityKegs) {
@@ -325,7 +348,28 @@ export async function fetchLotOptions(
     });
   }
 
-  return { eligible, alternatives };
+  return { eligible, alternatives, transforms };
+}
+
+/**
+ * The variation a transform has to produce: the one the row was booked against.
+ * Its STORED volume drives the plan's maths, not the excise-derived per-unit
+ * figure — the transform is checked against `packaging_variations` by the
+ * database, so the plan has to be computed from the same numbers.
+ */
+async function fetchTargetVariation(
+  supabase: SupabaseClient,
+  variationId: string,
+): Promise<{ id: string; name: string; volumeFlOz: number } | null> {
+  if (!variationId) return null;
+  const { data, error } = await supabase
+    .from("packaging_variations")
+    .select("id, name, total_volume_fl_oz")
+    .eq("id", variationId);
+  if (error) throw new Error(error.message);
+  const row = ((data ?? []) as { id: string; name: string; total_volume_fl_oz: number | null }[])[0];
+  if (!row || row.total_volume_fl_oz == null) return null;
+  return { id: row.id, name: row.name ?? "", volumeFlOz: Number(row.total_volume_fl_oz) };
 }
 
 /** Stamp `alert_emailed_at` on the given phantom export rows (digest dedupe). */

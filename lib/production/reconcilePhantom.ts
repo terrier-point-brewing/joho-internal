@@ -1,7 +1,12 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { depleteColdStorageInventory } from "./coldStorageDepletion";
 import { checkAndCompleteBatch } from "./batchCompletion";
-import { phantomPerUnitFlOz, SWAP_VOLUME_TOLERANCE_FL_OZ } from "./phantomExportAlerts";
+import {
+  fetchLotOptions,
+  phantomPerUnitFlOz,
+  resolveSwapVariationId,
+  SWAP_VOLUME_TOLERANCE_FL_OZ,
+} from "./phantomExportAlerts";
 
 /**
  * Actions on an open phantom-export alert (a taproom keg swap that booked
@@ -156,6 +161,70 @@ export async function reconcilePhantomExport(
   if (updErr) throw new Error(updErr.message);
 
   await checkAndCompleteBatch(supabase, batchId);
+}
+
+/**
+ * Reshape a wrong-shape cold-storage lot into the variation the alert was
+ * booked against — break the case of cans into the cans that were rung — so the
+ * unchanged reconcile path above can then find an exact match.
+ *
+ * The caller passes only the LOT to spend. The counts are re-derived here from
+ * the alert and the lot's own stored volumes, never taken from the request:
+ * from/to unit counts are how much beer gets destroyed, and a client that could
+ * name them could turn a case into one can and journal the rest as shrinkage.
+ *
+ * This is a second, more privileged act stapled to a reconcile, not part of it —
+ * the route demands `export: operate` on top of the reconcile's own permission
+ * before calling here. Returns the lot to reconcile against, plus the recipe so
+ * the route can restate Square exactly as the standalone transform route does.
+ */
+export async function transformForPhantomExport(
+  supabase: SupabaseClient,
+  { exportTransactionId, lotId }: { exportTransactionId: string; lotId: string },
+): Promise<{ variationId: string; batchId: string; recipeId: string }> {
+  const row = await loadOpenPhantom(supabase, exportTransactionId);
+  const containerType = await fetchBookedContainerType(supabase, row.packaging_item_id);
+  const variationId = await resolveSwapVariationId(supabase, {
+    recipeId: row.recipe_id,
+    containerId: row.packaging_item_id,
+    format: row.packaging_format,
+  });
+
+  const { transforms } = await fetchLotOptions(supabase, {
+    exportTransactionId: row.id,
+    recipeId: row.recipe_id,
+    beerName: "",
+    origin: null,
+    tapNumber: null,
+    variationId,
+    variationName: "",
+    containerType,
+    quantityKegs: row.quantity,
+    volumeBbl: row.volume_bbl,
+    exciseUsd: 0,
+    occurredAt: "",
+  });
+
+  const plan = transforms.find((t) => t.lotId === lotId);
+  if (!plan) {
+    throw new PhantomReconcileError("That lot can no longer be broken down to cover this booking.");
+  }
+
+  const { error } = await supabase.rpc("apply_cold_storage_transform", {
+    p_lot_id: plan.lotId,
+    p_to_variation_id: plan.toVariationId,
+    p_from_units: plan.fromUnits,
+    p_to_units: plan.toUnits,
+    p_note: `Break down to resolve phantom export ${row.id}`,
+    p_source_ref: null,
+  });
+  if (error) {
+    if (error.code === "P0002") throw new PhantomReconcileError("That cold storage lot no longer exists.");
+    if (error.code === "23514" || error.code === "22023") throw new PhantomReconcileError(error.message);
+    throw new Error(error.message);
+  }
+
+  return { variationId: plan.toVariationId, batchId: plan.batchId, recipeId: row.recipe_id };
 }
 
 export async function dismissPhantomExport(
