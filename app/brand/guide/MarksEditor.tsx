@@ -8,6 +8,7 @@ import type { Tone } from "@/app/components/ui/tone";
 import type { BrandCanon } from "@/lib/brand/canon.types";
 import {
   assetFileUrl,
+  ALLOWED_FORMATS,
   MARK_SHAPES,
   MARK_ORIENTATIONS,
   type BrandAsset,
@@ -136,7 +137,7 @@ export default function MarksEditor({ draft }: { draft?: BrandCanon }) {
         {...shared}
         kind="chop_glyph"
         label="Chops"
-        blurb="Cut per season against the chop specification below — same color, same frame, different content. Leave the season unset for the generic chop every season falls back to. Upload SVG: a chop is placed at label scale, and a raster will not hold."
+        blurb="Cut per season against the chop specification below — same color, same frame, different content. Leave the season unset for the generic chop every season falls back to. SVG is the master: a chop is placed at label scale and a raster will not hold there. Upload the PNG under the SAME slug for the places that cannot render SVG."
         assets={byKind.chops}
         seasonError={!!seasonError}
       />
@@ -178,6 +179,35 @@ function MarkKindEditor({
   const [file, setFile] = useState<File | null>(null);
   const [draft, setDraft] = useState<Draft>(BLANK_DRAFT);
   const [editing, setEditing] = useState<string | null>(null);
+  // Which asset the pending upload's fields were copied from, so the form can
+  // say so — a form that silently fills itself reads as a bug.
+  const [copiedFrom, setCopiedFrom] = useState<string | null>(null);
+
+  /**
+   * Loads an existing asset's slug, label and facets into the upload form.
+   *
+   * The common upload is not a new variation — it is a second FILE of one that
+   * already exists (the PNG cut of a wordmark whose SVG is here). Every field
+   * except the file is identical, and retyping them by eye is how a variation
+   * ends up split across two cards over one mistyped slug.
+   */
+  function copySetup(asset: BrandAsset) {
+    setDraft({
+      variant: asset.variant,
+      title: asset.title ?? "",
+      alt_text: asset.alt_text ?? "",
+      season_id: asset.season_id ?? null,
+      description: asset.description ?? null,
+      shape: asset.shape ?? null,
+      color_treatment: asset.color_treatment ?? null,
+      background: asset.background ?? null,
+      orientation: asset.orientation ?? null,
+    });
+    setCopiedFrom(asset.title || asset.variant);
+    const input = document.getElementById(`mark-file-${kind}`);
+    input?.scrollIntoView({ block: "center", behavior: "smooth" });
+    (input as HTMLInputElement | null)?.focus();
+  }
 
   // The slugs already in use for this kind, offered as a picker on both the
   // upload form and the rename field. Adding a second file to an existing
@@ -203,6 +233,7 @@ function MarkKindEditor({
     onUpload(formData);
     setFile(null);
     setDraft(BLANK_DRAFT);
+    setCopiedFrom(null);
   }
 
   const seasonName = (id: string | null | undefined) =>
@@ -230,7 +261,7 @@ function MarkKindEditor({
                 id={`mark-file-${kind}`}
                 type="file"
                 className="inp-sm"
-                accept={isChop ? ".svg,image/svg+xml" : undefined}
+                accept={ALLOWED_FORMATS[kind].map((ext) => `.${ext}`).join(",")}
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
             </Field>
@@ -287,6 +318,25 @@ function MarkKindEditor({
               {busy ? "Working…" : "Upload"}
             </button>
           </div>
+
+          {copiedFrom && (
+            <div className="flex items-center gap-2 text-2xs text-muted">
+              <span>
+                Fields copied from <strong className="text-secondary">{copiedFrom}</strong> — pick
+                the file and upload to add it to that same card.
+              </span>
+              <button
+                type="button"
+                className="btn-secondary btn-xxs"
+                onClick={() => {
+                  setDraft(BLANK_DRAFT);
+                  setCopiedFrom(null);
+                }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </form>
       </Card>
 
@@ -352,6 +402,14 @@ function MarkKindEditor({
                     Archive
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="btn-secondary btn-xxs"
+                  title="Load this asset's slug, label and facets into the upload form"
+                  onClick={() => copySetup(asset)}
+                >
+                  Copy setup
+                </button>
                 <button
                   type="button"
                   className="btn-secondary btn-xxs"

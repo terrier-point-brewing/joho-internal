@@ -125,6 +125,81 @@ export function normalizeVariant(raw: string | null | undefined): string {
   return slug || "default";
 }
 
+// ── Upload validation ───────────────────────────────────────────────────────
+// Until this existed the upload route accepted ANY file of ANY size, derived a
+// "format" from whatever the filename ended in, and echoed the browser-supplied
+// MIME straight back out of the file proxy as Content-Type. The only thing
+// stopping a .zip becoming a wordmark was the file picker's `accept`, which is
+// a hint the browser is free to ignore.
+
+/** What each kind's bytes are allowed to be. Extensions, lowercase, no dot. */
+export const ALLOWED_FORMATS: Record<BrandAssetKind, readonly string[]> = {
+  // Marks are placed at arbitrary scale, so vector is the intent — but a PNG
+  // cut of a variation is a real deliverable (email, decks, anything that
+  // cannot render SVG), and the guide already pairs the two on one card.
+  logo: ["svg", "png", "webp"],
+  wordmark: ["svg", "png", "webp"],
+  chop_glyph: ["svg", "png", "webp"],
+  icon: ["svg", "png", "webp"],
+  // Imagery: raster is the normal case, vector still allowed.
+  texture: ["svg", "png", "jpg", "jpeg", "webp"],
+  photo: ["png", "jpg", "jpeg", "webp"],
+  example: ["svg", "png", "jpg", "jpeg", "webp", "gif"],
+  label_art: ["svg", "png", "jpg", "jpeg", "webp"],
+  // Fonts are emitted as @font-face sources; woff2 first, the rest for legacy.
+  font: ["woff2", "woff", "ttf", "otf"],
+};
+
+/** Per-kind size ceiling in bytes. Fonts run larger than marks. */
+export const MAX_UPLOAD_BYTES: Record<BrandAssetKind, number> = {
+  logo: 5 * 1024 * 1024,
+  wordmark: 5 * 1024 * 1024,
+  chop_glyph: 5 * 1024 * 1024,
+  icon: 5 * 1024 * 1024,
+  texture: 10 * 1024 * 1024,
+  photo: 10 * 1024 * 1024,
+  example: 10 * 1024 * 1024,
+  label_art: 10 * 1024 * 1024,
+  font: 10 * 1024 * 1024,
+};
+
+/**
+ * Pure: the storage format for an uploaded file — its extension, falling back
+ * to the MIME subtype ("image/svg+xml" -> "svg") when the name carries none.
+ */
+export function fileFormat(file: { name: string; type?: string }): string {
+  const fromName = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : "";
+  const fromType = file.type ? file.type.split("/").pop()!.split("+")[0].toLowerCase() : "";
+  const raw = fromName || fromType || "";
+  // Normalize the aliases that mean the same bytes, so the allowlist and the
+  // one-approved-per-(kind,variant,format) index both see one spelling.
+  if (raw === "jpeg") return "jpg";
+  if (raw === "svgz") return "svg";
+  return raw;
+}
+
+/**
+ * Pure: validates an upload against its kind. Returns the normalized format,
+ * or a message naming what is wrong — the caller turns that into a 400.
+ */
+export function validateUpload(
+  kind: BrandAssetKind,
+  file: { name: string; type?: string; size: number },
+): { format: string } | { error: string } {
+  const format = fileFormat(file);
+  const allowed = ALLOWED_FORMATS[kind];
+  if (!format) return { error: "File has no extension and no recognizable type" };
+  if (!allowed.includes(format)) {
+    return { error: `${kind} must be one of: ${allowed.join(", ")} — got ${format}` };
+  }
+  if (file.size <= 0) return { error: "File is empty" };
+  const max = MAX_UPLOAD_BYTES[kind];
+  if (file.size > max) {
+    return { error: `File is ${Math.round(file.size / 1024 / 1024)} MB; the limit for ${kind} is ${Math.round(max / 1024 / 1024)} MB` };
+  }
+  return { format };
+}
+
 /**
  * Pure: the URL an asset's bytes are served from.
  *
