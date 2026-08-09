@@ -242,7 +242,7 @@ function PhantomAlertRow({
 
   return (
     <Card padding="p-3" className="flex items-center justify-between gap-3">
-      <div className="flex flex-col gap-1 min-w-0">
+      <div className="flex flex-col gap-1 min-w-0 flex-1">
         <span className="text-sm font-medium text-primary">
           {alert.beerName}
           {alert.tapNumber != null && <span className="text-muted font-normal"> · Tap {alert.tapNumber}</span>}
@@ -256,8 +256,12 @@ function PhantomAlertRow({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {hasOptions && (
+          // Width is pinned. A native select sizes itself to its WIDEST option,
+          // and a break-down option names two variations, two counts, a batch
+          // and its loss — long enough to eat the whole row and wrap the alert's
+          // own text to one word per line. The browser elides the overflow.
           <select
-            className="inp-sm"
+            className="inp-sm w-56 shrink-0"
             value={selectedLotKey}
             onChange={(e) => onSelectLot(e.target.value)}
           >
