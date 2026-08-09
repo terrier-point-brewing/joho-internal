@@ -130,6 +130,22 @@ interface PhantomAlert {
     onHand: number;
     reason: "different_size" | "not_enough";
   }[];
+  /** Wrong-shape lots that could be broken down into what was booked. Proposals
+   *  only — a transform destroys stock, so it is always a click, never a
+   *  consequence of resolving. */
+  transforms: PhantomTransformOption[];
+}
+
+/** A proposed break-down that would produce the booked variation. */
+interface PhantomTransformOption {
+  lotId: string;
+  fromVariationName: string;
+  fromUnits: number;
+  toVariationName: string;
+  toUnits: number;
+  batchCode: string;
+  shrinkageFlOz: number;
+  lossless: boolean;
 }
 
 interface CustomerRecipeGroup {
@@ -159,7 +175,9 @@ function usePhantomAlertMutations() {
   };
 
   const reconcile = useMutation({
-    mutationFn: async (vars: { exportTransactionId: string; variationId: string; batchId: string }) => {
+    mutationFn: async (vars:
+      | { exportTransactionId: string; variationId: string; batchId: string }
+      | { exportTransactionId: string; transformLotId: string }) => {
       const res = await fetch("/api/production/taproom-consumption/reconcile-phantom", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -203,11 +221,16 @@ function PhantomAlertRow({
   dismissing: boolean;
 }) {
   const hasLots = alert.eligibleLots.length > 0;
+  const hasTransforms = alert.transforms.length > 0;
+  const hasOptions = hasLots || hasTransforms;
+  // A transform is selected — the button has to say so, because clicking it
+  // breaks stock apart irreversibly before it resolves anything.
+  const transformSelected = selectedLotKey.startsWith("t|");
 
   // Why Resolve is unavailable, in the operator's terms. An empty picker said
   // nothing at all — "no matching stock" and "no stock of any kind" look the
   // same from an absent dropdown, and only the first is fixed by moving stock.
-  const blockedReason = hasLots
+  const blockedReason = hasOptions
     ? null
     : alert.alternativeLots.length === 0
       ? `No ${alert.containerType ?? "matching"} stock of ${alert.beerName} is in cold storage at all.`
@@ -232,7 +255,7 @@ function PhantomAlertRow({
         {blockedReason && <span className="text-xs text-warning">{blockedReason}</span>}
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {hasLots && (
+        {hasOptions && (
           <select
             className="inp-sm"
             value={selectedLotKey}
@@ -244,6 +267,15 @@ function PhantomAlertRow({
                 {lot.variationName} · {lot.batchCode} ({lot.onHand} on hand)
               </option>
             ))}
+            {/* Break-downs sit below the exact matches and always name the loss,
+                so a wrong-shape option is never mistaken for a free one. */}
+            {alert.transforms.map((t) => (
+              <option key={`t|${t.lotId}`} value={`t|${t.lotId}`}>
+                Break {t.fromUnits} × {t.fromVariationName} → {t.toUnits} × {t.toVariationName}
+                {t.batchCode ? ` · ${t.batchCode}` : ""}
+                {t.lossless ? " (no loss)" : ` (loses ${t.shrinkageFlOz.toFixed(0)} fl oz)`}
+              </option>
+            ))}
           </select>
         )}
         {/* Always rendered, disabled when nothing matches. A hidden button reads
@@ -253,11 +285,11 @@ function PhantomAlertRow({
         <button
           type="button"
           onClick={onResolve}
-          disabled={!hasLots || !selectedLotKey || resolving}
+          disabled={!hasOptions || !selectedLotKey || resolving}
           title={blockedReason ?? undefined}
           className="btn-primary"
         >
-          {resolving ? "…" : "Resolve"}
+          {resolving ? "…" : transformSelected ? "Break down & resolve" : "Resolve"}
         </button>
         <button
           type="button"
@@ -311,10 +343,19 @@ function PhantomAlertsPanel({
   async function handleResolve(alert: PhantomAlert) {
     const lotKey = selectedLotByAlert[alert.exportTransactionId];
     if (!lotKey) return;
-    const [variationId, batchId] = lotKey.split("|");
-    if (!variationId || !batchId) return;
     setError(null);
     try {
+      if (lotKey.startsWith("t|")) {
+        // Only the lot travels. The server re-derives how many units to break
+        // and into what — the counts are how much beer gets destroyed.
+        await reconcile.mutateAsync({
+          exportTransactionId: alert.exportTransactionId,
+          transformLotId: lotKey.slice(2),
+        });
+        return;
+      }
+      const [variationId, batchId] = lotKey.split("|");
+      if (!variationId || !batchId) return;
       await reconcile.mutateAsync({ exportTransactionId: alert.exportTransactionId, variationId, batchId });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");

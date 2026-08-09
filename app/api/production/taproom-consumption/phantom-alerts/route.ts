@@ -26,8 +26,8 @@ export async function GET() {
     const alerts = await fetchOpenPhantomAlerts(supabase);
     const withLots = await Promise.all(
       alerts.map(async (alert) => {
-        const { eligible, alternatives } = await fetchLotOptions(supabase, alert);
-        return { ...alert, eligibleLots: eligible, alternativeLots: alternatives };
+        const { eligible, alternatives, transforms } = await fetchLotOptions(supabase, alert);
+        return { ...alert, eligibleLots: eligible, alternativeLots: alternatives, transforms };
       }),
     );
     return NextResponse.json({ alerts: withLots });
