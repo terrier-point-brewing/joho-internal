@@ -8,6 +8,10 @@ import {
   deleteAsset,
   listAssets,
   normalizeVariant,
+  fileFormat,
+  validateUpload,
+  ALLOWED_FORMATS,
+  MAX_UPLOAD_BYTES,
   resolveAsset,
   updateAssetMeta,
   type BrandAsset,
@@ -432,5 +436,63 @@ describe("deleteAsset", () => {
   it("throws for an unknown id rather than reporting a silent no-op", async () => {
     const client = fakeClient([]);
     await expect(deleteAsset(client as never, "nope")).rejects.toThrow(/Asset not found/);
+  });
+});
+
+describe("fileFormat", () => {
+  it("prefers the filename extension, lowercased", () => {
+    expect(fileFormat({ name: "Chop.SVG", type: "image/svg+xml" })).toBe("svg");
+  });
+
+  it("falls back to the MIME subtype when the name has no extension", () => {
+    expect(fileFormat({ name: "blob", type: "image/png" })).toBe("png");
+  });
+
+  // The one-approved-per-(kind,variant,format) index keys on this string, so
+  // "photo.jpg" and "photo.jpeg" must not read as two different formats.
+  it("folds the aliases that mean the same bytes", () => {
+    expect(fileFormat({ name: "shot.jpeg" })).toBe("jpg");
+    expect(fileFormat({ name: "mark.svgz" })).toBe("svg");
+  });
+
+  it("is empty when there is nothing to go on", () => {
+    expect(fileFormat({ name: "blob" })).toBe("");
+  });
+});
+
+describe("validateUpload", () => {
+  it("accepts a PNG chop — a raster cut is a real deliverable", () => {
+    expect(validateUpload("chop_glyph", { name: "lantern.png", type: "image/png", size: 2048 })).toEqual({
+      format: "png",
+    });
+  });
+
+  it("rejects a format the kind does not take", () => {
+    const result = validateUpload("wordmark", { name: "mark.zip", size: 2048 });
+    expect(result).toHaveProperty("error");
+    expect((result as { error: string }).error).toContain("svg");
+  });
+
+  it("rejects a font uploaded as an image, and vice versa", () => {
+    expect(validateUpload("font", { name: "type.png", size: 2048 })).toHaveProperty("error");
+    expect(validateUpload("photo", { name: "type.woff2", size: 2048 })).toHaveProperty("error");
+  });
+
+  it("rejects an empty file and one over the kind's ceiling", () => {
+    expect(validateUpload("logo", { name: "a.svg", size: 0 })).toHaveProperty("error");
+    expect(
+      validateUpload("logo", { name: "a.svg", size: MAX_UPLOAD_BYTES.logo + 1 }),
+    ).toHaveProperty("error");
+  });
+
+  it("rejects a file with no extension and no type", () => {
+    expect(validateUpload("logo", { name: "blob", size: 2048 })).toHaveProperty("error");
+  });
+
+  it("covers every kind, so a new kind cannot ship without a rule", () => {
+    for (const kind of BRAND_ASSET_KINDS) {
+      expect(ALLOWED_FORMATS[kind].length).toBeGreaterThan(0);
+      expect(MAX_UPLOAD_BYTES[kind]).toBeGreaterThan(0);
+    }
   });
 });

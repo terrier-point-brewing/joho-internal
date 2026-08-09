@@ -8,6 +8,7 @@ import Banner from "@/app/components/ui/Banner";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import type { Tone } from "@/app/components/ui/tone";
 import {
+  ALLOWED_FORMATS,
   BRAND_ASSET_KINDS,
   assetFileUrl,
   type BrandAsset,
@@ -57,6 +58,27 @@ export default function AssetsView() {
   const [altText, setAltText] = useState("");
   const [variant, setVariant] = useState("default");
 
+  // Which asset the pending upload's fields came from, so a form that filled
+  // itself says why.
+  const [copiedFrom, setCopiedFrom] = useState<string | null>(null);
+
+  /**
+   * Loads an existing asset's kind, slug, label and alt text into the upload
+   * form. The usual second upload is another FILE of something already here —
+   * the PNG cut of a wordmark whose SVG is filed — and the slug has to match
+   * EXACTLY or the two land on separate cards.
+   */
+  function copySetup(asset: BrandAsset) {
+    setKind(asset.kind);
+    setVariant(asset.variant);
+    setTitle(asset.title ?? "");
+    setAltText(asset.alt_text ?? "");
+    setCopiedFrom(asset.title || asset.variant);
+    const input = document.getElementById("asset-file");
+    input?.scrollIntoView({ block: "center", behavior: "smooth" });
+    (input as HTMLInputElement | null)?.focus();
+  }
+
   const grouped = useMemo(() => {
     const map = new Map<BrandAssetKind, BrandAsset[]>();
     for (const k of KINDS) map.set(k, []);
@@ -80,6 +102,7 @@ export default function AssetsView() {
     setVariant("default");
     setTitle("");
     setAltText("");
+    setCopiedFrom(null);
   }
 
   const mutationError = upload.error ?? approve.error ?? archive.error ?? remove.error;
@@ -123,6 +146,9 @@ export default function AssetsView() {
               id="asset-file"
               type="file"
               className="inp"
+              // Follows the kind picker: a font upload and a photo upload have
+              // nothing in common, and the server rejects the mismatch anyway.
+              accept={ALLOWED_FORMATS[kind].map((ext) => `.${ext}`).join(",")}
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
           </div>
@@ -182,6 +208,26 @@ export default function AssetsView() {
           <button type="submit" className="btn-primary" disabled={!file || upload.isPending}>
             {upload.isPending ? "Uploading…" : "Upload"}
           </button>
+          {copiedFrom && (
+            <div className="basis-full flex items-center gap-2 text-2xs text-muted">
+              <span>
+                Fields copied from <strong className="text-secondary">{copiedFrom}</strong> — pick
+                the file and upload to file it alongside that one.
+              </span>
+              <button
+                type="button"
+                className="btn-secondary btn-xxs"
+                onClick={() => {
+                  setVariant("default");
+                  setTitle("");
+                  setAltText("");
+                  setCopiedFrom(null);
+                }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </form>
       </Card>
 
@@ -212,7 +258,15 @@ export default function AssetsView() {
                     <Badge tone={STATUS_TONE[asset.status]}>{asset.status}</Badge>
                   </div>
                   <AssetMeta asset={asset} />
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      className="btn-secondary btn-xxs"
+                      title="Load this asset's kind, slug, label and alt text into the upload form"
+                      onClick={() => copySetup(asset)}
+                    >
+                      Copy setup
+                    </button>
                     {asset.status !== "approved" && (
                       <button
                         type="button"

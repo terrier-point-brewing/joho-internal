@@ -18,6 +18,7 @@ import {
   MARK_SHAPES,
   MARK_ORIENTATIONS,
   normalizeVariant,
+  validateUpload,
   type BrandAssetKind,
   type MarkShape,
   type MarkOrientation,
@@ -107,11 +108,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Derive a format/extension from the file name, falling back to the MIME
-    // subtype (e.g. "image/svg+xml" -> "svg") when the name has none.
-    const extFromName = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : "";
-    const extFromType = file.type ? file.type.split("/").pop()!.split("+")[0].toLowerCase() : "";
-    const format = extFromName || extFromType || "bin";
+    // Type and size are enforced HERE, not by the file picker's `accept` — a
+    // browser is free to ignore that hint, and the route used to accept any
+    // bytes at all under any extension.
+    const checked = validateUpload(kind as BrandAssetKind, file);
+    if ("error" in checked) {
+      return NextResponse.json({ error: checked.error }, { status: 400 });
+    }
+    const { format } = checked;
     const storagePath = `${kind}/${crypto.randomUUID()}.${format}`;
 
     const admin = createSupabaseAdminClient();

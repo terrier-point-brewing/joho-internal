@@ -67,10 +67,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Asset file not found" }, { status: 404 });
     }
 
+    // The recorded MIME came from the uploader's browser, so it is a fallback
+    // and not the answer: `format` is validated against a per-kind allowlist at
+    // upload, and serving those bytes as whatever the client claimed they were
+    // is how an "image" ends up executing as something else.
     const recordedMime = (asset.file_meta as { mime?: unknown } | null)?.mime;
     const contentType =
-      (typeof recordedMime === "string" && recordedMime) ||
       MIME_BY_FORMAT[String(asset.format).toLowerCase()] ||
+      (typeof recordedMime === "string" && recordedMime) ||
       "application/octet-stream";
 
     return new NextResponse(blob, {
