@@ -78,8 +78,8 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
   const { period, config, entries: rawEntries, employees, salaried_employees, tip_buckets, total_pooled_tips_cents } = preview;
   const empById = new Map(employees.map((e) => [e.id, e]));
   const entries = [...rawEntries].sort((a, b) => {
-    const aName = empById.get(a.employee_id)?.first_name ?? "";
-    const bName = empById.get(b.employee_id)?.first_name ?? "";
+    const aName = empById.get(a.employee_id)?.last_name ?? "";
+    const bName = empById.get(b.employee_id)?.last_name ?? "";
     return aName.localeCompare(bName);
   });
 
@@ -243,11 +243,11 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
                 <th className="text-left py-2 px-3 text-muted font-medium">Bartender</th>
                 <th className="text-right py-2 px-3 text-muted font-medium">Hours</th>
                 <th className="text-right py-2 px-3 text-muted font-medium">Base Pay</th>
-                <th className="text-right py-2 px-3 text-muted font-medium">Paycheck Tips</th>
+                <th className="text-right py-2 px-3 text-muted font-medium">Bonus</th>
                 <th className="text-right py-2 px-3 text-muted font-medium">
                   {cashView === "reported" ? "Cash Tips (reported)" : "Cash Tips"}
                 </th>
-                <th className="text-right py-2 px-3 text-muted font-medium">Bonus</th>
+                <th className="text-right py-2 px-3 text-muted font-medium">Paycheck Tips</th>
                 <th className="text-right py-2 px-3 text-muted font-medium">Total</th>
                 <th className="text-right py-2 px-3 text-muted font-medium">$/hr</th>
                 {editable && overrideMode && (
@@ -284,9 +284,9 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
                   <td className="py-2 px-3 text-muted text-xs font-medium">Total</td>
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{totHours.toFixed(1)}h</td>
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totBase)}</td>
-                  <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totPTips)}</td>
-                  <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(viewCTips)}</td>
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totBonus)}</td>
+                  <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(viewCTips)}</td>
+                  <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totPTips)}</td>
                   <td className="text-right py-2 px-3 text-strong font-mono font-semibold">{fmtCents(viewComp)}</td>
                   <td className="text-right py-2 px-3 text-muted font-mono text-xs">
                     {viewHrlyRate != null ? `${fmtUsd(viewHrlyRate)}/hr` : "—"}
