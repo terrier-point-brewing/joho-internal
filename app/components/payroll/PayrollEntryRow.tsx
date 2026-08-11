@@ -162,11 +162,11 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
       <td className="py-2 px-3 text-sm text-right">
         <ValueCell
           {...vcProps}
-          effectiveVal={fmt(entry.effective_paycheck_tips_cents)}
-          computedVal={fmt(entry.paycheck_tips_cents)}
-          adjIsSet={entry.adj_paycheck_tips_cents != null}
-          adjState={adjPaycheckTips}
-          setAdj={setAdjPaycheckTips}
+          effectiveVal={fmt(entry.effective_bonus_cents)}
+          computedVal={fmt(entry.bonus_cents)}
+          adjIsSet={entry.adj_bonus_cents != null}
+          adjState={adjBonus}
+          setAdj={setAdjBonus}
         />
       </td>
       <td className="py-2 px-3 text-sm text-right">
@@ -193,11 +193,11 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
       <td className="py-2 px-3 text-sm text-right">
         <ValueCell
           {...vcProps}
-          effectiveVal={fmt(entry.effective_bonus_cents)}
-          computedVal={fmt(entry.bonus_cents)}
-          adjIsSet={entry.adj_bonus_cents != null}
-          adjState={adjBonus}
-          setAdj={setAdjBonus}
+          effectiveVal={fmt(entry.effective_paycheck_tips_cents)}
+          computedVal={fmt(entry.paycheck_tips_cents)}
+          adjIsSet={entry.adj_paycheck_tips_cents != null}
+          adjState={adjPaycheckTips}
+          setAdj={setAdjPaycheckTips}
         />
       </td>
       <td className="py-2 px-3 text-accent text-sm text-right font-medium">
