@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
-import { fetchDayGridInputs, computeDailyGrid, type DayOverride } from "@/lib/payroll/dailyGrid";
+import {
+  fetchDayGridInputs, computeDailyGrid, snapshotPoolVariance, type DayOverride,
+} from "@/lib/payroll/dailyGrid";
 import type { Employee, PayPeriod, TipPoolFrequency } from "@/lib/payroll/types";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +23,7 @@ export async function GET(
   const isOverrideMode = searchParams.get("override") === "1";
 
   const [{ data: period, error: pErr }, { data: employees }, { data: config }] = await Promise.all([
-    supabase.from("pay_periods").select("start_date, end_date").eq("id", id).single(),
+    supabase.from("pay_periods").select("start_date, end_date, status").eq("id", id).single(),
     supabase.from("employees")
       .select("id, first_name, last_name, square_team_member_id, receives_tips, employment_type, active")
       .not("square_team_member_id", "is", null),
@@ -128,8 +130,28 @@ export async function GET(
     };
   }).sort((a, b) => b.total_hours - a.total_hours);
 
+  // A locked period's snapshot is frozen, but the pool behind it is not: a
+  // refund that syncs later is netted onto its original payment's day, so the
+  // live pool drops below what was paid out. Surface that rather than let the
+  // two quietly disagree — the correction is a manager's call, applied as an
+  // adjustment on the open period, not a silent rewrite of a locked snapshot.
+  let snapshot_variance = null;
+  if ((period as { status?: string }).status === "locked") {
+    const { data: snapshotRows } = await supabase
+      .from("payroll_entries")
+      .select("paycheck_tips_cents")
+      .eq("pay_period_id", id);
+    if (snapshotRows && snapshotRows.length > 0) {
+      const snapshotTips = snapshotRows.reduce(
+        (s, r) => s + ((r as { paycheck_tips_cents: number | null }).paycheck_tips_cents ?? 0), 0
+      );
+      snapshot_variance = snapshotPoolVariance(grid.totalPooledTipsCents, snapshotTips);
+    }
+  }
+
   return NextResponse.json({
     days: grid.days,
+    snapshot_variance,
     tip_pool_frequency: frequency,
     tip_buckets: grid.buckets,
     pool_variance: grid.buckets

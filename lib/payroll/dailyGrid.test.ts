@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   distributeByWeight, attributeBucket, bucketViolations, cellKey,
   getDays, dayGroups, bucketLabels, buildDailyGrid,
+  unattributedBuckets, snapshotPoolVariance,
   fetchDayGridInputs, computeDailyGrid,
 } from "./dailyGrid";
 import type { DailyShift } from "@/lib/square/labor";
@@ -132,6 +133,55 @@ describe("bucketViolations", () => {
 
   it("does not report an unattributable pool when nothing is pinned", () => {
     expect(bucketViolations([{ ...base, pool_cents: 8000, pinned_cents: 0, attributed_cents: 0 }])).toEqual([]);
+  });
+});
+
+describe("unattributedBuckets", () => {
+  const base = { label: "7/1", days: ["2026-07-01"] };
+
+  it("reports a pool that landed on nobody — the case bucketViolations lets through", () => {
+    const v = unattributedBuckets([{ ...base, pool_cents: 8000, pinned_cents: 0, attributed_cents: 0 }]);
+    expect(v).toEqual([{
+      label: "7/1", days: ["2026-07-01"],
+      poolCents: 8000, attributedCents: 0, shortfallCents: 8000,
+    }]);
+  });
+
+  it("reports a partial shortfall", () => {
+    const v = unattributedBuckets([{ ...base, pool_cents: 8000, pinned_cents: 0, attributed_cents: 7500 }]);
+    expect(v[0].shortfallCents).toBe(500);
+  });
+
+  it("stays silent when the bucket balances", () => {
+    expect(unattributedBuckets([{ ...base, pool_cents: 8000, pinned_cents: 0, attributed_cents: 8000 }])).toEqual([]);
+  });
+
+  it("stays silent when pins overshoot — that is bucketViolations' job", () => {
+    expect(unattributedBuckets([{ ...base, pool_cents: 1000, pinned_cents: 5000, attributed_cents: 5000 }])).toEqual([]);
+  });
+
+  it("names only the offending buckets in a multi-bucket period", () => {
+    const v = unattributedBuckets([
+      { label: "7/1", days: ["2026-07-01"], pool_cents: 500, pinned_cents: 0, attributed_cents: 0 },
+      { label: "7/2", days: ["2026-07-02"], pool_cents: 900, pinned_cents: 0, attributed_cents: 900 },
+    ]);
+    expect(v.map(b => b.label)).toEqual(["7/1"]);
+  });
+});
+
+describe("snapshotPoolVariance", () => {
+  it("returns null when the snapshot still matches the live pool", () => {
+    expect(snapshotPoolVariance(50000, 50000)).toBeNull();
+  });
+
+  it("reports a positive variance when a refund shrank the pool after the lock", () => {
+    expect(snapshotPoolVariance(49000, 50000)).toEqual({
+      livePoolCents: 49000, snapshotTipsCents: 50000, varianceCents: 1000,
+    });
+  });
+
+  it("reports a negative variance when the pool grew after the lock", () => {
+    expect(snapshotPoolVariance(51000, 50000)?.varianceCents).toBe(-1000);
   });
 });
 
