@@ -19,6 +19,8 @@ export interface TaxPartyMeta {
   key: string;
   label: string;
   supportedFrequencies: string[];
+  /** Authority portal link from `tax_obligations.filing_url`; null when unset or filed on paper. */
+  filingUrl: string | null;
   settingsSchema: FieldSpec[];
   scheduleConfigSchema: FieldSpec[];
   requiredRegistrations: ResolvedRequiredRegistration[];
