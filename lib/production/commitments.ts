@@ -27,7 +27,15 @@ export interface IngredientShortfall {
 }
 
 /**
- * Make this batch's commitments match the recipe × volume exactly.
+ * Make this batch's commitments match the recipe × turns exactly.
+ *
+ * Quantities come from `quantity_per_turn` as entered, NOT from the derived
+ * `quantity_per_bbl` rate. A turn is a brewhouse fill (20 bbl here) and the
+ * grain bill is what goes into it; `quantity_per_bbl` divides that by
+ * `expected_yield_bbl` (19.5), which is post-loss liquid. Multiplying that rate
+ * back by a batch volume therefore inflated every ingredient by turn/yield —
+ * B-058's 55 lb of Debittered Black was committed as 56.41. A lower yield means
+ * less beer out, never more grain in.
  *
  * This REPLACES the batch's commitment set rather than adding to it. Upserting
  * alone would leave the previous recipe's ingredients behind on a recipe swap,
@@ -40,11 +48,11 @@ export async function upsertCommitments(
   supabase: SupabaseClient,
   batchId: string,
   recipeId: string,
-  volumeBbl: number,
+  turns: number,
 ): Promise<void> {
   const { data: ris } = await supabase
     .from("recipe_ingredients")
-    .select("ingredient_id, quantity_per_bbl")
+    .select("ingredient_id, quantity_per_turn")
     .eq("recipe_id", recipeId);
 
   if (!ris?.length) {
@@ -59,7 +67,7 @@ export async function upsertCommitments(
       ris.map((ri) => ({
         batch_id:      batchId,
         ingredient_id: ri.ingredient_id,
-        committed_qty: ri.quantity_per_bbl * volumeBbl,
+        committed_qty: ri.quantity_per_turn * turns,
         // The unique key is (batch_id, ingredient_id) with no regard for
         // released_at, so an ingredient that was pruned on an earlier swap and
         // has now come back resolves to that same released row. Without this the
@@ -97,13 +105,12 @@ export async function resyncRecipeCommitments(
 ): Promise<void> {
   const { data: batches } = await supabase
     .from("brew_batches")
-    .select("id, volume_bbl")
+    .select("id, turns")
     .eq("recipe_id", recipeId)
     .in("status", PRE_BREW_STATUSES);
 
   for (const b of batches ?? []) {
-    if (b.volume_bbl == null) continue;
-    await upsertCommitments(supabase, b.id, recipeId, Number(b.volume_bbl));
+    await upsertCommitments(supabase, b.id, recipeId, Math.max(1, Number(b.turns ?? 1)));
   }
 }
 

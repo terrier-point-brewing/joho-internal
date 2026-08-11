@@ -157,12 +157,13 @@ export async function POST(req: NextRequest) {
 
       // Deduct one turn's worth of ingredients when a brew turn starts.
       if (tank.type === "brewhouse" && batch?.recipe_id) {
-        const turns   = Math.max(1, Number(batch.turns ?? 1));
-        const turnVol = Number(batch.volume_bbl) / turns;
-
+        // One turn consumes the recipe's per-turn quantities as entered. Do not
+        // re-derive them from quantity_per_bbl × volume: that rate is the bill
+        // divided by expected_yield_bbl, so a recipe yielding under its turn
+        // size would deduct more grain than the brewer actually weighed out.
         const { data: allRecipeIngredients, error: riErr } = await supabase
           .from("recipe_ingredients")
-          .select("ingredient_id, quantity_per_bbl, ingredients(cost_per_unit_usd, unit, category)")
+          .select("ingredient_id, quantity_per_turn, ingredients(cost_per_unit_usd, unit, category)")
           .eq("recipe_id", batch.recipe_id);
         if (riErr) return NextResponse.json({ error: riErr.message }, { status: 500 });
 
@@ -185,7 +186,7 @@ export async function POST(req: NextRequest) {
         if (recipeIngredients?.length) {
           type IngMeta = { cost_per_unit_usd: number | null; unit: string | null };
           const adjustments = recipeIngredients.map((ri) => {
-            const qty     = ri.quantity_per_bbl * turnVol;
+            const qty     = Number(ri.quantity_per_turn);
             const ingMeta = (ri.ingredients as unknown as IngMeta | null);
             const costPU  = ingMeta?.cost_per_unit_usd ?? null;
             const unit    = ingMeta?.unit ?? null;
@@ -212,7 +213,7 @@ export async function POST(req: NextRequest) {
 
           // Atomically decrement each ingredient via RPC (no TOCTOU race).
           for (const ri of recipeIngredients) {
-            const delta = ri.quantity_per_bbl * turnVol;
+            const delta = Number(ri.quantity_per_turn);
             const { error: rpcErr } = await supabase.rpc("adjust_ingredient_stock", {
               p_id:    ri.ingredient_id,
               p_delta: -delta,

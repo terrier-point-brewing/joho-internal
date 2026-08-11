@@ -155,10 +155,10 @@ describe("finalizeConversion", () => {
 });
 
 function reconcileStub(cfg: {
-  batch: { volume_bbl: number | null; converted_volume_bbl: number | null; recipe_id: string | null } | null;
+  batch: { volume_bbl: number | null; converted_volume_bbl: number | null; recipe_id: string | null; turns?: number | null } | null;
   inflows: { volume_bbl: number }[];
   commitmentCount?: number;
-  recipeIngredients?: { ingredient_id: string; quantity_per_bbl: number }[];
+  recipeIngredients?: { ingredient_id: string; quantity_per_turn: number }[];
 }) {
   const recorded: { table: string; op: string; payload?: unknown; match: Record<string, unknown> }[] = [];
   const from = (table: string) => {
@@ -231,16 +231,20 @@ describe("reconcileConvertedBatchVolume", () => {
     expect(upd?.payload).toEqual({ volume_bbl: 24.5, converted_volume_bbl: 24.5 });
   });
 
-  it("refreshes absolute commitments to the new volume only when the batch already has them", async () => {
+  // Re-syncs against the current recipe when the batch already holds
+  // commitments — at its own turn count, NOT scaled to the delivered liquid.
+  // Reconciling volume that arrived from another vessel changes how much beer
+  // the target holds, never how much grain its turns consumed.
+  it("re-syncs commitments at the batch's turn count only when it already has them", async () => {
     const { client, recorded } = reconcileStub({
-      batch: { volume_bbl: 25, converted_volume_bbl: 25, recipe_id: "r1" },
+      batch: { volume_bbl: 25, converted_volume_bbl: 25, recipe_id: "r1", turns: 2 },
       inflows: [{ volume_bbl: 24.5 }],
       commitmentCount: 3,
-      recipeIngredients: [{ ingredient_id: "i1", quantity_per_bbl: 2 }],
+      recipeIngredients: [{ ingredient_id: "i1", quantity_per_turn: 2 }],
     });
     await reconcileConvertedBatchVolume(client, "T");
     const ups = recorded.find(r => r.table === "batch_ingredient_commitments" && r.op === "upsert");
     expect(ups).toBeTruthy();
-    expect((ups?.payload as { committed_qty: number }[])[0]).toMatchObject({ batch_id: "T", ingredient_id: "i1", committed_qty: 49 });
+    expect((ups?.payload as { committed_qty: number }[])[0]).toMatchObject({ batch_id: "T", ingredient_id: "i1", committed_qty: 4 });
   });
 });

@@ -83,11 +83,11 @@ export async function reconcileConvertedBatchVolume(
 ): Promise<void> {
   const { data: batchRow } = await supabase
     .from("brew_batches")
-    .select("volume_bbl, converted_volume_bbl, recipe_id")
+    .select("volume_bbl, converted_volume_bbl, recipe_id, turns")
     .eq("id", targetBatchId)
     .single();
   const batch = batchRow as
-    | { volume_bbl: number | null; converted_volume_bbl: number | null; recipe_id: string | null }
+    | { volume_bbl: number | null; converted_volume_bbl: number | null; recipe_id: string | null; turns: number | null }
     | null;
   if (!batch) return;
 
@@ -114,16 +114,23 @@ export async function reconcileConvertedBatchVolume(
     .update({ volume_bbl: deliveredVol, converted_volume_bbl: deliveredVol })
     .eq("id", targetBatchId);
 
-  // Keep absolute ingredient commitments (committed_qty = qty_per_bbl × volume) in
-  // step — but only when the batch already carries them, so a liquid-only
-  // conversion target never gains phantom grain reservations.
+  // Re-sync the commitment set against the current recipe — but only when the
+  // batch already carries commitments, so a liquid-only conversion target never
+  // gains phantom grain reservations. The delivered volume deliberately does not
+  // enter the quantities: commitments are per brewhouse turn, and reconciling
+  // liquid that came from somewhere else does not change the grain bill.
   if (batch.recipe_id) {
     const { count } = await supabase
       .from("batch_ingredient_commitments")
       .select("*", { count: "exact", head: true })
       .eq("batch_id", targetBatchId);
     if ((count ?? 0) > 0) {
-      await upsertCommitments(supabase, targetBatchId, batch.recipe_id, deliveredVol);
+      await upsertCommitments(
+        supabase,
+        targetBatchId,
+        batch.recipe_id,
+        Math.max(1, Number(batch.turns ?? 1)),
+      );
     }
   }
 }
