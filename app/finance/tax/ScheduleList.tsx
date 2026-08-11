@@ -53,6 +53,9 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
   const [error, setError] = useState<string | null>(null);
 
   const partyLabel = new Map(parties.map((p) => [p.key, p.label]));
+  // Portal link is per obligation, not per schedule — every schedule for the
+  // same filing points at the same URL (set under Settings → Tax Filing).
+  const partyFilingUrl = new Map(parties.map((p) => [p.key, p.filingUrl]));
 
   async function refresh() {
     await qc.invalidateQueries({ queryKey: queryKeys.tax.schedules() });
@@ -101,6 +104,16 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
                     {countySummary(schedule) ? ` · ${countySummary(schedule)}` : ""}
                     {licenseSummary(schedule) ? ` · ${licenseSummary(schedule)}` : ""}
                   </p>
+                  {partyFilingUrl.get(schedule.filing_key) && (
+                    <a
+                      href={partyFilingUrl.get(schedule.filing_key) ?? undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-accent hover:underline"
+                    >
+                      File on portal ↗
+                    </a>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <Badge tone={schedule.active ? "success" : "neutral"}>

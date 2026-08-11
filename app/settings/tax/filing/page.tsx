@@ -7,13 +7,15 @@ import { queryKeys } from "@/lib/query-keys";
 import { useTaxPartiesQuery } from "@/app/finance/tax/hooks/useTaxData";
 import IdentityForm from "./IdentityForm";
 import ReferenceDisclosure from "./ReferenceDisclosure";
+import FilingPortalForm from "./FilingPortalForm";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import ButtonGroup from "@/app/components/ButtonGroup";
 
 /**
  * Finance → Settings → Tax Filing: one pane per tax-filing MODULE (party
  * template — `lib/tax/parties/*`), not per authority. Each module shows only
- * the config its own calc needs beyond Tax Profile: its Square mappings
+ * the config its own calc needs beyond Tax Profile: where the return is filed
+ * (the authority's portal, `tax_obligations.filing_url`), its Square mappings
  * (`settingsSchema`) and its statutory reference tables (`referenceView`,
  * now sourced read-only from the canonical `tax_rates` registry). Tax rates
  * are fixed data, no longer user-editable here. Modules come from
@@ -54,6 +56,16 @@ export default function TaxFilingSettingsPage() {
 
         {activeModule && (
           <>
+            <section className="flex flex-col gap-2">
+              <h3 className="text-sm font-semibold text-primary">Filing Portal</h3>
+              {/* Keyed like IdentityForm below — switching modules must remount, not carry the previous module's URL. */}
+              <FilingPortalForm
+                key={activeModule.key}
+                partyKey={activeModule.key}
+                filingUrl={activeModule.filingUrl}
+              />
+            </section>
+
             {activeModule.settingsSchema.length > 0 && (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-primary">Square Mappings</h3>

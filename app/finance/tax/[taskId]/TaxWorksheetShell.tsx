@@ -284,9 +284,23 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
         {!isCompleted && (
           <div className="flex items-center justify-between mt-4 mb-2">
             <SaveStatus state={saveState} />
-            <button className="btn-secondary" onClick={handleRecompute} disabled={recomputing}>
-              {recomputing ? "Recomputing…" : (party?.recomputeLabel ?? "Recompute")}
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Where this return actually gets filed (Settings → Tax Filing). Only on an
+                  open task — a completed filing has nothing left to submit. */}
+              {party?.filingUrl && (
+                <a
+                  href={party.filingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-accent hover:underline"
+                >
+                  File on portal ↗
+                </a>
+              )}
+              <button className="btn-secondary" onClick={handleRecompute} disabled={recomputing}>
+                {recomputing ? "Recomputing…" : (party?.recomputeLabel ?? "Recompute")}
+              </button>
+            </div>
           </div>
         )}
 

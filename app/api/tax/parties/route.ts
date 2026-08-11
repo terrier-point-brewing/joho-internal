@@ -12,6 +12,7 @@ import { apiError } from "@/lib/utils/api";
 import { listParties } from "@/lib/tax/registry";
 import { buildRateMap, listTaxRates } from "@/lib/tax/rates";
 import { listRegistrations, resolveRequiredRegistrations, BASE_REQUIRED_REGISTRATIONS } from "@/lib/tax/registrations";
+import { buildFilingUrlMap } from "@/lib/tax/obligations";
 // Side-effect import: registers every party template before listParties() runs.
 import "@/lib/tax/parties";
 
@@ -22,14 +23,18 @@ export async function GET() {
 
   try {
     const sb = createSupabaseAdminClient();
-    const [rateMap, registrations] = await Promise.all([
+    const [rateMap, registrations, filingUrls] = await Promise.all([
       listTaxRates(sb).then(buildRateMap),
       listRegistrations(sb),
+      buildFilingUrlMap(sb),
     ]);
     const parties = listParties().map((party) => ({
       key: party.key,
       label: party.label,
       supportedFrequencies: party.supportedFrequencies,
+      // Portal link from the `tax_obligations` row, not the template — it's
+      // operator-editable data, not part of the module's declared behaviour.
+      filingUrl: filingUrls[party.key] ?? null,
       settingsSchema: party.settingsSchema,
       scheduleConfigSchema: party.scheduleConfigSchema,
       // Party-specific registrations first, the universal FEIN last — the
