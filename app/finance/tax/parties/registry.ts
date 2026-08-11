@@ -14,6 +14,8 @@ import NcDorBeerExciseWorksheet from "./NcDorBeerExcise/Worksheet";
 import { getTotalDueCents as ncDorBeerExciseTotalDueCents } from "./NcDorBeerExcise/fieldOwnership";
 import WakeCountyFoodBeverageWorksheet from "./WakeCountyFoodBeverage/Worksheet";
 import { getTotalDueCents as wakeCountyFoodBeverageTotalDueCents } from "./WakeCountyFoodBeverage/fieldOwnership";
+import WakeCountyBeerWineWorksheet from "./WakeCountyBeerWine/Worksheet";
+import { getTotalDueCents as wakeCountyBeerWineTotalDueCents } from "./WakeCountyBeerWine/fieldOwnership";
 
 export interface PartyWorksheetProps {
   fields: Record<string, number | string | null>;
@@ -42,6 +44,10 @@ const WORKSHEET_MODULES: Record<string, PartyWorksheetModule> = {
   wake_county_food_beverage: {
     Worksheet: WakeCountyFoodBeverageWorksheet,
     getTotalDueCents: wakeCountyFoodBeverageTotalDueCents,
+  },
+  wake_county_beer_wine: {
+    Worksheet: WakeCountyBeerWineWorksheet,
+    getTotalDueCents: wakeCountyBeerWineTotalDueCents,
   },
 };
 

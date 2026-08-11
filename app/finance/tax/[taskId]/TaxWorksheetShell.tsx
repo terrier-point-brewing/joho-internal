@@ -27,7 +27,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { fmtCents, fmtDateLong } from "@/lib/utils/formatting";
 import type { FieldSpec, TaxTask, WorksheetData } from "@/lib/tax/types";
-import type { ResolvedRequiredRegistration } from "@/lib/tax/registrations";
+import { registrationKindKey, type ResolvedRequiredRegistration } from "@/lib/tax/registrations";
 import { useTaxPartiesQuery, useEntityProfileQuery, useLegalRepresentativeQuery, useBankAccountQuery } from "../hooks/useTaxData";
 import { bankAccountTypeLabel } from "@/lib/tax/bankAccount";
 import { getWorksheetModule } from "../parties/registry";
@@ -336,8 +336,9 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
  *  2. Business Identity — `entity` (tax_entity_profile): legal name, trade
  *     name, address, phone, fax. Business-level, shared across every party.
  *  3. Representative — `representative` (tax_legal_representative): Name of
- *     Contact Person and State of Domicile (this person's `state`, read
- *     directly — never a separate stored field).
+ *     Contact Person, their email and phone (what online renewals ask for),
+ *     and State of Domicile (this person's `state`, read directly — never a
+ *     separate stored field).
  *  4. Bank Account — `bankAccount` (tax_bank_account): Name of Account,
  *     Account Type, Account Holder, plus a single on-file/not-on-file status
  *     row for the `sensitive` routing/account numbers (never the real
@@ -348,7 +349,7 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
  *     fields). Empty for beer excise and Wake County F&B.
  * The representative's `title`, `ssn`, and street address are captured in
  * Tax Profile but intentionally NOT rendered here — the worksheet header
- * only shows what the paper form actually asks for.
+ * only shows what the forms actually ask for.
  */
 function IdentityHeader({
   partyKey,
@@ -380,7 +381,17 @@ function IdentityHeader({
   const registrationGroupRows: (IdentityRow & { order: number })[] = [
     ...requiredRegistrations.map((req) => ({
       label: req.label,
-      value: req.number || "—",
+      // A `sensitive` registration arrives masked as "present"/"absent" — its
+      // real digits only ever come from the admin-only reveal route.
+      value: req.sensitive ? (
+        <SensitiveValueCell
+          revealEndpoint="/api/tax/registrations/reveal"
+          fieldKey={registrationKindKey(req.authorityKey, req.registrationKey)}
+          onFile={req.number === "present"}
+        />
+      ) : (
+        req.number || "—"
+      ),
       order: req.identityOrder ?? Number.POSITIVE_INFINITY,
     })),
     ...schema
@@ -388,7 +399,11 @@ function IdentityHeader({
       .map((field) => ({
         label: field.label,
         value: field.sensitive ? (
-          <SensitiveProfileCell partyKey={partyKey} fieldKey={field.key} onFile={values?.[field.key] === "present"} />
+          <SensitiveValueCell
+            revealEndpoint={`/api/tax/profiles/${partyKey}/reveal`}
+            fieldKey={field.key}
+            onFile={values?.[field.key] === "present"}
+          />
         ) : (
           values?.[field.key] || "—"
         ),
@@ -413,6 +428,11 @@ function IdentityHeader({
   const representativeRows = representative
     ? [
         { label: "Name of Contact Person", value: representative.name || "—" },
+        // Email and phone are here because online filings ask for them (Wake
+        // County's beer & wine renewal, for one) and a filer should not have
+        // to leave the worksheet to find them.
+        { label: "Contact Email", value: representative.email || "—" },
+        { label: "Contact Phone", value: representative.phone || "—" },
         { label: "State of Domicile", value: representative.state || "—" },
       ]
     : [];
@@ -534,19 +554,21 @@ function BankNumbersCell({ onFile }: { onFile: boolean }) {
 }
 
 /**
- * A `sensitive` settings field rendered in the Filing Identity header (e.g.
- * Wake County's filing PIN). Same contract as `BankNumbersCell`: the masked
- * `GET /api/tax/profiles/[party]` only proves "present"/"absent", so the cell
- * shows "On file" until the user asks, then fetches the real value once from
- * the admin-only (`taxPiiReveal`) reveal route and toggles visibility locally.
- * A caller without the capability just gets the API's error text inline.
+ * Any `sensitive` value rendered in the Filing Identity header — a party
+ * settings field (`/api/tax/profiles/[party]/reveal`) or a registration
+ * credential like Wake County's gross receipts PIN
+ * (`/api/tax/registrations/reveal`). Same contract as `BankNumbersCell`: the
+ * masked GET only proves "present"/"absent", so the cell shows "On file" until
+ * the user asks, then fetches the real value once from the admin-only
+ * (`taxPiiReveal`) reveal route and toggles visibility locally. A caller
+ * without the capability just gets the API's error text inline.
  */
-function SensitiveProfileCell({
-  partyKey,
+function SensitiveValueCell({
+  revealEndpoint,
   fieldKey,
   onFile,
 }: {
-  partyKey: string;
+  revealEndpoint: string;
   fieldKey: string;
   onFile: boolean;
 }) {
@@ -563,7 +585,7 @@ function SensitiveProfileCell({
     setLoading(true);
     setError(null);
     try {
-      const values = await fetchJson<Record<string, string>>(`/api/tax/profiles/${partyKey}/reveal`);
+      const values = await fetchJson<Record<string, string>>(revealEndpoint);
       setRevealed(values[fieldKey] ?? "");
       setVisible(true);
     } catch (err) {

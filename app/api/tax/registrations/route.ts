@@ -13,7 +13,12 @@ import {
   listRegistrations,
   saveRegistrations,
   resolveRequiredRegistrations,
+  maskRegistrations,
+  maskResolvedRegistrations,
+  preserveBlankSensitiveNumbers,
+  sensitiveRegistrationKinds,
   BASE_REQUIRED_REGISTRATIONS,
+  type RequiredRegistration,
   type TaxRegistrationInput,
 } from "@/lib/tax/registrations";
 import { listActivePartyKeys } from "@/lib/tax/schedules";
@@ -22,6 +27,20 @@ import { getParty, listParties } from "@/lib/tax/registry";
 import "@/lib/tax/parties";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Which registration kinds are credentials, across EVERY registered party —
+ * deliberately not just the ones with an active schedule. Sensitivity is a
+ * property of the kind, so deactivating a schedule must never unmask a stored
+ * PIN.
+ */
+function allSensitiveKinds(): Set<string> {
+  const requirements: RequiredRegistration[] = [
+    ...BASE_REQUIRED_REGISTRATIONS,
+    ...listParties().flatMap((p) => p.requiredRegistrations),
+  ];
+  return sensitiveRegistrationKinds(requirements);
+}
 
 export async function GET() {
   try { await requirePermission(CAP.taxRead); } catch (res) { return res as Response; }
@@ -41,7 +60,13 @@ export async function GET() {
       ...activePartyKeys.filter((key) => registeredKeys.has(key)).flatMap((key) => getParty(key).requiredRegistrations),
     ];
     const required = resolveRequiredRegistrations(requirements, registrations);
-    return NextResponse.json({ registrations, required });
+    // Credentials (Wake County's PIN) leave here as "present"/"absent" only —
+    // the real digits come from the admin-only ./reveal route.
+    const sensitiveKinds = allSensitiveKinds();
+    return NextResponse.json({
+      registrations: maskRegistrations(registrations, sensitiveKinds),
+      required: maskResolvedRegistrations(required),
+    });
   } catch (err) {
     return apiError(err);
   }
@@ -63,7 +88,11 @@ export async function PUT(req: NextRequest) {
       }
     }
     const sb = createSupabaseAdminClient();
-    await saveRegistrations(sb, rows);
+    // The UI never holds a sensitive registration's real digits, so a blank
+    // one means "leave unchanged", not "clear it" (same contract as
+    // putProfile's masked fields).
+    const existing = await listRegistrations(sb);
+    await saveRegistrations(sb, preserveBlankSensitiveNumbers(rows, existing, allSensitiveKinds()));
     return NextResponse.json({ ok: true });
   } catch (err) {
     return apiError(err);

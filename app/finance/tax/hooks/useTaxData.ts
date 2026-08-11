@@ -26,6 +26,8 @@ export interface TaxPartyMeta {
   recomputeLabel?: string;
   worksheetComponent: string;
   defaultDueRules: Partial<Record<Frequency, DueRule>>;
+  /** The party's current period per frequency — what the schedule editor previews a due date against. */
+  samplePeriods: Partial<Record<Frequency, { start: string; end: string }>>;
 }
 
 /** Serialized shape of `GET /api/tax/registrations`. */

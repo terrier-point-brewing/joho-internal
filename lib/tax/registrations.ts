@@ -94,6 +94,17 @@ export interface RequiredRegistration {
   registrationKey: string;
   label: string;
   /**
+   * A credential rather than a reference number (Wake County's 4-digit gross
+   * receipts PIN is the one today). The stored value never reaches the browser
+   * on the normal GET — `maskRegistrations` replaces it with
+   * `"present"`/`"absent"`, exactly as `tax_filing_profiles` treats a
+   * `sensitive` FieldSpec — and only the admin-only reveal route
+   * (`/api/tax/registrations/reveal`) returns the real digits. Sensitivity is
+   * a property of the KIND, so every party declaring the same
+   * (authorityKey, registrationKey) inherits it.
+   */
+  sensitive?: boolean;
+  /**
    * Sort position in the worksheet's "Registrations & Permits" group, shared
    * with any `settingsSchema` field that declares `identityGroup:
    * "registrations"` — one order space, so a party can interleave a filing
@@ -107,6 +118,68 @@ export interface RequiredRegistration {
 export interface ResolvedRequiredRegistration extends RequiredRegistration {
   id?: string;
   number: string | null;
+}
+
+/** `"authorityKey:registrationKey"` — the identity a registration kind is matched by. */
+export function registrationKindKey(authorityKey: string, registrationKey: string): string {
+  return `${authorityKey}:${registrationKey}`;
+}
+
+/** The set of kinds any party template declares `sensitive`. */
+export function sensitiveRegistrationKinds(requirements: RequiredRegistration[]): Set<string> {
+  const kinds = new Set<string>();
+  for (const req of requirements) {
+    if (req.sensitive) kinds.add(registrationKindKey(req.authorityKey, req.registrationKey));
+  }
+  return kinds;
+}
+
+/**
+ * Replaces the `number` of every registration whose kind is `sensitive` with
+ * `"present"` / `"absent"` — the only status the browser is allowed to see for
+ * a credential. Mirrors `maskSensitive` in lib/tax/profiles.ts. Non-sensitive
+ * rows pass through untouched.
+ */
+export function maskRegistrations<T extends { authority_key: string; registration_kind: string | null; number: string | null }>(
+  registrations: T[],
+  sensitiveKinds: Set<string>,
+): T[] {
+  return registrations.map((row) => {
+    if (!row.registration_kind) return row;
+    if (!sensitiveKinds.has(registrationKindKey(row.authority_key, row.registration_kind))) return row;
+    return { ...row, number: row.number && row.number.length > 0 ? "present" : "absent" };
+  });
+}
+
+/** The resolved-requirement flavour of `maskRegistrations` (same rule, different shape). */
+export function maskResolvedRegistrations(
+  resolved: ResolvedRequiredRegistration[],
+): ResolvedRequiredRegistration[] {
+  return resolved.map((req) =>
+    req.sensitive ? { ...req, number: req.number && req.number.length > 0 ? "present" : "absent" } : req,
+  );
+}
+
+/**
+ * Blank = "leave unchanged" for a sensitive registration, so the masked
+ * round-trip (the UI never holds the real digits) can't wipe the stored value.
+ * Applied to the incoming PUT payload before `saveRegistrations` replaces the
+ * set. A row that is sensitive AND arrives blank keeps `existing`'s number; a
+ * sensitive row with a real new value overwrites, same as any other row.
+ */
+export function preserveBlankSensitiveNumbers(
+  incoming: TaxRegistrationInput[],
+  existing: TaxRegistration[],
+  sensitiveKinds: Set<string>,
+): TaxRegistrationInput[] {
+  const byId = new Map(existing.map((row) => [row.id, row]));
+  return incoming.map((row) => {
+    if (row.number && row.number.trim().length > 0) return row;
+    if (!row.id || !row.registration_kind) return row;
+    if (!sensitiveKinds.has(registrationKindKey(row.authority_key, row.registration_kind))) return row;
+    const stored = byId.get(row.id);
+    return stored ? { ...row, number: stored.number } : row;
+  });
 }
 
 /** Universal requirement every party gets without declaring it itself. */

@@ -31,6 +31,8 @@ const SEEDED_OBLIGATIONS = [
   { key: "nc_dor_sales_use", authority_key: "nc_dor", label: "NC DOR — Sales & Use Tax" },
   { key: "nc_dor_beer_excise", authority_key: "nc_dor", label: "NC DOR — Beer Excise Tax (B-C-710)" },
   { key: "wake_county_food_beverage", authority_key: "wake_county", label: "Wake County — Prepared Food & Beverage Tax" },
+  // supabase/migrations/20261007090000_wake_county_beer_wine_obligation.sql
+  { key: "wake_county_beer_wine", authority_key: "wake_county", label: "Wake County — Beer & Wine License Renewal" },
 ] as const;
 
 describe("tax_obligations ↔ party registry", () => {

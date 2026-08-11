@@ -33,25 +33,21 @@ describe("wakeCountyFoodBeverageTemplate", () => {
     });
   });
 
-  it("places the filing PIN in the registrations group, between the account number and the permit", () => {
-    const pin = t.settingsSchema.find((f) => f.key === "filing_pin");
-    expect(pin?.identityGroup).toBe("registrations");
-    expect(pin?.identityOrder).toBe(2);
+  it("orders the county PIN registration between the account number and the permit", () => {
+    const pin = t.requiredRegistrations.find((r) => r.registrationKey === "wake_county_pin");
+    expect(pin?.sensitive).toBe(true);
     const account = t.requiredRegistrations.find((r) => r.registrationKey === "wake_county_account_id");
     const permit = t.requiredRegistrations.find((r) => r.registrationKey === "abc_permit_number_onpremise");
     expect(account!.identityOrder!).toBeLessThan(pin!.identityOrder!);
     expect(pin!.identityOrder!).toBeLessThan(permit!.identityOrder!);
   });
 
-  it("exposes the two Square-tax selects and the sensitive PIN in settingsSchema", () => {
+  it("exposes only the two Square-tax selects in settingsSchema (the PIN is a shared registration)", () => {
     const keys = t.settingsSchema.map((f) => f.key);
-    expect(keys).toEqual(["food_beverage_tax_id", "general_sales_tax_id", "filing_pin"]);
+    expect(keys).toEqual(["food_beverage_tax_id", "general_sales_tax_id"]);
     const fb = t.settingsSchema.find((f) => f.key === "food_beverage_tax_id");
     expect(fb?.type).toBe("select");
     expect(fb?.required).toBe(true);
-    const pin = t.settingsSchema.find((f) => f.key === "filing_pin");
-    expect(pin?.type).toBe("text");
-    expect(pin?.sensitive).toBe(true);
   });
 
   it("mergeWorksheet fully replaces fields with the recompute (all fields computed)", () => {

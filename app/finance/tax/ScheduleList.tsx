@@ -33,6 +33,13 @@ function countySummary(schedule: TaxSchedule): string | null {
   return `${counties.length} counties`;
 }
 
+/** Short human summary of `schedule.config.license_types`, e.g. "2 licenses". */
+function licenseSummary(schedule: TaxSchedule): string | null {
+  const types = schedule.config?.license_types;
+  if (!Array.isArray(types) || types.length === 0) return null;
+  return `${types.length} license${types.length === 1 ? "" : "s"}`;
+}
+
 /**
  * Schedule list + create/edit/deactivate actions for the Tax tab. Editing
  * state doubles as the "which modal is open" flag: `undefined` = closed,
@@ -92,6 +99,7 @@ export default function ScheduleList({ schedules, parties }: ScheduleListProps) 
                   <p className="text-xs text-faint">
                     {FREQUENCY_LABEL[schedule.frequency] ?? schedule.frequency} · {schedule.lead_days}d lead
                     {countySummary(schedule) ? ` · ${countySummary(schedule)}` : ""}
+                    {licenseSummary(schedule) ? ` · ${licenseSummary(schedule)}` : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">

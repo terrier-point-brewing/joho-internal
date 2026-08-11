@@ -61,9 +61,74 @@ function groupOtherRegistrations(
 function initialRequiredDrafts(data: RegistrationsResponse): RequiredDrafts {
   const drafts: RequiredDrafts = {};
   for (const req of data.required) {
-    drafts[dedupeKey(req.authorityKey, req.registrationKey)] = req.number ?? "";
+    // A sensitive registration's `number` is the masked "present"/"absent"
+    // sentinel, never the real value — seed it blank, which the PUT route
+    // reads as "leave unchanged".
+    drafts[dedupeKey(req.authorityKey, req.registrationKey)] = req.sensitive ? "" : (req.number ?? "");
   }
   return drafts;
+}
+
+/**
+ * The editor row for a `sensitive` registration (Wake County's gross receipts
+ * PIN). The real digits are never loaded with the page: the input is blank and
+ * blank means "leave unchanged", the status text says whether one is on file,
+ * and Unmask fetches it once from the admin-only reveal route.
+ */
+function SensitiveNumberField({
+  kindKey,
+  onFile,
+  value,
+  onChange,
+}: {
+  kindKey: string;
+  onFile: boolean;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
+
+  async function handleReveal() {
+    if (revealed != null) {
+      setRevealed(null);
+      return;
+    }
+    setLoading(true);
+    setRevealError(null);
+    try {
+      const values = await fetchJson<Record<string, string>>("/api/tax/registrations/reveal");
+      setRevealed(values[kindKey] ?? "");
+    } catch (err) {
+      setRevealError(err instanceof Error ? err.message : "Failed to reveal the value.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="flex-1 flex flex-col gap-0.5">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          className="inp-sm flex-1"
+          placeholder={onFile ? "Leave blank to keep unchanged" : "Number"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        {onFile && (
+          <button type="button" className="btn-secondary btn-xxs shrink-0" onClick={handleReveal} disabled={loading}>
+            {loading ? "Loading…" : revealed != null ? "Hide" : "Unmask"}
+          </button>
+        )}
+      </div>
+      <span className="text-xs text-faint">
+        {revealed != null ? `Currently: ${revealed || "—"}` : onFile ? "Currently: on file" : "Not set"}
+      </span>
+      {revealError && <span className="text-xs text-danger">{revealError}</span>}
+    </div>
+  );
 }
 
 /**
@@ -168,6 +233,9 @@ export default function RegistrationsSection() {
         // still blank — don't create an empty keyed row just because it's
         // listed as required; wait until the user actually enters a number.
         if (!req.id && !number.trim()) continue;
+        // A sensitive row with an id and a blank input is intentional: the PUT
+        // route restores the stored number ("blank = leave unchanged"). It
+        // must still be sent, or the full-replace save would delete it.
         rows.push({
           id: req.id,
           authority_key: req.authorityKey,
@@ -235,13 +303,22 @@ export default function RegistrationsSection() {
                       {authorityRequired.map((req) => (
                         <div key={dedupeKey(req.authorityKey, req.registrationKey)} className="flex items-center gap-2">
                           <span className="flex-1 text-sm text-body">{req.label}</span>
-                          <input
-                            type="text"
-                            className="inp-sm flex-1"
-                            placeholder="Number"
-                            value={requiredDrafts[dedupeKey(req.authorityKey, req.registrationKey)] ?? ""}
-                            onChange={(e) => updateRequired(req.authorityKey, req.registrationKey, e.target.value)}
-                          />
+                          {req.sensitive ? (
+                            <SensitiveNumberField
+                              kindKey={dedupeKey(req.authorityKey, req.registrationKey)}
+                              onFile={req.number === "present"}
+                              value={requiredDrafts[dedupeKey(req.authorityKey, req.registrationKey)] ?? ""}
+                              onChange={(next) => updateRequired(req.authorityKey, req.registrationKey, next)}
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              className="inp-sm flex-1"
+                              placeholder="Number"
+                              value={requiredDrafts[dedupeKey(req.authorityKey, req.registrationKey)] ?? ""}
+                              onChange={(e) => updateRequired(req.authorityKey, req.registrationKey, e.target.value)}
+                            />
+                          )}
                         </div>
                       ))}
                     </div>

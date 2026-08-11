@@ -5,6 +5,10 @@ import {
   listRegistrations,
   saveRegistrations,
   resolveRequiredRegistrations,
+  maskRegistrations,
+  maskResolvedRegistrations,
+  preserveBlankSensitiveNumbers,
+  sensitiveRegistrationKinds,
   BASE_REQUIRED_REGISTRATIONS,
   type TaxRegistration,
   type TaxRegistrationInput,
@@ -279,5 +283,62 @@ describe("resolveRequiredRegistrations", () => {
     const result = resolveRequiredRegistrations(requirements, sampleRegistrations);
     expect(result).toHaveLength(1);
     expect(result[0].label).toBe("Federal EIN (FEIN)");
+  });
+});
+
+describe("sensitive registrations", () => {
+  const kinds = sensitiveRegistrationKinds([
+    { authorityKey: "wake_county", registrationKey: "wake_county_pin", label: "PIN", sensitive: true },
+    { authorityKey: "wake_county", registrationKey: "wake_county_account_id", label: "Account" },
+  ]);
+
+  const rows: TaxRegistration[] = [
+    { id: "a", authority_key: "wake_county", label: "PIN", number: "4821", display_order: 1, registration_kind: "wake_county_pin" },
+    { id: "b", authority_key: "wake_county", label: "Account", number: "12345", display_order: 0, registration_kind: "wake_county_account_id" },
+    { id: "c", authority_key: "wake_county", label: "Other", number: "zzz", display_order: 2, registration_kind: null },
+  ];
+
+  it("masks only the sensitive kind's number", () => {
+    const masked = maskRegistrations(rows, kinds);
+    expect(masked.find((r) => r.id === "a")!.number).toBe("present");
+    expect(masked.find((r) => r.id === "b")!.number).toBe("12345");
+    expect(masked.find((r) => r.id === "c")!.number).toBe("zzz");
+  });
+
+  it("reports absent when the sensitive row has no number yet", () => {
+    const masked = maskRegistrations([{ ...rows[0], number: null }], kinds);
+    expect(masked[0].number).toBe("absent");
+  });
+
+  it("treats a blank sensitive number as leave-unchanged, but overwrites a real one", () => {
+    const merged = preserveBlankSensitiveNumbers(
+      [
+        { id: "a", authority_key: "wake_county", label: "PIN", number: null, display_order: 1, registration_kind: "wake_county_pin" },
+        { id: "b", authority_key: "wake_county", label: "Account", number: null, display_order: 0, registration_kind: "wake_county_account_id" },
+      ],
+      rows,
+      kinds,
+    );
+    expect(merged[0].number).toBe("4821"); // sensitive + blank -> preserved
+    expect(merged[1].number).toBeNull(); // non-sensitive blank still clears
+    expect(
+      preserveBlankSensitiveNumbers(
+        [{ id: "a", authority_key: "wake_county", label: "PIN", number: "9999", display_order: 1, registration_kind: "wake_county_pin" }],
+        rows,
+        kinds,
+      )[0].number,
+    ).toBe("9999");
+  });
+
+  it("masks a resolved requirement the same way", () => {
+    expect(
+      maskResolvedRegistrations([
+        { authorityKey: "wake_county", registrationKey: "wake_county_pin", label: "PIN", sensitive: true, number: "4821" },
+        { authorityKey: "irs", registrationKey: "fein", label: "FEIN", number: "12-3456789" },
+      ]),
+    ).toEqual([
+      { authorityKey: "wake_county", registrationKey: "wake_county_pin", label: "PIN", sensitive: true, number: "present" },
+      { authorityKey: "irs", registrationKey: "fein", label: "FEIN", number: "12-3456789" },
+    ]);
   });
 });
