@@ -55,9 +55,8 @@ const STAGE_BADGES: Record<"brewhouse" | "fermenter" | "brite", { label: string;
 
 /** Total ingredient cost for one brew turn at the recipe's expected yield. Pure. */
 function recipeCostPerTurn(r: Recipe): number {
-  const bbl = r.expected_yield_bbl ?? 1;
   return r.recipe_ingredients.reduce(
-    (sum, ri) => sum + ri.quantity_per_bbl * bbl * (ri.ingredients.cost_per_unit_usd ?? 0),
+    (sum, ri) => sum + ri.quantity_per_turn * (ri.ingredients.cost_per_unit_usd ?? 0),
     0,
   );
 }
@@ -128,7 +127,6 @@ export default function RecipesTab() {
   const deepLinkedId = searchParams.get("recipe");
   const [expanded, setExpanded] = useState<string | null>(deepLinkedId);
 
-  const yieldBbl = parseFloat(form.expected_yield_bbl) || 1;
 
   function openNew() {
     setForm(RECIPE_EMPTY);
@@ -139,7 +137,6 @@ export default function RecipesTab() {
   }
 
   function openEdit(r: Recipe) {
-    const yld = r.expected_yield_bbl ?? 1;
     setForm({
       beer_name: r.beer_name,
       style: r.style ?? "",
@@ -154,7 +151,7 @@ export default function RecipesTab() {
     setLines(
       r.recipe_ingredients.map((ri) => ({
         ingredient_id: ri.ingredient_id,
-        quantity_per_turn: String(Number((ri.quantity_per_bbl * yld).toFixed(6))),
+        quantity_per_turn: String(ri.quantity_per_turn),
         category: (ri.ingredients.category as IngredientCategory) ?? "",
       }))
     );
@@ -170,7 +167,6 @@ export default function RecipesTab() {
     // recipes = base recipe + extra ingredients). editingId stays null so the
     // normal create path runs, minting a brand-new recipe. Name is left blank to
     // force a fresh, non-duplicate name.
-    const yld = r.expected_yield_bbl ?? 1;
     setForm({
       beer_name: "",
       style: r.style ?? "",
@@ -185,7 +181,7 @@ export default function RecipesTab() {
     setLines(
       r.recipe_ingredients.map((ri) => ({
         ingredient_id: ri.ingredient_id,
-        quantity_per_turn: String(Number((ri.quantity_per_bbl * yld).toFixed(6))),
+        quantity_per_turn: String(ri.quantity_per_turn),
         category: (ri.ingredients.category as IngredientCategory) ?? "",
       }))
     );
@@ -244,7 +240,7 @@ export default function RecipesTab() {
           .filter((l) => l.ingredient_id && l.quantity_per_turn)
           .map((l) => ({
             ingredient_id: l.ingredient_id,
-            quantity_per_bbl: parseFloat(l.quantity_per_turn.replace(/,/g, "")) / yieldBbl,
+            quantity_per_turn: parseFloat(l.quantity_per_turn.replace(/,/g, "")),
           })),
       };
       const res = editingId
@@ -475,7 +471,7 @@ export default function RecipesTab() {
                                 </tr>
                                 {items.map((ri, idx) => {
                                   const ing = ri.ingredients;
-                                  const qtyPerTurn = ri.quantity_per_bbl * (r.expected_yield_bbl ?? 1);
+                                  const qtyPerTurn = ri.quantity_per_turn;
                                   const costPerLine = qtyPerTurn * (ing.cost_per_unit_usd ?? 0);
                                   return (
                                     <tr key={ri.id} className={`border-b border-line/40 ${idx % 2 !== 0 ? "bg-surface/20" : ""}`}>
@@ -486,7 +482,7 @@ export default function RecipesTab() {
                                           : "—"}
                                       </td>
                                       <td className="px-4 py-2 text-secondary text-right tabular-nums">
-                                        {qtyPerTurn.toLocaleString(undefined, { maximumFractionDigits: 4 })} {ing.unit}
+                                        {qtyPerTurn.toLocaleString(undefined, { maximumFractionDigits: 6 })} {ing.unit}
                                       </td>
                                       <td className="px-4 py-2 text-body text-right tabular-nums">
                                         {ing.cost_per_unit_usd != null
@@ -801,7 +797,7 @@ export default function RecipesTab() {
                                 onBlur={(e) => {
                                   const num = parseFloat(e.target.value.replace(/,/g, ""));
                                   if (!isNaN(num)) {
-                                    setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: num.toLocaleString(undefined, { maximumFractionDigits: 4 }) } : l));
+                                    setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: num.toLocaleString(undefined, { maximumFractionDigits: 20 }) } : l));
                                   }
                                 }}
                                 onFocus={(e) => {
@@ -887,7 +883,7 @@ export default function RecipesTab() {
                                 onBlur={(e) => {
                                   const num = parseFloat(e.target.value.replace(/,/g, ""));
                                   if (!isNaN(num)) {
-                                    setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: num.toLocaleString(undefined, { maximumFractionDigits: 4 }) } : l));
+                                    setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: num.toLocaleString(undefined, { maximumFractionDigits: 20 }) } : l));
                                   }
                                 }}
                                 onFocus={(e) => {

@@ -37,10 +37,11 @@ export async function PATCH(
   if (lines !== undefined) {
     await supabase.from("recipe_ingredients").delete().eq("recipe_id", id);
     if (lines.length > 0) {
-      const rows = lines.map((l: { ingredient_id: string; quantity_per_bbl: number }) => ({
+      // quantity_per_bbl is derived from quantity_per_turn by trigger.
+      const rows = lines.map((l: { ingredient_id: string; quantity_per_turn: number }) => ({
         recipe_id: id,
         ingredient_id: l.ingredient_id,
-        quantity_per_bbl: l.quantity_per_bbl,
+        quantity_per_turn: l.quantity_per_turn,
       }));
       const { error: lineErr } = await supabase.from("recipe_ingredients").insert(rows);
       if (lineErr) return NextResponse.json({ error: lineErr.message }, { status: 500 });
