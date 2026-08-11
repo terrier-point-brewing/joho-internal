@@ -46,6 +46,16 @@ export async function GET() {
       defaultDueRules: Object.fromEntries(
         party.supportedFrequencies.map((f) => [f, party.defaultDueRule(f)]),
       ),
+      // The party's CURRENT period per frequency. The schedule editor previews
+      // a due date against these instead of a hardcoded calendar quarter —
+      // Wake County's beer & wine periods end April 30, so "a period ending
+      // 2026-12-31" was a preview of a period that party never produces.
+      samplePeriods: Object.fromEntries(
+        party.supportedFrequencies.map((f) => {
+          const period = party.computePeriod(f, new Date());
+          return [f, { start: period.start, end: period.end }];
+        }),
+      ),
     }));
     return NextResponse.json(parties);
   } catch (err) {

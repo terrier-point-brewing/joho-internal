@@ -10,7 +10,13 @@ export interface TaxPeriod { start: string; end: string; due: string } // YYYY-M
 export interface FieldSpec {
   key: string;
   label: string;
-  type: "text" | "number" | "email" | "tel" | "money" | "select";
+  /**
+   * `"multiselect"` is schedule-config only: a checkbox list whose value is
+   * stored as a `string[]` of the chosen `options[].value` (see the generic
+   * renderer in app/finance/tax/ScheduleEditor.tsx). It has no meaning in
+   * `settingsSchema`, which persists flat strings.
+   */
+  type: "text" | "number" | "email" | "tel" | "money" | "select" | "multiselect";
   sensitive?: boolean;               // SSN/FEIN — never returned to the browser
   options?: { value: string; label: string }[];
   /**

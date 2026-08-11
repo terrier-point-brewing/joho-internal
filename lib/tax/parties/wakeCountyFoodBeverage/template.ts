@@ -7,9 +7,11 @@
  * (no manual inputs), so mergeWorksheet fully replaces the field set with the
  * recompute. Filer identity (contact person, address) comes from the shared
  * Tax Profile (tax_legal_representative / tax_entity_profile) via
- * TaxWorksheetShell's IdentityHeader; the Wake County account # and the
- * taproom's on-premise NC ABC permit # are required registrations, and the
- * 4-digit PIN is a sensitive settings field.
+ * TaxWorksheetShell's IdentityHeader; the Wake County account #, its 4-digit
+ * gross receipts PIN (a `sensitive` registration — masked everywhere, revealed
+ * only by the admin-only reveal route) and the taproom's on-premise NC ABC
+ * permit # are required registrations shared with the county's Beer & Wine
+ * License Renewal module.
  */
 import type {
   ComputeContext,
@@ -73,17 +75,6 @@ const settingsSchema: FieldSpec[] = [
     source: "square_tax",
     help: "Optional — the Square general sales tax, used only to show the Gross Receipts comparison row. Leave blank to omit that row.",
   },
-  {
-    key: "filing_pin",
-    label: "Wake County Filing PIN",
-    type: "text",
-    sensitive: true,
-    // A filing credential, not a setting: it belongs beside the account and
-    // permit numbers it is submitted with, between the two (identityOrder 2).
-    identityGroup: "registrations",
-    identityOrder: 2,
-    help: "The 4-digit PIN required to submit the Wake County return. Stored securely; the worksheet shows it only on demand via Unmask (admin-only).",
-  },
 ];
 
 const scheduleConfigSchema: FieldSpec[] = [];
@@ -108,6 +99,16 @@ const requiredRegistrations: RequiredRegistration[] = [
     registrationKey: "wake_county_account_id",
     label: "Wake County Gross Receipts Account Number",
     identityOrder: 1,
+  },
+  // The gross receipts PIN is the credential for the SAME county account, so
+  // it is one shared registration row, not a per-module setting — Prepared
+  // Food & Beverage declares the identical kind and both resolve to it.
+  {
+    authorityKey: "wake_county",
+    registrationKey: "wake_county_pin",
+    label: "Wake County Gross Receipts PIN",
+    identityOrder: 2,
+    sensitive: true,
   },
   // Taproom's on-premise alcohol sales permit — distinct from the brewery's
   // wholesaler permit (see ncDorBeerExcise/template.ts), same `nc_abc`

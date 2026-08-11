@@ -27,7 +27,34 @@ describe("resolveDueDate", () => {
   });
 });
 
+describe("resolveDueDate — fixed calendar deadlines", () => {
+  it("picks the first fixedMonth/day strictly after the period end", () => {
+    // Wake County beer & wine: the license year closing 2026-04-30 is renewed
+    // by the NEXT April 30, never the one it ends on.
+    expect(resolveDueDate("2026-04-30", { fixedMonth: 4, day: 30 })).toBe("2027-04-30");
+    expect(resolveDueDate("2026-05-31", { fixedMonth: 4, day: 30 })).toBe("2027-04-30");
+    expect(resolveDueDate("2027-03-31", { fixedMonth: 4, day: 30 })).toBe("2027-04-30");
+  });
+
+  it("stays in the same year when the deadline is still ahead of the period end", () => {
+    expect(resolveDueDate("2026-01-31", { fixedMonth: 4, day: 30 })).toBe("2026-04-30");
+  });
+
+  it("clamps the day to the month, including leap February", () => {
+    expect(resolveDueDate("2026-01-01", { fixedMonth: 2, day: 31 })).toBe("2026-02-28");
+    expect(resolveDueDate("2028-01-01", { fixedMonth: 2, day: "last" })).toBe("2028-02-29");
+  });
+});
+
 describe("validateDueRule", () => {
+  it("accepts a fixed rule and rejects a malformed or hybrid one", () => {
+    expect(validateDueRule({ fixedMonth: 4, day: 30 })).toBeNull();
+    expect(validateDueRule({ fixedMonth: 4, day: "last" })).toBeNull();
+    expect(validateDueRule({ fixedMonth: 0, day: 30 })).toMatch(/fixedMonth/);
+    expect(validateDueRule({ fixedMonth: 13, day: 30 })).toMatch(/fixedMonth/);
+    expect(validateDueRule({ fixedMonth: 4, monthOffset: 1, day: 30 })).toMatch(/not both/);
+  });
+
   it.each<unknown>([
     { monthOffset: 1.5, day: 20 },
     { monthOffset: -1, day: 20 },
