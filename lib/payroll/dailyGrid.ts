@@ -173,6 +173,56 @@ export function attributeBucket(
   return { tips, attributedCents, pinnedCents };
 }
 
+export interface UnattributedBucket {
+  label: string;
+  days: string[];
+  poolCents: number;
+  attributedCents: number;
+  shortfallCents: number;
+}
+
+/**
+ * Buckets whose pool was collected but never landed on an employee — the day
+ * took card tips and no tipped employee had hours, so `attributeBucket` had no
+ * cell to distribute to and the money silently disappeared from payroll.
+ *
+ * Deliberately NOT part of `bucketViolations`: that guard runs on every day
+ * override save, and an unattributed day elsewhere in the period would then
+ * block the very override that fixes it. This is a lock-time gate instead —
+ * see the lock route. Reported per bucket (not per day) because a bucket is
+ * the unit the pool is attributed over; under daily pooling they coincide.
+ */
+export function unattributedBuckets(buckets: TipBucket[]): UnattributedBucket[] {
+  return buckets
+    .filter(b => b.attributed_cents < b.pool_cents)
+    .map(b => ({
+      label: b.label,
+      days: b.days,
+      poolCents: b.pool_cents,
+      attributedCents: b.attributed_cents,
+      shortfallCents: b.pool_cents - b.attributed_cents,
+    }));
+}
+
+/**
+ * Live pool vs. what the lock snapshotted. A refund that syncs after a period
+ * is locked changes the net pool (see aggregateDailyTips — a refunded tip is
+ * netted out of its ORIGINAL payment's day), but the snapshot in
+ * payroll_entries is frozen, so the two quietly disagree forever.
+ *
+ * Positive = the snapshot paid out more than the pool now holds (the usual
+ * case: a late refund). Negative = the pool grew after the lock. Returns null
+ * when they agree, so callers can render nothing without a comparison.
+ */
+export function snapshotPoolVariance(
+  livePoolCents: number,
+  snapshotTipsCents: number,
+): { livePoolCents: number; snapshotTipsCents: number; varianceCents: number } | null {
+  const varianceCents = snapshotTipsCents - livePoolCents;
+  if (varianceCents === 0) return null;
+  return { livePoolCents, snapshotTipsCents, varianceCents };
+}
+
 /** Write-path guard. Conditions a save must never create; see spec §1. */
 export function bucketViolations(buckets: TipBucket[]): BucketViolation[] {
   const out: BucketViolation[] = [];

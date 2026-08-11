@@ -40,6 +40,11 @@ interface ShiftData {
   tip_pool_frequency: TipPoolFrequency;
   tip_buckets: TipBucket[];
   pool_variance: Array<{ label: string; pool_cents: number; attributed_cents: number }>;
+  snapshot_variance: {
+    livePoolCents: number;
+    snapshotTipsCents: number;
+    varianceCents: number;
+  } | null;
   rows: ShiftRow[];
 }
 
@@ -217,6 +222,13 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
             : `${fmtCents(v.pool_cents - v.attributed_cents)} of the ${v.label} pool is unattributed (no eligible hours).`}
         </Banner>
       ))}
+      {data.snapshot_variance && (
+        <Banner tone="info" className="mb-3">
+          {data.snapshot_variance.varianceCents > 0
+            ? `This period was locked paying out ${fmtCents(data.snapshot_variance.varianceCents)} more in card tips than the pool now holds — a refund synced after the lock. Carry the correction into the open period; the snapshot stays as paid.`
+            : `The card tip pool has grown ${fmtCents(-data.snapshot_variance.varianceCents)} since this period was locked. Carry it into the open period.`}
+        </Banner>
+      )}
       {saveError && <Banner tone="danger" className="mb-3">{saveError}</Banner>}
       <table className="text-xs border-collapse">
         <thead>

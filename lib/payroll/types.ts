@@ -193,7 +193,11 @@ export interface PayrollGlReportTotal {
 
 export interface TipBucketSummary {
   label: string;
+  days: string[];
   tipsPooledCents: number;
+  /** What actually landed on employees. Below tipsPooledCents means the day
+   *  took tips with nobody eligible on shift; the lock route gates on it. */
+  tipsAttributedCents: number;
 }
 
 /** Full preview response from /api/payroll/periods/[id]/preview */

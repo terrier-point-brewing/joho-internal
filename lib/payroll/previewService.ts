@@ -48,7 +48,12 @@ async function buildGuaranteeBuckets(
 
   return {
     buckets,
-    tip_buckets: grid.buckets.map(b => ({ label: b.label, tipsPooledCents: b.pool_cents })),
+    tip_buckets: grid.buckets.map(b => ({
+      label: b.label,
+      days: b.days,
+      tipsPooledCents: b.pool_cents,
+      tipsAttributedCents: b.attributed_cents,
+    })),
     totalPooledTipsCents: grid.totalPooledTipsCents,
   };
 }
