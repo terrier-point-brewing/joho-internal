@@ -221,6 +221,9 @@ export interface RecipeIngredientRow {
   id: string;
   recipe_id: string;
   ingredient_id: string;
+  /** Quantity charged into one brew turn, exactly as entered. Source of truth. */
+  quantity_per_turn: number;
+  /** Derived from quantity_per_turn by DB trigger. Never written by the app. */
   quantity_per_bbl: number;
   ingredients: Ingredient;
 }

@@ -55,10 +55,11 @@ export async function POST(req: NextRequest) {
   }
 
   if (lines?.length) {
-    const rows = lines.map((l: { ingredient_id: string; quantity_per_bbl: number }) => ({
+    // quantity_per_bbl is derived from quantity_per_turn by trigger.
+    const rows = lines.map((l: { ingredient_id: string; quantity_per_turn: number }) => ({
       recipe_id: recipe.id,
       ingredient_id: l.ingredient_id,
-      quantity_per_bbl: l.quantity_per_bbl,
+      quantity_per_turn: l.quantity_per_turn,
     }));
     const { error: lineErr } = await supabase.from("recipe_ingredients").insert(rows);
     if (lineErr) return NextResponse.json({ error: lineErr.message }, { status: 500 });
