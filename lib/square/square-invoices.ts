@@ -78,7 +78,13 @@ interface SquareOrderGetResponse {
 
 /**
  * Computes the ingredient deposit amount for a given allocation.
- * Formula: sum(ri.quantity_per_bbl × i.cost_per_unit_usd) × batch.volume_bbl × (percentage / 100)
+ * Formula: sum(ri.quantity_per_turn × turns × i.cost_per_unit_usd) × (percentage / 100)
+ *
+ * Priced off the per-turn bill as entered, not the derived quantity_per_bbl
+ * rate: that rate divides the bill by expected_yield_bbl, so multiplying it by
+ * batch volume billed the partner for grain nobody bought. The per-bbl figure
+ * on each breakdown line is a display rate over the turn's own volume, so
+ * rate × volume still reconciles to the line total.
  */
 export async function calculateIngredientDeposit(
   supabase: SupabaseClient,
@@ -96,13 +102,18 @@ export async function calculateIngredientDeposit(
 
   const { data: recipeIngredients, error: riErr } = await supabase
     .from("recipe_ingredients")
-    .select("quantity_per_bbl, ingredients(id, name, unit, cost_per_unit_usd)")
+    .select("quantity_per_turn, ingredients(id, name, unit, cost_per_unit_usd)")
     .eq("recipe_id", batch.recipe_id);
 
   if (riErr) throw new Error(`Failed to fetch recipe ingredients: ${riErr.message}`);
 
   const rows = recipeIngredients ?? [];
   const volumeBbl = Number(batch.volume_bbl);
+  const turns = Math.max(1, Number(batch.turns ?? 1));
+  // Volume of one turn — the denominator that makes the displayed per-bbl rate
+  // multiply back to the line total. Guarded so a volume-less batch can't
+  // divide by zero and emit Infinity into an invoice.
+  const turnVol = volumeBbl > 0 ? volumeBbl / turns : 0;
 
   let totalIngredientCostUsd = 0;
   const breakdown: DepositCalculation["breakdown"] = [];
@@ -111,9 +122,10 @@ export async function calculateIngredientDeposit(
     const ing = ri.ingredients as unknown as { id: string; name: string; unit: string; cost_per_unit_usd: number | null } | null;
     if (!ing || ing.cost_per_unit_usd == null) continue;
 
-    const qtyPerBbl = Number(ri.quantity_per_bbl);
+    const qtyPerTurn = Number(ri.quantity_per_turn);
     const costPerUnit = Number(ing.cost_per_unit_usd);
-    const lineTotal = qtyPerBbl * costPerUnit * volumeBbl;
+    const lineTotal = qtyPerTurn * turns * costPerUnit;
+    const qtyPerBbl = turnVol > 0 ? qtyPerTurn / turnVol : 0;
 
     totalIngredientCostUsd += lineTotal;
     breakdown.push({

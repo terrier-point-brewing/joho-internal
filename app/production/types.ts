@@ -223,7 +223,13 @@ export interface RecipeIngredientRow {
   ingredient_id: string;
   /** Quantity charged into one brew turn, exactly as entered. Source of truth. */
   quantity_per_turn: number;
-  /** Derived from quantity_per_turn by DB trigger. Never written by the app. */
+  /**
+   * quantity_per_turn ÷ expected_yield_bbl, maintained by a DB trigger. Never
+   * written by the app, and never multiply it back out to get a quantity: the
+   * denominator is post-loss liquid, not the turn size, so the round-trip
+   * inflates the bill by turn/yield. Commitments, stock deductions and deposit
+   * pricing all read quantity_per_turn instead.
+   */
   quantity_per_bbl: number;
   ingredients: Ingredient;
 }

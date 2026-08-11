@@ -18,7 +18,7 @@ interface BatchRow {
 }
 
 interface RecipeIngredientRow {
-  quantity_per_bbl: number;
+  quantity_per_turn: number;
   ingredients: { id: string; name: string; unit: string; cost_per_unit_usd: number | null } | null;
 }
 
@@ -52,12 +52,12 @@ function stub(batch: BatchRow | null, ingredients: RecipeIngredientRow[]): Supab
 const batch: BatchRow = { id: "b1", beer_name: "Test IPA", volume_bbl: 10, turns: 1, recipe_id: "r1" };
 
 describe("calculateIngredientDeposit", () => {
-  it("computes deposit_cents = round(sum(qty/bbl × cost/unit) × volume × pct/100 × 100)", async () => {
-    // 2 units/bbl × $0.6171/unit × 10 bbl = $12.342 total ; 100% deposit.
+  it("computes deposit_cents = round(sum(qty/turn × turns × cost/unit) × pct/100 × 100)", async () => {
+    // 20 units/turn × 1 turn × $0.6171/unit = $12.342 total ; 100% deposit.
     // $12.342 → dollarsToCents → round(1234.2) = 1234 cents.
     const result = await calculateIngredientDeposit(
       stub(batch, [
-        { quantity_per_bbl: 2, ingredients: { id: "i1", name: "Malt", unit: "lb", cost_per_unit_usd: 0.6171 } },
+        { quantity_per_turn: 20, ingredients: { id: "i1", name: "Malt", unit: "lb", cost_per_unit_usd: 0.6171 } },
       ]),
       "b1",
       100
@@ -73,7 +73,7 @@ describe("calculateIngredientDeposit", () => {
     // total $12.342 × 50% = $6.171 → round(617.1) = 617 cents.
     const result = await calculateIngredientDeposit(
       stub(batch, [
-        { quantity_per_bbl: 2, ingredients: { id: "i1", name: "Malt", unit: "lb", cost_per_unit_usd: 0.6171 } },
+        { quantity_per_turn: 20, ingredients: { id: "i1", name: "Malt", unit: "lb", cost_per_unit_usd: 0.6171 } },
       ]),
       "b1",
       50
@@ -82,11 +82,11 @@ describe("calculateIngredientDeposit", () => {
   });
 
   it("sums multiple ingredients then rounds once at the cents boundary", async () => {
-    // (1 × 1.005 + 1 × 2.00) × 1 bbl = $3.005 total → round(300.5) = 301 cents.
+    // (1 + 2.00) per turn × 1 turn = $3.005 total → round(300.5) = 301 cents.
     const result = await calculateIngredientDeposit(
       stub({ ...batch, volume_bbl: 1 }, [
-        { quantity_per_bbl: 1, ingredients: { id: "i1", name: "Hops", unit: "oz", cost_per_unit_usd: 1.005 } },
-        { quantity_per_bbl: 1, ingredients: { id: "i2", name: "Yeast", unit: "pkg", cost_per_unit_usd: 2.0 } },
+        { quantity_per_turn: 1, ingredients: { id: "i1", name: "Hops", unit: "oz", cost_per_unit_usd: 1.005 } },
+        { quantity_per_turn: 1, ingredients: { id: "i2", name: "Yeast", unit: "pkg", cost_per_unit_usd: 2.0 } },
       ]),
       "b1",
       100
@@ -97,14 +97,45 @@ describe("calculateIngredientDeposit", () => {
   it("skips ingredients with a null cost_per_unit_usd", async () => {
     const result = await calculateIngredientDeposit(
       stub({ ...batch, volume_bbl: 1 }, [
-        { quantity_per_bbl: 1, ingredients: { id: "i1", name: "Water", unit: "gal", cost_per_unit_usd: null } },
-        { quantity_per_bbl: 4, ingredients: { id: "i2", name: "Malt", unit: "lb", cost_per_unit_usd: 0.25 } },
+        { quantity_per_turn: 1, ingredients: { id: "i1", name: "Water", unit: "gal", cost_per_unit_usd: null } },
+        { quantity_per_turn: 4, ingredients: { id: "i2", name: "Malt", unit: "lb", cost_per_unit_usd: 0.25 } },
       ]),
       "b1",
       100
     );
-    // only the malt counts: 4 × 0.25 × 1 = $1.00 → 100 cents.
+    // only the malt counts: 4/turn × 1 turn × 0.25 = $1.00 → 100 cents.
     expect(result.deposit_cents).toBe(100);
     expect(result.ingredient_count).toBe(1);
+  });
+
+  // A partner is billed for the grain the brewer weighed out, not for the rate
+  // that came back from dividing it by a below-turn yield. The displayed
+  // per-bbl figure spreads the bill over the turn's own volume, so
+  // rate × volume still reconciles to the line total on the invoice.
+  it("prices the entered bill, and reports a per-bbl rate that ties to it", async () => {
+    const result = await calculateIngredientDeposit(
+      stub({ ...batch, volume_bbl: 20, turns: 1 }, [
+        { quantity_per_turn: 55, ingredients: { id: "i1", name: "Debittered Black", unit: "lb", cost_per_unit_usd: 1 } },
+      ]),
+      "b1",
+      100
+    );
+    expect(result.total_ingredient_cost_usd).toBeCloseTo(55, 6);
+    const line = result.breakdown[0];
+    expect(line.quantity_per_bbl).toBeCloseTo(2.75, 6);
+    expect(line.quantity_per_bbl * 20).toBeCloseTo(55, 6);
+  });
+
+  // Two turns of the same recipe buy two bills' worth of grain.
+  it("scales the bill by the turn count", async () => {
+    const result = await calculateIngredientDeposit(
+      stub({ ...batch, volume_bbl: 40, turns: 2 }, [
+        { quantity_per_turn: 55, ingredients: { id: "i1", name: "Debittered Black", unit: "lb", cost_per_unit_usd: 1 } },
+      ]),
+      "b1",
+      100
+    );
+    expect(result.total_ingredient_cost_usd).toBeCloseTo(110, 6);
+    expect(result.breakdown[0].quantity_per_bbl).toBeCloseTo(2.75, 6);
   });
 });

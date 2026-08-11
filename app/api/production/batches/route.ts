@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
   if (batchErr) return NextResponse.json({ error: batchErr.message }, { status: 500 });
 
   // Reserve ingredient stock for this batch's planning period.
-  await upsertCommitments(supabase, batch.id, recipe_id, volume_bbl);
+  await upsertCommitments(supabase, batch.id, recipe_id, Math.max(1, Number(turns ?? 1)));
 
   // Persist extra fields not handled by the RPC
   const extras: Record<string, unknown> = {};

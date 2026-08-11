@@ -36,7 +36,7 @@ export async function PATCH(
   // Fetch current row to detect status changes and re-evaluate commitments.
   const { data: current } = await supabase
     .from("brew_batches")
-    .select("status, recipe_id, volume_bbl")
+    .select("status, recipe_id, volume_bbl, turns")
     .eq("id", id)
     .single();
 
@@ -60,14 +60,16 @@ export async function PATCH(
     });
   }
 
-  // Re-compute ingredient commitments when recipe or volume changes.
-  const recipeChanged  = "recipe_id"   in updates && updates.recipe_id  !== current?.recipe_id;
-  const volumeChanged  = "volume_bbl"  in updates && updates.volume_bbl !== current?.volume_bbl;
-  if (recipeChanged || volumeChanged) {
-    const effectiveRecipeId  = (updates.recipe_id  as string | undefined) ?? current?.recipe_id;
-    const effectiveVolumeBbl = (updates.volume_bbl as number | undefined) ?? current?.volume_bbl;
-    if (effectiveRecipeId && effectiveVolumeBbl != null) {
-      await upsertCommitments(supabase, id, effectiveRecipeId, Number(effectiveVolumeBbl));
+  // Re-compute ingredient commitments when the recipe or the turn count changes.
+  // Volume is deliberately NOT a trigger: the grain bill is per brewhouse turn,
+  // so editing a batch's expected liquid yield must not move what it reserves.
+  const recipeChanged = "recipe_id" in updates && updates.recipe_id !== current?.recipe_id;
+  const turnsChanged  = "turns"     in updates && updates.turns     !== current?.turns;
+  if (recipeChanged || turnsChanged) {
+    const effectiveRecipeId = (updates.recipe_id as string | undefined) ?? current?.recipe_id;
+    const effectiveTurns    = (updates.turns     as number | undefined) ?? current?.turns;
+    if (effectiveRecipeId) {
+      await upsertCommitments(supabase, id, effectiveRecipeId, Math.max(1, Number(effectiveTurns ?? 1)));
     }
   }
 

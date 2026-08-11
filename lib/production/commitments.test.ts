@@ -2,7 +2,7 @@
 //
 // Characterization tests for the ingredient-commitment helpers. All three are
 // async DB orchestration, but each carries load-bearing pure logic:
-//   • upsertCommitments  → committed_qty = quantity_per_bbl × volumeBbl per ingredient
+//   • upsertCommitments  → committed_qty = quantity_per_turn × turns per ingredient
 //   • releaseCommitments → stamps released_at (ISO string)
 //   • getShortfalls      → stock is claimed by pre-brew batches in
 //                          planned_brew_date order; this batch is short only on
@@ -10,7 +10,7 @@
 //                          the remainder is < -0.001, rounding to 3 dp.
 // We drive them with a stub that returns fixed rows and records mutation payloads,
 // then assert the REAL computed values (the upsert rows, the shortfall numbers) —
-// not that a mock was called. Boundaries: empty recipe, zero volume, exact-stock
+// not that a mock was called. Boundaries: empty recipe, a single turn, exact-stock
 // (no shortfall), the -0.001 tolerance edge, rounding to 3 dp, priority ordering
 // (earlier date wins, undated sorts last, same-date ties break on batch_id),
 // post-planning batches excluded, and the yeast re-pitch exemption.
@@ -25,7 +25,7 @@ interface Recorded { table: string; op: string; payload: unknown }
 // that releases every unreleased commitment NOT in the recipe. The stub records
 // both, including the `.not("ingredient_id","in",…)` filter — that filter is the
 // whole fix, so an assertion that ignored it would pass on the buggy version.
-function upsertStub(ris: Array<{ ingredient_id: string; quantity_per_bbl: number }> | null) {
+function upsertStub(ris: Array<{ ingredient_id: string; quantity_per_turn: number }> | null) {
   const recorded: Recorded[] = [];
   const from = (table: string) => {
     const b: Record<string, unknown> = {};
@@ -53,10 +53,10 @@ function upsertStub(ris: Array<{ ingredient_id: string; quantity_per_bbl: number
 }
 
 describe("upsertCommitments", () => {
-  it("computes committed_qty = quantity_per_bbl × volumeBbl per ingredient", async () => {
+  it("computes committed_qty = quantity_per_turn × turns per ingredient", async () => {
     const { client, recorded } = upsertStub([
-      { ingredient_id: "hops", quantity_per_bbl: 2 },
-      { ingredient_id: "malt", quantity_per_bbl: 10.5 },
+      { ingredient_id: "hops", quantity_per_turn: 2 },
+      { ingredient_id: "malt", quantity_per_turn: 10.5 },
     ]);
     await upsertCommitments(client, "batch1", "recipe1", 4);
     const upserts = recorded.filter((r) => r.op === "upsert");
@@ -70,11 +70,15 @@ describe("upsertCommitments", () => {
     ]);
   });
 
-  it("produces zero committed_qty at zero volume", async () => {
-    const { client, recorded } = upsertStub([{ ingredient_id: "hops", quantity_per_bbl: 2 }]);
-    await upsertCommitments(client, "b", "r", 0);
+  // The recipe is the bill for ONE turn, so a single-turn batch commits it
+  // verbatim. This is the B-058 regression: the old rate round-trip divided by
+  // expected_yield_bbl (19.5) and multiplied back by volume (20), turning an
+  // entered 55 lb into 56.41. A lower yield never adds grain.
+  it("commits the per-turn quantity verbatim for a single turn", async () => {
+    const { client, recorded } = upsertStub([{ ingredient_id: "debittered-black", quantity_per_turn: 55 }]);
+    await upsertCommitments(client, "b58", "black-lager", 1);
     const upsert = recorded.find((r) => r.op === "upsert")!;
-    expect((upsert.payload as Array<{ committed_qty: number }>)[0].committed_qty).toBe(0);
+    expect((upsert.payload as Array<{ committed_qty: number }>)[0].committed_qty).toBe(55);
   });
 
   // The B-056 regression: swapping a batch onto a new recipe must not leave the
@@ -82,8 +86,8 @@ describe("upsertCommitments", () => {
   // released in the same pass as the upsert.
   it("releases commitments for ingredients no longer in the recipe", async () => {
     const { client, recorded } = upsertStub([
-      { ingredient_id: "pilsner-malt", quantity_per_bbl: 16.5 },
-      { ingredient_id: "hallertau", quantity_per_bbl: 0.178 },
+      { ingredient_id: "pilsner-malt", quantity_per_turn: 16.5 },
+      { ingredient_id: "hallertau", quantity_per_turn: 0.178 },
     ]);
     await upsertCommitments(client, "b56", "pilsner", 40);
     const prune = recorded.find((r) => r.op === "prune");
@@ -110,12 +114,12 @@ describe("upsertCommitments", () => {
 
 // ── resyncRecipeCommitments ──────────────────────────────────────────────────
 describe("resyncRecipeCommitments", () => {
-  it("re-commits every pre-brew batch at its own volume, and only those", async () => {
-    const ris = [{ ingredient_id: "malt", quantity_per_bbl: 10 }];
+  it("re-commits every pre-brew batch at its own turn count, and only those", async () => {
+    const ris = [{ ingredient_id: "malt", quantity_per_turn: 10 }];
     const batches = [
-      { id: "b1", volume_bbl: "40.00" },
-      { id: "b2", volume_bbl: "15.5" },
-      { id: "b3", volume_bbl: null },   // no volume — nothing to compute
+      { id: "b1", turns: 2 },
+      { id: "b2", turns: 1 },
+      { id: "b3", turns: null },   // unset turns falls back to a single turn
     ];
     let statusFilter: string[] | null = null;
     const upserts: unknown[] = [];
@@ -136,8 +140,9 @@ describe("resyncRecipeCommitments", () => {
     // them would double-charge, so the query must not reach past pre-brew.
     expect(statusFilter).toEqual(["planning", "backlog"]);
     expect(upserts).toEqual([
-      [{ batch_id: "b1", ingredient_id: "malt", committed_qty: 400, released_at: null }],
-      [{ batch_id: "b2", ingredient_id: "malt", committed_qty: 155, released_at: null }],
+      [{ batch_id: "b1", ingredient_id: "malt", committed_qty: 20, released_at: null }],
+      [{ batch_id: "b2", ingredient_id: "malt", committed_qty: 10, released_at: null }],
+      [{ batch_id: "b3", ingredient_id: "malt", committed_qty: 10, released_at: null }],
     ]);
   });
 });
