@@ -41,6 +41,33 @@ on conflict (key) do nothing;
 -- corrected to what the form actually asks for (line 4, "Brewer's Notice
 -- Number") instead of the generic "Account / License #" the restructure seeded.
 --
+-- `tax_registrations.registration_kind` is gated by an enumerated CHECK, and
+-- the gate is right: a kind that no `RequiredRegistration` declares is a typo,
+-- not a new fact, and nothing would ever resolve it. So the constraint is
+-- TAUGHT the new kind rather than loosened — the enumeration stays closed, it
+-- just knows one more member. (Contrast 20260xxx's `external_account_code`
+-- lesson: an enumerated CHECK on a value a VENDOR supplies is wrong, because
+-- their vocabulary isn't ours to bound. This value is ours: it must match a
+-- registrationKey declared in lib/tax/parties/, and that set is finite and
+-- known at deploy time.)
+alter table public.tax_registrations
+  drop constraint tax_registrations_registration_kind_check;
+
+alter table public.tax_registrations
+  add constraint tax_registrations_registration_kind_check
+  check (
+    registration_kind is null
+    or registration_kind = any (array[
+      'fein',
+      'abc_permit_number',
+      'abc_permit_number_onpremise',
+      'nc_dor_account_id',
+      'wake_county_account_id',
+      'wake_county_pin',
+      'ttb_brewers_notice'
+    ])
+  );
+
 -- Scoped by `registration_kind is null` so this can only ever touch the
 -- unclaimed row: if an operator has since added their own freeform federal_ttb
 -- rows, this would hit them too, hence the additional label guard.
