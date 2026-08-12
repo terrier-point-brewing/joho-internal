@@ -3,7 +3,7 @@
  * contra-revenue account (GL 4999) is the wrong answer.
  *
  * Thin wrapper over `refund_gl_routing`. See lib/finance/refundRouting.ts for
- * how a rule is applied at sync time, and 20261013090000_refund_gl_routing.sql
+ * how a rule is applied at sync time, and 20261013090001_refund_gl_routing.sql
  * for why the rule is data rather than a special case for GL 2420.
  *
  * POST creates a rule, PATCH edits or deactivates one, DELETE removes one
