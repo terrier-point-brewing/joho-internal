@@ -358,6 +358,39 @@ export async function PUT(req: NextRequest) {
 
     const existingRow = existing as { config: Record<string, unknown>; active: boolean } | null;
 
+    // ── One ACTIVE method per account ────────────────────────────────────────
+    // Not a tidiness rule. resolveSnapshotWrites sums every active source on an
+    // account, so a second one is added straight into the balance -- and when
+    // the two methods share a step (any pair including transactionPostings),
+    // both write the same `${coaId}:${providerKey}` key, so the figure is added
+    // twice and shown in the breakdown once. The account then reports a total
+    // its own explainer panel cannot account for.
+    //
+    // Enforced here as well as by the partial unique index, so the answer is a
+    // sentence rather than a Postgres 23505. The index is the guarantee; this is
+    // the manners.
+    const activating = "active" in body ? (body.active ?? true) : (existingRow?.active ?? true);
+    if (activating) {
+      const { data: others, error: othersError } = await supabase
+        .from("balance_sheet_account_sources")
+        .select("provider_key")
+        .eq("chart_of_accounts_id", body.coaId)
+        .eq("active", true)
+        .neq("provider_key", body.providerKey);
+      if (othersError) throw othersError;
+
+      const clash = (others ?? []) as { provider_key: string }[];
+      if (clash.length > 0) {
+        const inUse = getMethod(clash[0].provider_key)?.label ?? clash[0].provider_key;
+        return NextResponse.json(
+          {
+            error: `This account is already worked out by "${inUse}". Remove that first — an account can only have one method, because two would be added together.`,
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const row = {
       chart_of_accounts_id: body.coaId,
       provider_key: body.providerKey,

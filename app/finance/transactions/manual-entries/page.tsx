@@ -3,8 +3,19 @@
 // Finance > Transactions > Manual Entries — the auditable UI for the
 // manual_entries table (lib/finance/manualEntries.ts, app/api/finance/
 // manual-entries/route.ts). Replaces app/taproom/components/ManualEntriesTab.tsx
-// (retired in Task 5): a "flow" entry prorates onto the P&L by day overlap; a
-// "balance" entry feeds the Balance Sheet as of a month end. The month-end
+// (retired in Task 5).
+//
+// Two kinds, stored as "flow" and "balance" and shown as "Transaction" and
+// "Balance". A TRANSACTION is a movement over a date range: it prorates by day
+// overlap and ADDS to its account, counting beside the invoices, expenses and
+// bank lines that arrived from a feed -- on the P&L and, since transaction
+// postings began reading them, on the Balance Sheet too. A BALANCE states an
+// account's total at a month end and is the whole answer for an account on the
+// Manual entry method; nothing else counts towards it.
+//
+// The stored values did not change with the labels: "flow" is a DB CHECK
+// constraint value with several readers, and renaming it would be a migration
+// for no gain a person can see. The month-end
 // close checklist that used to sit on top of this ledger now lives at its own
 // address, Finance > Period Close -- this page is purely the ledger.
 
@@ -46,7 +57,11 @@ import AccountSelect, { type CoARef } from "../../AccountSelect";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const KIND_OPTIONS = [
-  { value: "flow", label: "Flows" },
+  // The stored values stay "flow"/"balance" -- they are a DB CHECK constraint
+  // and appear in several readers. Only what a person READS changed, because
+  // "flow" named the implementation and "Flow (P&L)" became untrue the day
+  // transaction postings started counting these on balance-sheet accounts too.
+  { value: "flow", label: "Transactions" },
   { value: "balance", label: "Balances" },
 ];
 
@@ -171,10 +186,10 @@ function ManualEntryFormModal({
         <Field label="Kind" required>
           <div className="flex items-center gap-1.5">
             <ToggleChip active={entryKind === "flow"} onClick={() => handleKindChange("flow")}>
-              Flow (P&amp;L)
+              Transaction (adds to the account)
             </ToggleChip>
             <ToggleChip active={entryKind === "balance"} onClick={() => handleKindChange("balance")}>
-              Balance (Balance Sheet)
+              Balance (states the account&apos;s total)
             </ToggleChip>
           </div>
         </Field>
@@ -265,7 +280,7 @@ function ManualEntryRow({
   return (
     <tr className="border-t border-line/40 hover:bg-surface-mid/20">
       <td className="px-4 py-2">
-        <Badge tone={isFlow ? "info" : "accent"}>{isFlow ? "Flow" : "Balance"}</Badge>
+        <Badge tone={isFlow ? "info" : "accent"}>{isFlow ? "Transaction" : "Balance"}</Badge>
       </td>
       <td className="px-4 py-2 text-body">{accountLabel(account)}</td>
       <td className="px-4 py-2 text-secondary whitespace-nowrap">
@@ -282,7 +297,7 @@ function ManualEntryRow({
           must not render as the em-dash sentinel the shared money formatter
           uses for "nothing here" -- that is what made a legitimately empty
           cash tin indistinguishable on screen from an account nobody had
-          touched. Both kinds, not just balances: a zero flow is a deliberate
+          touched. Both kinds, not just balances: a zero transaction is a deliberate
           correction and reads the same way. */}
       <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatBalanceCents(entry.amountCents)}</td>
       <td className="px-4 py-2 text-right font-mono text-muted">
@@ -467,8 +482,9 @@ export default function ManualEntriesPage() {
             ))}
           </LedgerTable>
           <p className="py-3 text-2xs text-faint">
-            Flows prorate by day overlap onto the P&amp;L. Balances are recorded as of their month end and
-            are staged for the Balance Sheet — no statement reads them yet.
+            A transaction spreads across the days it covers and adds to its account, counting beside the
+            invoices, expenses and bank lines that arrived on their own. A balance states an account&apos;s
+            total at a month end, and is the whole answer for an account set to Manual entry.
           </p>
         </div>
       )}
@@ -477,7 +493,7 @@ export default function ManualEntriesPage() {
         <SummaryStatBar
           stats={[
             { label: "Entries", value: visibleEntries.length },
-            { label: "Flows", value: flowCount },
+            { label: "Transactions", value: flowCount },
             { label: "Balances", value: balanceCount },
             { label: "Net total", value: formatCurrencyCents(netTotal), tone: netTotal < 0 ? "accent" : "strong" },
           ]}
@@ -503,7 +519,7 @@ export default function ManualEntriesPage() {
           message={
             <>
               <p>
-                Delete this {deleteTarget.entryKind === "flow" ? "flow" : "balance"} entry
+                Delete this {deleteTarget.entryKind === "flow" ? "transaction" : "balance"} entry
                 {deleteTarget.label ? ` (“${deleteTarget.label}”)` : ""}?
                 {deleteTarget.entryKind === "flow"
                   ? " This removes it from the P&L immediately."

@@ -33,6 +33,8 @@ function fakeClient(opts: {
   refundRows?: { amount_cents: number | null }[];
   /** Partial rows; the inclusion columns default to what an ordinary Ramp row carries. */
   bankRows?: ({ amount_cents: number | null } & Partial<{ source: string; counterparty_key: string | null; counterparty_name: string | null; include_in_gl: boolean }>)[];
+  /** manual_entries rows of kind "flow" — a movement somebody typed. */
+  manualRows?: { id: string; start_date: string | null; end_date: string | null; amount_cents: number | null }[];
   /** Rows of bank_ledger_gl_rules — the operator's standing decisions. Empty is the production state. */
   glRules?: { scope: string; source: string; counterparty_key: string | null; included: boolean }[];
 }): SupabaseClient {
@@ -80,6 +82,7 @@ function fakeClient(opts: {
         return chain;
       }
       if (table === "square_refunds") return paginated(opts.refundRows ?? [], table);
+      if (table === "manual_entries") return paginated(opts.manualRows ?? [], table);
       if (table === "bank_ledger") {
         // The DB gives every row a source and an include_in_gl (default true);
         // fixtures say so only when the test is about one of them.
@@ -288,5 +291,88 @@ describe("transactionPostings — split precedence", () => {
       splitParents: [],
     });
     expect(await transactionPostings.compute(ctx(supabase))).toBe(1000000);
+  });
+});
+
+// ── Manual entries ───────────────────────────────────────────────────────────
+// A "flow" entry is a movement somebody typed, and postings counts it beside
+// the ones the feeds delivered. This is the seam between the two methods: this
+// one listens to everything and chases nobody; manual entry listens only to the
+// operator and chases them every month.
+
+describe("transactionPostings — manual entries", () => {
+  const ASSET_COA: CoaRow = {
+    id: "coa-1520",
+    parent_id: null,
+    account_name: "Brewery Machinery & Equipment",
+    account_number: "1520",
+    account_type: "Fixed Assets",
+    statement_section: null,
+  };
+
+  function assetCtx(supabase: SupabaseClient, periodEnd: string) {
+    return ctx(supabase, "coa-1520", periodEnd);
+  }
+
+  it("counts a typed movement, letting an account with no feed activity report a real balance", async () => {
+    const supabase = fakeClient({
+      coa: ASSET_COA,
+      manualRows: [{ id: "m1", start_date: "2026-06-01", end_date: "2026-06-30", amount_cents: 250_000_00 }],
+    });
+
+    expect(await transactionPostings.compute(assetCtx(supabase, "2026-07-31"))).toBe(250_000_00);
+  });
+
+  it("adds typed movements to the ones the feeds delivered", async () => {
+    const supabase = fakeClient({
+      coa: ASSET_COA,
+      manualRows: [{ id: "m1", start_date: "2026-06-01", end_date: "2026-06-30", amount_cents: 250_000_00 }],
+      // A later equipment purchase, arriving as an ordinary outflow. On a
+      // balance-sheet section normalizeSignedCents reads an asset-purchase
+      // outflow as a positive asset movement.
+      bankRows: [{ amount_cents: -12_000_00 }],
+    });
+
+    expect(await transactionPostings.compute(assetCtx(supabase, "2026-07-31"))).toBe(262_000_00);
+  });
+
+  it("passes the operator's sign through rather than re-deriving it", async () => {
+    // A negative flow is a legitimate correction, and a contra account's
+    // entries are stored negative. Running these through the section's sign
+    // rule would flip a deliberate credit into a debit.
+    const supabase = fakeClient({
+      coa: ASSET_COA,
+      manualRows: [{ id: "m1", start_date: "2026-06-01", end_date: "2026-06-30", amount_cents: -4_000_00 }],
+    });
+
+    expect(await transactionPostings.compute(assetCtx(supabase, "2026-07-31"))).toBe(-4_000_00);
+  });
+
+  it("prorates an entry spanning several months, counting only the part that has happened", async () => {
+    // 90 days at $900 total, asked about the end of the first month: 30 of 90
+    // days have elapsed, so a third of it has.
+    const supabase = fakeClient({
+      coa: ASSET_COA,
+      manualRows: [{ id: "m1", start_date: "2026-06-01", end_date: "2026-08-29", amount_cents: 900_00 }],
+    });
+
+    expect(await transactionPostings.compute(assetCtx(supabase, "2026-06-30"))).toBe(300_00);
+  });
+
+  it("ignores a balance entry — a stated position is the manual method's input, not a movement", async () => {
+    const calls: string[] = [];
+    const supabase = fakeClient({ coa: ASSET_COA, calls });
+
+    await transactionPostings.compute(assetCtx(supabase, "2026-07-31"));
+
+    // Adding a position to a running total of movements would count everything
+    // the position already contains a second time.
+    expect(calls).toContain("manual_entries.eq(entry_kind,flow)");
+  });
+
+  it("still reports an account with nothing at all as unsourced, not as zero", async () => {
+    const supabase = fakeClient({ coa: ASSET_COA });
+
+    expect(await transactionPostings.compute(assetCtx(supabase, "2026-07-31"))).toBeNull();
   });
 });

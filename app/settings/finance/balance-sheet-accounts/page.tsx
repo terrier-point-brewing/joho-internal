@@ -602,6 +602,17 @@ export default function BalanceSheetAccountsPage() {
                   const addableKinds: MethodKind[] = (["manual", "postings", "calculation"] as MethodKind[]).filter(
                     (kind) => addable.some((key) => methodOf(key)?.kind === kind),
                   );
+                  // An account is worked out ONE way. A second active method is
+                  // summed into the first by resolveSnapshotWrites, and two
+                  // sharing a step double-count it while reporting it once --
+                  // so the picker disappears the moment a method is live, and
+                  // changing method means removing the one there. The database
+                  // enforces this too (balance_sheet_account_sources_one_active);
+                  // hiding the control is just not offering a door that is
+                  // locked. A DISABLED method still counts as chosen: leaving
+                  // the picker up would invite adding a second and then
+                  // re-enabling both.
+                  const alreadyHasMethod = account.sources.length > 0;
                   const kind = pendingKind[account.id] ?? "";
                   const chosen = chosenMethodKey(account);
                   const canExclude = parentIds.has(account.id);
@@ -660,7 +671,7 @@ export default function BalanceSheetAccountsPage() {
                             />
                           ))}
 
-                          {addableKinds.length > 0 && (
+                          {!alreadyHasMethod && addableKinds.length > 0 && (
                             <div className="flex items-center gap-2 flex-wrap">
                               <select
                                 value={kind}
