@@ -8,6 +8,7 @@ import {
   periodsNeedingTasks,
   isAlertEligible,
   ensureTasksForSchedule,
+  scheduleStartBoundary,
   tasksNeedingAlert,
   markAlerted,
   getTask,
@@ -241,6 +242,88 @@ describe("ensureTasksForSchedule", () => {
     await expect(
       ensureTasksForSchedule(client, makeSchedule(), refDate("2026-07-05"), 45),
     ).rejects.toThrow(/boom/);
+  });
+});
+
+describe("scheduleStartBoundary", () => {
+  it("defaults to the schedule's created_at date when config declares nothing", () => {
+    expect(scheduleStartBoundary(makeSchedule({ created_at: "2026-08-11T09:30:00Z" }))).toBe("2026-08-11");
+  });
+
+  it("prefers an explicit config.first_period_start over created_at", () => {
+    const schedule = makeSchedule({
+      created_at: "2026-08-11T09:30:00Z",
+      config: { first_period_start: "2026-07-01" },
+    });
+    expect(scheduleStartBoundary(schedule)).toBe("2026-07-01");
+  });
+
+  it("ignores a malformed first_period_start and falls back to created_at", () => {
+    const schedule = makeSchedule({
+      created_at: "2026-08-11T09:30:00Z",
+      config: { first_period_start: "July 2026" },
+    });
+    expect(scheduleStartBoundary(schedule)).toBe("2026-08-11");
+  });
+});
+
+describe("start boundary keeps a schedule out of periods that predate it", () => {
+  // Collects the period_end values a cron run would insert for `schedule`.
+  async function endsInsertedFor(schedule: TaxSchedule, today: string, lookbackDays: number): Promise<string[]> {
+    registerParty(stubParty);
+    const recorded: Recorded[] = [];
+    const client = {
+      from: (table: string) => ({
+        upsert: (payload: unknown, opts: unknown) => {
+          recorded.push({ table, op: "upsert", payload, args: [opts] });
+          return { select: () => Promise.resolve({ data: [], error: null }) };
+        },
+      }),
+    } as unknown as SupabaseClient;
+
+    await ensureTasksForSchedule(client, schedule, refDate(today), lookbackDays);
+    const payload = (recorded[0]?.payload ?? []) as { period_end: string }[];
+    return payload.map((row) => row.period_end);
+  }
+
+  it("periodsNeedingTasks drops periods that ended before the boundary", () => {
+    const periods = periodsNeedingTasks("quarterly", refDate("2026-11-05"), 400, stubParty, "2026-07-01");
+    expect(periods).toEqual<TaxPeriod[]>([
+      { start: "2026-07-01", end: "2026-09-30", due: "2026-10-31" },
+    ]);
+  });
+
+  it("a quarterly schedule created 2026-08 does not backfill 2025 or H1 2026 (the TTB beer excise case)", async () => {
+    const schedule = makeSchedule({
+      frequency: "quarterly",
+      created_at: "2026-08-05T00:00:00Z",
+    });
+    // Without a boundary a 400-day lookback would reach back to Q3 2025.
+    const ends = await endsInsertedFor(schedule, "2026-11-05", 400);
+    expect(ends).toEqual(["2026-09-30"]);
+    expect(ends.some((end) => end < "2026-08-05")).toBe(false);
+  });
+
+  it("honours an explicitly declared first_period_start ahead of created_at", async () => {
+    const schedule = makeSchedule({
+      frequency: "quarterly",
+      created_at: "2026-01-15T00:00:00Z",
+      config: { first_period_start: "2026-07-01" },
+    });
+    const ends = await endsInsertedFor(schedule, "2026-11-05", 400);
+    expect(ends).toEqual(["2026-09-30"]); // Q1 and Q2 2026 excluded despite the January created_at
+  });
+
+  it("an existing monthly schedule created long ago keeps its current behaviour", async () => {
+    const schedule = makeSchedule({ created_at: "2026-01-01T00:00:00Z" });
+    const ends = await endsInsertedFor(schedule, "2026-07-05", 45);
+    expect(ends).toEqual(["2026-05-31", "2026-06-30"]);
+  });
+
+  it("a schedule with no created_at at all still generates the full lookback window", async () => {
+    const schedule = makeSchedule({ created_at: "" });
+    const ends = await endsInsertedFor(schedule, "2026-07-05", 45);
+    expect(ends).toEqual(["2026-05-31", "2026-06-30"]);
   });
 });
 
