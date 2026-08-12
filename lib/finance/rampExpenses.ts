@@ -102,6 +102,11 @@ export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
     department_name:    null,
     transaction_time:   bill.issued_at || null,
     accounting_date:    day,
+    // Written on every line of every bill, every sync, including as null. A
+    // bill that is paid, or whose payment is reversed, has to carry that
+    // through the upsert -- leaving the old value would strand a settled bill
+    // in accounts payable, or worse, leave a re-opened one out of it.
+    settled_at:         bill.paid_at || null,
     counterparty_key:   null,
     counterparty_label: null,
     // Every line item of a bill shares the bill's QB sync state + remote id.
@@ -150,6 +155,53 @@ export function toExpenseRow(rec: ExpenseRecord): Omit<ExpenseRecord, "external_
   delete row.external_account_name;
   delete row.external_account_code;
   return row as Omit<ExpenseRecord, "external_account_name" | "external_account_code">;
+}
+
+/**
+ * Bring the settlement state of ALREADY-STORED bill rows up to date: whether the
+ * bill is still open, and when it was paid.
+ *
+ * ── Why this exists at all ───────────────────────────────────────────────────
+ * A bill is incurred in one month and paid in another, and the payment is
+ * frequently outside whatever window the caller asked to sync (the daily cron
+ * looks back 45 days; the webhook re-sync, two). Without this, a bill synced in
+ * June and paid in August keeps June's `state = 'OPEN'` and a null `settled_at`
+ * forever, and accounts payable goes on reporting a debt that was settled --
+ * growing, never shrinking, which is precisely the failure GL 2310 shipped with.
+ *
+ * ── Why it updates rather than re-upserting ──────────────────────────────────
+ * The obvious alternative is to hand every bill to syncExpenseRecords and let
+ * the upsert carry the new state. That would also re-run GL and counterparty
+ * resolution over bills nobody asked about, and re-insert rows for bills that
+ * were deliberately pruned or set aside. This touches two columns and creates
+ * nothing, so a bill's coding, exclusion and splits are all left exactly as they
+ * were. Rows for bills that are not stored simply match nothing.
+ *
+ * Best-effort by contract: callers catch. A settlement refresh failing must
+ * never take down the sync that carried the actual money movements.
+ */
+export async function refreshBillSettlement(
+  supabase: AdminClient,
+  bills: RampBill[],
+): Promise<{ refreshed: number }> {
+  let refreshed = 0;
+  for (const bill of bills) {
+    // Line-item grain: source_transaction_id is `${bill.id}:${lineIndex}`, so
+    // one bill owns every row under its id prefix. Anchored with the colon so
+    // one bill id can never prefix-match another's.
+    const { error, count } = await supabase
+      .from("expenses")
+      .update(
+        { state: normalizeState(bill.status), settled_at: bill.paid_at || null },
+        { count: "exact" },
+      )
+      .eq("source", SOURCE)
+      .eq("ramp_object", "bill")
+      .like("source_transaction_id", `${bill.id}:%`);
+    if (error) throw new Error(`Refresh bill settlement failed: ${error.message}`);
+    refreshed += count ?? 0;
+  }
+  return { refreshed };
 }
 
 export async function syncExpenseRecords(

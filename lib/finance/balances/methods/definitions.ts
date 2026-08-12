@@ -19,6 +19,7 @@ import { INVENTORY_POOL_KEY } from "../providers/inventoryOnHand";
 import type { CoaAccountRef } from "../../financials/types";
 
 const isReceivable = (coa: CoaAccountRef) => coa.statementSection === "ar";
+const isPayable = (coa: CoaAccountRef) => coa.statementSection === "ap";
 const isEquity = (coa: CoaAccountRef) => coa.statementSection === "equity";
 const isCurrentLiability = (coa: CoaAccountRef) => coa.statementSection === "other_current_liabilities";
 const isBank = (coa: CoaAccountRef) => coa.statementSection === "bank";
@@ -198,6 +199,44 @@ const accountsReceivable: BalanceMethod = {
     postingsStep(
       "Direct adjustments",
       "Anything coded straight to receivables rather than arriving as an invoice. Usually nothing, but it would be silently lost without this step.",
+      "net",
+    ),
+  ],
+};
+
+/**
+ * GL 2000 Accounts Payable — the mirror of the method above, and paired with it
+ * deliberately: A/R is what customers owe this business, A/P is what this
+ * business owes its suppliers, and both are built the same way (the open items,
+ * plus whatever was coded straight to the account).
+ *
+ * ── Why this is a calculation and not Manual entry ───────────────────────────
+ * The account looked unsourceable, because there is no bills table: the obvious
+ * places to look -- `suppliers`, `invoices` -- are the customer side and a
+ * materials directory respectively. The payables are in `expenses`, under
+ * `ramp_object = 'bill'`, because Ramp Bill Pay is where this business's net-
+ * terms suppliers are paid. An OPEN bill is already an expense on the accrual
+ * P&L the day it arrives; until this method existed, nothing carried the
+ * matching liability, so the balance sheet was out by the open-bill total.
+ */
+const accountsPayable: BalanceMethod = {
+  key: "accountsPayable",
+  label: "Accounts payable",
+  kind: "calculation",
+  summary: "What you still owe suppliers on bills you have received but not yet paid.",
+  appliesTo: isPayable,
+  steps: [
+    {
+      providerKey: "openBillAp",
+      label: "Unpaid bills",
+      description:
+        "Every bill entered in Ramp Bill Pay dated on or before this month end that had not been paid by then. A bill paid later still counts for the months it was outstanding, so an older month reads the same today as it did when it was closed. Bills are counted line by line, so one invoice split across several accounts is counted once in total.",
+      source: "Ramp Bill Pay",
+      direction: "add",
+    },
+    postingsStep(
+      "Direct adjustments",
+      "Anything coded straight to accounts payable rather than arriving as a Ramp bill — a supplier paid on terms outside Ramp, or an opening figure booked by hand. Usually nothing, but it would be silently lost without this step.",
       "net",
     ),
   ],
@@ -486,6 +525,7 @@ export const BUILT_IN_METHODS: BalanceMethod[] = [
   salesTaxPayable,
   undistributedTips,
   accountsReceivable,
+  accountsPayable,
   retainedEarnings,
   inventoryOnHand,
   rampAccountBalance,

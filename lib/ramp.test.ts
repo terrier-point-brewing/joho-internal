@@ -4,7 +4,9 @@ import {
   toRampDatetime,
   normalizeCounterparty,
   getRampAccountBalanceHistory,
+  billInWindow,
 } from "./ramp";
+import type { RampBill } from "./ramp";
 
 describe("toRampDatetime", () => {
   it("expands a bare date to an RFC 3339 datetime (start vs end of day)", () => {
@@ -107,6 +109,35 @@ describe("extractGlAccount", () => {
     expect(extractGlAccount({ accounting_field_selections: [{ category_info: { id: "gl-field", name: "Category", type: "GL_ACCOUNT" } }] })).toBeNull();
     expect(extractGlAccount({ accounting_field_selections: [{ type: "GL_ACCOUNT" }] })).toBeNull();
     expect(extractGlAccount({ accounting_field_selections: [{ category_info: { id: "d-field", name: "Department", type: "DEPARTMENT" }, id: "d-1", name: "Sales" }] })).toBeNull();
+  });
+});
+
+describe("billInWindow", () => {
+  const at = (accounting_date: string) => ({ accounting_date } as RampBill);
+
+  it("keeps a bill inside the window and drops one on either side", () => {
+    expect(billInWindow(at("2026-07-15T00:00:00Z"), "2026-07-01", "2026-07-31")).toBe(true);
+    expect(billInWindow(at("2026-06-30T00:00:00Z"), "2026-07-01", "2026-07-31")).toBe(false);
+    expect(billInWindow(at("2026-08-01T00:00:00Z"), "2026-07-01", "2026-07-31")).toBe(false);
+  });
+
+  it("treats both bounds as inclusive", () => {
+    expect(billInWindow(at("2026-07-01T00:00:00Z"), "2026-07-01", "2026-07-31")).toBe(true);
+    expect(billInWindow(at("2026-07-31T23:00:00Z"), "2026-07-01", "2026-07-31")).toBe(true);
+  });
+
+  it("keeps every bill when no window is given", () => {
+    // rampSync.ts depends on this: it fetches unwindowed so it can refresh the
+    // settlement state of bills paid long outside the caller's window.
+    expect(billInWindow(at("2020-01-01T00:00:00Z"))).toBe(true);
+  });
+
+  /**
+   * A bill with no accounting date is still a real debt, and dropping it here
+   * would lose it from accounts payable outright with nothing to say so.
+   */
+  it("keeps a bill that carries no date rather than dropping it", () => {
+    expect(billInWindow(at(""), "2026-07-01", "2026-07-31")).toBe(true);
   });
 });
 

@@ -10,13 +10,21 @@
 // a later task retires them once the snapshot read path replaces the
 // consolidated-financials balance-sheet mode.
 //
+// openBillAp (2000) joined them later. It is not a move -- there was no prior
+// accounts-payable calculation to reparameterize -- but it belongs here as the
+// mirror image of openInvoiceAr, and the two are best read as a pair.
+//
 // Sign: openInvoiceAr feeds an asset (1100) -- POSITIVE_SECTIONS, no flip.
 // tipAccrual (2310) and taxAccrual (2220/2250) feed liabilities --
 // NEGATIVE_SECTIONS in the internal convention (normalizeSign.ts), so both
 // negate their (always-positive) collected-amount sum before returning.
+// openBillAp (2000) is a liability too, but reaches the same place from the
+// other direction: its input is `expenses.amount_cents`, already negative
+// because a bill is an outflow, so it must NOT be negated a second time.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows } from "@/lib/supabase/paginate";
+import { applyExpenseStatementFilters } from "../../financials/expenseFilters";
 import { registerProvider, sharedRead } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
 
@@ -64,6 +72,89 @@ export const openInvoiceAr: BalanceProvider = {
     // synthesize a balance row.
     if (cents <= 0) return null;
     // Asset account: POSITIVE_SECTIONS, no sign flip needed.
+    return cents;
+  },
+};
+
+// ── openBillAp ───────────────────────────────────────────────────────────
+// The mirror of openInvoiceAr above: what THIS business owes suppliers on bills
+// it has received and not yet paid. Worth reading the two together, because they
+// differ in exactly one respect and that difference is the whole design.
+//
+// A/R can only be asked about today. `invoices.status = 'open'` is a current
+// status and the table carries no payment date, so March's receivables are
+// unreconstructible and openInvoiceAr is marked dependsOnCurrentState.
+//
+// A/P is not in that position. Ramp's bill object carries `paid_at` -- an
+// immutable timestamp rather than a status -- and lib/finance/rampSync.ts
+// persists it to expenses.settled_at on every sync, for every bill rather than
+// only those in the sync window. So "was this owed on the 30th of June" is
+// answerable from stored history: issued on or before the month end, and either
+// still unpaid or paid after it. No dependsOnCurrentState, and closed months
+// compute the same figure today as they did the day they closed.
+//
+// Where the bills come from: Ramp Bill Pay lands each bill in `expenses` at
+// line-item grain (lib/finance/rampExpenses.ts), coded per line, dated to when
+// the bill was issued. That is already the debit -- an OPEN bill is on the
+// accrual-basis P&L the day it arrives, since expenseFilters only excludes
+// DECLINED. This provider supplies the credit that was missing.
+
+/**
+ * `expenses` rows for bills owed at `periodEnd`, summed.
+ *
+ * Two conditions, and both are load-bearing:
+ *
+ *   accounting_date <= periodEnd  -- the bill had been received by then. A bill
+ *     Ramp dates into next month is not yet a debt, however early it was keyed.
+ *
+ *   settled_at is null OR settled_at > periodEnd -- it had not been paid by
+ *     then. The second half is what makes a past month answerable; without it
+ *     this would report every bill ever issued and never shrink.
+ *
+ * The eligibility filter is the shared one every statement uses, on its accrual
+ * setting: a DECLINED or manually excluded row is not a debt.
+ */
+async function fetchOpenBillApCents(supabase: SupabaseClient, periodEnd: string): Promise<{ cents: number; rows: number }> {
+  const rows = await fetchAllRows<{ amount_cents: number | null }>(() =>
+    applyExpenseStatementFilters(
+      supabase
+        .from("expenses")
+        .select("amount_cents")
+        .eq("ramp_object", "bill")
+        .lte("accounting_date", periodEnd)
+        // `settled_at` is a timestamptz and `periodEnd` a calendar day, so the
+        // comparison is against the first instant AFTER that day: a bill paid at
+        // 14:46 on the 31st was paid IN the month, not after it.
+        .or(`settled_at.is.null,settled_at.gte.${exclusiveEnd(periodEnd)}`)
+        .order("id", { ascending: true }),
+      false,
+    ),
+  );
+  return { cents: rows.reduce((s, r) => s + (r.amount_cents ?? 0), 0), rows: rows.length };
+}
+
+export const openBillAp: BalanceProvider = {
+  key: "openBillAp",
+  label: "Open bill A/P",
+  kind: "derived",
+  appliesTo: (coa) => coa.accountNumber === "2000",
+  async compute(ctx: BalanceContext): Promise<number | null> {
+    const { cents, rows } = await sharedRead(ctx, `openBillAp:${ctx.periodEnd}`, () =>
+      fetchOpenBillApCents(ctx.supabase, ctx.periodEnd),
+    );
+    // No unpaid bills found is reported as UNKNOWN, not as zero, and the
+    // distinction is the point. "Nothing was owed that month" and "the bill feed
+    // never ran, or had not been connected yet" produce the identical empty
+    // result here, and there is nothing in the row set to tell them apart. A
+    // confident $0 on a payables account reads as reconciled when it is only
+    // blind; a blank reads as unsourced, which is the truth. Same call
+    // openInvoiceAr makes one screen up.
+    if (rows === 0) return null;
+    // Bill amounts arrive already signed by cash direction -- an outflow, so
+    // negative -- and a liability is negative in the internal convention, so the
+    // sum passes through unflipped. Returned as the NET rather than as a
+    // magnitude so a vendor credit, which arrives positive, reduces the debt
+    // instead of inflating it.
     return cents;
   },
 };
@@ -245,5 +336,6 @@ export const taxAccrual: BalanceProvider = {
 };
 
 registerProvider(openInvoiceAr);
+registerProvider(openBillAp);
 registerProvider(tipAccrual);
 registerProvider(taxAccrual);

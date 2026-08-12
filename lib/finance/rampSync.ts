@@ -6,8 +6,8 @@
  * `bank_ledger`. Reused by the on-demand route, the daily cron, and the
  * webhook re-sync.
  */
-import { getRampTransactions, getRampBills, getRampBankTransactions, getRampBankAccounts, getRampTransfers, getRampStatements, normalizeCounterparty } from "@/lib/ramp";
-import { rampTxnToExpenseRecord, rampBillToExpenseRecords, syncExpenseRecords } from "./rampExpenses";
+import { getRampTransactions, getRampBills, getRampBankTransactions, getRampBankAccounts, getRampTransfers, getRampStatements, normalizeCounterparty, billInWindow } from "@/lib/ramp";
+import { rampTxnToExpenseRecord, rampBillToExpenseRecords, syncExpenseRecords, refreshBillSettlement } from "./rampExpenses";
 import { partitionBankLines, syncBankLedger, buildBillTotals, selectPrunableExpenseIds, setAsideReason, type PruneCandidate, type FlowType } from "./bankLedger";
 import { classifyTransfers, transferToLedgerRecord } from "./transferLedger";
 import { matchAllPendingPeriods } from "./payrollMatching";
@@ -22,10 +22,22 @@ import { chunk } from "@/lib/utils/chunk";
 const BILL_MATCH_LOOKBACK_DAYS = 120;
 
 export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdminClient>, from?: string, to?: string) {
-  const [txns, bills, bankLines, bankAccounts, transfers, statements] = await Promise.all([
-    getRampTransactions(from, to), getRampBills(from, to), getRampBankTransactions(from, to), getRampBankAccounts(),
+  // Bills are fetched UNWINDOWED and narrowed here, which costs nothing extra:
+  // the list endpoint ignores date filters, so getRampBills pages every bill
+  // either way and total bill volume is a couple of dozen records.
+  //
+  // What it buys is the settlement half of accounts payable. A bill is incurred
+  // in one month and paid in another, routinely outside the caller's window, and
+  // its payment is the event that takes it OUT of what this business owes. Only
+  // `bills` -- the windowed subset -- reaches the expense upsert and the
+  // bill-vs-bank matching below, so nothing about which rows exist or how bank
+  // lines classify changes; the full set is used solely to refresh the
+  // settlement state of bills already stored.
+  const [txns, allBills, bankLines, bankAccounts, transfers, statements] = await Promise.all([
+    getRampTransactions(from, to), getRampBills(), getRampBankTransactions(from, to), getRampBankAccounts(),
     getRampTransfers(from, to), getRampStatements(),
   ]);
+  const bills = allBills.filter((b) => billInWindow(b, from, to));
   const ownAccounts = new Set(bankAccounts.map((a) => normalizeCounterparty(a.name)));
 
   const cutoff = new Date();
@@ -74,7 +86,18 @@ export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdmi
     payrollMatched = { periodsMatched: 0, charges: 0, errors: [err instanceof Error ? err.message : String(err)] };
   }
 
-  return { ...expenses, bank, pruned, payrollMatched };
+  // After the upsert, so a bill that arrived in THIS window is already stored
+  // and gets its settlement written by the same pass as every older one.
+  // Best-effort like the two above: accounts payable going a day stale is a far
+  // smaller failure than losing a day of card and bank movements to it.
+  let billsSettled: { refreshed: number; error?: string };
+  try {
+    billsSettled = await refreshBillSettlement(supabase, allBills);
+  } catch (err) {
+    billsSettled = { refreshed: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  return { ...expenses, bank, pruned, payrollMatched, billsSettled };
 }
 
 /**
