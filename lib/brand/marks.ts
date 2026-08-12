@@ -119,7 +119,12 @@ export interface ChopGroup {
    * for the generic group and for any season that hasn't nominated one.
    */
   primaryAssetId: string | null;
-  chops: BrandAsset[];
+  /**
+   * One entry per chop, not per file. A chop uploaded as both an SVG and a PNG
+   * is one chop — grouped by `variant` exactly as a wordmark is, so the card
+   * carries the format switch instead of the two files standing as two chops.
+   */
+  chops: MarkVariation[];
 }
 
 /**
@@ -147,7 +152,7 @@ export function groupChopsBySeason(chops: BrandAsset[], seasons: BrandSeason[]):
       seasonName: "Generic",
       generic: true,
       primaryAssetId: null,
-      chops: generic,
+      chops: groupVariations(generic),
     });
   }
 
@@ -159,7 +164,7 @@ export function groupChopsBySeason(chops: BrandAsset[], seasons: BrandSeason[]):
       seasonName: season.name,
       generic: false,
       primaryAssetId: season.chop_glyph_asset_id,
-      chops: owned,
+      chops: groupVariations(owned),
     });
   }
 
