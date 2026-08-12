@@ -283,6 +283,10 @@ This overrides the per-role defaults below whenever they conflict. Within one fl
 The ladder, so adjacency is checkable: `.inp` 14px → `.btn-*` default / `.inp-sm` / `ToggleChip`
 12px → `.btn-xxs` 10px. There is no 10px input, which is why `.btn-xxs` is rare.
 
+A shared tier means a shared **height**, not just a shared font size. All three 12px controls
+are `py-1`: a `ToggleChip` sitting 4px shorter than the `.btn-secondary` beside it reads as a
+mis-sized button even though the tier pairing is correct. Keep their vertical padding equal.
+
 #### Role → canonical treatment
 | Role | Treatment |
 |---|---|

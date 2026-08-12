@@ -30,7 +30,7 @@ export default function ToggleChip({
       aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
-      className={`text-xs px-2 py-0.5 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+      className={`text-xs px-2.5 py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
         active
           ? "border-accent-border bg-accent-muted/40 text-accent-soft"
           : "border-line-strong text-secondary hover:border-line-subtle hover:text-body"
