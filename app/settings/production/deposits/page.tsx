@@ -10,7 +10,7 @@ export default function DepositSettingsPage() {
         title="Deposit Settings"
         description="Deposit terms and the Square item deposit invoices bill against."
       />
-      <div className="pb-4 sm:pb-8 max-w-3xl">
+      <div className="pt-4 pb-4 sm:pb-8 max-w-3xl">
         <DepositSettingsPanel />
       </div>
     </div>

@@ -114,7 +114,7 @@ export default function CronMonitor() {
         title="Cron Jobs"
         description="Scheduled jobs and their recent run history. Schedules run in UTC."
       />
-      <div className="pb-4 sm:pb-8 max-w-3xl">
+      <div className="pt-4 pb-4 sm:pb-8 max-w-3xl">
 
       <div className="flex justify-end mb-3">
         <button onClick={load} disabled={loading} className="btn-secondary">

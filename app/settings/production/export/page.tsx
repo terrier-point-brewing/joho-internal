@@ -10,7 +10,7 @@ export default function ProductionExportSettingsPage() {
         title="Export Settings"
         description="Package formats and per-partner overrides for distribution exports."
       />
-      <div className="pb-4 sm:pb-8 max-w-3xl">
+      <div className="pt-4 pb-4 sm:pb-8 max-w-3xl">
         <ExportSettingsPanel />
       </div>
     </div>
