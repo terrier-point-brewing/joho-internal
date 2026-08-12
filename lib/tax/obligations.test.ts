@@ -33,6 +33,8 @@ const SEEDED_OBLIGATIONS = [
   { key: "wake_county_food_beverage", authority_key: "wake_county", label: "Wake County — Prepared Food & Beverage Tax" },
   // supabase/migrations/20261007090000_wake_county_beer_wine_obligation.sql
   { key: "wake_county_beer_wine", authority_key: "wake_county", label: "Wake County — Beer & Wine License Renewal" },
+  // supabase/migrations/20261011090000_ttb_beer_excise_obligation.sql
+  { key: "ttb_beer_excise", authority_key: "federal_ttb", label: "TTB — Pilot Brewer Excise Tax Return (5130.Pilot-B)" },
 ] as const;
 
 describe("tax_obligations ↔ party registry", () => {
