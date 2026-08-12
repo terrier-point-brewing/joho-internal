@@ -160,10 +160,19 @@ describe("transactionPostings — sources that are easy to forget", () => {
     expect(await transactionPostings.compute(ctx(supabase))).toBe(312000);
   });
 
-  it("counts square_refunds", async () => {
+  it("counts square_refunds, as a SETTLEMENT on a liability account", async () => {
     const supabase = fakeClient({ coa: LIABILITY_COA, refundRows: [{ amount_cents: 5000 }] });
-    // refunds are always contra-revenue: -magnitude regardless of section
-    expect(await transactionPostings.compute(ctx(supabase))).toBe(-5000);
+    // This used to assert -5000, on normalizeSign's old "a refund is always
+    // contra-revenue regardless of section" rule. That rule is still in force
+    // for every P&L account and no longer holds here.
+    //
+    // GL 2420 Equipment Deposits is why. Its Keg and Pump Deposit POS items
+    // credit the liability when a deposit is taken (-5000), so handing the
+    // deposit back has to DEBIT it. Under the old sign the settlement grew the
+    // liability it was settling, and 2420 could only ever climb — which is what
+    // it had been doing in production, with a returned pump still on the books.
+    // See refundRouting.ts, which is what actually routes a deposit refund here.
+    expect(await transactionPostings.compute(ctx(supabase))).toBe(5000);
   });
 
   it("still returns null when every one of the six sources is empty", async () => {

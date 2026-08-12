@@ -14,6 +14,7 @@ import type { SquareRefund } from "@/lib/square/refunds";
 import { fetchRefunds } from "@/lib/square/refunds";
 import { fetchOrdersByIds } from "@/lib/square/orders";
 import { resolveSourceOrderIds } from "@/lib/square/returnOrders";
+import { fetchOrderLinesByOrder, fetchRefundRoutingRules, resolveRefundAccount } from "./refundRouting";
 
 /** Name of the app-managed contra-revenue account (seeded by migration). */
 export const REFUNDS_CONTRA_ACCOUNT_NAME = "Sales Returns & Refunds";
@@ -151,15 +152,39 @@ export async function syncRefunds(
     }
   }
 
-  const rows = normalized.map((n) => ({
-    ...buildRefundRow(n, n.squareOrderId ? orderDbIdBysquare.get(n.squareOrderId) ?? null : null, coaId),
-    // `origin` and `reason_code` are deliberately absent: the upsert writes only
-    // the columns it names, so a refund the app issued keeps its reason and its
-    // line detail when this sync sees the webhook it just caused.
-    ...(n.squareOrderId && invoiceIdByOrder.has(n.squareOrderId)
-      ? { invoice_id: invoiceIdByOrder.get(n.squareOrderId) }
-      : {}),
-  }));
+  // Where each refund actually posts. The contra account is the default, not
+  // the answer: a refund of something that was never revenue — a returnable keg
+  // or pump deposit coded to GL 2420 — has to settle the liability it created
+  // instead of netting against sales. See refundRouting.ts for why the match
+  // has to be exact, and why an ambiguous one stays on contra-revenue.
+  const routingRules = await fetchRefundRoutingRules(supabase);
+  const orderLinesByOrder = routingRules.size > 0
+    ? await fetchOrderLinesByOrder(
+        supabase,
+        normalized
+          .map((n) => (n.squareOrderId ? orderDbIdBysquare.get(n.squareOrderId) ?? null : null))
+          .filter((id): id is string => !!id),
+      )
+    : new Map();
+
+  const rows = normalized.map((n) => {
+    const orderDbId = n.squareOrderId ? orderDbIdBysquare.get(n.squareOrderId) ?? null : null;
+    const routedCoaId = resolveRefundAccount(
+      n.amountCents,
+      orderDbId ? orderLinesByOrder.get(orderDbId) ?? [] : [],
+      routingRules,
+      coaId,
+    );
+    return {
+      ...buildRefundRow(n, orderDbId, routedCoaId),
+      // `origin` and `reason_code` are deliberately absent: the upsert writes only
+      // the columns it names, so a refund the app issued keeps its reason and its
+      // line detail when this sync sees the webhook it just caused.
+      ...(n.squareOrderId && invoiceIdByOrder.has(n.squareOrderId)
+        ? { invoice_id: invoiceIdByOrder.get(n.squareOrderId) }
+        : {}),
+    };
+  });
 
   const errors: string[] = [];
   let synced = 0;

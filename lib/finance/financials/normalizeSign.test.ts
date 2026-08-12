@@ -22,6 +22,35 @@ describe("normalizeSignedCents", () => {
     expect(normalizeSignedCents(750, "revenue", "refund")).toBe(-750);
   });
 
+  it("a refund routed to a liability SETTLES it instead of growing it", () => {
+    // GL 2420 Equipment Deposits. Taking a $50 pump deposit at the till posts
+    // -5000 (a liability, negative by the internal convention); handing the
+    // pump back has to move the balance towards zero.
+    //
+    // This branch is what makes refundRouting.ts safe. Under the old
+    // unconditional -magnitude, routing the refund to 2420 would have posted
+    // -5363 on top of the -5363 the deposit created and DOUBLED the liability
+    // the routing was added to clear.
+    expect(normalizeSignedCents(5363, "other_current_liabilities", "refund")).toBe(5363);
+    expect(normalizeSignedCents(5363, "other_current_liabilities", "pos")).toBe(-5363);
+  });
+
+  it("a refund on any P&L section stays contra-revenue", () => {
+    // The rule the liability branch above must not have loosened.
+    for (const section of ["revenue", "other_income", "cogs", "expenses", "other_expense"]) {
+      expect(normalizeSignedCents(750, section, "refund")).toBe(-750);
+    }
+  });
+
+  it("a refund on an unmapped or asset section is unchanged from before", () => {
+    // Every refund in production is coded to GL 4999 (Income → "revenue"), so
+    // only the liability branch above is a behaviour change at all. These pin
+    // the untouched paths.
+    expect(normalizeSignedCents(750, "unmapped", "refund")).toBe(-750);
+    expect(normalizeSignedCents(750, "bank", "refund")).toBe(-750);
+    expect(normalizeSignedCents(750, "other_current_assets", "refund")).toBe(-750);
+  });
+
   it("invoice-level discount stays negative even when mapped to an Income account", () => {
     // Discounts & Allowances is an Income account → "revenue" section. Under the
     // plain "invoice" path this would abs() to +27000 and ADD revenue, which is

@@ -434,11 +434,55 @@ const plaidBankBalance: BalanceMethod = {
   ],
 };
 
+/**
+ * GL 2410 Gift Card Liabilities.
+ *
+ * Same accrual-and-settlement shape as 2310 and 2220, and offered as one method
+ * for the same reason: cards sold without cards spent is a liability that only
+ * ever grows. See providers/giftCards.ts for why neither half is reachable
+ * through `transactionPostings` — Square zeroes a gift card sale's net amount,
+ * and a redemption is a tender rather than a line item.
+ *
+ * No `transactionPostings` third step, unlike 2220 and 2310. Those accounts are
+ * settled by real coded transactions — a tax payment, a payroll line — so
+ * leaving postings off would lose the settlement. A gift card is settled by
+ * being spent, which the second step already counts; adding postings would
+ * count a redemption twice for any order whose lines happened to be coded here.
+ * A hand-typed correction still reaches the account through Manual Entries,
+ * which is the arrangement for an adjustment on a calculated account generally.
+ */
+const giftCardLiability: BalanceMethod = {
+  key: "giftCardLiability",
+  label: "Gift card liability",
+  kind: "calculation",
+  summary: "Gift card value your customers have bought, less what they have already spent.",
+  appliesTo: isCurrentLiability,
+  steps: [
+    {
+      providerKey: "giftCardsIssued",
+      label: "Gift cards sold",
+      description:
+        "The face value of every gift card sold through this month end. Selling one is not a sale of beer — it is money taken now for beer owed later, which is why it lands here rather than in revenue.",
+      source: "Square gift card sales",
+      direction: "add",
+    },
+    {
+      providerKey: "giftCardsRedeemed",
+      label: "Gift cards spent",
+      description:
+        "Gift card money customers have already spent through this month end, counted from the card payment on each till receipt rather than the receipt total, so a bill part-paid by card and part by gift card only draws down the gift card part. Without this step the balance would grow with every card sold and never come down.",
+      source: "Gift card payments on Square orders",
+      direction: "subtract",
+    },
+  ],
+};
+
 export const BUILT_IN_METHODS: BalanceMethod[] = [
   manualEntry,
   transactionPostings,
   salesTaxPayable,
   undistributedTips,
+  giftCardLiability,
   accountsReceivable,
   retainedEarnings,
   inventoryOnHand,
