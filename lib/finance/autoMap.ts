@@ -7,6 +7,12 @@
  * convention the ingest paths and the (soon thin) manual-button routes follow.
  */
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  loadBankLedgerInclusion,
+  counterpartyKeyOf,
+  INCLUSION_COLUMNS,
+  type InclusionFacts,
+} from "@/lib/finance/bankLedgerInclusion";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -50,15 +56,20 @@ export function counterpartyRuleKey(source: string, counterpartyKey: string): st
 
 /** Bank-ledger rows: map from counterparty rules, preserving manual + existing. */
 export function resolveBankBackfill(
-  rows: { id: string; source: string; counterparty_key: string | null; mapping_source: string; chart_of_accounts_id: string | null }[],
+  rows: { id: string; source: string; counterparty_key: string | null; counterparty_name?: string | null; mapping_source: string; chart_of_accounts_id: string | null }[],
   counterpartyRules: Map<string, string>,
 ): { id: string; chart_of_accounts_id: string }[] {
   const updates: { id: string; chart_of_accounts_id: string }[] = [];
   for (const row of rows) {
     if (row.mapping_source === "manual") continue;
     if (row.chart_of_accounts_id) continue;
-    if (!row.counterparty_key) continue;
-    const coaId = counterpartyRules.get(counterpartyRuleKey(row.source, row.counterparty_key));
+    // Derived rather than read straight off the column, for the reason
+    // counterpartyKeyOf() documents: Ramp's rows carry the key, Plaid's carry
+    // only a name. Reading the column alone would mean a switched-on Chase feed
+    // could never match a rule, however the rule was written.
+    const key = counterpartyKeyOf(row);
+    if (!key) continue;
+    const coaId = counterpartyRules.get(counterpartyRuleKey(row.source, key));
     if (coaId) updates.push({ id: row.id, chart_of_accounts_id: coaId });
   }
   return updates;
@@ -291,24 +302,41 @@ export async function autoMapBankLedger(
   supabase: AdminClient,
   opts: { from: string; to: string; counterpartyKey?: string; source?: string },
 ): Promise<{ mapped: number; errors?: string[] }> {
-  // include_in_gl: a row the books deliberately ignore must not be quietly
-  // given an account by a counterparty rule. Coding it would change nothing
-  // today, since every general-ledger reader filters the same flag, but it would
-  // mean the moment anyone opted a source in, a backlog of rows would already
-  // be mapped by a rule nobody applied to them on purpose.
-  let rowQuery = supabase
-    .from("bank_ledger")
-    .select("id, source, counterparty_key, mapping_source, chart_of_accounts_id")
-    .is("chart_of_accounts_id", null)
-    .eq("include_in_gl", true)
-    .neq("mapping_source", "manual")
-    .gte("transaction_date", opts.from)
-    .lte("transaction_date", opts.to);
+  // A row the books deliberately ignore must not be quietly given an account by
+  // a counterparty rule: the moment anyone opted a source in, a backlog of rows
+  // would already be mapped by a rule nobody applied to them on purpose.
+  //
+  // What decides "ignored" is the standing rule, not the row's own flag. This
+  // used to hardcode `.eq("include_in_gl", true)` on the reasoning that every
+  // general-ledger reader filtered the same flag — true until the rules layer
+  // shipped, and false afterwards. Left as it was, a feed switched on in
+  // Settings would count towards the books while auto-mapping skipped every one
+  // of its rows, so they would surface in the grid permanently unmapped.
+  const inclusion = await loadBankLedgerInclusion(supabase);
+  let rowQuery = inclusion.applyTo(
+    supabase
+      .from("bank_ledger")
+      .select(`id, mapping_source, chart_of_accounts_id, ${INCLUSION_COLUMNS}`)
+      .is("chart_of_accounts_id", null)
+      .neq("mapping_source", "manual")
+      .gte("transaction_date", opts.from)
+      .lte("transaction_date", opts.to),
+  );
   if (opts.counterpartyKey) rowQuery = rowQuery.eq("counterparty_key", opts.counterpartyKey);
   if (opts.source)          rowQuery = rowQuery.eq("source", opts.source);
-  const { data: rows, error } = await rowQuery;
+  const { data: allRows, error } = await rowQuery;
   if (error) throw new Error(error.message);
-  if (!rows || rows.length === 0) return { mapped: 0 };
+  // applyTo() is a superset: a feed switched on still carries the counterparty
+  // exclusions someone made within it, and only allows() knows those.
+  // Cast because the select is interpolated: PostgREST cannot type-check a
+  // non-literal column list, the same reason INCLUSION_COLUMNS is typed `string`.
+  const fetched = (allRows ?? []) as unknown as (InclusionFacts & {
+    id: string;
+    mapping_source: string;
+    chart_of_accounts_id: string | null;
+  })[];
+  const rows = fetched.filter((row) => inclusion.allows(row));
+  if (rows.length === 0) return { mapped: 0 };
 
   // Rules are fetched for every feed, not just Ramp, and matched to a row by
   // (feed, counterparty). The old `.eq("source","ramp")` was correct only while
