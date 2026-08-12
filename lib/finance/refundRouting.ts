@@ -10,7 +10,7 @@
  *
  * The rule is data, not code: `refund_gl_routing` says "a refund of something
  * coded to X posts to Y" and an operator states it in Settings → Finance → GL
- * Mapping → Refunds. See 20261013090000_refund_gl_routing.sql for why this is a
+ * Mapping → Refunds. See 20261013090001_refund_gl_routing.sql for why this is a
  * table rather than a special case for 2420.
  *
  * ── Routing is all-or-nothing, and that is a schema fact ─────────────────────
