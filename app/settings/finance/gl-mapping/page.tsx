@@ -39,15 +39,20 @@ import ExpensesPanel from "./ExpensesPanel";
 import CounterpartiesPanel from "./CounterpartiesPanel";
 import BankFeedsPanel from "./BankFeedsPanel";
 import SalesTaxPanel from "./SalesTaxPanel";
+import RefundsPanel from "./RefundsPanel";
 
-type PanelKey = "revenue" | "expenses" | "counterparties" | "bank-feeds" | "sales-tax";
+type PanelKey = "revenue" | "expenses" | "counterparties" | "bank-feeds" | "sales-tax" | "refunds";
 
+// Refunds sits last, after Sales Tax: it is the only panel that maps an account
+// to an ACCOUNT rather than an external thing to an account, and it is read
+// after you already know where the sale itself was coded.
 const TABS: TabDef<PanelKey>[] = [
   { key: "revenue",        label: "Revenue" },
   { key: "expenses",       label: "Expenses" },
   { key: "counterparties", label: "Counterparties" },
   { key: "bank-feeds",     label: "Bank Feeds" },
   { key: "sales-tax",      label: "Sales Tax" },
+  { key: "refunds",        label: "Refunds" },
 ];
 
 const PANELS: Record<PanelKey, (props: { selector?: React.ReactNode }) => React.ReactElement> = {
@@ -56,6 +61,7 @@ const PANELS: Record<PanelKey, (props: { selector?: React.ReactNode }) => React.
   "counterparties": CounterpartiesPanel,
   "bank-feeds":     BankFeedsPanel,
   "sales-tax":      SalesTaxPanel,
+  "refunds":        RefundsPanel,
 };
 
 function initialPanel(param: string | null): PanelKey {

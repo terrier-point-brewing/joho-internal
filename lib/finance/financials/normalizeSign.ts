@@ -52,8 +52,29 @@ export function normalizeSignedCents(
 ): number {
   const magnitude = Math.abs(rawCents);
 
-  // Refunds are always contra-revenue, regardless of mapped section.
-  if (source === "refund") return -magnitude;
+  // A refund UNDOES what the sale posted, which is contra-revenue only when the
+  // sale was revenue.
+  //
+  // This used to be an unconditional `-magnitude`, on the reasoning that a
+  // refund is contra-revenue "regardless of mapped section". That holds for
+  // every P&L account and is kept below. It breaks on a BALANCE SHEET one, and
+  // GL 2420 Equipment Deposits is where it broke: the taproom's Keg and Pump
+  // Deposit items are mapped to 2420, so taking a deposit posts -magnitude (a
+  // liability, negative by the internal convention) and handing it back posted
+  // -magnitude AGAIN. The settlement GREW the liability it was settling. Left
+  // alone, routing deposit refunds to 2420 (see refundRouting.ts) would have
+  // doubled the very figure it was added to correct.
+  //
+  // So a balance-sheet refund flips the sign the SALE took: it reduces the
+  // liability the sale created, or the asset it created. P&L behaviour is
+  // untouched, and an unrecognized section still falls through to -magnitude,
+  // so the only rows that move are ones deliberately routed to a balance-sheet
+  // account -- of which there were none before this was written.
+  if (source === "refund") {
+    if (PL_SECTIONS.has(statementSection)) return -magnitude;
+    if (NEGATIVE_SECTIONS.has(statementSection)) return magnitude;
+    return -magnitude;
+  }
 
   // An invoice-level discount line is contra-revenue too, and needs its own
   // source for the same reason a refund does: it arrives as negative money,
