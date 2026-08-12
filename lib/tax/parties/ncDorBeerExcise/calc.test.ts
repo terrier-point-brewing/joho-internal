@@ -76,7 +76,11 @@ function stubSb(rows: ExportRow[], error?: string): SupabaseClient {
     const b: Record<string, unknown> = {};
     b.select = () => b;
     b.gte = () => b;
-    b.lt = () => Promise.resolve({ data: error ? null : rows, error: error ? { message: error } : null });
+    b.lt = () => b;
+    // Paginated read: the error now surfaces from the page fetch, not from lt.
+    b.order = () => b;
+    b.range = (from: number, to: number) =>
+      Promise.resolve({ data: error ? null : rows.slice(from, to + 1), error: error ? { message: error } : null });
     return b;
   };
   return { from } as unknown as SupabaseClient;
@@ -205,7 +209,9 @@ function stubWorksheetSb(rate: unknown = null): SupabaseClient {
       const b: Record<string, unknown> = {};
       b.select = () => b;
       b.gte = () => b;
-      b.lt = () => Promise.resolve({ data: [], error: null });
+      b.lt = () => b;
+      b.order = () => b;
+      b.range = () => Promise.resolve({ data: [], error: null });
       return b;
     }
     if (table === "tax_rates") {

@@ -19,6 +19,7 @@
  * `Math.round` exactly once at its point of definition.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { addDaysStr, dayEndUtc } from "@/lib/utils/datetime";
 import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import type { ComputeContext, TaxPeriod, WorksheetData, WorksheetFields } from "@/lib/tax/types";
@@ -69,20 +70,24 @@ export async function fetchExciseData(sb: SupabaseClient, period: TaxPeriod): Pr
   const startTs = `${period.start}T00:00:00Z`;
   const endExclusiveTs = `${addDaysStr(period.end, 1)}T00:00:00Z`;
 
-  const { data, error } = await sb
-    .from("export_transactions")
-    .select("channel, volume_bbl, export_transaction_taxes ( tax_name, amount_usd )")
-    .gte("created_at", startTs)
-    .lt("created_at", endExclusiveTs);
-
-  if (error) throw new Error(error.message);
+  // Paginated for the same reason as the federal return's removal read: an
+  // unpaginated select silently stops at PostgREST's default row cap, and a
+  // return short of its tail looks exactly like a quiet month.
+  const data = await fetchAllRows<ExportRow>(() =>
+    sb
+      .from("export_transactions")
+      .select("channel, volume_bbl, export_transaction_taxes ( tax_name, amount_usd )")
+      .gte("created_at", startTs)
+      .lt("created_at", endExclusiveTs)
+      .order("id", { ascending: true }),
+  );
 
   const gallonsByChannel: Record<string, number> = {};
   const bblByChannel: Record<string, number> = {};
   let storedNcDollars = 0;
   let missingDetailTxns = 0;
 
-  for (const row of (data ?? []) as ExportRow[]) {
+  for (const row of data) {
     const bbl = num(row.volume_bbl);
     bblByChannel[row.channel] = (bblByChannel[row.channel] ?? 0) + bbl;
 

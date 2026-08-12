@@ -85,10 +85,21 @@ describe("built-in method definitions", () => {
   it("pairs every accrual with its settling postings step", () => {
     // The whole reason this layer exists. An accrual-only method would let a
     // user reach the exact state that overstated GL 2310 eightfold.
-    for (const key of ["salesTaxPayable", "undistributedTips", "accountsReceivable", "accountsPayable"]) {
+    // Step counts are explicit rather than a blanket 2: GL 2220 accrues two
+    // different taxes to one agency, and "exactly two steps" would have blocked
+    // the step whose absence made that account read as overpaid.
+    const expectedSteps: Record<string, number> = {
+      salesTaxPayable: 2,
+      ncDorTaxPayable: 3,
+      ttbExcisePayable: 2,
+      undistributedTips: 2,
+      accountsReceivable: 2,
+      accountsPayable: 2,
+    };
+    for (const [key, count] of Object.entries(expectedSteps)) {
       const steps = getMethod(key)!.steps.map(stepKey);
       expect(steps, key).toContain("transactionPostings");
-      expect(steps.length, key).toBe(2);
+      expect(steps.length, key).toBe(count);
     }
   });
 
@@ -143,10 +154,25 @@ describe("explainer copy is readable by a non-technical operator", () => {
     }
   });
 
+  /**
+   * Capitalised words that are NOT title casing — they are names, and
+   * lower-casing them would be wrong rather than plainer.
+   *
+   * Enumerated rather than inferred: a rule like "allow any capitalised word"
+   * would let real title casing straight through, which is the thing this
+   * assertion exists to catch. Adding a word here is a deliberate act, and the
+   * list is short enough to read.
+   *
+   * Square / Ramp / Plaid are the integrations. Department / Revenue are the
+   * NC Department of Revenue, whose account is named for the agency rather
+   * than for a tax, because it collects more than one.
+   */
+  const PROPER_NOUNS = new Set(["Square", "Ramp", "Plaid", "Department", "Revenue"]);
+
   it("labels and summaries are sentence case, never title case", () => {
     for (const m of listMethods()) {
       const words = m.label.split(" ").slice(1);
-      const titled = words.filter((w) => /^[A-Z][a-z]/.test(w) && w !== "Square" && w !== "Ramp" && w !== "Plaid");
+      const titled = words.filter((w) => /^[A-Z][a-z]/.test(w) && !PROPER_NOUNS.has(w));
       expect(titled, `${m.key} label "${m.label}" looks title cased`).toEqual([]);
     }
   });
@@ -372,7 +398,11 @@ describe("parity with the frozen production capture", () => {
     };
     for (const [account, methodKey] of Object.entries(ACCOUNT_METHOD)) {
       const method = getMethod(methodKey)!;
-      const coa = { statementSection: sections[account] } as never;
+      // accountNumber is supplied as well as the section: a method may narrow
+      // itself to specific accounts (sales tax payable does, to the two the
+      // Square tax mapping actually names), and a section-only stub would fail
+      // every such predicate here for the wrong reason.
+      const coa = { accountNumber: account, statementSection: sections[account] } as never;
       const offerable = !method.appliesTo || method.appliesTo(coa);
       expect(offerable, `${methodKey} is not offerable to account ${account}`).toBe(true);
     }
