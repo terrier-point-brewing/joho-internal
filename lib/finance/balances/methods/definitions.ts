@@ -47,13 +47,13 @@ const manualEntry: BalanceMethod = {
   key: "manualBalance",
   label: "Manual entry",
   kind: "manual",
-  summary: "You type the balance yourself each month end.",
+  summary: "You type the balance yourself each month end, and nothing else is counted.",
   steps: [
     {
       providerKey: "manualBalance",
       label: "Entered balance",
       description:
-        "The figure someone entered for this account under Finance > Transactions > Manual Entries for this month end.",
+        "The figure someone entered for this account under Finance > Transactions > Manual Entries for this month end. Nothing else counts towards this account — invoices, expenses and bank lines coded here are deliberately ignored, because this method exists for accounts whose real balance lives somewhere this system cannot see. Until the figure is entered, the month stays open and the person named below is emailed.",
       source: "Manual entries",
       direction: "net",
     },
@@ -93,15 +93,33 @@ const manualEntry: BalanceMethod = {
 
 // ── Transaction postings ─────────────────────────────────────────────────────
 
+/**
+ * ── This method and Manual entry are a matched pair ──────────────────────────
+ * They differ in what they LISTEN to, and choosing between them is choosing
+ * which arrangement an account is on:
+ *
+ *   Transaction postings -- counts every movement into the account, whoever
+ *     recorded it, including ones typed by hand under Manual Entries. Never
+ *     raises a month-end task, because there is nothing outstanding: the
+ *     account is already answered by whatever has been coded to it.
+ *
+ *   Manual entry -- ignores the feeds entirely. The operator's stated balance
+ *     IS the answer, and until they state one the month cannot close, so it
+ *     raises a task and emails the person named for it.
+ *
+ * The pairing is what makes a hand-typed figure useful on an account that also
+ * has real activity: an opening balance, a write-down or a correction is just
+ * another movement, and does not force the whole account onto manual.
+ */
 const transactionPostings: BalanceMethod = {
   key: "transactionPostings",
   label: "Transaction postings",
   kind: "postings",
-  summary: "Adds up everything coded to this account, from the beginning through the month end.",
+  summary: "Adds up everything recorded against this account, from the beginning through the month end.",
   steps: [
     postingsStep(
       "Everything coded here",
-      "Every invoice line, till sale, expense and bank line assigned to this account, from the beginning of records through this month end.",
+      "Every invoice line, till sale, expense and bank line assigned to this account, from the beginning of records through this month end — plus anything entered by hand under Finance > Transactions > Manual Entries, which counts exactly like the rest. Nobody is chased for a figure here, because whatever has been recorded is the answer.",
       "net",
     ),
   ],

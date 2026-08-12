@@ -14,6 +14,7 @@ import { applyExpenseStatementFilters } from "@/lib/finance/financials/expenseFi
 import { loadBankLedgerInclusion, INCLUSION_COLUMNS } from "@/lib/finance/bankLedgerInclusion";
 import type { BankLedgerInclusion, InclusionFacts } from "@/lib/finance/bankLedgerInclusion";
 import type { CoaRecord } from "@/lib/finance/financials/aggregateRows";
+import { proratedManualAdjustment } from "@/lib/finance/financials/manualNetSales";
 import { registerProvider } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
 
@@ -219,6 +220,78 @@ async function sumBank(supabase: SupabaseClient, coaId: string, periodEnd: strin
   return { sum, count: counted.length };
 }
 
+/**
+ * manual_entries of kind "flow" -- a movement somebody typed rather than one a
+ * feed delivered.
+ *
+ * ── Why postings counts these and the manual method does not ─────────────────
+ * The two methods differ in what they LISTEN to, and this is the line between
+ * them. Transaction postings accepts every movement into the account, whoever
+ * recorded it, and never chases anybody for one. Manual entry ignores the feeds
+ * entirely, takes the operator's stated balance as the whole answer, and raises
+ * a month-end task until they give it. Picking a method is therefore picking
+ * which of those two arrangements the account is on -- not picking which tables
+ * happen to get read.
+ *
+ * ── Only "flow", never "balance" ─────────────────────────────────────────────
+ * A flow entry is a movement over a date range: it ADDS, exactly like an expense
+ * or a bank line, and composes with them. A balance entry states the account's
+ * POSITION at a month end -- it is not a movement, and adding a position to a
+ * running total of movements would count everything the position already
+ * contains a second time. That is the manual method's input, and it stays there.
+ *
+ * ── Prorated the same way the P&L prorates it ────────────────────────────────
+ * Summed month by month through `periodEnd` using the very function
+ * buildFinancials uses (proratedManualAdjustment), rather than a direct
+ * overlap formula that would round differently. One entry therefore means the
+ * same thing on both statements, down to the cent -- which is the entire reason
+ * to reuse it rather than reimplement it.
+ */
+async function sumManualEntries(supabase: SupabaseClient, coaId: string, periodEnd: string): Promise<{ sum: number; count: number }> {
+  const rows = await fetchAllRows<{ id: string; start_date: string | null; end_date: string | null; amount_cents: number | null }>(() =>
+    supabase
+      .from("manual_entries")
+      .select("id, start_date, end_date, amount_cents")
+      .eq("entry_kind", "flow")
+      .eq("chart_of_accounts_id", coaId)
+      .lte("start_date", periodEnd)
+      .order("id", { ascending: true }),
+  );
+
+  const entries = rows
+    .filter((r): r is { id: string; start_date: string; end_date: string; amount_cents: number } =>
+      Boolean(r.start_date) && Boolean(r.end_date) && r.amount_cents !== null)
+    .map((r) => ({ id: r.id, startDate: r.start_date, endDate: r.end_date, amountCents: r.amount_cents, chartOfAccountsId: coaId }));
+  if (entries.length === 0) return { sum: 0, count: 0 };
+
+  // amount_cents is already stored in the internal sign convention -- a
+  // negative flow is a legitimate correction, and a credit-side account's
+  // entries are stored negative (see manualEntries.ts's SIGN CONVENTION). So it
+  // is passed through rather than run through normalizeSignedCents, which would
+  // re-derive a sign the operator already chose. Same rule manualBalance follows.
+  let sum = 0;
+  for (const month of monthsThrough(earliestMonth(entries), periodEnd.slice(0, 7))) {
+    sum += proratedManualAdjustment(entries, month).cents;
+  }
+  return { sum, count: entries.length };
+}
+
+/** "YYYY-MM" of the earliest entry start. */
+function earliestMonth(entries: { startDate: string }[]): string {
+  return entries.reduce((min, e) => (e.startDate < min ? e.startDate : min), entries[0].startDate).slice(0, 7);
+}
+
+/** Every "YYYY-MM" from `from` through `to`, inclusive. Empty when `from` is after `to`. */
+function monthsThrough(from: string, to: string): string[] {
+  const out: string[] = [];
+  let [year, month] = [Number(from.slice(0, 4)), Number(from.slice(5, 7))];
+  while (`${year}-${String(month).padStart(2, "0")}` <= to) {
+    out.push(`${year}-${String(month).padStart(2, "0")}`);
+    if (++month > 12) { month = 1; year += 1; }
+  }
+  return out;
+}
+
 export const transactionPostings: BalanceProvider = {
   key: "transactionPostings",
   label: "Transaction postings",
@@ -232,20 +305,21 @@ export const transactionPostings: BalanceProvider = {
 
     const inclusion = await loadBankLedgerInclusion(supabase);
 
-    const [pos, invoiceLines, expenses, splits, bank, refunds] = await Promise.all([
+    const [pos, invoiceLines, expenses, splits, bank, refunds, manual] = await Promise.all([
       sumPos(supabase, coaId, periodEnd, section),
       sumInvoiceLines(supabase, coaId, periodEnd, section),
       sumExpenses(supabase, coaId, periodEnd, section),
       sumExpenseSplits(supabase, coaId, periodEnd, section),
       sumBank(supabase, coaId, periodEnd, section, inclusion),
       sumRefunds(supabase, coaId, periodEnd, section),
+      sumManualEntries(supabase, coaId, periodEnd),
     ]);
 
     const totalRows =
-      pos.count + invoiceLines.count + expenses.count + splits.count + bank.count + refunds.count;
+      pos.count + invoiceLines.count + expenses.count + splits.count + bank.count + refunds.count + manual.count;
     if (totalRows === 0) return null;
 
-    return pos.sum + invoiceLines.sum + expenses.sum + splits.sum + bank.sum + refunds.sum;
+    return pos.sum + invoiceLines.sum + expenses.sum + splits.sum + bank.sum + refunds.sum + manual.sum;
   },
 };
 
