@@ -129,21 +129,34 @@ const transactionPostings: BalanceMethod = {
 
 // ── Calculations ─────────────────────────────────────────────────────────────
 
+/** The one accrual step that reads collected sales tax, shared by both sales-tax methods. */
+const collectedSalesTaxStep = {
+  providerKey: "taxAccrual",
+  label: "Tax charged to customers",
+  description:
+    "Sales and excise tax added to customer bills through this month end. This is money you have collected on the agency's behalf and now owe them.",
+  source: "Tax lines on Square sales and invoices",
+  direction: "add",
+} as const;
+
+/**
+ * Narrowed to the two accounts whose tax is actually routed here, rather than
+ * every current liability.
+ *
+ * Its accrual step reads the Square tax mapping, which names GL 2220 and GL
+ * 2250 and nothing else. Offered anywhere else it computed nothing, so an
+ * account read as unsourced AFTER somebody had explicitly sourced it, with no
+ * error to explain why -- and it sat in the dropdown on GL 2260 as a plausible
+ * wrong answer for federal excise.
+ */
 const salesTaxPayable: BalanceMethod = {
   key: "salesTaxPayable",
   label: "Sales tax payable",
   kind: "calculation",
   summary: "Tax you have charged customers, less what you have already remitted to the agency.",
-  appliesTo: isCurrentLiability,
+  appliesTo: (coa) => coa.accountNumber === "2220" || coa.accountNumber === "2250",
   steps: [
-    {
-      providerKey: "taxAccrual",
-      label: "Tax charged to customers",
-      description:
-        "Sales and excise tax added to customer bills through this month end. This is money you have collected on the agency's behalf and now owe them.",
-      source: "Tax lines on Square sales and invoices",
-      direction: "add",
-    },
+    collectedSalesTaxStep,
     // Wording verified against the live postings on GL 2220: of the four
     // payments there, two are to NC Dept Revenue and Wake County Tax
     // Administration and two are to Argus Beverage Ventures LLC, who settled
@@ -154,6 +167,79 @@ const salesTaxPayable: BalanceMethod = {
     postingsStep(
       "Tax already paid",
       "Payments already made against this tax liability, which reduce what you still owe. The payee may be the agency itself or a third party settling on your behalf.",
+      "subtract",
+    ),
+  ],
+};
+
+/**
+ * GL 2220 is an AGENCY payable — "North Carolina Department of Revenue
+ * Payable", carrying the QuickBooks detail type "Global Tax Payable" while its
+ * siblings carry "Sales Tax Payable". NC DOR collects beer excise as well as
+ * sales and use tax, so both are owed to the same account and both are settled
+ * by the same payments.
+ *
+ * Which is why this is a THIRD method rather than an extra step on sales tax
+ * payable: GL 2250 shares that method, and Wake County levies no excise. A
+ * step added there would have run against Wake too.
+ *
+ * Its absence is what made GL 2220 read as $860.91 over-remitted through July
+ * 2026. The account was absorbing excise payments — a $1,507.56 quarterly
+ * filing among them — while accruing only the sales tax half, so a liability
+ * mid-collection presented as an overpayment.
+ */
+const ncDorTaxPayable: BalanceMethod = {
+  key: "ncDorTaxPayable",
+  label: "NC Department of Revenue payable",
+  kind: "calculation",
+  summary:
+    "Everything owed to the NC Department of Revenue — sales tax charged to customers plus beer excise on what you have shipped — less what you have already paid them.",
+  appliesTo: (coa) => coa.accountNumber === "2220",
+  steps: [
+    collectedSalesTaxStep,
+    {
+      providerKey: "ncExciseAccrual",
+      label: "State beer tax on what you shipped",
+      description:
+        "The North Carolina beer tax recorded against each shipment as it left the brewery, added up through this month end. Beer sold to a wholesaler is left out, because the wholesaler pays that tax to the state instead of you.",
+      source: "The tax lines saved on each shipment record",
+      direction: "add",
+    },
+    postingsStep(
+      "Already paid to the state",
+      "Payments already made against what you owe the NC Department of Revenue, covering both the sales tax and the beer tax, which reduce what you still owe. The payee may be the agency itself or a third party settling on your behalf.",
+      "subtract",
+    ),
+  ],
+};
+
+/**
+ * Offerable only on GL 2260, unlike its neighbours above, which are offered on
+ * any current liability. Federal excise is not a shape another account could
+ * plausibly want: its accrual step reads barrels shipped and is declared for
+ * exactly one account, so a wider predicate would put a method in the dropdown
+ * that computes nothing wherever else it were chosen -- an account that reads
+ * unsourced after somebody has explicitly sourced it, with no error to explain
+ * why.
+ */
+const ttbExcisePayable: BalanceMethod = {
+  key: "ttbExcisePayable",
+  label: "Federal excise payable",
+  kind: "calculation",
+  summary: "Federal beer tax owed on everything you have shipped, less what you have already paid the TTB.",
+  appliesTo: (coa) => coa.accountNumber === "2260",
+  steps: [
+    {
+      providerKey: "ttbExciseAccrual",
+      label: "Federal tax on beer shipped",
+      description:
+        "The federal beer tax recorded against each shipment as it left the brewery, added up through this month end. Federal tax is owed the moment beer leaves the brewery, whoever buys it, so taproom pours and beer brewed under contract for someone else both count. Shipments from before your first federal filing period are not included.",
+      source: "The tax lines saved on each shipment record",
+      direction: "add",
+    },
+    postingsStep(
+      "Federal tax already paid",
+      "Payments already made to the Alcohol and Tobacco Tax and Trade Bureau, which reduce what you still owe. Each quarterly return you pay clears the tax that built up over that quarter.",
       "subtract",
     ),
   ],
@@ -566,6 +652,8 @@ export const BUILT_IN_METHODS: BalanceMethod[] = [
   manualEntry,
   transactionPostings,
   salesTaxPayable,
+  ncDorTaxPayable,
+  ttbExcisePayable,
   undistributedTips,
   giftCardLiability,
   accountsReceivable,

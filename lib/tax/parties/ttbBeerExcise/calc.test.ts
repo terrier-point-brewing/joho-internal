@@ -22,8 +22,12 @@ function stubClient(rows: { channel: string; volume_bbl: number; created_at: str
     },
     lt: (_col: string, value: string) => {
       calls.lt = value;
-      return Promise.resolve({ data: rows, error: null });
+      return builder;
     },
+    // The read is paginated (a year-to-date range outgrows PostgREST's default
+    // row cap), so the stub has to page like the real client does.
+    order: () => builder,
+    range: (from: number, to: number) => Promise.resolve({ data: rows.slice(from, to + 1), error: null }),
   };
   const sb = { from: () => builder } as unknown as SupabaseClient;
   return { sb, calls };

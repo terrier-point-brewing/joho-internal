@@ -20,6 +20,7 @@
  * is integer cents.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { addDaysStr } from "@/lib/utils/datetime";
 import type { ComputeContext, TaxPeriod, WorksheetData, WorksheetFields } from "@/lib/tax/types";
 import { getTaxRate, TAX_RATE_KEYS } from "@/lib/tax/rates";
@@ -64,20 +65,25 @@ export async function fetchRemovalData(sb: SupabaseClient, period: TaxPeriod): P
   const endExclusiveTs = `${addDaysStr(period.end, 1)}T00:00:00Z`;
   const yearStartTs = `${period.start.slice(0, 4)}-01-01T00:00:00Z`;
 
-  const { data, error } = await sb
-    .from("export_transactions")
-    .select("channel, volume_bbl, created_at")
-    .gte("created_at", yearStartTs)
-    .lt("created_at", endExclusiveTs);
-
-  if (error) throw new Error(error.message);
+  // Paginated: this spans calendar-year-to-date, not just the filing period,
+  // so it outgrows PostgREST's default row cap sooner than a quarter's worth
+  // of shipments suggests. An unpaginated read would silently drop the tail
+  // and under-report the return with nothing on the form to say so.
+  const data = await fetchAllRows<RemovalRow & { created_at: string }>(() =>
+    sb
+      .from("export_transactions")
+      .select("channel, volume_bbl, created_at")
+      .gte("created_at", yearStartTs)
+      .lt("created_at", endExclusiveTs)
+      .order("id", { ascending: true }),
+  );
 
   const periodStartTs = `${period.start}T00:00:00Z`;
   const barrelsByChannel: Record<string, number> = {};
   const unknown = new Set<string>();
   let barrelsYearToDate = 0;
 
-  for (const row of (data ?? []) as (RemovalRow & { created_at: string })[]) {
+  for (const row of data) {
     const bbl = num(row.volume_bbl);
     barrelsYearToDate += bbl;
     if (row.created_at < periodStartTs) continue;

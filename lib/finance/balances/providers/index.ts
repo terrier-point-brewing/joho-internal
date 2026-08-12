@@ -12,6 +12,7 @@
  * module is added under lib/finance/balances/providers/.
  */
 import "./accruals";
+import "./exciseAccruals";
 import "./transactionPostings";
 import "./retainedEarnings";
 import "./manualBalance";
