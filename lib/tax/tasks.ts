@@ -57,12 +57,17 @@ export function dueDateFor(party: TaxPartyTemplate, freq: Frequency, periodEnd: 
  * Walks backward from `today`, jumping a full period at a time (via each
  * period's `start`) rather than day-by-day, so this stays cheap even for a
  * large lookback window.
+ *
+ * `startBoundaryIso` (optional) is the schedule's own start: any period that
+ * ended before it is dropped, so a schedule can never manufacture filing
+ * obligations for periods predating it. See `scheduleStartBoundary`.
  */
 export function periodsNeedingTasks(
   freq: Frequency,
   today: Date,
   lookbackDays: number,
   party: TaxPartyTemplate,
+  startBoundaryIso?: string,
 ): TaxPeriod[] {
   const todayIso = isoOfUtcDate(today);
   const windowStartIso = addDaysIso(todayIso, -lookbackDays);
@@ -71,7 +76,7 @@ export function periodsNeedingTasks(
   let cursorIso = addDaysIso(todayIso, -1);
   while (cursorIso >= windowStartIso) {
     const period = party.computePeriod(freq, isoToUtcNoonDate(cursorIso));
-    if (period.end < todayIso) {
+    if (period.end < todayIso && (!startBoundaryIso || period.end >= startBoundaryIso)) {
       periods.push(period);
     }
     const prevCursor = addDaysIso(period.start, -1);
@@ -80,6 +85,25 @@ export function periodsNeedingTasks(
   }
 
   return periods.reverse(); // chronological ascending (oldest period first)
+}
+
+/**
+ * The date before which a schedule must never generate tasks.
+ *
+ * Explicit wins: `config.first_period_start` (a YYYY-MM-DD string) is the
+ * operator's declaration of the first period this schedule is responsible
+ * for — the TTB quarterly beer excise schedule starts at Q3 2026 because the
+ * brewery says so, not because of when the row happened to be created.
+ * Unset, it falls back to the schedule's `created_at` date, which leaves
+ * every pre-existing schedule generating exactly what it generated before
+ * (their periods all post-date their own creation) while stopping any new
+ * schedule from inventing overdue filings for history it never covered.
+ */
+export function scheduleStartBoundary(schedule: TaxSchedule): string | undefined {
+  const declared = schedule.config?.first_period_start;
+  if (typeof declared === "string" && /^\d{4}-\d{2}-\d{2}$/.test(declared)) return declared;
+  const createdAt = schedule.created_at;
+  return typeof createdAt === "string" && createdAt.length >= 10 ? createdAt.slice(0, 10) : undefined;
 }
 
 /** Pure eligibility predicate: is `todayIso` on/after `dueDate - leadDays`? */
@@ -103,7 +127,13 @@ export async function ensureTasksForSchedule(
   lookbackDays: number = DEFAULT_LOOKBACK_DAYS,
 ): Promise<{ created: number }> {
   const party = getParty(schedule.filing_key);
-  const periods = periodsNeedingTasks(schedule.frequency, today, lookbackDays, party);
+  const periods = periodsNeedingTasks(
+    schedule.frequency,
+    today,
+    lookbackDays,
+    party,
+    scheduleStartBoundary(schedule),
+  );
   if (periods.length === 0) return { created: 0 };
 
   const rule = readDueRule(schedule.config) ?? party.defaultDueRule(schedule.frequency);
