@@ -34,6 +34,22 @@ export interface ExpenseRecord {
   department_name:       string | null;
   transaction_time:      string | null;
   accounting_date:       string | null;
+  /**
+   * When this was PAID, as opposed to when it was incurred. Only a bill has a
+   * gap between the two, so only the bill adapter sets it -- a card swipe is
+   * paid the moment it happens, and a bank line IS the payment.
+   *
+   * Optional in the type, but the bill adapter always writes it explicitly
+   * (a date or null) so that a bill moving from open to paid, or a payment
+   * being reversed, is carried through by the upsert rather than leaving a
+   * stale value behind.
+   *
+   * Kept because `state` cannot answer for a past month: it is overwritten in
+   * place on every sync, so it says whether a bill is owed TODAY. This says
+   * when it stopped being owed, which is what accounts payable needs -- see
+   * balances/providers/openBillAp.ts.
+   */
+  settled_at?:           string | null;
   // The account this expense is coded against in the source system. When the
   // source mirrors the chart of accounts (as Ramp does), this drives auto-map.
   //

@@ -6,7 +6,7 @@
 // injectOpenInvoiceAr guard (openInvoiceArCents <= 0 => skip).
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { openInvoiceAr, tipAccrual, taxAccrual } from "./accruals";
+import { openInvoiceAr, openBillAp, tipAccrual, taxAccrual } from "./accruals";
 import type { BalanceContext } from "../registry";
 
 function ctx(overrides: Partial<BalanceContext> & { supabase: SupabaseClient }): BalanceContext {
@@ -64,6 +64,134 @@ describe("openInvoiceAr", () => {
     const result = await openInvoiceAr.compute(ctx({ supabase }));
 
     expect(result).toBe(500);
+  });
+});
+
+// ── openBillAp ───────────────────────────────────────────────────────────
+
+interface BillQuery {
+  table: string;
+  eq: [string, unknown][];
+  lte: [string, unknown][];
+  or: string[];
+  is: [string, unknown][];
+}
+
+function fakeBillsClient(rows: { amount_cents: number | null }[]) {
+  const seen: BillQuery = { table: "", eq: [], lte: [], or: [], is: [] };
+  const chain: Record<string, unknown> = {
+    select: () => chain,
+    eq: (col: string, val: unknown) => { seen.eq.push([col, val]); return chain; },
+    lte: (col: string, val: unknown) => { seen.lte.push([col, val]); return chain; },
+    or: (filters: string) => { seen.or.push(filters); return chain; },
+    is: (col: string, val: unknown) => { seen.is.push([col, val]); return chain; },
+    filter: () => chain,
+    order: () => chain,
+    range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
+  };
+  const supabase = { from: (table: string) => { seen.table = table; return chain; } } as unknown as SupabaseClient;
+  return { supabase, seen };
+}
+
+describe("openBillAp", () => {
+  /**
+   * The inverse of openInvoiceAr's assertion above, and the reason A/P is a
+   * calculation while A/R can only answer for today.
+   *
+   * `expenses.state` would put this provider in exactly openInvoiceAr's
+   * position: it is overwritten in place on every sync, so it says whether a
+   * bill is owed NOW. `settled_at` is history rather than status -- Ramp's
+   * immutable `paid_at`, persisted -- so "was this owed on the 30th of June" is
+   * answerable from stored rows, and a closed month recomputes to the figure it
+   * closed with. Setting this flag would quietly withdraw A/P from every month
+   * but the open one, so the absence is asserted rather than assumed.
+   */
+  it("can answer about a past month, so it is NOT current-state-only", () => {
+    expect(openBillAp.dependsOnCurrentState).toBeFalsy();
+  });
+
+  it("asks only for bills received by the month end and unpaid at it", async () => {
+    const { supabase, seen } = fakeBillsClient([{ amount_cents: -63700 }]);
+
+    await openBillAp.compute(ctx({ supabase, periodEnd: "2026-01-31" }));
+
+    expect(seen.table).toBe("expenses");
+    expect(seen.eq).toContainEqual(["ramp_object", "bill"]);
+    expect(seen.lte).toContainEqual(["accounting_date", "2026-01-31"]);
+    // Exclusive upper bound: a bill paid at 14:46 on the 31st was paid IN
+    // January, so only settlements from February onwards leave it outstanding.
+    expect(seen.or).toContain("settled_at.is.null,settled_at.gte.2026-02-01T00:00:00.000Z");
+  });
+
+  /**
+   * A declined or manually excluded row is not a debt. Asserted here because
+   * this provider builds its own query rather than going through
+   * fetchExpenses, and the eligibility rule has to stay one rule -- see
+   * financials/expenseFilters.ts, which is where it lives.
+   */
+  it("applies the shared statement eligibility filter on its accrual setting", async () => {
+    const { supabase, seen } = fakeBillsClient([{ amount_cents: -100 }]);
+
+    await openBillAp.compute(ctx({ supabase }));
+
+    expect(seen.or).toContain("state.is.null,state.neq.DECLINED");
+    expect(seen.is).toContainEqual(["excluded_at", null]);
+  });
+
+  it("sums the unpaid bill lines as a negative liability, with no second sign flip", async () => {
+    // Bill amounts are stored signed by cash direction, so already negative.
+    const { supabase } = fakeBillsClient([
+      { amount_cents: -63700 }, { amount_cents: -38340 }, { amount_cents: -97148 },
+    ]);
+
+    const result = await openBillAp.compute(ctx({ supabase }));
+
+    expect(result).toBe(-199188);
+  });
+
+  /**
+   * The reason this returns the NET rather than a magnitude. A vendor credit
+   * arrives positive; abs()-ing the sum would turn money the supplier owes back
+   * into money owed to them, inflating the debt by twice the credit.
+   */
+  it("lets a vendor credit reduce the debt instead of inflating it", async () => {
+    const { supabase } = fakeBillsClient([{ amount_cents: -50000 }, { amount_cents: 12000 }]);
+
+    const result = await openBillAp.compute(ctx({ supabase }));
+
+    expect(result).toBe(-38000);
+  });
+
+  /**
+   * The single failure this layer exists to prevent, on the account where it
+   * would be least visible. "Nothing is owed" and "the bill feed never ran"
+   * produce the same empty row set, and a confident $0 on a payables account
+   * reads as reconciled when it is only blind.
+   */
+  it("returns null, never 0, when it finds no bills at all", async () => {
+    const { supabase } = fakeBillsClient([]);
+
+    const result = await openBillAp.compute(ctx({ supabase }));
+
+    expect(result).toBeNull();
+  });
+
+  /**
+   * Zero is a real answer when there are rows to net: bills that cancel against
+   * their credits genuinely leave nothing owed, and that is different from
+   * having found nothing at all.
+   */
+  it("reports a genuine zero when the bills it found net out", async () => {
+    const { supabase } = fakeBillsClient([{ amount_cents: -12000 }, { amount_cents: 12000 }]);
+
+    const result = await openBillAp.compute(ctx({ supabase }));
+
+    expect(result).toBe(0);
+  });
+
+  it("is offerable on GL 2000 and nowhere else", () => {
+    expect(openBillAp.appliesTo?.({ accountNumber: "2000" } as never)).toBe(true);
+    expect(openBillAp.appliesTo?.({ accountNumber: "1100" } as never)).toBe(false);
   });
 });
 

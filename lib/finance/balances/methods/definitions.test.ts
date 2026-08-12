@@ -14,6 +14,7 @@ import {
   CLOSE_DUE_DAYS_KEY,
   getMethod,
   listMethods,
+  methodsFor,
   requiresMonthEndBalance,
   stepKey,
   type MethodKind,
@@ -44,6 +45,7 @@ describe("built-in method definitions", () => {
     // breaks the other two for a reason unrelated to their own work.
     const keys = listMethods().map((m) => m.key);
     for (const expected of [
+      "accountsPayable",
       "accountsReceivable",
       "manualBalance",
       "retainedEarnings",
@@ -83,11 +85,28 @@ describe("built-in method definitions", () => {
   it("pairs every accrual with its settling postings step", () => {
     // The whole reason this layer exists. An accrual-only method would let a
     // user reach the exact state that overstated GL 2310 eightfold.
-    for (const key of ["salesTaxPayable", "undistributedTips", "accountsReceivable"]) {
+    for (const key of ["salesTaxPayable", "undistributedTips", "accountsReceivable", "accountsPayable"]) {
       const steps = getMethod(key)!.steps.map(stepKey);
       expect(steps, key).toContain("transactionPostings");
       expect(steps.length, key).toBe(2);
     }
+  });
+
+  /**
+   * Receivables and payables are opposite sides of the same idea and their
+   * sections differ by one letter, so an appliesTo pointed at the wrong one
+   * would offer a user "what customers owe you" on the account for what they owe
+   * suppliers -- a plausible-looking choice producing a balance of the wrong
+   * sign on the wrong side of the sheet.
+   */
+  it("keeps receivables and payables offered to their own side of the sheet", () => {
+    const ar = { statementSection: "ar" } as never;
+    const ap = { statementSection: "ap" } as never;
+
+    expect(methodsFor(ap).map((m) => m.key)).toContain("accountsPayable");
+    expect(methodsFor(ar).map((m) => m.key)).not.toContain("accountsPayable");
+    expect(methodsFor(ar).map((m) => m.key)).toContain("accountsReceivable");
+    expect(methodsFor(ap).map((m) => m.key)).not.toContain("accountsReceivable");
   });
 });
 

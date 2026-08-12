@@ -89,6 +89,15 @@ export interface RampBill {
   issued_at:       string;   // ISO
   accounting_date: string;   // ISO
   due_at:          string | null;
+  /**
+   * When Ramp settled this bill, or null while it is still owed.
+   *
+   * The one field on this object that is HISTORY rather than current state, and
+   * the reason accounts payable is computable at all. `status` alone answers
+   * "is this owed today"; paired with `issued_at`, `paid_at` answers "was this
+   * owed on the 30th of June" -- see providers/openBillAp.ts.
+   */
+  paid_at:         string | null;
   memo:            string | null;
   invoice_number:  string | null;
   sync_status:     string | null;  // raw Ramp QB sync_status: NOT_SYNCED | BILL_SYNCED | BILL_AND_PAYMENT_SYNCED
@@ -208,6 +217,27 @@ export async function getRampTransactions(from?: string, to?: string): Promise<R
 }
 
 /**
+ * Whether a bill falls inside a from/to window, by its accounting date.
+ *
+ * Exported because the window is applied in two places now. getRampBills pages
+ * every bill regardless (the list endpoint doesn't reliably honor a date filter)
+ * and filters here; rampSync.ts asks for the UNFILTERED list so it can refresh
+ * every bill's settlement state, and then applies this same predicate to decide
+ * which bills are in scope for the caller's window. One copy of the rule, so the
+ * two cannot come to different views of what "in this window" means.
+ *
+ * A bill with no accounting date passes: it is a real bill and dropping it
+ * silently would lose a payable outright.
+ */
+export function billInWindow(bill: RampBill, from?: string, to?: string): boolean {
+  const day = bill.accounting_date.slice(0, 10);
+  if (!day) return true;
+  if (from && day < from) return false;
+  if (to && day > to) return false;
+  return true;
+}
+
+/**
  * Pull Ramp bill-pay records. The list endpoint doesn't reliably honor a date
  * filter, so we page through all and filter client-side by accounting_date when
  * a window is given (bill volume is low — monthly, not per-swipe). Line-item
@@ -226,20 +256,16 @@ export async function getRampBills(from?: string, to?: string): Promise<RampBill
     if (data.error_v2) throw new Error(`Ramp bills: ${data.error_v2.message}`);
 
     for (const b of data.data ?? []) {
-      const accountingDate: string = b.accounting_date ?? b.issued_at ?? "";
-      const day = accountingDate.slice(0, 10);
-      if (from && day && day < from) continue;
-      if (to && day && day > to) continue;
-
-      results.push({
+      const bill: RampBill = {
         id:              b.id,
         amount:          parseAmount(b.amount),
         currency_code:   b.amount?.currency_code ?? "USD",
         vendor_name:     b.vendor?.name ?? "",
         status:          b.status ?? "",
         issued_at:       b.issued_at ?? "",
-        accounting_date: accountingDate,
+        accounting_date: b.accounting_date ?? b.issued_at ?? "",
         due_at:          b.due_at ?? null,
+        paid_at:         b.paid_at ?? null,
         memo:            b.memo ?? b.vendor_memo ?? null,
         invoice_number:  b.invoice_number ?? null,
         sync_status:     b.sync_status ?? null,
@@ -249,7 +275,8 @@ export async function getRampBills(from?: string, to?: string): Promise<RampBill
           memo:                        (li.memo as string | null) ?? null,
           accounting_field_selections: (li.accounting_field_selections as unknown[]) ?? [],
         })),
-      });
+      };
+      if (billInWindow(bill, from, to)) results.push(bill);
     }
     url = data.page?.next ?? null;
   }

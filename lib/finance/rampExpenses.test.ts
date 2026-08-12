@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { rampTxnToExpenseRecord, rampBillToExpenseRecords, syncRampExpenses } from "./rampExpenses";
+import { rampTxnToExpenseRecord, rampBillToExpenseRecords, refreshBillSettlement, syncRampExpenses } from "./rampExpenses";
 import type { RampTransaction, RampBill } from "@/lib/ramp";
+import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 function txn(over: Partial<RampTransaction> = {}): RampTransaction {
   return {
@@ -30,7 +31,7 @@ function bill(over: Partial<RampBill> = {}): RampBill {
   return {
     id: "b1", amount: 130.44, currency_code: "USD", vendor_name: "RahrBSG",
     status: "PAID", issued_at: "2026-05-19T00:00:00Z", accounting_date: "2026-05-19T00:00:00Z",
-    due_at: "2026-06-18T00:00:00Z", memo: "malt", invoice_number: "INV-1",
+    due_at: "2026-06-18T00:00:00Z", paid_at: "2026-07-08T16:20:00Z", memo: "malt", invoice_number: "INV-1",
     sync_status: "BILL_SYNCED", remote_id: "qb-bill-9",
     line_items: [
       { amount: 100.00, memo: "malt", accounting_field_selections: [glSelection("COGS:Raw Materials", "5110")] },
@@ -71,6 +72,100 @@ describe("rampBillToExpenseRecords", () => {
     const recs = rampBillToExpenseRecords(bill({ line_items: [] }));
     expect(recs).toHaveLength(1);
     expect(recs[0]).toMatchObject({ source_transaction_id: "b1:0", amount_cents: -13044, external_account_id: null });
+  });
+});
+
+/**
+ * `settled_at` is what makes accounts payable answerable for a past month --
+ * `state` cannot, being overwritten in place on every sync. See
+ * balances/providers/openBillAp.ts.
+ */
+describe("bill settlement", () => {
+  it("records when a paid bill was settled, on every one of its lines", () => {
+    const recs = rampBillToExpenseRecords(bill({ paid_at: "2026-07-08T16:20:00Z" }));
+
+    expect(recs.map((r) => r.settled_at)).toEqual(["2026-07-08T16:20:00Z", "2026-07-08T16:20:00Z"]);
+  });
+
+  it("leaves it null while the bill is still owed", () => {
+    const recs = rampBillToExpenseRecords(bill({ status: "OPEN", paid_at: null }));
+
+    expect(recs[0].settled_at).toBeNull();
+    expect(recs[0].state).toBe("OPEN");
+  });
+
+  /**
+   * Written explicitly rather than omitted, so the upsert carries the change.
+   * Ramp's absent-value sentinel is "", and leaving a stale timestamp behind
+   * would strand a re-opened bill outside the payables it belongs to.
+   */
+  it("clears a stale settlement rather than omitting the field", () => {
+    const recs = rampBillToExpenseRecords(bill({ paid_at: "" }));
+
+    expect(recs[0]).toHaveProperty("settled_at", null);
+  });
+
+  it("does not claim a card swipe was settled later — there is no gap to record", () => {
+    expect(rampTxnToExpenseRecord(txn()).settled_at).toBeUndefined();
+  });
+});
+
+describe("refreshBillSettlement", () => {
+  function fakeClient() {
+    const updates: { patch: Record<string, unknown>; eq: [string, unknown][]; like: [string, string][] }[] = [];
+    const chain: Record<string, unknown> = {
+      update: (patch: Record<string, unknown>) => {
+        updates.push({ patch, eq: [], like: [] });
+        return chain;
+      },
+      eq: (col: string, val: unknown) => { updates[updates.length - 1].eq.push([col, val]); return chain; },
+      like: (col: string, val: string) => { updates[updates.length - 1].like.push([col, val]); return chain; },
+      then: (resolve: (v: unknown) => unknown) => resolve({ error: null, count: 2 }),
+    };
+    const supabase = { from: () => chain } as unknown as ReturnType<typeof createSupabaseAdminClient>;
+    return { supabase, updates };
+  }
+
+  /**
+   * The whole reason this function exists. A bill incurred in June and paid in
+   * August is outside the daily cron's 45-day window at payment time, so without
+   * a settlement refresh it keeps June's OPEN state forever and accounts payable
+   * only ever grows -- the failure GL 2310 shipped with.
+   */
+  it("writes each bill's current state and settlement date", async () => {
+    const { supabase, updates } = fakeClient();
+
+    await refreshBillSettlement(supabase, [
+      bill({ id: "b1", status: "PAID", paid_at: "2026-08-07T10:00:00Z" }),
+      bill({ id: "b2", status: "OPEN", paid_at: null }),
+    ]);
+
+    expect(updates.map((u) => u.patch)).toEqual([
+      { state: "PAID", settled_at: "2026-08-07T10:00:00Z" },
+      { state: "OPEN", settled_at: null },
+    ]);
+  });
+
+  /**
+   * Scoped to the bill's own lines, and to bills. The colon is load-bearing:
+   * without it one bill id could prefix-match another's and settle a debt that
+   * is still owed.
+   */
+  it("touches only the line items of the bill it is updating", async () => {
+    const { supabase, updates } = fakeClient();
+
+    await refreshBillSettlement(supabase, [bill({ id: "b1" })]);
+
+    expect(updates[0].like).toEqual([["source_transaction_id", "b1:%"]]);
+    expect(updates[0].eq).toEqual([["source", "ramp"], ["ramp_object", "bill"]]);
+  });
+
+  it("reports how many stored rows it touched", async () => {
+    const { supabase } = fakeClient();
+
+    const result = await refreshBillSettlement(supabase, [bill({ id: "b1" }), bill({ id: "b2" })]);
+
+    expect(result).toEqual({ refreshed: 4 });
   });
 });
 
