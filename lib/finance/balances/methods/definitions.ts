@@ -22,6 +22,7 @@ const isReceivable = (coa: CoaAccountRef) => coa.statementSection === "ar";
 const isEquity = (coa: CoaAccountRef) => coa.statementSection === "equity";
 const isCurrentLiability = (coa: CoaAccountRef) => coa.statementSection === "other_current_liabilities";
 const isBank = (coa: CoaAccountRef) => coa.statementSection === "bank";
+const isCreditCard = (coa: CoaAccountRef) => coa.statementSection === "credit_card";
 const isOtherCurrentAsset = (coa: CoaAccountRef) => coa.statementSection === "other_current_assets";
 
 /**
@@ -314,6 +315,51 @@ const rampAccountBalance: BalanceMethod = {
 };
 
 /**
+ * GL 2110 Credit Cards:Ramp Card.
+ *
+ * Single-step for the same reason the treasury method above is: Ramp reports
+ * what is outstanding on the cards, so there is no second half of the
+ * calculation that could be left off, and adding a postings step would count
+ * every card charge twice -- once as Ramp sees it and once as the expense feed
+ * recorded it. Where the two disagree the answer is a reconciliation, not a sum.
+ *
+ * What is NOT shared with GL 1030 is the sign and the source of a past month.
+ * This account is a liability, so the reported figure is negated, and Ramp
+ * cannot be asked what was owed on a date that has passed -- the month-end
+ * figure is whatever the nightly capture recorded that day. Both live in
+ * providers/rampCardBalance.ts.
+ */
+const rampCardBalance: BalanceMethod = {
+  key: "rampCardBalance",
+  label: "Ramp card balance",
+  kind: "calculation",
+  summary: "Takes the amount Ramp itself says is outstanding on your Ramp cards.",
+  appliesTo: isCreditCard,
+  setup: [
+    {
+      kind: "connection",
+      key: "connectionId",
+      provider: "rampCard",
+      // Same app-level Ramp credentials as the treasury account, so there is
+      // nothing for an operator to sign in to.
+      connect: "discover",
+      label: "Ramp cards",
+      help: "Confirm that this general ledger account is the one your Ramp card spending is owed on. Ramp reports a single balance covering every card, so there is one thing here to connect and no need to pick a card.",
+    },
+  ],
+  steps: [
+    {
+      providerKey: "rampCardBalance",
+      label: "Outstanding on your Ramp cards",
+      description:
+        "What Ramp says is still owed on your cards, shown as a liability. Only charges that have actually settled are counted — a purchase still showing as pending is left out, because it has not reached your expenses yet either. Ramp cannot be asked what was owed on a day that has passed, so each month end uses the reading taken late that night; a month that ended before these cards were connected stays blank rather than showing a later figure.",
+      source: "Ramp card account",
+      direction: "net",
+    },
+  ],
+};
+
+/**
  * GL 1040 Square Deposit Account.
  *
  * The opposite situation to Ramp above, and worth reading together. Ramp
@@ -443,6 +489,7 @@ export const BUILT_IN_METHODS: BalanceMethod[] = [
   retainedEarnings,
   inventoryOnHand,
   rampAccountBalance,
+  rampCardBalance,
   squareStoredBalance,
   plaidBankBalance,
 ];

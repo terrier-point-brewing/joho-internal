@@ -8,12 +8,13 @@ import type { ConnectionProvider } from "../methods/registry";
 import type { ProviderReadiness } from "../methods/setup";
 import type { SetupHandler } from "./types";
 import { rampSetup } from "./ramp";
+import { rampCardSetup } from "./rampCard";
 import { squareSetup } from "./square";
 import { plaidSetup } from "./plaid";
 
 export type { SetupHandler, SetupCandidate, SetupCheckResult } from "./types";
 
-const HANDLERS: SetupHandler[] = [rampSetup, squareSetup, plaidSetup];
+const HANDLERS: SetupHandler[] = [rampSetup, rampCardSetup, squareSetup, plaidSetup];
 
 export function getSetupHandler(provider: string): SetupHandler | undefined {
   return HANDLERS.find((h) => h.provider === provider);

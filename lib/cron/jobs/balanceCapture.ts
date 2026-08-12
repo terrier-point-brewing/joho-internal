@@ -36,6 +36,7 @@ import "@/lib/finance/balances/methods";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { captureDailyBalances } from "@/lib/finance/balances/dailyCapture";
 import { readPlaidBalance } from "@/lib/finance/balances/plaidCapture";
+import { captureRampCardBalance } from "@/lib/finance/balances/rampCardCapture";
 import { todayLocalDate } from "@/lib/utils/datetime";
 
 export async function runBalanceCapture(supabase: SupabaseClient) {
@@ -47,8 +48,24 @@ export async function runBalanceCapture(supabase: SupabaseClient) {
     read: readPlaidBalance,
   });
 
+  // The Ramp CARD balance, which has the same problem Plaid's does: the
+  // endpoint answers only about right now, so a month end exists only if it was
+  // written down that day. Ramp's TREASURY balance is deliberately absent --
+  // that one can be re-asked for any past date and needs no capture, and the
+  // two are separate connection providers precisely so this run cannot write a
+  // card balance onto GL 1030.
+  //
+  // Sequential rather than concurrent: each is a handful of slow synchronous
+  // calls to a third party, and one feed's outage should not shorten the time
+  // the other gets inside the route's limit.
+  const rampCard = await captureDailyBalances(supabase, {
+    provider: "rampCard",
+    asOfDate,
+    read: captureRampCardBalance,
+  });
+
   // Reported rather than thrown. A connection failing is a fact for the
   // Settings status line and the cron detail, not a reason to mark the whole
   // run failed and lose the captures that did succeed.
-  return { asOfDate, plaid };
+  return { asOfDate, plaid, rampCard };
 }

@@ -16,6 +16,7 @@ import "./transactionPostings";
 import "./retainedEarnings";
 import "./manualBalance";
 import "./rampBalance";
+import "./rampCardBalance";
 import "./squareBalance";
 import "./plaidBalance";
 import "./inventoryOnHand";

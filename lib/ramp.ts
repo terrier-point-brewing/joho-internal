@@ -350,20 +350,33 @@ export interface RampDailyBalance {
 }
 
 /**
+ * One of Ramp's money objects, in cents.
+ *
+ * Ramp reports money as an integer in minor units plus the rate that converts
+ * it to major units, so for USD `amount` already IS cents. It is still divided
+ * through `minor_unit_conversion_rate` and re-scaled rather than passed
+ * straight through, so a currency with different precision could not silently
+ * arrive off by a factor of ten. `parseAmount` above is not reused because it
+ * returns dollars and balances are stored in cents.
+ */
+function amountToCents(raw: unknown): { cents: number; currency_code: string } {
+  const amount = (raw ?? {}) as Record<string, unknown>;
+  const rate   = (amount.minor_unit_conversion_rate as number | undefined) ?? 100;
+  const minor  = (amount.amount as number | undefined) ?? 0;
+  return {
+    cents:         Math.round((minor / rate) * 100),
+    currency_code: (amount.currency_code as string | undefined) ?? "USD",
+  };
+}
+
+/**
  * Daily balance history for a Ramp treasury account, used by the GL 1030
  * balance method. Needs `treasury:read`, already in RAMP_SCOPES above.
  *
  * Unlike Plaid's balance endpoint, this answers about the PAST, which is why
  * the Ramp balance method needs no daily capture cron -- a month end can always
- * be re-asked for.
- *
- * ── On the returned amount ───────────────────────────────────────────────────
- * Ramp reports money as an integer in minor units plus the rate that converts
- * it to major units, so for USD `amount` already IS cents. It is still divided
- * through `minor_unit_conversion_rate` and re-scaled here rather than passed
- * straight through, so a currency with different precision could not silently
- * arrive off by a factor of ten. `parseAmount` above is not reused because it
- * returns dollars and balances are stored in cents.
+ * be re-asked for. The CARD balance below is the opposite case, and the two are
+ * worth reading together.
  *
  * This is the AVAILABLE balance. It can differ from a posted statement balance
  * when something is still pending on the last day of the month -- the balance
@@ -387,15 +400,92 @@ export async function getRampAccountBalanceHistory(
 
   const rows: Record<string, unknown>[] = Array.isArray(data) ? data : (data?.data ?? []);
   return rows.map((r) => {
-    const amount = (r.amount ?? {}) as Record<string, unknown>;
-    const rate   = (amount.minor_unit_conversion_rate as number | undefined) ?? 100;
-    const minor  = (amount.amount as number | undefined) ?? 0;
-    return {
-      date:          String(r.date ?? "").slice(0, 10),
-      balance_cents: Math.round((minor / rate) * 100),
-      currency_code: (amount.currency_code as string | undefined) ?? "USD",
-    };
+    const { cents, currency_code } = amountToCents(r.amount);
+    return { date: String(r.date ?? "").slice(0, 10), balance_cents: cents, currency_code };
   });
+}
+
+/**
+ * What is currently owed on the Ramp CARD program — the credit-card liability
+ * behind GL 2110, not the treasury cash above.
+ *
+ * ── Why this endpoint and not the obvious ones ───────────────────────────────
+ * Three candidates were checked against the live account before settling here.
+ * `/limits` reports per-card spend within the current interval, which resets
+ * monthly and is a budget rather than a debt (it also needs a scope this app is
+ * not granted). `/statements` reports a real ending balance, but on Ramp's
+ * BILLING cycle -- this business closes on the 26th -- so its figures answer
+ * about a period no balance sheet ever asks for. Only this endpoint reports the
+ * outstanding card balance itself.
+ *
+ * ── It answers only about NOW ────────────────────────────────────────────────
+ * There is no as-of date and no history, which puts this on the Plaid side of
+ * the line rather than the treasury side: a month-end card balance exists only
+ * if something wrote it down that day. That is why this feeds the daily capture
+ * -- see lib/finance/balances/rampCardCapture.ts.
+ *
+ * ── Settled vs pending ───────────────────────────────────────────────────────
+ * Both are returned because they are genuinely different facts and the caller,
+ * not this function, should decide which one its books mean. The balance method
+ * uses the SETTLED figure; see the provider for why.
+ */
+export interface RampCardBalance {
+  /** Charges that have actually posted, in cents. Positive means money owed. */
+  settled_cents:           number;
+  /** The same, plus card authorizations that have not settled yet. */
+  including_pending_cents: number;
+  currency_code:           string;
+}
+
+export async function getRampCardBalance(): Promise<RampCardBalance> {
+  const token = await getRampToken();
+  const res   = await fetch(`${RAMP_BASE}/business/balance`, {
+    headers: { Authorization: `Bearer ${token}` }, cache: "no-store",
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = await res.json();
+  if (data?.error_v2) throw new Error(`Ramp card balance: ${data.error_v2.message}`);
+  if (!res.ok) throw new Error(`Ramp card balance: HTTP ${res.status}`);
+
+  // Absent rather than zero. amountToCents would read a missing field as $0
+  // owed, which is a plausible balance and an undetectable lie; a liability
+  // that quietly reads as settled is exactly the failure worth refusing.
+  const settled = data.card_balance_excluding_pending_amount;
+  if (!settled || typeof settled !== "object") {
+    throw new Error("Ramp card balance: the response carried no card balance");
+  }
+
+  const cleared = amountToCents(settled);
+  return {
+    settled_cents:           cleared.cents,
+    including_pending_cents: amountToCents(data.card_balance_including_pending_amount).cents,
+    currency_code:           cleared.currency_code,
+  };
+}
+
+/** The Ramp business these credentials belong to. */
+export interface RampBusiness {
+  id:          string;
+  legal_name:  string;
+  /** The name printed on the cards, which is what an operator recognises. */
+  card_name:   string;
+}
+
+export async function getRampBusiness(): Promise<RampBusiness> {
+  const token = await getRampToken();
+  const res   = await fetch(`${RAMP_BASE}/business`, {
+    headers: { Authorization: `Bearer ${token}` }, cache: "no-store",
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = await res.json();
+  if (data?.error_v2) throw new Error(`Ramp business: ${data.error_v2.message}`);
+  if (!res.ok) throw new Error(`Ramp business: HTTP ${res.status}`);
+
+  return {
+    id:         data.id as string,
+    legal_name: (data.business_name_legal as string | undefined) ?? "",
+    card_name:  (data.business_name_on_card as string | undefined) ?? (data.business_name_legal as string | undefined) ?? "",
+  };
 }
 
 export async function getRampBankAccounts(): Promise<RampBankAccount[]> {

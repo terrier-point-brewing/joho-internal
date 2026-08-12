@@ -34,7 +34,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const PROVIDERS: readonly ConnectionProvider[] = ["ramp", "plaid", "square"];
+const PROVIDERS: readonly ConnectionProvider[] = ["ramp", "rampCard", "plaid", "square"];
 
 function isProvider(value: unknown): value is ConnectionProvider {
   return typeof value === "string" && (PROVIDERS as readonly string[]).includes(value);

@@ -24,7 +24,8 @@ export interface SetupFieldMeta {
   label: string;
   help: string;
   optional?: boolean;
-  provider?: "ramp" | "plaid" | "square";
+  /** "ramp" is the treasury cash Ramp holds; "rampCard" is what is owed on the cards. */
+  provider?: "ramp" | "rampCard" | "plaid" | "square";
   connect?: "discover" | "authorize";
   options?: { value: string; label: string }[];
   /**
@@ -56,7 +57,7 @@ export interface MethodMeta {
   label: string;
   kind: MethodKind;
   summary: string;
-  connectionProvider: "ramp" | "plaid" | "square" | null;
+  connectionProvider: "ramp" | "rampCard" | "plaid" | "square" | null;
   setup: SetupFieldMeta[];
   steps: StepMeta[];
 }

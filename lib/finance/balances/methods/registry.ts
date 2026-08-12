@@ -76,8 +76,17 @@ export interface BalanceStep {
  *
  * Lives here rather than in connections.ts so that module can import from this
  * one without a cycle.
+ *
+ * ── Why Ramp appears twice ───────────────────────────────────────────────────
+ * `ramp` is the treasury cash Ramp HOLDS for you; `rampCard` is what you OWE on
+ * the Ramp cards. Same company, same credentials, and every other thing a
+ * connection is asked about differs: what you pick from (a list of treasury
+ * accounts vs the card programme itself), which endpoint answers, whether a
+ * past date can be re-asked for, and therefore whether the daily capture has to
+ * run. `planCaptures` selects work BY PROVIDER, so folding the two together
+ * would have had the card capture write its figure onto GL 1030 as well.
  */
-export type ConnectionProvider = "ramp" | "plaid" | "square";
+export type ConnectionProvider = "ramp" | "rampCard" | "plaid" | "square";
 
 /**
  * How an operator obtains something to connect.
