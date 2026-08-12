@@ -15,12 +15,14 @@
  */
 import { registerMethod, CLOSE_DUE_DAYS_KEY } from "./registry";
 import type { BalanceMethod } from "./registry";
+import { INVENTORY_POOL_KEY } from "../providers/inventoryOnHand";
 import type { CoaAccountRef } from "../../financials/types";
 
 const isReceivable = (coa: CoaAccountRef) => coa.statementSection === "ar";
 const isEquity = (coa: CoaAccountRef) => coa.statementSection === "equity";
 const isCurrentLiability = (coa: CoaAccountRef) => coa.statementSection === "other_current_liabilities";
 const isBank = (coa: CoaAccountRef) => coa.statementSection === "bank";
+const isOtherCurrentAsset = (coa: CoaAccountRef) => coa.statementSection === "other_current_assets";
 
 /**
  * The postings step, reused by three composite methods. Its label and
@@ -200,6 +202,60 @@ const retainedEarnings: BalanceMethod = {
   ],
 };
 
+/**
+ * GL 1210 Raw Materials, GL 1220 Packaging Materials and GL 1230 Finished Goods.
+ *
+ * ── One method, not one per account ──────────────────────────────────────────
+ * All three ask the same question -- what is on the shelf, and what did it cost
+ * -- of a different shelf. That difference is a SETUP FIELD, in the same way
+ * Ramp's is "which Ramp account": the calculation is declared once and the
+ * account says which thing it holds. Writing `rawMaterialsInventory` and
+ * `packagingInventory` as separate methods would have put the same arithmetic in
+ * two places, and finished goods would have been a third copy.
+ *
+ * ── Why 1240 Taproom Merchandise is not offered here ─────────────────────────
+ * Not an oversight, and not something to widen the pool list for later without
+ * the missing data arriving first. Merchandise has no cost column anywhere in
+ * the system -- Square publishes a price, never a cost -- so there is nothing to
+ * value it against. It stays on Manual entry, which is an honest answer, rather
+ * than getting a calculation that quietly reads low.
+ */
+const inventoryOnHand: BalanceMethod = {
+  key: "inventoryOnHand",
+  label: "Inventory on hand",
+  kind: "calculation",
+  summary: "Counts what is on the shelf today and prices it at what it cost you.",
+  appliesTo: isOtherCurrentAsset,
+  setup: [
+    {
+      kind: "select",
+      key: INVENTORY_POOL_KEY,
+      label: "Which inventory this account holds",
+      help: "Pick what this account is for. Raw materials are the malt, hops, yeast and fruit tracked under Production, Ingredients; packaging materials are the cans, lids, labels, PakTechs and trays; finished goods are the packaged beer sitting in cold storage. Nothing can be valued until this is chosen, because the calculation would otherwise not know which shelf to count.",
+      options: [
+        { value: "rawMaterials", label: "Raw materials (ingredients)" },
+        { value: "packagingMaterials", label: "Packaging materials" },
+        { value: "finishedGoods", label: "Finished goods (packaged beer in cold storage)" },
+      ],
+    },
+  ],
+  steps: [
+    {
+      providerKey: "inventoryOnHand",
+      label: "On hand at cost",
+      description:
+        "What is recorded as on hand, priced at cost. Raw and packaging materials are counted item by item at their unit cost. Finished goods are priced from the recipe and the packaging it went into — the ingredients the beer calls for, plus its cans, lids, labels, PakTechs and trays — and cover materials only, with no labour or brewery overhead. Anything nobody has priced yet counts as nothing, so the figure reads low rather than failing; a recipe with no ingredients entered is the usual reason. Packaging belonging to a contract-brewing partner is left out as that customer's stock, but their beer in cold storage is NOT — beer becomes theirs when it ships, so until then it is yours.",
+      source: "Production ingredient and packaging records",
+      direction: "add",
+    },
+    postingsStep(
+      "Direct adjustments",
+      "Anything coded straight to this account rather than arriving through the production records — a write-down, or an opening figure booked by hand. Usually nothing, but it would be silently lost without this step.",
+      "net",
+    ),
+  ],
+};
+
 // ── Integrations ─────────────────────────────────────────────────────────────
 
 /**
@@ -367,6 +423,7 @@ export const BUILT_IN_METHODS: BalanceMethod[] = [
   undistributedTips,
   accountsReceivable,
   retainedEarnings,
+  inventoryOnHand,
   rampAccountBalance,
   squareStoredBalance,
   plaidBankBalance,

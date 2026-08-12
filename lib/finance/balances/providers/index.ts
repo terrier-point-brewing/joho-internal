@@ -18,3 +18,4 @@ import "./manualBalance";
 import "./rampBalance";
 import "./squareBalance";
 import "./plaidBalance";
+import "./inventoryOnHand";
