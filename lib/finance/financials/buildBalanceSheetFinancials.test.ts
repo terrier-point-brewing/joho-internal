@@ -16,7 +16,7 @@ vi.mock("./fetchSources", async (importOriginal) => {
 });
 vi.mock("@/lib/finance/balances/snapshot", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/finance/balances/snapshot")>();
-  return { ...actual, fetchBalances: vi.fn() };
+  return { ...actual, fetchBalances: vi.fn(), fetchStatedBalanceMonths: vi.fn() };
 });
 // Partial: only the lookup is faked, so this suite can hand expandSources
 // whatever provider a test needs. Everything else (createSharedComputeCache,
@@ -33,7 +33,7 @@ vi.mock("@/lib/finance/balances/providers", () => ({}));
 import { buildFinancials } from "./buildFinancials";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchCoa, fetchExciseCoverage } from "./fetchSources";
-import { fetchBalances } from "@/lib/finance/balances/snapshot";
+import { fetchBalances, fetchStatedBalanceMonths } from "@/lib/finance/balances/snapshot";
 import { getProvider } from "@/lib/finance/balances/registry";
 import type { CoaRecord } from "./aggregateRows";
 import type { BalanceProvider } from "@/lib/finance/balances/registry";
@@ -42,6 +42,7 @@ const mockedCreateAdmin = vi.mocked(createSupabaseAdminClient);
 const mockedFetchCoa = vi.mocked(fetchCoa);
 const mockedFetchExcise = vi.mocked(fetchExciseCoverage);
 const mockedFetchBalances = vi.mocked(fetchBalances);
+const mockedFetchStatedMonths = vi.mocked(fetchStatedBalanceMonths);
 const mockedGetProvider = vi.mocked(getProvider);
 
 /** Minimal fake admin client -- the balance_sheet branch only ever queries balance_sheet_account_sources directly (everything else goes through the mocked fetchCoa/fetchBalances/provider.compute). */
@@ -62,6 +63,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-07-15T00:00:00Z"));
   mockedFetchExcise.mockResolvedValue({ shipmentsMissingExcise: 0 });
+  // No account overridden by hand unless a test says so -- the ordinary state,
+  // and what keeps every existing assertion about the figures unchanged.
+  mockedFetchStatedMonths.mockResolvedValue(new Map());
 });
 
 afterEach(() => {
@@ -144,5 +148,63 @@ describe("buildFinancials — balance_sheet", () => {
     expect(resp.dataQuality.unsourcedAccounts).toEqual({
       count: 2, href: "/settings/finance/balance-sheet-accounts",
     });
+  });
+});
+
+/**
+ * A stated balance is the one figure on this statement that is not what its
+ * named source reported, so the row has to carry that fact to the table. The
+ * marker is per MONTH, not per account: an override applies to the month it is
+ * dated and the months either side of it are the feed's own readings.
+ */
+describe("buildFinancials — balance_sheet marks months an operator restated", () => {
+  it("carries the stored months through to the row", async () => {
+    mockedCreateAdmin.mockReturnValue(fakeSupabase([{ chart_of_accounts_id: "coa-2220", provider_key: "manualBalance" }]));
+    mockedFetchCoa.mockResolvedValue(COA);
+    mockedFetchBalances.mockResolvedValue(new Map([["coa-2220", { "2026-05": -10000, "2026-06": -50000 }]]));
+    mockedFetchStatedMonths.mockResolvedValue(new Map([["coa-2220", new Set(["2026-06"])]]));
+    mockedGetProvider.mockReturnValue(undefined);
+
+    const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
+    const row = resp.rows.find((r) => r.coaId === "coa-2220")!;
+
+    expect(row.statedMonths).toEqual(["2026-06"]);
+  });
+
+  it("marks the open month from the live compute, which has no stored row yet", async () => {
+    // Without this the marker would disappear the moment a month became the
+    // current one -- the months where somebody is most likely to be correcting
+    // a figure by hand.
+    const liveCompute = vi.fn().mockResolvedValue(-99999);
+    mockedCreateAdmin.mockReturnValue(fakeSupabase([{ chart_of_accounts_id: "coa-2220", provider_key: "stated" }]));
+    mockedFetchCoa.mockResolvedValue(COA);
+    mockedFetchBalances.mockResolvedValue(new Map());
+    mockedFetchStatedMonths.mockResolvedValue(new Map());
+    mockedGetProvider.mockImplementation((key) =>
+      key === "stated" ? fakeProvider("stated", liveCompute) : undefined,
+    );
+
+    const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
+    const row = resp.rows.find((r) => r.coaId === "coa-2220")!;
+
+    // The live path contributes under the provider key, not the override key,
+    // so nothing is marked: this asserts the marker is not applied blindly to
+    // every live month.
+    expect(row.statedMonths).toBeUndefined();
+  });
+
+  it("omits the field entirely on an ordinary row", async () => {
+    // Keeps an unmarked row's wire payload byte-for-byte what it was, and keeps
+    // P&L rows -- which have no such concept -- free of a stray empty array.
+    mockedCreateAdmin.mockReturnValue(fakeSupabase([{ chart_of_accounts_id: "coa-2220", provider_key: "manualBalance" }]));
+    mockedFetchCoa.mockResolvedValue(COA);
+    mockedFetchBalances.mockResolvedValue(new Map([["coa-2220", { "2026-06": -50000 }]]));
+    mockedFetchStatedMonths.mockResolvedValue(new Map());
+    mockedGetProvider.mockReturnValue(undefined);
+
+    const resp = await buildFinancials({ statement: "balance_sheet", year: 2026 });
+    const row = resp.rows.find((r) => r.coaId === "coa-2220")!;
+
+    expect("statedMonths" in row).toBe(false);
   });
 });

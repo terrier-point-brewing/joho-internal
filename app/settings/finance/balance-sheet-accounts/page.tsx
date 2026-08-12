@@ -39,6 +39,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { EM_DASH, formatBalanceCents } from "@/lib/format";
+import { STATED_BALANCE_KEY } from "@/lib/finance/balances/statedBalanceKey";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
@@ -201,6 +202,9 @@ function MethodExplainer({
   const figure = account?.liveBalance ?? account?.currentBalance ?? null;
   const contributions = figure?.contributions ?? {};
   const hasFigures = Object.keys(contributions).length > 0;
+  // Undefined means nobody overrode this month, which is different from an
+  // override that happened to agree with the feed to the cent (a real 0).
+  const statedDifferenceCents = contributions[STATED_BALANCE_KEY];
 
   return (
     <Modal title={method.label} onClose={onClose}>
@@ -234,6 +238,39 @@ function MethodExplainer({
             </div>
           ))}
         </div>
+
+        {/* An operator's stated balance, shown as what it actually did rather
+            than as a figure standing on its own. All three numbers matter: what
+            the source reported, what the person said, and the gap between them,
+            which is the thing anyone reconciling this account is looking for.
+            The stored contribution is the DIFFERENCE, so the source's own figure
+            is recovered by subtracting it back out. */}
+        {statedDifferenceCents !== undefined && (
+          <div className="border-t border-line pt-3 flex flex-col gap-1">
+            <p className="text-xs text-body">Balance entered by hand</p>
+            <p className="text-2xs text-faint leading-relaxed">
+              Somebody entered this month&rsquo;s balance under Finance &gt; Transactions &gt; Manual Entries, and it is
+              being used instead of the figure above. It applies to this month only — next month goes back to what this
+              account&rsquo;s source reports, because that reading stands on its own and owes nothing to this one.
+            </p>
+            <div className="flex items-baseline justify-between gap-3 mt-1">
+              <span className="text-2xs text-muted">This account&rsquo;s source reported</span>
+              <span className="font-mono text-2xs tabular-nums text-body">
+                {formatBalanceCents(figure!.cents - statedDifferenceCents)}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-2xs text-muted">Entered by hand</span>
+              <span className="font-mono text-2xs tabular-nums text-body">{formatBalanceCents(figure!.cents)}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-2xs text-muted">Difference</span>
+              <span className="font-mono text-2xs tabular-nums text-body">
+                {formatBalanceCents(statedDifferenceCents)}
+              </span>
+            </div>
+          </div>
+        )}
 
         {hasFigures && (
           <div className="flex items-center justify-between border-t border-line pt-3">

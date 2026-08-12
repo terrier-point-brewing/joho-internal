@@ -44,6 +44,10 @@ export const plaidBalance: BalanceProvider = {
   key: "plaidBalance",
   label: "Plaid bank balance",
   kind: "integration",
+  // The bank states this balance outright; nothing here accumulates it from
+  // movements. So a month whose reading is missing or wrong is corrected by
+  // restating that month, and next month owes the correction nothing.
+  pointInTime: true,
   appliesTo: (coa: CoaAccountRef) => coa.statementSection === "bank",
 
   async compute(ctx: BalanceContext): Promise<number | null> {

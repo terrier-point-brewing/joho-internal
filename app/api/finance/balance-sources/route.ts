@@ -25,7 +25,7 @@ import { apiError } from "@/lib/utils/api";
 // cron route need it among Task 5's additions -- balance-close and
 // manual-entries never touch the provider registry.
 import "@/lib/finance/balances/methods";
-import { getMethod, listMethods, stepKey, connectionProviderOf } from "@/lib/finance/balances/methods/registry";
+import { getMethod, listMethods, stepKey, connectionProviderOf, manualEntryKindsFor } from "@/lib/finance/balances/methods/registry";
 import { resolveSetupState, type SetupConnectionRef } from "@/lib/finance/balances/methods/setup";
 import { allProviderReadiness, allProviderCapabilities } from "@/lib/finance/balances/setup";
 import { latestOperatorBalance } from "@/lib/finance/balances/operatorBalance";
@@ -294,6 +294,11 @@ export async function GET() {
         kind: m.kind,
         summary: m.summary,
         connectionProvider: connectionProviderOf(m) ?? null,
+        // Which KIND of manual entry moves an account on this method. Sent with
+        // the catalog so the Manual Entries screen can say so before somebody
+        // saves an entry that would be stored, listed, and then ignored --
+        // which is exactly what GL 2410 and GL 3300 did until now.
+        manualEntryKinds: manualEntryKindsFor(m),
         // The setup declaration travels with the catalog for the same reason
         // the step detail does: the panel renders from the declaration the
         // engine reads, so there is no second copy of this copy to drift.

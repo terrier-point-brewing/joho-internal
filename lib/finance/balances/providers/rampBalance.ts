@@ -167,6 +167,9 @@ export const rampBalance: BalanceProvider = {
   key: "rampBalance",
   label: "Ramp account balance",
   kind: "integration",
+  // Ramp states this balance outright -- see the note on `pointInTime` in
+  // ../registry.ts for why that decides how the account may be corrected.
+  pointInTime: true,
   async compute(ctx: BalanceContext): Promise<number | null> {
     const connection = await resolveConnection(ctx.supabase, ctx.config);
     // Not linked yet, or linked to a connection since deleted. Unsourced is the
