@@ -145,19 +145,24 @@ function VariationCard({
  * with room around it that it does not have.
  */
 function ChopCard({
-  asset,
+  variation,
   grounds,
   primary,
 }: {
-  asset: BrandAsset;
+  variation: MarkVariation;
   grounds: Record<string, ArtworkGround>;
   primary: boolean;
 }) {
+  // The warning is about the chop, not about one of its files: a chop that
+  // ships a vector alongside a PNG is a vector chop, and flagging the PNG
+  // would read as a defect in a variation that has none.
+  const vectorless = !variation.files.some((f) => f.format.toLowerCase() === "svg");
+
   return (
     <div className="rounded-lg border border-brand-line p-3 flex flex-col gap-3">
       <MarkArtwork
-        assets={[asset]}
-        alt={asset.title || asset.variant}
+        assets={variation.files}
+        alt={variation.label}
         grounds={grounds}
         aspect="aspect-square"
       />
@@ -165,7 +170,7 @@ function ChopCard({
       <div>
         <div className="flex items-baseline justify-between gap-2">
           <p className="font-brand-body text-sm font-semibold text-brand-high-contrast">
-            {asset.title || asset.variant}
+            {variation.label}
           </p>
           {primary && (
             <span className="font-brand-body text-2xs uppercase tracking-wide text-brand-primary shrink-0">
@@ -173,16 +178,16 @@ function ChopCard({
             </span>
           )}
         </div>
-        {asset.format.toLowerCase() !== "svg" && (
+        {vectorless && (
           <p className="font-brand-body text-2xs uppercase tracking-wide text-brand-accent mt-0.5">
-            Not a vector — {asset.format}
+            Not a vector — {variation.files.map((f) => f.format).join(", ")}
           </p>
         )}
       </div>
 
-      {asset.description ? (
+      {variation.description ? (
         <p className="font-brand-body text-xs text-brand-content leading-relaxed">
-          {asset.description}
+          {variation.description}
         </p>
       ) : (
         <p className="font-brand-body text-xs text-brand-content-muted leading-relaxed">
@@ -338,12 +343,12 @@ export default function MarksView({
                     </span>
                   </p>
                   <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                    {group.chops.map((asset) => (
+                    {group.chops.map((variation) => (
                       <ChopCard
-                        key={asset.id}
-                        asset={asset}
+                        key={variation.key}
+                        variation={variation}
                         grounds={grounds}
-                        primary={asset.id === group.primaryAssetId}
+                        primary={variation.files.some((f) => f.id === group.primaryAssetId)}
                       />
                     ))}
                   </div>

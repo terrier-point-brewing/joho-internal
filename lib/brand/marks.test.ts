@@ -115,11 +115,26 @@ describe("groupChopsBySeason", () => {
 
   it("keeps several chops under one season", () => {
     const groups = groupChopsBySeason(
-      [chop({ id: "a", season_id: "one" }), chop({ id: "b", season_id: "one" })],
+      [
+        chop({ id: "a", variant: "a", season_id: "one" }),
+        chop({ id: "b", variant: "b", season_id: "one" }),
+      ],
       [season({ id: "one", name: "Season One" })],
     );
     expect(groups).toHaveLength(1);
-    expect(groups[0].chops.map((c) => c.id)).toEqual(["a", "b"]);
+    expect(groups[0].chops.map((c) => c.key)).toEqual(["a", "b"]);
+  });
+
+  it("puts the SVG and PNG of one chop on one card, as a wordmark does", () => {
+    const groups = groupChopsBySeason(
+      [
+        chop({ id: "a", variant: "autumn", format: "svg", season_id: "one" }),
+        chop({ id: "b", variant: "autumn", format: "png", season_id: "one" }),
+      ],
+      [season({ id: "one", name: "Season One" })],
+    );
+    expect(groups[0].chops).toHaveLength(1);
+    expect(groups[0].chops[0].files.map((f) => f.format)).toEqual(["svg", "png"]);
   });
 
   it("omits a season that has no chops rather than showing an empty heading", () => {
@@ -142,12 +157,15 @@ describe("groupChopsBySeason", () => {
     const groups = groupChopsBySeason([chop({ id: "orphan", season_id: "gone" })], []);
     expect(groups).toHaveLength(1);
     expect(groups[0].generic).toBe(true);
-    expect(groups[0].chops.map((c) => c.id)).toEqual(["orphan"]);
+    expect(groups[0].chops.map((c) => c.key)).toEqual(["default"]);
   });
 
   it("carries the season's designated chop through as the primary", () => {
     const groups = groupChopsBySeason(
-      [chop({ id: "a", season_id: "one" }), chop({ id: "b", season_id: "one" })],
+      [
+        chop({ id: "a", variant: "a", season_id: "one" }),
+        chop({ id: "b", variant: "b", season_id: "one" }),
+      ],
       [season({ id: "one", name: "Season One", chop_glyph_asset_id: "b" })],
     );
     expect(groups[0].primaryAssetId).toBe("b");
