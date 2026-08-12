@@ -22,3 +22,4 @@ import "./squareBalance";
 import "./plaidBalance";
 import "./inventoryOnHand";
 import "./giftCards";
+import "./manualCorrections";

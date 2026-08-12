@@ -162,6 +162,33 @@ export const GOLDEN_STEP_KEYS = [
   "transactionPostings",
 ] as const;
 
+/**
+ * Step keys added to a historical account's method SINCE the capture, each one
+ * deliberate and each one written down here.
+ *
+ * ── Why this list exists rather than a wider gate ────────────────────────────
+ * The rule it relaxes is worth keeping loud: a step key appearing on a method
+ * that already has history is nearly always a rename, and a rename silently
+ * orphans stored contributions instead of failing. So the gate still refuses
+ * every key it has not been told about; this is the telling, and adding to it
+ * is a review-visible act rather than an edit to the assertion.
+ *
+ * A key may only be listed here if BOTH hold:
+ *   * it ADDS a contribution rather than replacing one -- every golden key must
+ *     still be emitted, which the "can produce exactly the contribution keys it
+ *     already has" test above checks independently and is not relaxed here;
+ *   * its provider returns null when it has nothing to say, so the accounts in
+ *     the capture compute the same figures they always did.
+ */
+export const STEP_KEYS_ADDED_SINCE_CAPTURE: Record<string, string> = {
+  // GL 3300's method had no way to receive a hand-typed correction: retained
+  // earnings is computed from the P&L, and an entry coded to the account itself
+  // was accepted, stored and then ignored by the balance sheet. `manualCorrections`
+  // returns null unless somebody has actually typed one, so every account in the
+  // capture -- which has none -- computes exactly as before.
+  manualCorrections: "Corrections on accounts whose calculation has no postings step (GL 2410, GL 3300)",
+};
+
 /** Sum of every account's balance for a period, in internal-convention cents.
  *  Assets + Liabilities + Equity should trend to 0 as accounts gain sources;
  *  it is -1,528,479 at capture time because 39 accounts are still unsourced. */

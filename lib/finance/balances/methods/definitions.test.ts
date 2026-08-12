@@ -12,6 +12,7 @@ import { describe, it, expect } from "vitest";
 import "./index";
 import {
   CLOSE_DUE_DAYS_KEY,
+  acceptsStatedBalance,
   getMethod,
   listMethods,
   methodsFor,
@@ -20,7 +21,11 @@ import {
   type MethodKind,
 } from "./registry";
 import { getProvider } from "../registry";
-import { GOLDEN_BALANCE_SHEET, GOLDEN_STEP_KEYS } from "../__fixtures__/goldenBalanceSheet";
+import {
+  GOLDEN_BALANCE_SHEET,
+  GOLDEN_STEP_KEYS,
+  STEP_KEYS_ADDED_SINCE_CAPTURE,
+} from "../__fixtures__/goldenBalanceSheet";
 
 /**
  * The method each golden account is migrated to. Read alongside the migration
@@ -377,7 +382,16 @@ describe("parity with the frozen production capture", () => {
     // can appear in gl_account_balances.contributions for accounts that ALREADY
     // have history; a method no historical account uses -- manual entry, and
     // every integration still to come -- is free to define its own keys.
-    const allowed = new Set<string>(GOLDEN_STEP_KEYS);
+    //
+    // A key added since the capture must be declared in
+    // STEP_KEYS_ADDED_SINCE_CAPTURE, with the reason, before it is allowed
+    // through. That keeps this assertion refusing everything it has not been
+    // told about -- which is the point, since an undeclared new key is usually a
+    // rename, and a rename orphans stored contributions silently.
+    const allowed = new Set<string>([
+      ...GOLDEN_STEP_KEYS,
+      ...Object.keys(STEP_KEYS_ADDED_SINCE_CAPTURE),
+    ]);
     for (const methodKey of new Set(Object.values(ACCOUNT_METHOD))) {
       for (const step of getMethod(methodKey)!.steps) {
         expect(allowed.has(stepKey(step)), `new step key "${stepKey(step)}" in ${methodKey}`).toBe(true);
@@ -405,6 +419,74 @@ describe("parity with the frozen production capture", () => {
       const coa = { accountNumber: account, statementSection: sections[account] } as never;
       const offerable = !method.appliesTo || method.appliesTo(coa);
       expect(offerable, `${methodKey} is not offerable to account ${account}`).toBe(true);
+    }
+  });
+});
+
+/**
+ * Every balance-sheet account must have SOME way for an operator to correct it.
+ *
+ * The gap these assertions close was invisible for months: an entry typed
+ * against GL 2410 or GL 3300 was accepted by the API, stored in manual_entries,
+ * listed in the Manual Entries ledger, and then ignored by the balance sheet,
+ * because neither method had a step that reads manual entries. Nothing failed;
+ * the number simply did not move.
+ */
+describe("correcting an account by hand", () => {
+  /** Steps through which a hand-typed movement reaches the account's balance. */
+  const CORRECTION_STEPS = new Set([
+    "transactionPostings",
+    "manualCorrections",
+    "manualBalance",
+    "squareBalanceAnchor",
+  ]);
+
+  it("leaves no method that silently ignores a correction", () => {
+    for (const method of listMethods()) {
+      const composes = method.steps.some((s) => CORRECTION_STEPS.has(s.providerKey));
+      expect(
+        composes || acceptsStatedBalance(method),
+        `method "${method.key}" accepts a hand-typed correction and never applies it`,
+      ).toBe(true);
+    }
+  });
+
+  it("offers the stated-balance override to exactly the feed-relayed methods", () => {
+    // Narrow on purpose. An accumulating account overridden for one month reads
+    // fixed and is not: the next month re-sums the same history.
+    const overridable = listMethods().filter(acceptsStatedBalance).map((m) => m.key).sort();
+    expect(overridable).toEqual(["plaidBankBalance", "rampBalance", "rampCardBalance"]);
+  });
+
+  it("leaves the Square method to its own anchor", () => {
+    // Square already consumes balance entries as its starting point; an override
+    // on top would apply the operator's figure twice.
+    expect(acceptsStatedBalance(getMethod("squareStoredBalance")!)).toBe(false);
+  });
+
+  it("raises no new month-end close task", () => {
+    // The close checklist chases an account whose method has a `kind:"manual"`
+    // step. The override declares no step -- it is applied in runMethod -- so
+    // making these accounts correctable must not start demanding a hand-typed
+    // figure for every bank account every month.
+    for (const key of ["plaidBankBalance", "rampBalance", "rampCardBalance"]) {
+      expect(requiresMonthEndBalance(getMethod(key)!), `${key} must not be chased monthly`).toBe(false);
+    }
+  });
+
+  it("still chases the accounts that genuinely owe a figure", () => {
+    for (const key of ["manualBalance", "squareStoredBalance"]) {
+      expect(requiresMonthEndBalance(getMethod(key)!), `${key} must still be chased`).toBe(true);
+    }
+  });
+
+  it("does not let the corrections step reach an account that already rolls up postings", () => {
+    // Both steps read the same manual entries, so a method carrying both would
+    // count every correction twice.
+    for (const method of listMethods()) {
+      const keys = method.steps.map((s) => s.providerKey);
+      const both = keys.includes("transactionPostings") && keys.includes("manualCorrections");
+      expect(both, `method "${method.key}" counts hand-typed entries twice`).toBe(false);
     }
   });
 });

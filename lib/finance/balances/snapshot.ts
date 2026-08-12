@@ -30,6 +30,7 @@ import { todayLocalDate } from "@/lib/utils/datetime";
 import { getProvider, createSharedComputeCache } from "./registry";
 import type { BalanceContext } from "./registry";
 import { getMethod, runMethod } from "./methods/registry";
+import { STATED_BALANCE_KEY } from "./statedBalanceKey";
 import { mostRecentlyEndedMonthEnd } from "./periods";
 import { readPeriodClose } from "./periodCloseState";
 
@@ -431,6 +432,43 @@ export async function fetchBalances(
   }
 
   return map;
+}
+
+/**
+ * Which stored months carry an operator's stated balance instead of the figure
+ * the account's method computed, as a set of "YYYY-MM" per account.
+ *
+ * Read separately from fetchBalances rather than folded into it: the balance
+ * sheet needs the figures for every account and this marker for a handful, and
+ * widening that fetch's return shape would make every caller carry contributions
+ * it has no use for.
+ *
+ * A stated balance REPLACES what a feed reported, which is the one place on this
+ * statement where a number is not what its stated source says it is. That is
+ * worth a mark on the figure -- unlike a hand-typed transaction, which composes
+ * with the feeds exactly as an expense does and needs no special billing.
+ */
+export async function fetchStatedBalanceMonths(
+  supabase: SupabaseClient,
+  months: string[],
+): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (months.length === 0) return out;
+
+  const { data, error } = await supabase
+    .from("gl_account_balances")
+    .select("chart_of_accounts_id, period_end, contributions")
+    .in("period_end", months.map((month) => monthEnd(`${month}-01`)));
+  if (error) throw new Error(error.message);
+
+  for (const row of (data ?? []) as { chart_of_accounts_id: string; period_end: string; contributions: Record<string, number> | null }[]) {
+    if (row.contributions?.[STATED_BALANCE_KEY] === undefined) continue;
+    const bucket = out.get(row.chart_of_accounts_id) ?? new Set<string>();
+    bucket.add(row.period_end.slice(0, 7));
+    out.set(row.chart_of_accounts_id, bucket);
+  }
+
+  return out;
 }
 
 /**

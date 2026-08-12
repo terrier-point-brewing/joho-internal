@@ -77,6 +77,41 @@ export interface BalanceProvider {
    * their whole account out with them.
    */
   dependsOnCurrentState?: boolean;
+  /**
+   * True when this provider reports a POSITION somebody else is keeping -- a
+   * balance a bank or a card issuer states outright -- rather than accumulating
+   * one from movements this system has recorded.
+   *
+   * The distinction decides how an operator is allowed to correct the account,
+   * and the two answers are opposites:
+   *
+   *   accumulating (the default) -- a correction is another MOVEMENT. Type it
+   *     as a transaction, it composes with everything else, and because the sum
+   *     runs from inception it stays corrected in every later month by itself.
+   *
+   *   point-in-time -- a correction is a RESTATEMENT of that month's figure.
+   *     Carrying it forward would be wrong: next month the feed reports its own
+   *     complete position, which owes nothing to what last month's reading got
+   *     wrong. A running total of hand-typed adjustments bolted onto a reported
+   *     balance would drift further from what the bank says every month, with
+   *     no way back to zero.
+   *
+   * See acceptsStatedBalance in methods/registry.ts, which is what reads this.
+   */
+  pointInTime?: boolean;
+  /**
+   * True when this provider counts manual entries of kind "flow" -- the
+   * hand-typed movements an operator records under Manual Entries.
+   *
+   * Declared rather than inferred from the provider's name because the Manual
+   * Entries screen tells an operator, before they save, whether the kind they
+   * picked will actually move the account they picked. That advice has to come
+   * from the same declaration the engine reads, or it becomes a second list of
+   * which providers count what -- and a wrong answer there is worse than no
+   * answer, because it is confidently wrong at the exact moment somebody is
+   * deciding what to type.
+   */
+  readsManualFlow?: boolean;
   /** Internal-convention cents (assets positive, liabilities/equity negative), or null when the balance cannot be determined. */
   compute(ctx: BalanceContext): Promise<number | null>;
 }

@@ -25,7 +25,8 @@ import { coaSection, type CoaRecord } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
 import { HREFS, coaAccountRefsOf } from "./statementCommon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { fetchBalances } from "@/lib/finance/balances/snapshot";
+import { fetchBalances, fetchStatedBalanceMonths } from "@/lib/finance/balances/snapshot";
+import { STATED_BALANCE_KEY } from "@/lib/finance/balances/statedBalanceKey";
 // The open-month live compute now lives in the balances tree so the Settings
 // screen can show the SAME figure this statement does. It used to be a private
 // function here, which is why the two screens disagreed.
@@ -88,7 +89,11 @@ export async function buildBalanceSheetFinancials(year: number): Promise<Financi
   // already fully in the past.
   const openMonth = year === now.getFullYear() ? months[months.length - 1] : null;
 
-  const [coa, balances] = await Promise.all([fetchCoa(supabase), fetchBalances(supabase, months)]);
+  const [coa, balances, statedByCoa] = await Promise.all([
+    fetchCoa(supabase),
+    fetchBalances(supabase, months),
+    fetchStatedBalanceMonths(supabase, months),
+  ]);
   const coaAccounts = coaAccountRefsOf(coa);
   const coaById = new Map(coa.map((c) => [c.id, c]));
 
@@ -119,6 +124,16 @@ export async function buildBalanceSheetFinancials(year: number): Promise<Financi
     // covered by buildTree.ts's own coaAccounts-driven root seeding.
     if (Object.values(amountCentsByMonth).every((v) => v === 0)) continue;
 
+    // The stored months come from the snapshot's contributions; the open month
+    // has no stored row yet, so it is read from the live compute that produced
+    // its figure a few lines above. Both must be consulted or the marker would
+    // vanish the moment a month became the current one.
+    const stated = new Set(statedByCoa.get(coaId) ?? []);
+    if (openMonth && liveContributions?.get(coaId)?.contributions[STATED_BALANCE_KEY] !== undefined) {
+      stated.add(openMonth);
+    }
+    const statedMonths = months.filter((m) => stated.has(m));
+
     rows.push({
       coaId,
       parentId: account.parentId,
@@ -132,6 +147,9 @@ export async function buildBalanceSheetFinancials(year: number): Promise<Financi
       bblCoverage: "full",
       mappingSource: "rule",
       sourceRef: { table: "gl_account_balances", ids: [coaId] },
+      // Omitted entirely when there is nothing to mark, so an ordinary row's
+      // wire payload is byte-for-byte what it was.
+      ...(statedMonths.length > 0 ? { statedMonths } : {}),
     });
   }
 

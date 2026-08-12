@@ -30,6 +30,20 @@ export interface FinancialsRow {
    * ever read it. `table` stays: manualAdjustment.ts discriminates on it.
    */
   sourceRef: { table: string; ids?: string[] };
+  /**
+   * Months ("YYYY-MM") whose figure is a balance an operator stated, used
+   * instead of the one this account's source reported.
+   *
+   * Balance sheet only, and deliberately narrow. It marks the single case on
+   * either statement where a figure is not what its named source says: a bank
+   * or card balance restated by hand, because the feed missed the month or
+   * disagreed with the statement. A hand-typed TRANSACTION never appears here —
+   * it composes with the feeds exactly as an expense does, and badging ordinary
+   * bookkeeping would train a reader to ignore the badge.
+   *
+   * Absent on P&L and cash-flow rows, which have no such concept.
+   */
+  statedMonths?: string[];
 }
 
 // KPI health-strip + data-quality/reconciliation summary shapes, built by

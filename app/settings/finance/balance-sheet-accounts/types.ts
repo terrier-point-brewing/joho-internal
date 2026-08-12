@@ -60,6 +60,16 @@ export interface MethodMeta {
   connectionProvider: "ramp" | "rampCard" | "plaid" | "square" | null;
   setup: SetupFieldMeta[];
   steps: StepMeta[];
+  /**
+   * Which kinds of manual entry actually move an account on this method --
+   * "flow" (a movement that composes and stays in force), "balance" (a whole
+   * position at a month end), or both.
+   *
+   * Sent so the Manual Entries screen can say which one applies before an entry
+   * is saved. Picking the wrong kind used to be silent: the row saved, appeared
+   * in the ledger, and never moved the balance.
+   */
+  manualEntryKinds: ("flow" | "balance")[];
 }
 
 /** Whether the app can talk to a service at all, and what it can be asked to do. */

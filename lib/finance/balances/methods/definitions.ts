@@ -43,6 +43,32 @@ function postingsStep(label: string, description: string, direction: "add" | "su
   } as const;
 }
 
+/**
+ * The corrections step, for a calculation with no postings step to carry them.
+ *
+ * ── Why these methods need one and the rest do not ───────────────────────────
+ * A method ending in `transactionPostings` already counts hand-typed entries,
+ * because that roll-up counts every movement into the account whoever recorded
+ * it. Gift cards and retained earnings deliberately have no such step -- adding
+ * one would double-count a redemption on the first, and the second is computed
+ * from the P&L rather than from anything coded to it.
+ *
+ * The consequence went unnoticed: an entry typed against either account was
+ * accepted, stored, listed in the Manual Entries ledger, and then ignored by
+ * the balance sheet. This step is the narrow half of the roll-up -- manual
+ * entries and nothing else -- so a correction lands without dragging the
+ * double-count in with it. See providers/manualCorrections.ts.
+ */
+function correctionsStep(description: string) {
+  return {
+    providerKey: "manualCorrections",
+    label: "Corrections entered by hand",
+    description,
+    source: "Manual entries",
+    direction: "net",
+  } as const;
+}
+
 // ── Manual ───────────────────────────────────────────────────────────────────
 
 const manualEntry: BalanceMethod = {
@@ -206,8 +232,8 @@ const ncDorTaxPayable: BalanceMethod = {
       direction: "add",
     },
     postingsStep(
-      "Already paid to the state",
-      "Payments already made against what you owe the NC Department of Revenue, covering both the sales tax and the beer tax, which reduce what you still owe. The payee may be the agency itself or a third party settling on your behalf.",
+      "Already paid, and corrections",
+      "Payments already made against what you owe the NC Department of Revenue, covering both the sales tax and the beer tax, which reduce what you still owe. The payee may be the agency itself or a third party settling on your behalf. Anything entered by hand under Finance > Transactions > Manual Entries counts here too, which is how a correction to this account is made — it carries forward on its own, so it only needs entering once.",
       "subtract",
     ),
   ],
@@ -343,6 +369,9 @@ const retainedEarnings: BalanceMethod = {
       source: "Profit and loss statement",
       direction: "net",
     },
+    correctionsStep(
+      "Adjustments entered by hand under Finance > Transactions > Manual Entries — usually profit the business made before this system started keeping the books, which no profit and loss statement here can account for. The figure above is always recalculated from scratch, so a correction sits alongside it rather than being folded in.",
+    ),
   ],
 };
 
@@ -432,7 +461,7 @@ const rampAccountBalance: BalanceMethod = {
       providerKey: "rampBalance",
       label: "Balance held at Ramp",
       description:
-        "The balance Ramp shows for the connected account on this month end. It is the available balance, so it can read slightly differently from a statement if a payment was still pending on the last day.",
+        "The balance Ramp shows for the connected account on this month end. It is the available balance, so it can read slightly differently from a statement if a payment was still pending on the last day. Where it does, enter the statement figure for that month end under Finance > Transactions > Manual Entries and it will be used instead, for that month only.",
       source: "Ramp treasury account",
       direction: "net",
     },
@@ -477,7 +506,7 @@ const rampCardBalance: BalanceMethod = {
       providerKey: "rampCardBalance",
       label: "Outstanding on your Ramp cards",
       description:
-        "What Ramp says is still owed on your cards, shown as a liability. Only charges that have actually settled are counted — a purchase still showing as pending is left out, because it has not reached your expenses yet either. Ramp cannot be asked what was owed on a day that has passed, so each month end uses the reading taken late that night; a month that ended before these cards were connected stays blank rather than showing a later figure.",
+        "What Ramp says is still owed on your cards, shown as a liability. Only charges that have actually settled are counted — a purchase still showing as pending is left out, because it has not reached your expenses yet either. Ramp cannot be asked what was owed on a day that has passed, so each month end uses the reading taken late that night; a month that ended before these cards were connected stays blank rather than showing a later figure — enter that month's closing figure from your Ramp statement under Finance > Transactions > Manual Entries and it will be used instead, for that month only.",
       source: "Ramp card account",
       direction: "net",
     },
@@ -598,7 +627,7 @@ const plaidBankBalance: BalanceMethod = {
       providerKey: "plaidBalance",
       label: "Closing balance at the bank",
       description:
-        "The balance your bank reported on the last day of this month, read automatically once a day and saved at the time. Your bank cannot be asked for a past balance later, so a month with no reading that day stays blank rather than showing a nearby day's figure.",
+        "The balance your bank reported on the last day of this month, read automatically once a day and saved at the time. Your bank cannot be asked for a past balance later, so a month with no reading that day stays blank rather than showing a nearby day's figure — enter that month's closing balance from your statement under Finance > Transactions > Manual Entries and it will be used instead, for that month only.",
       source: "Chase, read through Plaid",
       direction: "net",
     },
@@ -619,8 +648,14 @@ const plaidBankBalance: BalanceMethod = {
  * leaving postings off would lose the settlement. A gift card is settled by
  * being spent, which the second step already counts; adding postings would
  * count a redemption twice for any order whose lines happened to be coded here.
- * A hand-typed correction still reaches the account through Manual Entries,
- * which is the arrangement for an adjustment on a calculated account generally.
+ *
+ * This comment used to end by claiming a hand-typed correction still reached
+ * the account through Manual Entries, "which is the arrangement for an
+ * adjustment on a calculated account generally". The general claim was true and
+ * the claim about THIS account was not: the arrangement is the postings step,
+ * and this method has none, so an entry typed here was silently ignored by the
+ * balance sheet while sitting visibly in the ledger. The corrections step below
+ * is what finally makes the sentence true.
  */
 const giftCardLiability: BalanceMethod = {
   key: "giftCardLiability",
@@ -645,6 +680,9 @@ const giftCardLiability: BalanceMethod = {
       source: "Gift card payments on Square orders",
       direction: "subtract",
     },
+    correctionsStep(
+      "Adjustments entered by hand under Finance > Transactions > Manual Entries — a card written off, or a balance brought over from before this system tracked them. Square's own gift card figures are not touched by these; they are added on top.",
+    ),
   ],
 };
 

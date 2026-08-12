@@ -80,13 +80,35 @@ function AmountPerBblCell({ amountCents, bbl, coverage }: { amountCents: number;
   return <span className="text-strong">{formatCurrencyCents(valueCents)}</span>;
 }
 
+/**
+ * A figure an operator stated, shown instead of the one this account's source
+ * reported. Balance sheet only — see `statedMonths` on FinancialsRow.
+ *
+ * A dotted underline and a hover explanation rather than a badge: the figure is
+ * the account's real balance and should read as one. What the mark says is only
+ * that its BASIS is a person rather than the feed named against the account, so
+ * a reader chasing a discrepancy against a bank statement knows where the number
+ * came from instead of concluding the integration is broken.
+ */
+function StatedFigure({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="underline decoration-dotted decoration-from-font underline-offset-4"
+      title="Balance entered by hand for this month, used instead of the figure this account's source reported."
+    >
+      {children}
+    </span>
+  );
+}
+
 function MeasureCell({ measure, row, month }: { measure: Measure; row: FinancialsRow | null; month: string }) {
   if (!row) return <span className="text-faint">{EM_DASH}</span>;
   if (measure === "bbl") return <BblCell bbl={row.bblByMonth[month] ?? 0} />;
   if (measure === "amount_per_bbl") {
     return <AmountPerBblCell amountCents={row.amountCentsByMonth[month] ?? 0} bbl={row.bblByMonth[month] ?? 0} coverage={row.bblCoverage} />;
   }
-  return <MoneyCell cents={row.amountCentsByMonth[month] ?? 0} />;
+  const cell = <MoneyCell cents={row.amountCentsByMonth[month] ?? 0} />;
+  return row.statedMonths?.includes(month) ? <StatedFigure>{cell}</StatedFigure> : cell;
 }
 
 function MeasureTotalCell({ measure, row, months, totalMode }: { measure: Measure; row: FinancialsRow | null; months: string[]; totalMode: TotalMode }) {

@@ -34,6 +34,8 @@ import {
   type ManualEntryInput,
 } from "@/lib/finance/manualEntries";
 import { buildManualEntryPatch } from "@/lib/finance/manualEntryPatch";
+import { manualEntryEffect } from "@/lib/finance/manualEntryEffect";
+import type { BalanceSourcesResponse } from "@/app/settings/finance/balance-sheet-accounts/types";
 import {
   formatAmountInput,
   parseAmountInputCents,
@@ -104,12 +106,19 @@ function accountLabel(account: CoARef | null): React.ReactNode {
 
 function ManualEntryFormModal({
   accounts,
+  acceptedKindsByCoa,
   entry,
   onClose,
   onCreate,
   onUpdate,
 }: {
   accounts: CoARef[];
+  /**
+   * Which entry kinds each account's calculation actually reads. An account
+   * absent from the map has no active source, which the advice treats as its
+   * own case rather than as "reads nothing".
+   */
+  acceptedKindsByCoa: Map<string, ManualEntryKind[]>;
   /** null = add mode */
   entry: ManualEntryRecord | null;
   onClose: () => void;
@@ -134,6 +143,12 @@ function ManualEntryFormModal({
   const selectedAccount = accounts.find((a) => a.id === chartOfAccountsId) ?? null;
   const isCreditSide = isCreditSideAccount(selectedAccount?.account_type);
   const snappedAsOfDate = monthEnd(asOfDate || todayStr);
+  // Advice is per kind AND per account, so it is recomputed as either changes.
+  // Withheld entirely until an account is picked -- there is nothing truthful to
+  // say about a kind on its own.
+  const effect = chartOfAccountsId
+    ? manualEntryEffect({ entryKind, accepted: acceptedKindsByCoa.get(chartOfAccountsId) ?? null })
+    : { level: "ok" as const };
 
   function handleKindChange(next: ManualEntryKind) {
     setEntryKind(next);
@@ -202,6 +217,14 @@ function ManualEntryFormModal({
             placeholder="Select an account…"
             className="w-full"
           />
+          {/* Advice, not a block. The entry is still saveable: an operator may
+              know something the configuration does not, and refusing the save
+              would turn a wrong guess about their intent into lost work. */}
+          {effect.level !== "ok" && (
+            <p className={`text-2xs mt-1.5 leading-relaxed ${effect.level === "warn" ? "text-accent" : "text-faint"}`}>
+              {effect.message}
+            </p>
+          )}
         </Field>
 
         {entryKind === "flow" ? (
@@ -368,6 +391,37 @@ export default function ManualEntriesPage() {
     queryFn: () => fetchJson<CoARef[]>("/api/finance/chart-of-accounts"),
   });
 
+  /**
+   * Which entry kinds each account's calculation actually reads, so the form can
+   * warn before an entry is saved against an account that will ignore it.
+   *
+   * The catalog endpoint, not the /live one: this needs the DECLARATIONS, which
+   * are cheap, and never the computed figures, which are not. A failure here
+   * leaves the map empty and the form simply says nothing -- advice is worth
+   * having and is not worth blocking the screen for.
+   */
+  const { data: balanceSources } = useQuery({
+    queryKey: queryKeys.finance.balanceSources(),
+    queryFn: () => fetchJson<BalanceSourcesResponse>("/api/finance/balance-sources"),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const acceptedKindsByCoa = useMemo(() => {
+    const out = new Map<string, ManualEntryKind[]>();
+    if (!balanceSources) return out;
+    const kindsByMethod = new Map(balanceSources.methods.map((m) => [m.key, m.manualEntryKinds]));
+    for (const account of balanceSources.accounts) {
+      // Only ACTIVE sources speak for an account. A deactivated one is not what
+      // the balance sheet reads, so letting it answer here would advise against
+      // the kind that actually works.
+      const active = account.sources.filter((s) => s.active);
+      if (active.length === 0) continue;
+      const kinds = new Set(active.flatMap((s) => kindsByMethod.get(s.methodKey) ?? []));
+      out.set(account.id, Array.from(kinds));
+    }
+    return out;
+  }, [balanceSources]);
+
   const visibleEntries = useMemo(
     () => (glFilter ? entries.filter((e) => e.chartOfAccountsId === glFilter) : entries),
     [entries, glFilter],
@@ -503,6 +557,7 @@ export default function ManualEntriesPage() {
       {modal && (
         <ManualEntryFormModal
           accounts={accounts}
+          acceptedKindsByCoa={acceptedKindsByCoa}
           entry={modal.mode === "edit" ? modal.entry : null}
           onClose={() => setModal(null)}
           onCreate={handleCreate}

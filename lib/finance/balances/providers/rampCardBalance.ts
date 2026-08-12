@@ -138,6 +138,9 @@ export const rampCardBalance: BalanceProvider = {
   key: "rampCardBalance",
   label: "Ramp card balance",
   kind: "integration",
+  // Ramp states what is outstanding on the cards outright -- see the note on
+  // `pointInTime` in ../registry.ts for why that decides how it may be corrected.
+  pointInTime: true,
   appliesTo: (coa: CoaAccountRef) => coa.statementSection === "credit_card",
 
   async compute(ctx: BalanceContext): Promise<number | null> {

@@ -35,6 +35,8 @@
 import type { CoaAccountRef } from "../../financials/types";
 import type { BalanceContext } from "../registry";
 import { getProvider } from "../registry";
+import { readStatedBalanceCents } from "../providers/manualBalance";
+import { STATED_BALANCE_KEY } from "../statedBalanceKey";
 
 /**
  * The three top-level choices in Settings > Finance > Balance Sheet Accounts.
@@ -325,6 +327,80 @@ export function stepKey(step: BalanceStep): string {
 }
 
 /**
+ * Where a stated-balance override records itself in
+ * gl_account_balances.contributions. Reserved: no method may declare a step
+ * whose key collides with it, because the explainer panel reads it BY NAME.
+ *
+ * The value stored under it is the DIFFERENCE the override made, never the
+ * stated figure itself. Contributions are summed to produce the account's
+ * balance -- see resolveSnapshotWrites -- so storing the stated figure beside
+ * the computed one would total the two together and report roughly double. As a
+ * difference it sums correctly AND is the number a reader actually wants: how
+ * far the feed was out.
+ *
+ * Declared in ../statedBalanceKey.ts so the balance sheet's client components
+ * can name it without importing the provider registry.
+ */
+export { STATED_BALANCE_KEY };
+
+/**
+ * Whether an operator-stated balance REPLACES this method's figure for the
+ * month it is dated.
+ *
+ * True only when every step reports a position somebody else keeps (see
+ * `pointInTime` in ../registry.ts). That is a deliberately narrow door, and the
+ * two kinds of method it shuts out are shut out for opposite reasons:
+ *
+ *   An ACCUMULATING method (sales tax, gift cards, retained earnings, plain
+ *     postings) is corrected by typing the movement instead. It composes, and
+ *     because the sum runs from inception the correction holds by itself in
+ *     every later month. Overriding such an account for one month would fix
+ *     that month and let the error return the next -- worse than useless,
+ *     because it looks fixed.
+ *
+ *   A method that ALREADY reads a stated balance -- manual entry, and the
+ *     Square anchor -- would have that figure applied twice, once by its own
+ *     step and once here.
+ *
+ * An unregistered provider answers false rather than throwing, matching
+ * requiresMonthEndBalance: this runs inside the snapshot, and refusing to
+ * compute an account because one step names something unknown is a worse
+ * failure than the unknown step.
+ */
+export function acceptsStatedBalance(method: BalanceMethod): boolean {
+  return method.steps.every((step) => getProvider(step.providerKey)?.pointInTime === true);
+}
+
+/**
+ * Which kinds of manual entry actually move an account on this method.
+ *
+ * The question the Manual Entries screen needs answered BEFORE somebody saves,
+ * and the reason it needs answering is that picking the wrong kind used to be
+ * silent: the row saved, appeared in the ledger with its label and its author,
+ * and never touched the balance. Nothing failed and nothing said so.
+ *
+ * The two kinds are not interchangeable and neither is a fallback for the other:
+ *
+ *   "flow"    -- a movement. It composes with the feeds and, because the methods
+ *                that read it sum from inception, it stays in force in every
+ *                later month without being retyped.
+ *   "balance" -- a whole position at a month end. Either it IS the account's
+ *                answer (manual entry), or it anchors one (Square), or it
+ *                restates a month a feed reported (see acceptsStatedBalance).
+ *
+ * Derived from what the steps DECLARE -- `readsManualFlow` on the provider, and
+ * `kind: "manual"` for a provider that reads a stated balance -- so this cannot
+ * drift from what the engine actually does when the entry is saved.
+ */
+export function manualEntryKindsFor(method: BalanceMethod): ("flow" | "balance")[] {
+  const providers = method.steps.map((step) => getProvider(step.providerKey));
+  const kinds: ("flow" | "balance")[] = [];
+  if (providers.some((p) => p?.readsManualFlow === true)) kinds.push("flow");
+  if (providers.some((p) => p?.kind === "manual") || acceptsStatedBalance(method)) kinds.push("balance");
+  return kinds;
+}
+
+/**
  * Result of running a method. Deliberately three-valued: "every step returned
  * null" and "a step threw" are different situations with different correct
  * responses, and collapsing them is how a partial sum gets written over a
@@ -359,6 +435,12 @@ export function registerMethod(m: BalanceMethod): void {
     const key = stepKey(step);
     if (seen.has(key)) {
       throw new Error(`Balance method "${m.key}" declares duplicate step "${key}"`);
+    }
+    // A step under this key would be summed into the balance AND read by the
+    // explainer as the override row, which is one contribution claiming to be
+    // two different things.
+    if (key === STATED_BALANCE_KEY) {
+      throw new Error(`Balance method "${m.key}" declares step "${key}", which is reserved for the stated-balance override`);
     }
     seen.add(key);
   }
@@ -409,6 +491,19 @@ export function __resetMethodRegistry(): void {
  * method are two halves of one balance -- letting the surviving half through
  * would render GL 2220 as -297,509 (accruals only) instead of 97,974, with no
  * dash, no banner and no indication the figure is half an answer.
+ *
+ * ── The stated-balance override ──────────────────────────────────────────────
+ * For the few methods that only ever relay a position somebody else keeps (see
+ * acceptsStatedBalance), a balance an operator stated for THIS month end wins.
+ * It is applied here rather than as a step because a step ADDS and this
+ * REPLACES, and because doing it here keeps it off the step list -- which is
+ * what stops it raising a month-end close task against every bank account, the
+ * close checklist being driven by whether a method has a `kind: "manual"` step.
+ *
+ * A failed method is never overridden. "The feed broke" and "the operator
+ * restated the figure" are different situations, and letting a stated balance
+ * paper over a broken integration would retire the only signal that the
+ * integration is broken.
  */
 export async function runMethod(method: BalanceMethod, ctx: BalanceContext): Promise<MethodOutcome> {
   const breakdown: Record<string, number> = {};
@@ -436,6 +531,19 @@ export async function runMethod(method: BalanceMethod, ctx: BalanceContext): Pro
   }
 
   if (errors.length > 0) return { status: "failed", errors };
+
+  if (acceptsStatedBalance(method)) {
+    const stated = await readStatedBalanceCents(ctx.supabase, ctx.coaId, ctx.periodEnd);
+    if (stated !== null) {
+      // Against the computed figure when there is one, and against nothing when
+      // there is not. The second case is the one worth having: a month whose
+      // reading was never captured has no figure at all, and stating it is the
+      // only way that month ever gets one.
+      breakdown[STATED_BALANCE_KEY] = contributed ? stated - total : stated;
+      return { status: "ok", cents: stated, breakdown };
+    }
+  }
+
   if (!contributed) return { status: "empty" };
   return { status: "ok", cents: total, breakdown };
 }
