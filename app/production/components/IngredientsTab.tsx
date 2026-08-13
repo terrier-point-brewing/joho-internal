@@ -365,11 +365,13 @@ function fmtValue(v: number | null | undefined) {
 export default function IngredientsTab() {
   const qc = useQueryClient();
   const { can } = usePermissions();
-  // Two tiers, matching the two tiers the routes enforce: master-data writes
-  // (create/edit/delete an ingredient) need `manage`; stock movements (adjust,
-  // receive) need `operate`. Every write affordance below is gated on one of
+  // Three gates, matching what the routes enforce. `manage` covers editing or
+  // deleting an existing ingredient and the bulk paths that rewrite many rows
+  // at once; `operate` covers stock movements (adjust, receive) AND creating a
+  // single new ingredient. Every write affordance below is gated on one of
   // them, so a read-only grant renders the tab without a single dead button.
   const canEditMaster = can(CAP.ingredientMasterEdit);
+  const canCreateMaster = can(CAP.ingredientMasterCreate);
   const canOperate = can(CAP.inventoryOperate);
   const { data: ingredients = [] } = useIngredientsQuery();
   const { data: suppliersList = [] } = useSuppliersQuery();
@@ -605,10 +607,10 @@ export default function IngredientsTab() {
             </>
           ) : (
             <>
-              {/* Bulk Edit, Bulk Upload and New Ingredient all write ingredient
-                  MASTER data (name, unit, cost), so they take the same
-                  manage-level gate as the per-row Edit/Del below. Bulk Receive
-                  is a stock movement and stays at operate — a brewer's day job. */}
+              {/* Bulk Edit and Bulk Upload rewrite many MASTER rows at once, so
+                  they take the same manage gate as the per-row Edit/Del below.
+                  Bulk Receive (a stock movement) and New Ingredient (one new
+                  row) are operate — a brewer's day job. */}
               {canEditMaster && (<>
                 <button onClick={enterBulkEdit} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Edit</button>
                 <button onClick={() => setShowBulkModal(true)} className="btn-secondary">↑ Bulk Upload</button>
@@ -616,7 +618,7 @@ export default function IngredientsTab() {
               {canOperate && (
                 <button onClick={() => setShowBulkReceive(true)} className="btn-secondary" disabled={ingredients.length === 0}>Bulk Receive</button>
               )}
-              {canEditMaster && (
+              {canCreateMaster && (
                 <button onClick={openNew} className="btn-primary">+ New Ingredient</button>
               )}
             </>

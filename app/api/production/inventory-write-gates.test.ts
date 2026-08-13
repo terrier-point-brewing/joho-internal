@@ -10,13 +10,15 @@ import { can } from "@/lib/auth/resolve";
  * The inventory scope carries two tiers, and the split is easy to get wrong
  * because both live on `production.inventory`:
  *
- *   manage  — master data: create/edit/delete an ingredient or packaging item
- *   operate — stock movements: adjustments and receipts
+ *   manage  — edit/delete an existing ingredient or packaging item, and every
+ *             BULK path (bulk edit, bulk upload), which rewrites many rows
+ *   operate — stock movements (adjustments, receipts) and creating ONE new
+ *             ingredient or packaging item
  *
- * Drift here is silent and asymmetric: before this file existed, POST
- * /ingredients and POST /ingredients/bulk gated at `operate` while
- * PATCH/DELETE on the same resource gated at `manage`, so a brewer could
- * bulk-create ingredients they could not then edit one at a time.
+ * The single-row create sitting at `operate` while PATCH/DELETE on the same
+ * resource sits at `manage` is deliberate, not drift: an operator taking
+ * delivery of a new hop can add the row, but cannot rewrite or remove rows
+ * that already exist, and cannot reach the bulk paths at all.
  *
  * These assertions are on the (scope, level) COORDINATE, not the CAP name, so
  * re-pointing a capability at a different scope fails here too.
@@ -56,26 +58,26 @@ function post(body: unknown) {
 beforeEach(() => gateMock.mockClear());
 
 describe("inventory write gates", () => {
-  it("POST /ingredients requires manage — creating master data, not a stock movement", async () => {
+  it("POST /ingredients requires only operate — creating ONE row is an operator action", async () => {
     const { POST } = await import("./ingredients/route");
     expect(await gateOf(() => POST(post({ name: "Cascade", unit: "oz" })))).toEqual({
       scope: "production.inventory",
-      level: "manage",
+      level: "operate",
     });
   });
 
-  it("POST /ingredients/bulk requires manage — same write as the single-row create", async () => {
+  it("POST /ingredients/bulk requires manage — a bulk path rewrites many rows, unlike the single create", async () => {
     const { POST } = await import("./ingredients/bulk/route");
     expect(
       await gateOf(() => POST(post({ rows: [{ name: "Cascade", unit: "oz" }] }))),
     ).toEqual({ scope: "production.inventory", level: "manage" });
   });
 
-  it("POST /packaging requires manage — mirrors PATCH/DELETE on /packaging/[id]", async () => {
+  it("POST /packaging requires only operate — mirrors POST /ingredients, NOT PATCH/DELETE on [id]", async () => {
     const { POST } = await import("./packaging/route");
     expect(await gateOf(() => POST(post({ type: "can", name: "16oz" })))).toEqual({
       scope: "production.inventory",
-      level: "manage",
+      level: "operate",
     });
   });
 
@@ -90,9 +92,14 @@ describe("inventory write gates", () => {
 describe("brewer lands on the intended side of that split", () => {
   const brewer = ROLE_BUNDLES.brewer;
 
-  it("cannot write ingredient or packaging master data", () => {
+  it("cannot edit or delete existing ingredient or packaging master data", () => {
     expect(can(brewer, CAP.ingredientMasterEdit.scope, CAP.ingredientMasterEdit.level)).toBe(false);
     expect(can(brewer, CAP.packagingMasterEdit.scope, CAP.packagingMasterEdit.level)).toBe(false);
+  });
+
+  it("can still add one new ingredient or packaging item", () => {
+    expect(can(brewer, CAP.ingredientMasterCreate.scope, CAP.ingredientMasterCreate.level)).toBe(true);
+    expect(can(brewer, CAP.packagingMasterCreate.scope, CAP.packagingMasterCreate.level)).toBe(true);
   });
 
   it("can still adjust and receive stock", () => {

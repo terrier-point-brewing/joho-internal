@@ -17,9 +17,11 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  // ingredientMasterEdit, matching PATCH/DELETE on /ingredients/[id]: creating
-  // an ingredient is a master-data write, not a stock movement.
-  try { await requirePermission(CAP.ingredientMasterEdit); } catch (res) { return res as Response; }
+  // ingredientMasterCreate (operate), deliberately one tier BELOW the
+  // PATCH/DELETE on /ingredients/[id]: adding a row an operator just took
+  // delivery of is routine, while changing or removing an existing row — and
+  // the bulk create/upload paths — stay at manage.
+  try { await requirePermission(CAP.ingredientMasterCreate); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();

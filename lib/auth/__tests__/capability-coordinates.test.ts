@@ -45,6 +45,10 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
 
   ingredientMasterEdit: { scope: "production.inventory", level: "manage" },
   packagingMasterEdit: { scope: "production.inventory", level: "manage" },
+  // Creating ONE row is an operator action; editing/deleting an existing row
+  // and the bulk paths stay at manage. See inventory-write-gates.test.ts.
+  ingredientMasterCreate: { scope: "production.inventory", level: "operate" },
+  packagingMasterCreate: { scope: "production.inventory", level: "operate" },
   safetyStockManage: { scope: "production.inventory", level: "manage" },
   inventoryOperate: { scope: "production.inventory", level: "operate" },
 

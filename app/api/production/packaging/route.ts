@@ -18,9 +18,10 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  // packagingMasterEdit, matching PATCH/DELETE on /packaging/[id]: creating a
-  // packaging item is a master-data write, not a stock movement.
-  try { await requirePermission(CAP.packagingMasterEdit); } catch (res) { return res as Response; }
+  // packagingMasterCreate (operate), deliberately one tier BELOW the
+  // PATCH/DELETE on /packaging/[id]: see /ingredients — creating one row is an
+  // operator action, editing or deleting one is not.
+  try { await requirePermission(CAP.packagingMasterCreate); } catch (res) { return res as Response; }
 
 
   const supabase = await createSupabaseServerClient();
