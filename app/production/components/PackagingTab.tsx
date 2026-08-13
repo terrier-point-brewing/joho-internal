@@ -72,10 +72,11 @@ function supplierName(item: PackagingItem): string | null {
 export default function PackagingTab() {
   const qc = useQueryClient();
   const { can } = usePermissions();
-  // Two tiers, matching the two the routes enforce — see IngredientsTab, which
-  // gates the same way: master-data writes need `manage`, stock movements
-  // (adjust, receive) need `operate`.
+  // Same three gates the routes enforce — see IngredientsTab, which splits the
+  // same way: editing/deleting an existing item needs `manage`, while stock
+  // movements (adjust, receive) and creating one new item need `operate`.
   const canEditMaster = can(CAP.packagingMasterEdit);
+  const canCreateMaster = can(CAP.packagingMasterCreate);
   const canOperate = can(CAP.inventoryOperate);
   const { data: packaging = [] } = usePackagingQuery();
   const { data: partners = [] } = useContractPartnersQuery();
@@ -236,7 +237,7 @@ export default function PackagingTab() {
           {canOperate && (
             <button onClick={() => setShowBulkReceive(true)} className="btn-secondary" disabled={packaging.length === 0}>Bulk Receive</button>
           )}
-          {canEditMaster && (
+          {canCreateMaster && (
             <button onClick={openNew} className="btn-primary">+ Add Item</button>
           )}
         </div>

@@ -33,6 +33,12 @@ export const CAP = {
 
   ingredientMasterEdit: { scope: "production.inventory", level: "manage" },
   packagingMasterEdit: { scope: "production.inventory", level: "manage" },
+  // Creating a single new ingredient/packaging item sits one tier below
+  // editing one: an operator adding a hop they just received should not need
+  // manage, but changing or deleting an existing row — and the bulk paths,
+  // which rewrite many rows at once — still do.
+  ingredientMasterCreate: { scope: "production.inventory", level: "operate" },
+  packagingMasterCreate: { scope: "production.inventory", level: "operate" },
   safetyStockManage: { scope: "production.inventory", level: "manage" },
   inventoryOperate: { scope: "production.inventory", level: "operate" },
 
