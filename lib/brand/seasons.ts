@@ -103,13 +103,52 @@ export async function createSeason(
   return data;
 }
 
+/**
+ * Field edits only. `status` is deliberately not patchable: activation archives
+ * the outgoing season and is gated on seasonGaps(), so a plain field patch that
+ * could set status:"active" would be a way around that gate — and the PATCH
+ * route forwards an arbitrary body here.
+ */
 export async function updateSeason(
   client: SupabaseLikeClient,
   id: string,
-  patch: Partial<Omit<BrandSeason, "id">>,
+  patch: Partial<Omit<BrandSeason, "id" | "status">>,
 ): Promise<void> {
-  const { error } = await client.from(TABLE).update(patch).eq("id", id);
+  const fields = { ...(patch as Partial<BrandSeason>) };
+  delete fields.status;
+  const { error } = await client.from(TABLE).update(fields).eq("id", id);
   if (error) throw new Error("Failed to update season");
+}
+
+/**
+ * What a season still owes before it can go into force.
+ *
+ * A `motif: chop-glyph` slot has nowhere to fall back to — the canon fixes the
+ * chop's position, footprint and color and leaves only the glyph to the season,
+ * so a season without one cannot resolve the slot at all. Blocking is right
+ * because activating is destructive: it archives the outgoing season, so a
+ * season activated half-built takes the working one down with it.
+ *
+ * Background is a gap but not a blocker — a template can decline to declare a
+ * `motif: background` slot, and plenty (menu, apparel) do.
+ */
+export function seasonGaps(season: Pick<BrandSeason, "chop_glyph_asset_id" | "background_hex">): {
+  blocking: string[];
+  warnings: string[];
+} {
+  // Phrased as noun phrases that read after "needs …" and after "no … set",
+  // so the gate message and the editor's hint can share one list.
+  return {
+    blocking: season.chop_glyph_asset_id ? [] : ["a chop glyph"],
+    warnings: season.background_hex ? [] : ["background color"],
+  };
+}
+
+/** True when this season could be activated without breaking a motif slot. */
+export function canActivateSeason(
+  season: Pick<BrandSeason, "chop_glyph_asset_id" | "background_hex">,
+): boolean {
+  return seasonGaps(season).blocking.length === 0;
 }
 
 /**
@@ -120,12 +159,21 @@ export async function updateSeason(
  * activate-then-archive would violate it on every rotation after the first.
  *
  * This is the moment every `motif` slot in the system changes what it resolves
- * to, which is why it is one deliberate action rather than a status dropdown.
+ * to, which is why it is one deliberate action rather than a status dropdown —
+ * and why it is gated on seasonGaps() the way publishTemplate is gated on
+ * validateTemplateShape.
  */
 export async function activateSeason(client: SupabaseLikeClient, id: string): Promise<void> {
   const { data: targets } = await client.from(TABLE).select("*").eq("id", id).limit(1);
   const target = targets?.[0];
   if (!target) throw new Error("Season not found");
+
+  // Checked before the outgoing season is archived, so a refused activation
+  // leaves the rotation exactly as it was.
+  const { blocking } = seasonGaps(target);
+  if (blocking.length > 0) {
+    throw new Error(`Cannot activate "${target.name}": it still needs ${blocking.join(" and ")}.`);
+  }
 
   const { data: live } = await client.from(TABLE).select("*").eq("status", "active").limit(1);
   const current = live?.[0];

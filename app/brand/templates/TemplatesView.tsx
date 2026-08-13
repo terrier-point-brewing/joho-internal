@@ -8,7 +8,8 @@ import Banner from "@/app/components/ui/Banner";
 import TabBar from "@/app/components/TabBar";
 import type { Tone } from "@/app/components/ui/tone";
 import type { BrandTemplate, TemplateMedium } from "@/lib/brand/templates";
-import type { BrandSeason } from "@/lib/brand/seasons";
+import { canActivateSeason, seasonGaps, type BrandSeason } from "@/lib/brand/seasons";
+import SeasonEditor from "./SeasonEditor";
 import {
   useActivateSeason,
   useCreateSeason,
@@ -53,6 +54,9 @@ export default function TemplatesView() {
   const [name, setName] = useState("");
   const [medium, setMedium] = useState<TemplateMedium>("label");
   const [seasonName, setSeasonName] = useState("");
+  // One season open at a time: two colour pickers and two glyph grids side by
+  // side is a wall, and the fields are only meaningful one season at a time.
+  const [openSeason, setOpenSeason] = useState<string | null>(null);
 
   const activeSeason = seasons.find((s) => s.status === "active") ?? null;
   const actionError = templateAction.error ?? createTemplate.error ?? activateSeason.error;
@@ -224,7 +228,14 @@ export default function TemplatesView() {
             {seasons.map((s) => (
               <Card key={s.id}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm text-primary font-medium">{s.name}</span>
+                  <button
+                    type="button"
+                    className="text-sm text-primary font-medium hover:text-accent"
+                    aria-expanded={openSeason === s.id}
+                    onClick={() => setOpenSeason(openSeason === s.id ? null : s.id)}
+                  >
+                    {openSeason === s.id ? "▾" : "▸"} {s.name}
+                  </button>
                   <Badge tone={SEASON_TONE[s.status]}>{s.status}</Badge>
                   {s.background_hex && (
                     <span className="flex items-center gap-1 text-2xs text-muted">
@@ -239,16 +250,25 @@ export default function TemplatesView() {
                     <span className="text-2xs text-faint">no chop glyph</span>
                   )}
                   {s.status !== "active" && (
+                    // Disabled rather than hidden, with the reason in the
+                    // tooltip: a missing button reads as "you cannot do this
+                    // here", a disabled one reads as "not yet, and here is why".
                     <button
                       type="button"
                       className="btn-primary btn-xxs ml-auto"
-                      disabled={activateSeason.isPending}
+                      disabled={activateSeason.isPending || !canActivateSeason(s)}
+                      title={
+                        canActivateSeason(s)
+                          ? undefined
+                          : `Needs ${seasonGaps(s).blocking.join(" and ")} first.`
+                      }
                       onClick={() => activateSeason.mutate(s.id)}
                     >
                       Make active
                     </button>
                   )}
                 </div>
+                {openSeason === s.id && <SeasonEditor season={s} />}
               </Card>
             ))}
           </div>
