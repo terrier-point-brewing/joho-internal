@@ -64,6 +64,24 @@ export function useCreateSeason() {
   });
 }
 
+/**
+ * Field edits on a season. `status` is not among them — activation is its own
+ * gated action, and the server drops a status out of a field patch anyway.
+ */
+export function useUpdateSeason() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...patch }: { id: string } & Partial<Omit<BrandSeason, "id" | "status">>) =>
+      send(`/api/brand/seasons/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    // Editing the ACTIVE season changes what every motif slot resolves to, so
+    // templates are invalidated alongside seasons here too.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: SEASONS });
+      qc.invalidateQueries({ queryKey: TEMPLATES });
+    },
+  });
+}
+
 export function useActivateSeason() {
   const qc = useQueryClient();
   return useMutation({

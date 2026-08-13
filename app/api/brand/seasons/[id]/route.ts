@@ -34,6 +34,12 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     }
     return NextResponse.json({ ok: true });
   } catch (err) {
+    // A refused activation names what the season still needs and is the
+    // caller's to fix; storage failures are ours. Same convention as the
+    // templates routes.
+    if (err instanceof Error && !/^Failed/.test(err.message)) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     return apiError(err);
   }
 }
