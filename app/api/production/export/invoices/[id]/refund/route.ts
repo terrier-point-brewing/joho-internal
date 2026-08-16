@@ -102,25 +102,35 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     const user = await getSessionUser();
-    const result = await issueRefund(supabase, {
-      invoiceId: id,
-      reason,
-      selections,
-      note: body.note ?? null,
-      userId: user?.user.id ?? null,
-    });
-    return NextResponse.json(result);
+    try {
+      const result = await issueRefund(supabase, {
+        invoiceId: id,
+        reason,
+        selections,
+        note: body.note ?? null,
+        userId: user?.user.id ?? null,
+      });
+      return NextResponse.json(result);
+    } catch (e) {
+      return errorResponse(e, true);
+    }
   } catch (e) {
     return errorResponse(e);
   }
 }
 
-function errorResponse(e: unknown) {
+/**
+ * `moneyMoved` tells the caller whether retrying is safe or would refund the
+ * customer a second time. A `RefundError` knows its own answer; an unrecognised
+ * error only gets the cautious one when a refund was actually in flight —
+ * `refundAttempted` is false for reads and previews, which move nothing.
+ */
+function errorResponse(e: unknown, refundAttempted = false) {
   if (e instanceof RefundError) {
-    return NextResponse.json({ error: e.message }, { status: e.status });
+    return NextResponse.json({ error: e.message, moneyMoved: e.moneyMoved }, { status: e.status });
   }
   return NextResponse.json(
-    { error: e instanceof Error ? e.message : "Refund failed" },
+    { error: e instanceof Error ? e.message : "Refund failed", moneyMoved: refundAttempted },
     { status: 500 },
   );
 }

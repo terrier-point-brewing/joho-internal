@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { issueDepositReduction, RefundError } from "@/lib/finance/issueRefund";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
 
   const supabase = await createSupabaseServerClient();
+  // `square_refunds` is finance-reader-only under RLS, but this endpoint is
+  // gated on `exportOperate` — so the brewer entitled to reduce an allocation
+  // could move the money and then be refused the row that records it, leaving a
+  // real refund off the books. The capability check above is the authority on
+  // who may do this; the finance write goes through the admin client, exactly
+  // as the sibling invoice refund route does. Reads stay user-scoped.
+  const admin = createSupabaseAdminClient();
   const { id } = await params;
   const body = await req.json();
   const newPercentage = Number(body.new_percentage);
@@ -68,7 +76,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   let refund;
   try {
-    refund = await issueDepositReduction(supabase, {
+    refund = await issueDepositReduction(admin, {
       allocationId: id,
       currentPercentage,
       newPercentage,
@@ -77,18 +85,23 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       squareOrderId: allocation.square_deposit_order_id ?? null,
     });
   } catch (e: unknown) {
+    // `moneyMoved` rides along so the modal can tell the operator whether they
+    // may try again. It is the difference between a typo they can correct and a
+    // refund they must not issue twice.
     if (e instanceof RefundError) {
-      return NextResponse.json({ error: e.message }, { status: e.status });
+      return NextResponse.json({ error: e.message, moneyMoved: e.moneyMoved }, { status: e.status });
     }
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Square refund failed" },
+      { error: e instanceof Error ? e.message : "Square refund failed", moneyMoved: true },
       { status: 500 }
     );
   }
   const refundAmountCents = refund.refundAmountCents;
 
-  // Only write the row once the refund has actually succeeded.
-  const { data: updated, error: updateErr } = await supabase
+  // Only write the row once the refund has actually succeeded. Admin client for
+  // the same reason as the refund record: past this point the money is gone, and
+  // a write that a policy can refuse is a write that strands it.
+  const { data: updated, error: updateErr } = await admin
     .from("batch_allocations")
     .update({
       percentage: newPercentage,
@@ -102,7 +115,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   if (updateErr) {
     return NextResponse.json(
-      { error: `Refund succeeded (id: ${refund.squareRefundId}) but saving the new percentage failed: ${updateErr.message}. Do not retry the refund — fix the allocation row manually.` },
+      { error: `Refund succeeded (id: ${refund.squareRefundId}) and is recorded, but saving the new percentage failed: ${updateErr.message}. Do NOT retry the refund — set the allocation to ${newPercentage}% by hand.`, moneyMoved: true },
       { status: 500 }
     );
   }

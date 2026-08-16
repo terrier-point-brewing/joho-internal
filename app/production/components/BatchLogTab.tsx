@@ -577,6 +577,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
   const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null); // alloc ID
   const [refundAlloc, setRefundAlloc] = useState<{ allocation: BatchAllocation; newPercentage: number } | null>(null);
   const [refundSubmitting, setRefundSubmitting] = useState(false);
+  const [refundError, setRefundError] = useState<{ message: string; moneyMoved: boolean } | null>(null);
 
   async function openInvoiceModal(a: BatchAllocation) {
     setInvoiceModalMode("generate");
@@ -737,18 +738,34 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
   async function handleConfirmRefund() {
     if (!refundAlloc) return;
     setRefundSubmitting(true);
+    setRefundError(null);
     try {
       const res = await fetch(`/api/production/allocations/${refundAlloc.allocation.id}/adjust`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ new_percentage: refundAlloc.newPercentage }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        // The failure stays in the modal rather than an alert() the operator
+        // dismisses on reflex, because whether they may press the button again
+        // is the whole message. `moneyMoved` seals the button when they can't.
+        setRefundError({
+          message: body.error ?? "Failed to issue refund",
+          moneyMoved: body.moneyMoved !== false,
+        });
+        return;
+      }
       setEditingPct(p => { const n = { ...p }; delete n[refundAlloc.allocation.id]; return n; });
       setRefundAlloc(null);
       await refresh();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to issue refund");
+      // The request itself never completed, so we cannot know whether Square
+      // was reached. Treated as money-moved: check before trying again.
+      setRefundError({
+        message: `${e instanceof Error ? e.message : "Failed to issue refund"} — the request did not complete, so check the Square dashboard for a refund on this payment before trying again.`,
+        moneyMoved: true,
+      });
     } finally {
       setRefundSubmitting(false);
     }
@@ -1200,10 +1217,16 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
           allocation={refundAlloc.allocation}
           newPercentage={refundAlloc.newPercentage}
           submitting={refundSubmitting}
+          error={refundError}
           onConfirm={handleConfirmRefund}
           onClose={() => {
             if (refundAlloc) setEditingPct(p => { const n = { ...p }; delete n[refundAlloc.allocation.id]; return n; });
             setRefundAlloc(null);
+            setRefundError(null);
+            // A failure that moved money changed the allocation's state on the
+            // server even though this attempt "failed"; reload rather than let
+            // the row keep showing what it showed before.
+            if (refundError?.moneyMoved) void refresh();
           }}
         />
       )}
