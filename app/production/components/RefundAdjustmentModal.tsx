@@ -14,12 +14,19 @@ export function RefundAdjustmentModal({
   allocation,
   newPercentage,
   submitting,
+  error,
   onConfirm,
   onClose,
 }: {
   allocation: BatchAllocation;
   newPercentage: number;
   submitting: boolean;
+  /**
+   * A failed attempt. `moneyMoved` is the load-bearing half: when the partner
+   * has already been refunded, the only safe next action is to close and fix
+   * the books, so the confirm button is removed rather than merely disabled.
+   */
+  error?: { message: string; moneyMoved: boolean } | null;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -48,21 +55,36 @@ export function RefundAdjustmentModal({
           </div>
         </div>
 
-        <p className="text-[10px] text-faint">
-          This will issue a real Square refund to the partner&apos;s original payment method, then save the new percentage. This cannot be undone from this screen.
-        </p>
+        {error && (
+          <div className="rounded border border-danger-border bg-danger-surface/40 px-3 py-2 space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-danger">
+              {error.moneyMoved ? "Refunded — but not recorded" : "Refund not issued"}
+            </p>
+            <p className="text-xs text-danger">{error.message}</p>
+          </div>
+        )}
+
+        {!error?.moneyMoved && (
+          <p className="text-[10px] text-faint">
+            This will issue a real Square refund to the partner&apos;s original payment method, then save the new percentage. This cannot be undone from this screen.
+          </p>
+        )}
 
         <div className="flex gap-2 justify-end pt-2">
           <button type="button" onClick={onClose} className="btn-secondary">
-            Cancel
+            {error?.moneyMoved ? "Close" : "Cancel"}
           </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={submitting}
-            className="btn-primary">
-            {submitting ? "Refunding…" : "Refund & Save"}
-          </button>
+          {/* Removed, not disabled: after a refund that went through, a second
+              press would charge the partner back twice. */}
+          {!error?.moneyMoved && (
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={submitting}
+              className="btn-primary">
+              {submitting ? "Refunding…" : error ? "Try again" : "Refund & Save"}
+            </button>
+          )}
         </div>
       </div>
     </Modal>

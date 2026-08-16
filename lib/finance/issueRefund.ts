@@ -19,7 +19,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createRefund } from "@/lib/square/refunds";
+import { createRefund, RefundDeclinedError } from "@/lib/square/refunds";
 import { getOrderPayment } from "@/lib/square/square-invoices";
 import { resolveInvoiceLineVolumes } from "@/lib/production/invoiceLineVolumes";
 import { writeRefundReturn, type RefundReturnResult } from "@/lib/production/refundReturn";
@@ -54,9 +54,50 @@ export interface IssueRefundResult {
 }
 
 export class RefundError extends Error {
-  constructor(message: string, readonly status: number) {
+  /**
+   * Whether the customer's money has already moved. `true` means Square
+   * accepted the refund and this failure is about RECORDING it — the operator
+   * must never retry, because a retry refunds a second time. `false` means
+   * nothing happened and trying again is safe.
+   *
+   * Deliberately not a tri-state: an ambiguous failure (a dropped connection
+   * mid-refund) is reported as `true`, because "check Square before retrying"
+   * is the only safe instruction when we cannot tell.
+   */
+  readonly moneyMoved: boolean;
+
+  constructor(message: string, readonly status: number, moneyMoved = false) {
     super(message);
     this.name = "RefundError";
+    this.moneyMoved = moneyMoved;
+  }
+}
+
+/**
+ * Call Square, and turn the two failure kinds into errors that say which one
+ * happened. Shared by both refund entry points so neither can describe a
+ * failure in a way that invites a double refund.
+ */
+async function attemptRefund(
+  paymentId: string,
+  amountCents: number,
+  reason: string,
+): Promise<{ refundId: string; status: string }> {
+  try {
+    return await createRefund(paymentId, amountCents, reason);
+  } catch (e) {
+    if (e instanceof RefundDeclinedError) {
+      // Square said no. Nothing was written anywhere and nothing was charged
+      // back, so the operator can fix the cause and try again.
+      throw new RefundError(`${e.message} Nothing has been recorded — it is safe to try again.`, 422, false);
+    }
+    // Anything else happened somewhere between "sent" and "answered". We cannot
+    // prove the refund did not go through, so it is reported as though it did.
+    throw new RefundError(
+      `The refund could not be confirmed with Square: ${e instanceof Error ? e.message : String(e)}. Check the Square dashboard for a refund on this payment BEFORE trying again — one may have gone through.`,
+      502,
+      true,
+    );
   }
 }
 
@@ -195,7 +236,7 @@ export async function issueRefund(
     ? note.trim()
     : `${reasonLabel(reason)} — invoice ${invoice.invoice_number ?? invoiceId}`;
 
-  const refund = await createRefund(paymentId, plan.totalCents, squareReason);
+  const refund = await attemptRefund(paymentId, plan.totalCents, squareReason);
 
   // 4. Write the record. `square_refunds` is upserted on square_refund_id, which
   // is also the key the webhook's syncRefunds upserts on — so the webhook this
@@ -226,6 +267,7 @@ export async function issueRefund(
     throw new RefundError(
       `The Square refund succeeded (id: ${refund.refundId}) but recording it failed: ${refundErr?.message ?? "unknown error"}. Do NOT retry — the customer has already been refunded. Record it by hand.`,
       500,
+      true,
     );
   }
 
@@ -251,6 +293,7 @@ export async function issueRefund(
     throw new RefundError(
       `The Square refund succeeded (id: ${refund.refundId}) and is recorded, but its line detail failed to save: ${linesErr.message}. Do NOT retry the refund — re-classify it from the unclassified refunds list instead.`,
       500,
+      true,
     );
   }
 
@@ -456,7 +499,7 @@ export async function issueDepositReduction(
   const refundAmountCents = Math.round(paidCents * (1 - newPercentage / currentPercentage));
   const reason = `Allocation percentage reduced from ${currentPercentage}% to ${newPercentage}%`;
 
-  const refund = await createRefund(squarePaymentId, refundAmountCents, reason);
+  const refund = await attemptRefund(squarePaymentId, refundAmountCents, reason);
 
   const { data: row, error } = await supabase
     .from("square_refunds")
@@ -481,8 +524,9 @@ export async function issueDepositReduction(
 
   if (error || !row) {
     throw new RefundError(
-      `The Square refund succeeded (id: ${refund.refundId}) but recording it failed: ${error?.message ?? "unknown error"}. Do NOT retry — the partner has already been refunded.`,
+      `The Square refund succeeded (id: ${refund.refundId}) but recording it failed: ${error?.message ?? "unknown error"}. Do NOT retry — the partner has already been refunded. The refund will arrive from Square unclassified; explain it there, and reduce the allocation by hand.`,
       500,
+      true,
     );
   }
 
