@@ -125,6 +125,8 @@ function InvoiceExpandedPanel({
   const [addMappingId, setAddMappingId] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Non-fatal follow-up from an action that otherwise succeeded.
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [creditOpen, setCreditOpen] = useState(false);
   const queryClient = useQueryClient();
 
@@ -240,7 +242,11 @@ function InvoiceExpandedPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "send", transactionIds: txIds }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Error");
+      // The invoice went out either way; a Square inventory credit that missed is
+      // reported here rather than dressed up as a send failure.
+      setActionNotice(Array.isArray(body.warnings) && body.warnings.length ? body.warnings.join(" ") : null);
       onRefresh();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : "Failed to send");
@@ -610,6 +616,7 @@ function InvoiceExpandedPanel({
             </button>
           )}
           {actionError && <span className="text-xs text-danger">{actionError}</span>}
+          {actionNotice && <span className="text-xs text-accent">{actionNotice}</span>}
         </div>
       )}
 

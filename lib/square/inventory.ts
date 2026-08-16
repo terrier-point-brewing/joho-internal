@@ -76,6 +76,49 @@ export async function setPhysicalCount(
   }
 }
 
+/**
+ * Add units INTO stock as a relative ADJUSTMENT (NONE → IN_STOCK), the entry
+ * Square uses for stock arriving from outside its knowledge.
+ *
+ * Distinct from setPhysicalCount in the way that matters here: it states a
+ * DELTA, not a total. It cannot overwrite whatever Square believes, so it is
+ * safe to apply while the two sides' absolute counts are still in dispute —
+ * which is exactly the state the cold-storage push gate exists to protect (see
+ * lib/square/pushGate). That gate guards absolute projections of cold storage
+ * onto Square; this is the opposite shape — a correction paired 1:1 with a
+ * deduction this app's own invoice caused — so it is deliberately not behind it.
+ * Nothing else may reuse this to sneak an absolute push past that gate.
+ */
+export async function receiveStock(
+  variationId: string,
+  quantity: number,
+  occurredAt: string,
+): Promise<void> {
+  const locationId = squareLocationId();
+  const res = await squarePost<{ errors?: Array<{ detail?: string }> }>(
+    "/inventory/changes/batch-create",
+    {
+      idempotency_key: crypto.randomUUID(),
+      changes: [
+        {
+          type: "ADJUSTMENT",
+          adjustment: {
+            catalog_object_id: variationId,
+            location_id: locationId,
+            quantity: String(quantity),
+            from_state: "NONE",
+            to_state: "IN_STOCK",
+            occurred_at: occurredAt,
+          },
+        },
+      ],
+    },
+  );
+  if (res.errors?.length) {
+    throw new Error(res.errors[0].detail ?? "Square inventory adjustment failed");
+  }
+}
+
 interface OrderLineItem {
   uid?: string;
   catalog_object_id?: string;

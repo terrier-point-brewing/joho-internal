@@ -18,6 +18,10 @@ import {
   type InvoiceLineItemDraft,
 } from "@/lib/production/exportInvoicePreview";
 import { snapshotMaterialBreakdown } from "@/lib/production/materialBreakdownSnapshot";
+import {
+  recordInvoiceSkuSubstitutions,
+  restoreSubstitutedInventory,
+} from "@/lib/production/invoiceSkuSubstitutions";
 import type { CatalogItem } from "@/types/square";
 import { getNetTermsDays } from "@/lib/production/invoiceTerms";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
@@ -237,6 +241,28 @@ export async function POST(req: NextRequest) {
 
     await snapshotMaterials(inv.id);
 
+    // Record any line billed against a borrowed Square item, so the send that
+    // makes Square deduct stock it never held can credit those units back. The
+    // claims are checked against the database before anything is written — see
+    // selectRecordableSubstitutions. Never fails the response: the invoice is
+    // already real in Square by this point.
+    try {
+      await recordInvoiceSkuSubstitutions(
+        supabase,
+        inv.id,
+        transactionIds,
+        lineItems
+          .filter((li) => li.needsSquareItem && li.exportTransactionId && li.squareCatalogVariationId)
+          .map((li) => ({
+            exportTransactionId: li.exportTransactionId!,
+            squareVariationId: li.squareCatalogVariationId!,
+            restoreInventory: li.restoreInventory !== false,
+          })),
+      );
+    } catch (e) {
+      console.error("[export-invoice] recording SKU substitutions failed:", e);
+    }
+
     return NextResponse.json({ invoiceId: result.invoiceId, invoiceUrl: result.invoiceUrl });
   }
 
@@ -284,13 +310,27 @@ export async function POST(req: NextRequest) {
       .update({ status: "open" })
       .eq("id", invoiceId);
 
+    // Publishing is what makes Square decrement. Lines billed against a borrowed
+    // item just took stock Square never held, so credit those units back now —
+    // once, guarded by the row's restored_at. A credit that misses is reported,
+    // never thrown: the invoice has gone out and saying otherwise would be false.
+    let inventoryWarnings: string[] = [];
+    try {
+      const restore = await restoreSubstitutedInventory(supabase, invoiceId);
+      inventoryWarnings = restore.warnings;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[export-invoice] substituted-SKU inventory credit failed:", err);
+      inventoryWarnings = [`Square inventory credit failed: ${message}`];
+    }
+
     try {
       await syncSquareInvoicesForYear(supabase, new Date().getFullYear());
     } catch (err) {
       console.error("[export-invoice] post-send Finance sync failed:", err);
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...(inventoryWarnings.length ? { warnings: inventoryWarnings } : {}) });
   }
 
   // ── sync ──────────────────────────────────────────────────────────────────
