@@ -488,19 +488,54 @@ describe("buildProductLines", () => {
     ).rejects.toThrow(/Cannot resolve the packaging variation "Ghost Case"/);
   });
 
-  it("throws when the variation resolves but has no Square product link", async () => {
+  it("drafts an unpriced, flagged line when the variation has no Square product link", async () => {
+    // Prod case: Oktoberfest filled into Fortnight's own kegs. The variation must
+    // never carry a Square SKU (it would become sellable), but the shipment still
+    // bills — as a line the operator points at a substitute item.
     const supabase = productStub({
-      pvByKey: { "pumpkin|CBC Pumpkin Reaper Ale - 16oz Labeled Can Case": [{ variation_id: "pv-cbc" }] },
-      skuByKey: { "pv-cbc|pumpkin": null }, // no recipe_square_links row
+      pvByKey: { "okt|Fortnight - 1/6 Keg": [{ variation_id: "pv-fortnight-sixtel" }] },
+      skuByKey: { "pv-fortnight-sixtel|okt": null }, // no recipe_square_links row
     });
-    await expect(
-      buildProductLines(
-        supabase,
-        prodRows([{ id: "t1", recipe_id: "pumpkin", packaging_item_id: "can-16", packaging_format: "case", quantity: 4, variant_label: "CBC Pumpkin Reaper Ale - 16oz Labeled Can Case" }]),
-        new Map(),
-        pkgName,
-      )
-    ).rejects.toThrow(/No Square product link found/);
+    const lines = await buildProductLines(
+      supabase,
+      prodRows([{ id: "t1", recipe_id: "okt", packaging_item_id: "keg-sixtel", packaging_format: "loose", quantity: 20, variant_label: "Fortnight - 1/6 Keg" }]),
+      new Map(),
+      pkgName,
+      new Map([["okt", "Oktoberfest"]]),
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      quantity: 20,
+      unitPriceCents: 0,
+      squareCatalogVariationId: null,
+      needsSquareItem: true,
+    });
+    expect(lines[0].description).toBe("Oktoberfest · Fortnight - 1/6 Keg (loose)");
+  });
+
+  it("leaves linked lines unflagged, so only the unlinked one gates generation", async () => {
+    const supabase = productStub({
+      pvByKey: {
+        "okt|1/6 Keg": [{ variation_id: "pv-house-sixtel" }],
+        "okt|Fortnight - 1/6 Keg": [{ variation_id: "pv-fortnight-sixtel" }],
+      },
+      skuByKey: {
+        "pv-house-sixtel|okt": { square_variation_id: "sq-okt-sixtel", item_name: "Oktoberfest (Keg)", variation_name: "1/6 Keg" },
+        "pv-fortnight-sixtel|okt": null,
+      },
+    });
+    const lines = await buildProductLines(
+      supabase,
+      prodRows([
+        { id: "t1", recipe_id: "okt", packaging_item_id: "keg-sixtel", packaging_format: "loose", quantity: 20, variant_label: "1/6 Keg" },
+        { id: "t2", recipe_id: "okt", packaging_item_id: "keg-sixtel", packaging_format: "loose", quantity: 20, variant_label: "Fortnight - 1/6 Keg" },
+      ]),
+      new Map([["sq-okt-sixtel", 8500]]),
+      pkgName,
+      new Map([["okt", "Oktoberfest"]]),
+    );
+    expect(lines.map((l) => l.needsSquareItem)).toEqual([undefined, true]);
+    expect(lines[0]).toMatchObject({ unitPriceCents: 8500, squareCatalogVariationId: "sq-okt-sixtel" });
   });
 
   it("throws when a selected transaction has no recipe", async () => {

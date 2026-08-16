@@ -19,6 +19,34 @@ export interface InvoiceLineItemDraft {
   unitPriceCents: number;
   squareCatalogVariationId: string | null;
   discountCatalogId?: string | null;
+  /**
+   * A product line whose shipment has NO Square product link, drafted so the
+   * operator can nominate a substitute Square item for this invoice only.
+   *
+   * The case: a customer billed at distribution rates whose beer is filled into
+   * THEIR kegs. That packaging variation must never carry a permanent Square SKU
+   * (it would become sellable in the catalog), so the standing mapping is
+   * deliberately absent — but the shipment is still billable, at the same rate
+   * as the equivalent house keg.
+   *
+   * Preview-only. The line still fails closed: it arrives unpriced and unlinked,
+   * and the modal blocks generation until a Square item is picked, so a shipment
+   * can never be silently dropped or billed at $0.
+   */
+  needsSquareItem?: boolean;
+  /**
+   * The shipment this product line bills. Set on product lines only (fee, excise
+   * and materials lines roll several shipments up and have none). Carried back on
+   * generate so a substituted line can be tied to the shipment it stands for
+   * without trusting the client's account of which one that was.
+   */
+  exportTransactionId?: string;
+  /**
+   * On a substituted line: credit the units back to the borrowed Square item
+   * after the invoice is sent, since Square deducts stock it never held. The
+   * operator's choice, per line — see lib/production/invoiceSkuSubstitutions.
+   */
+  restoreInventory?: boolean;
 }
 
 export interface InvoicePreviewResult {
@@ -427,14 +455,23 @@ export async function computeMaterialBreakdownsForTransactions(
 
 // Distribution / wholesale product lines: one per shipped transaction, priced
 // from the resolved Square SKU. Fail-closed — an unresolvable shipped variation
-// or a missing Square product link throws, since a product line IS the invoice
-// and silently dropping it would undercharge the customer. Exported for unit
-// testing.
+// throws, since a product line IS the invoice and silently dropping it would
+// undercharge the customer.
+//
+// A MISSING Square product link is the one case that doesn't throw: some
+// packaging variations must never be linked (beer filled into the customer's own
+// kegs would otherwise become sellable in Square's catalog), yet still ship and
+// still bill. Those arrive as unlinked, unpriced lines flagged `needsSquareItem`
+// so the operator nominates a substitute Square item for this invoice only. The
+// invariant is intact — nothing is dropped, nothing is billed at $0 — because the
+// modal refuses to generate while such a line is still unlinked.
+// Exported for unit testing.
 export async function buildProductLines(
   supabase: SupabaseClient,
   rows: ExportTxRow[],
   priceByVariationId: Map<string, number>,
-  pkgNameById: Map<string, string>
+  pkgNameById: Map<string, string>,
+  recipeNameById: Map<string, string> = new Map()
 ): Promise<InvoiceLineItemDraft[]> {
   // export_transactions does NOT store variation_id (confirmed against the live
   // schema), so resolve the packaging_variation each transaction shipped, then
@@ -469,10 +506,19 @@ export async function buildProductLines(
 
     const sku = await resolveProductSku(supabase, { kind: "packaged", variationId, recipeId: tx.recipe_id });
     if (!sku) {
-      throw new Error(
-        `No Square product link found for recipe + "${pkgName}" (format: ${tx.packaging_format || "none"}) — ` +
-        `go to Production → Link Styles to Square and add this mapping before generating a Distribution or Wholesale invoice.`
-      );
+      const beerName = recipeNameById.get(tx.recipe_id) ?? null;
+      lineItems.push({
+        id: crypto.randomUUID(),
+        description: `${beerName ? `${beerName} · ` : ""}${tx.variant_label}${tx.packaging_format ? ` (${tx.packaging_format})` : ""}`,
+        quantity: tx.quantity,
+        unitPriceCents: 0,
+        squareCatalogVariationId: null,
+        needsSquareItem: true,
+        exportTransactionId: tx.id,
+        // Default ON: the borrowed item is about to lose stock it never had.
+        restoreInventory: true,
+      });
+      continue;
     }
     lineItems.push({
       id: crypto.randomUUID(),
@@ -482,6 +528,7 @@ export async function buildProductLines(
       quantity: tx.quantity,
       unitPriceCents: priceByVariationId.get(sku.squareVariationId) ?? 0,
       squareCatalogVariationId: sku.squareVariationId,
+      exportTransactionId: tx.id,
     });
   }
   return lineItems;
@@ -569,12 +616,12 @@ export async function buildInvoicePreview(
   const materialBreakdowns: Record<string, MaterialLineBreakdown> = {};
   let defaultDiscountCatalogId: string | null = null;
 
+  // Recipe (beer) names — every channel names the beer on its lines, since one
+  // invoice can span several recipes.
+  const recipeNameById = await loadRecipeNames(supabase, rows);
+
   if (channel === "contract_brewing") {
     // ── 5a. Packaging Fee lines ─────────────────────────────────────────────
-    // Recipe (beer) names, so each Packaging Fee line names its recipe — an
-    // invoice can span multiple recipes, one Packaging Fee line per transaction.
-    const recipeNameById = await loadRecipeNames(supabase, rows);
-
     // Total keg count across all keg-type transactions — drives keg cleaning qty.
     const kegCleaningQty = sumKegCleaningQuantity(rows, pkgTypeById);
 
@@ -681,7 +728,17 @@ export async function buildInvoicePreview(
 
   } else if (channel === "distribution" || channel === "wholesale") {
     // ── Product lines (from recipe_square_links) ──────────────────────────────
-    const productLines = await buildProductLines(supabase, rows, priceByVariationId, pkgNameById);
+    const productLines = await buildProductLines(supabase, rows, priceByVariationId, pkgNameById, recipeNameById);
+
+    // Shipments with no standing Square link bill against an operator-nominated
+    // item, chosen on this invoice only — flag each so the modal says which.
+    for (const line of productLines) {
+      if (!line.needsSquareItem) continue;
+      warnings.push(
+        `"${line.description}" has no Square product link. Pick the Square item to bill it against below — ` +
+        `that choice applies to this invoice only and creates no permanent mapping.`
+      );
+    }
 
     // Apply channel-appropriate discount to all product lines (optional — no error if missing)
     const discountServiceType = channel === "distribution" ? "distribution_discount" : "wholesale_discount";

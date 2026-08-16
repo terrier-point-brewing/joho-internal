@@ -26,6 +26,16 @@ interface DraftLineItem {
   unitPriceCents: number;
   squareCatalogVariationId: string | null;
   discountCatalogId?: string | null;
+  /**
+   * A shipped product with no standing Square link (e.g. beer filled into the
+   * customer's own kegs, which must never be sellable in the catalog). The
+   * operator nominates a substitute Square item for this invoice only; until
+   * they do, the line is unpriced and Generate stays disabled.
+   */
+  needsSquareItem?: boolean;
+  exportTransactionId?: string;
+  /** Credit the borrowed item's units back to Square after the invoice is sent. */
+  restoreInventory?: boolean;
 }
 
 type CatalogDiscount = SquareCatalogOptions["discounts"][number];
@@ -144,9 +154,15 @@ export default function InvoicePreviewModal({
       return;
     }
     const v = variationIndex.get(variationId);
+    const line = effectiveLineItems.find((li) => li.id === id);
     updateLine(id, {
       squareCatalogVariationId: variationId,
-      description: v ? `${v.itemName}${v.variationName ? ` · ${v.variationName}` : ""}` : effectiveLineItems.find((li) => li.id === id)?.description ?? "",
+      // A substitute-item line keeps its drafted description: it names what
+      // actually shipped ("Oktoberfest · Fortnight - 1/6 Keg"), which the
+      // borrowed catalog item's own name would otherwise erase from the invoice.
+      description: line?.needsSquareItem
+        ? line.description
+        : v ? `${v.itemName}${v.variationName ? ` · ${v.variationName}` : ""}` : line?.description ?? "",
       ...(v?.priceCents != null ? { unitPriceCents: v.priceCents } : {}),
     });
   }
@@ -173,6 +189,14 @@ export default function InvoicePreviewModal({
 
   const manualValid = subtotalCents > 0 && effectiveLineItems.length > 0 &&
     (manualSource === "other" || manualRef.trim().length > 0);
+
+  // A shipment drafted without a Square link must be pointed at an item before a
+  // Square invoice can be raised — otherwise it would go out as an unpriced
+  // custom line. Manual invoices carry no Square catalog identity at all, so the
+  // gate doesn't apply there.
+  const unlinkedProductLines = invoiceMode === "square"
+    ? effectiveLineItems.filter((li) => li.needsSquareItem && !li.squareCatalogVariationId).length
+    : 0;
 
   async function handleCreate() {
     setCreating(true);
@@ -396,7 +420,29 @@ export default function InvoicePreviewModal({
                         variationId={li.squareCatalogVariationId}
                         onChange={(_itemId, variationId) => pickCatalogItem(li.id, variationId)}
                       />
-                      {li.squareCatalogVariationId ? (
+                      {li.needsSquareItem && !li.squareCatalogVariationId ? (
+                        <p className="text-[11px] text-danger">
+                          No Square link for this shipment — pick the item to bill it against.
+                        </p>
+                      ) : li.needsSquareItem ? (
+                        <>
+                          <p className="text-[11px] text-accent">
+                            Billed against a substitute item for this invoice only — no mapping is created.
+                          </p>
+                          <label className="flex items-start gap-1.5 text-[11px] text-secondary">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={li.restoreInventory !== false}
+                              onChange={(e) => updateLine(li.id, { restoreInventory: e.target.checked })}
+                            />
+                            <span>
+                              Add these {li.quantity} back to Square&rsquo;s count after sending — Square deducts the
+                              substitute item for units it never held. Untick only if you already counted them in.
+                            </span>
+                          </label>
+                        </>
+                      ) : li.squareCatalogVariationId ? (
                         <p className="text-[11px] text-success">
                           ✓ Mapped{mapped ? `: ${mapped.itemName}${mapped.variationName ? ` · ${mapped.variationName}` : ""}` : " to Square catalog"}
                         </p>
@@ -513,13 +559,20 @@ export default function InvoicePreviewModal({
             </p>
           )}
 
+          {unlinkedProductLines > 0 && (
+            <p className="text-xs text-danger">
+              {unlinkedProductLines === 1 ? "1 line has" : `${unlinkedProductLines} lines have`} no Square item yet —
+              pick one above to price and bill {unlinkedProductLines === 1 ? "it" : "them"}.
+            </p>
+          )}
+
           {createError && <p className="text-xs text-danger">{createError}</p>}
 
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={onClose} className="btn-secondary" disabled={creating}>Cancel</button>
             <button
               onClick={handleCreate}
-              disabled={creating || effectiveLineItems.length === 0 || (invoiceMode === "manual" && !manualValid) || (isOverride && !overrideReason.trim())}
+              disabled={creating || effectiveLineItems.length === 0 || unlinkedProductLines > 0 || (invoiceMode === "manual" && !manualValid) || (isOverride && !overrideReason.trim())}
               className="btn-primary"
             >
               {creating
