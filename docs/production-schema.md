@@ -54,8 +54,30 @@ batch_conversions                ← replaced channel='conversion' allocations +
   the SOURCE batch when fully exhausted. (The standalone `/api/production/conversions`
   new-child route was removed 2026-07-04; its capability lives in the transfers path.)
 
+ingredient_units
+  code (pk), label, dimension ('weight'|'volume'|'count'), base_factor, is_active,
+  sort_order
+  The closed vocabulary `ingredients.unit` points at. Seeded by migration; the app
+  reads it and never writes it. `base_factor` is in the dimension's base (oz for
+  weight, fl oz for volume) and is NULL when no fixed ratio exists — a yeast brick's
+  weight is a property of the yeast, not of the unit. NULL means "do not convert",
+  never "convert as 1".
+
 ingredients
-  id, name, supplier, unit, cost_per_unit_usd, stock_quantity, created_at
+  id, name, supplier, unit (FK -> ingredient_units.code), cost_per_unit_usd,
+  stock_quantity, created_at
+  `cost_per_unit_usd` and `stock_quantity` are numeric(18,10). That scale is
+  load-bearing, not decoration: dividing a 3-decimal quantity by 16 needs 7 decimal
+  places to stay exact, and the old numeric(10,4)/(10,3) rounded $0.11 off a single
+  lbs->oz conversion.
+  `unit` cannot be edited in place once anything depends on it — trigger
+  `ingredients_guard_unit_change` refuses, and `convert_ingredient_unit(id, to_unit)`
+  is the one path that changes it, rescaling stock, cost, every
+  recipe_ingredients.quantity_per_turn and every OPEN commitment in one transaction.
+  A row with nothing riding on it (no stock, no recipe line, no history) can still
+  have its unit corrected outright — that is a typo, not a conversion.
+  Cross-dimension changes (lbs -> liters) are always refused: there is no honest
+  ratio without a density nobody has recorded.
 
 stock_adjustments
   id, ingredient_id, quantity (signed), type, note, batch_id,
@@ -64,6 +86,10 @@ stock_adjustments
   "received" type: purchase_cost in POST body → server computes weighted avg cost,
   updates ingredients.cost_per_unit_usd, stores cost_per_unit_usd +
   total_value_change_usd on adj row
+  `unit` is a SNAPSHOT of the ingredient's unit at write time and deliberately has
+  no FK. It is history: a conversion never reaches back and restates what was
+  charged into a batch, and retiring a unit code must not orphan it. Read
+  `stock_adjustments.unit`, not `ingredients.unit`, when rendering a past row.
   The `_usd` suffix is load-bearing: these are DECIMAL DOLLARS, unlike the
   `*_cents` integer columns Square amounts land in. POST body fields
   (purchase_cost, shipping_cost) stay unsuffixed — they are request params, not

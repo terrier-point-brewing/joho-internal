@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { IngredientCategory, INGREDIENT_CATEGORIES } from "@/app/production/types";
+import { describeUnitError, normalizeUnit } from "@/lib/production/units";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
   const records = rows.map((r) => ({
     name:           r.name.trim(),
     category:       r.category && validCategories.has(r.category) ? (r.category as IngredientCategory) : null,
-    unit:           r.unit.trim(),
+    unit:           normalizeUnit(r.unit),
     cost_per_unit_usd:  r.cost_per_unit_usd ?? null,
     stock_quantity: r.stock_quantity ?? 0,
     supplier_id:    null,
@@ -51,7 +52,11 @@ export async function POST(req: NextRequest) {
     .insert(records)
     .select("id, name");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const unitError = describeUnitError(error);
+    if (unitError) return NextResponse.json({ error: unitError }, { status: 400 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   return NextResponse.json({ inserted: data?.length ?? 0 }, { status: 201 });
 }

@@ -9,6 +9,7 @@ import {
   RecipeSquareLinkRow, BatchConversion, MappingGridResponse,
 } from "../types";
 import { queryKeys } from "@/lib/query-keys";
+import type { IngredientUnit } from "@/lib/production/units";
 // Type-only — the preview payload's shape is owned by the builder that produces it.
 import type { InvoicePreviewResult } from "@/lib/production/exportInvoicePreview";
 
@@ -68,6 +69,7 @@ export async function fetchJson<T>(url: string): Promise<T> {
 // New code should import queryKeys from @/lib/query-keys directly.
 export const productionKeys = {
   ingredients:       queryKeys.production.ingredients(),
+  ingredientUnits:   queryKeys.production.ingredientUnits(),
   adjustments:       queryKeys.production.stockAdjustments(),
   recipes:           queryKeys.production.recipes(),
   batches:           queryKeys.production.batches(),
@@ -89,6 +91,18 @@ export function useIngredientsQuery() {
   return useQuery({
     queryKey: productionKeys.ingredients,
     queryFn: () => fetchJson<Ingredient[]>("/api/production/ingredients"),
+  });
+}
+
+/**
+ * The ingredient-unit vocabulary. A declared list that only changes by
+ * migration, so it is cached for the session rather than refetched per mount.
+ */
+export function useIngredientUnitsQuery() {
+  return useQuery({
+    queryKey: productionKeys.ingredientUnits,
+    queryFn: () => fetchJson<IngredientUnit[]>("/api/production/ingredient-units"),
+    staleTime: Infinity,
   });
 }
 

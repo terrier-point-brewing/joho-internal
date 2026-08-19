@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { describeUnitError } from "@/lib/production/units";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,10 @@ export async function POST(req: NextRequest) {
     .select("*, suppliers(company_name), contract_brewing_partners(company_name)")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const unitError = describeUnitError(error);
+    if (unitError) return NextResponse.json({ error: unitError }, { status: 400 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   return NextResponse.json(data, { status: 201 });
 }
