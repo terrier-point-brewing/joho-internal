@@ -46,13 +46,22 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
   }
 
   const freightNum = parseFloat(freightTotal) || 0;
-  const previewShipping = allocateFreightByWeight(
-    rows.map((r) => ({
-      unit: itemType === "ingredient" ? itemsById.get(r.itemId)?.unit ?? "" : "",
-      quantity: parseFloat(r.quantity) || 0,
-    })),
+  const { dollars: previewShipping, guessed: freightGuesses } = allocateFreightByWeight(
+    rows.map((r) => {
+      const item = itemsById.get(r.itemId);
+      return {
+        unit: itemType === "ingredient" ? item?.unit ?? "" : "",
+        quantity: parseFloat(r.quantity) || 0,
+        label: item?.name ?? "this line",
+      };
+    }),
     freightNum
   );
+
+  // Only worth saying when there is freight to misallocate and a real item to
+  // name — an empty row has no unit yet and is not a guess, just unfinished.
+  const namedGuesses = freightGuesses.filter((g) => g.label !== "this line");
+  const showFreightGuessNote = freightNum > 0 && namedGuesses.length > 0;
 
   const rowsValid =
     rows.length > 0 &&
@@ -208,6 +217,25 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
             Each row&apos;s <span className="text-secondary">Total $/Unit</span> (purchase + freight) is blended
             with existing stock as a weighted average to produce the new Cost/Unit shown on the {itemType === "ingredient" ? "Ingredients" : "Packaging"} table.
           </p>
+          {showFreightGuessNote && (
+            <div className="mt-2 rounded border border-warning-border bg-warning-surface/25 px-2.5 py-2">
+              <p className="text-xs text-warning">
+                Freight for {namedGuesses.length === 1 ? "this item was" : "these items was"} split by
+                count, not weight — {namedGuesses.length === 1 ? "its unit does" : "their units do"} not
+                name a weight:
+              </p>
+              <ul className="text-xs text-warning/80 mt-1 list-disc list-inside">
+                {namedGuesses.map((g) => (
+                  <li key={`${g.label}-${g.unit}`}>
+                    {g.label} <span className="text-warning/60">({g.unit || "no unit"})</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-warning/70 mt-1.5">
+                The receipt is still correct — its freight share is just an estimate.
+              </p>
+            </div>
+          )}
         </Field>
 
         {error && <p className="text-xs text-danger">{error}</p>}

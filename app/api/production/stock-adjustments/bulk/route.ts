@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const { data: ingredientsData, error: fetchErr } = await supabase
     .from("ingredients")
-    .select("id, stock_quantity, cost_per_unit_usd, unit")
+    .select("id, name, stock_quantity, cost_per_unit_usd, unit")
     .in("id", ids);
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
 
@@ -47,8 +47,15 @@ export async function POST(req: NextRequest) {
   if (missing.length > 0)
     return NextResponse.json({ error: `Ingredient(s) not found: ${missing.join(", ")}` }, { status: 404 });
 
-  const shippingByLine = allocateFreightByWeight(
-    lines.map((l) => ({ unit: byId.get(l.ingredient_id)!.unit as string, quantity: Number(l.quantity) })),
+  const { dollars: shippingByLine, guessed: freightGuesses } = allocateFreightByWeight(
+    lines.map((l) => {
+      const ing = byId.get(l.ingredient_id)!;
+      return {
+        unit: ing.unit as string,
+        quantity: Number(l.quantity),
+        label: ing.name as string,
+      };
+    }),
     freightTotal
   );
 
@@ -102,5 +109,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ results, errors }, { status: errors.length === 0 ? 201 : 207 });
+  // freight_guesses rides along so the caller can say which lines had their
+  // shipping share estimated by count rather than weighed. Empty on the normal
+  // path, and never an error — the receipt is still correct, it is just less
+  // precise than it looks.
+  return NextResponse.json(
+    { results, errors, freight_guesses: freightGuesses },
+    { status: errors.length === 0 ? 201 : 207 }
+  );
 }
