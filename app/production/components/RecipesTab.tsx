@@ -63,12 +63,21 @@ function recipeCostPerTurn(r: Recipe): number {
 
 const PARTNER_HOUSE = "House brew";
 
+/** Sort key for a never-measured abv/ibu: unknown sorts after every real
+ * number, so an ascending sort reads "weakest first, then the unmeasured".
+ * Finite on purpose — the comparator subtracts, and Infinity - Infinity is
+ * NaN, which would make two unmeasured recipes compare as neither. */
+const UNMEASURED = Number.MAX_SAFE_INTEGER;
+
 const RECIPE_CONTROLS: ControlsConfig<Recipe> = {
   search: [{ param: "q", accessor: (r) => [r.beer_name, r.style, r.partner?.company_name] }],
   filters: [{ param: "partner", accessor: (r) => r.partner?.company_name ?? PARTNER_HOUSE }],
   sort: {
     columns: [
       { key: "name",        accessor: (r) => r.beer_name },
+      { key: "style",       accessor: (r) => r.style ?? "" },
+      { key: "abv",         accessor: (r) => r.abv ?? UNMEASURED },
+      { key: "ibu",         accessor: (r) => r.ibu ?? UNMEASURED },
       { key: "cost",        accessor: (r) => recipeCostPerTurn(r) },
       { key: "lead",        accessor: (r) => leadTimeDays(r) },
       { key: "ingredients", accessor: (r) => r.recipe_ingredients.length },
@@ -358,6 +367,9 @@ export default function RecipesTab() {
             label="Sort"
             options={[
               { value: "name",        label: "A–Z"         },
+              { value: "style",       label: "Style"       },
+              { value: "abv",         label: "ABV"         },
+              { value: "ibu",         label: "IBU"         },
               { value: "cost",        label: "Cost"        },
               { value: "lead",        label: "Lead time"   },
               { value: "ingredients", label: "Ingredients" },
@@ -458,6 +470,19 @@ export default function RecipesTab() {
                         if (!grouped[cat]) grouped[cat] = [];
                         grouped[cat].push(ri);
                       }
+                      // Read the bill the way it is brewed: malts, hops, yeast,
+                      // then everything else. INGREDIENT_CATEGORIES already
+                      // carries that order; anything off that list sorts last.
+                      const catRank = (c: string) => {
+                        const i = INGREDIENT_CATEGORIES.indexOf(c as IngredientCategory);
+                        return i === -1 ? INGREDIENT_CATEGORIES.length : i;
+                      };
+                      const groups = Object.entries(grouped)
+                        .sort(([a], [b]) => catRank(a) - catRank(b) || a.localeCompare(b))
+                        .map(([cat, items]) => [
+                          cat,
+                          [...items].sort((x, y) => x.ingredients.name.localeCompare(y.ingredients.name)),
+                        ] as const);
                       return (
                         <div className="overflow-x-auto">
                         <table className="w-full text-sm min-w-[360px]">
@@ -470,7 +495,7 @@ export default function RecipesTab() {
                             </tr>
                           </thead>
                           <tbody>
-                            {Object.entries(grouped).map(([cat, items]) => (
+                            {groups.map(([cat, items]) => (
                               <Fragment key={cat}>
                                 <tr className="border-b border-line/40 bg-surface/60">
                                   <td colSpan={4} className="px-4 py-1 text-xs font-semibold text-muted uppercase tracking-wider">{cat}</td>
@@ -581,31 +606,64 @@ export default function RecipesTab() {
                       </div>
                     )}
 
-                    {/* Packaging Variations */}
+                    {/* Packaging Variations — a container and its product code
+                     * are one fact, so they read as an aligned two-column list
+                     * rather than a chip with an input trailing off its side. */}
+                    {(() => {
+                      const links = [...variationsFor(r.id)].sort((a, b) =>
+                        (a.packaging_variations?.name ?? "").localeCompare(b.packaging_variations?.name ?? ""),
+                      );
+                      return (
                     <div className="px-4 py-3 border-t border-line">
-                      <p className="text-xs font-medium text-muted mb-2">Packaging Variations</p>
-                      {variationsFor(r.id).length > 0 ? (
-                        <div className="flex flex-col gap-1.5 mb-2">
-                          {variationsFor(r.id).map((link) => (
-                            <div key={link.id} className="flex items-center gap-2 flex-wrap">
-                              <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-line-strong text-body">
+                      <div className="flex items-baseline justify-between gap-3 mb-2 max-w-2xl">
+                        <p className="text-xs font-medium text-muted uppercase tracking-wider">Packaging Variations</p>
+                        {links.length > 0 && (
+                          <span className="text-xs text-faint tabular-nums">
+                            {links.filter((l) => l.product_code).length} of {links.length} coded
+                          </span>
+                        )}
+                      </div>
+
+                      {links.length > 0 ? (
+                        <div className="rounded-lg border border-line overflow-hidden mb-3 max-w-2xl">
+                          <div className="flex items-center gap-3 px-3 py-1.5 bg-surface/50 border-b border-line">
+                            <span className="flex-1 text-xs font-medium text-muted">Container</span>
+                            <span className="w-32 text-xs font-medium text-muted">Product Code</span>
+                            <span className="w-5" aria-hidden />
+                          </div>
+                          {links.map((link, idx) => (
+                            <div
+                              key={link.id}
+                              className={`flex items-center gap-3 px-3 py-2 ${idx > 0 ? "border-t border-line/40" : ""} ${idx % 2 !== 0 ? "bg-surface/20" : ""}`}
+                            >
+                              <span className="flex-1 text-sm text-body truncate">
                                 {link.packaging_variations?.name ?? "—"}
-                                <button onClick={() => unlinkVariation(link.id)} className="text-faint hover:text-danger leading-none">×</button>
                               </span>
                               <ProductCodeInput
                                 link={link}
+                                showLabel={false}
                                 onSaved={() => qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations })}
                               />
+                              <button
+                                onClick={() => unlinkVariation(link.id)}
+                                aria-label={`Unlink ${link.packaging_variations?.name ?? "variation"}`}
+                                title="Unlink"
+                                className="w-5 text-center text-faint hover:text-danger leading-none"
+                              >
+                                ×
+                              </button>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-faint mb-2">No packaging variations linked yet.</p>
+                        <p className="text-xs text-faint mb-3">No packaging variations linked yet.</p>
                       )}
                       <button onClick={() => setManagingFor(r.id)} className="btn-secondary">
-                        {variationsFor(r.id).length > 0 ? "Manage variations" : "+ Link variations"}
+                        {links.length > 0 ? "Manage variations" : "+ Link variations"}
                       </button>
                     </div>
+                      );
+                    })()}
 
                     {/* Notes */}
                     {r.notes && (
