@@ -521,24 +521,24 @@ const rampCardBalance: BalanceMethod = {
  * would double-count. Square publishes no balance at all, so its method has to
  * build one -- and can only build the half Square actually reports.
  *
- * Two steps rather than three. The instinct -- and the pattern every other
- * composite method here follows -- is to pair the inbound movement with a
- * `transactionPostings` step so the settling side is never missing. That is
- * wrong for this account specifically: 1040's section is "bank", and
- * normalizeSign passes a bank-section cash direction through unchanged, so a
- * sweep to the bank coded here would ADD to the balance it emptied. The outflow
- * is absorbed by re-anchoring instead. See providers/squareBalance.ts.
+ * Three steps, and the third is NOT the `transactionPostings` step every other
+ * composite method here pairs its inbound movement with. That one is wrong for
+ * this account specifically: 1040's section is "bank", and normalizeSign passes
+ * a bank-section cash direction through unchanged, so a sweep to the bank coded
+ * here would ADD to the balance it emptied. The outflow is taken from the
+ * RECEIVING bank account's raw imported lines instead, which never touch
+ * postings or normalizeSign. See providers/squareBalance.ts.
  */
 const squareStoredBalance: BalanceMethod = {
   key: "squareStoredBalance",
   label: "Square balance",
   kind: "calculation",
-  summary: "Your last checked Square balance, plus everything Square has paid in since.",
+  summary: "Your last checked Square balance, plus what Square has paid in since, less what it has moved to your bank.",
   appliesTo: isBank,
   // Three fields, in the order an operator can actually do them: there is
   // nothing to anchor until the account is linked. The operatorBalance field is
-  // also what raises this account's month-end close task, which is how the
-  // outflow half gets corrected today -- see providers/squareBalance.ts.
+  // also what raises this account's month-end close task, which is what catches
+  // anything the sweep step could not see -- see providers/squareBalance.ts.
   setup: [
     {
       kind: "connection",
@@ -555,19 +555,19 @@ const squareStoredBalance: BalanceMethod = {
       help: "Square never publishes a running balance, so the calculation needs a figure a person has checked to start from. This one is only the starting point — each month end asks for it again under Finance, Transactions, Manual Entries.",
     },
     {
-      // Read by squareDrift.ts, which uses the named account's imported bank
-      // lines to split the month-end difference into transfers it can see and a
-      // remainder it cannot. Still OPTIONAL: an account without it reconciles
-      // exactly as it did before the bank feed existed -- one undifferentiated
-      // figure -- which is a lesser answer but a correct one. Requiring it would
-      // turn a working account into an unconfigured one for the sake of an
-      // improvement it can live without.
+      // Read by squareSweepsSinceAnchor, which DEDUCTS the named account's
+      // Square deposits from the balance as they post, and by squareDrift.ts,
+      // which splits whatever is left at month end. Still OPTIONAL, and the
+      // reason is unchanged: an account without it behaves exactly as it did
+      // before the bank feed existed -- anchor plus payouts, corrected by
+      // re-anchoring -- which is a lesser answer but a correct one. Requiring it
+      // would turn a working account into an unconfigured one.
       kind: "account",
       key: "sweepDestinationCoaId",
       sections: ["bank"],
       optional: true,
       label: "Bank account Square pays out to",
-      help: "Which of your bank accounts Square moves this money into. Square never reports those transfers, so naming the account here is what lets the monthly difference be explained from the bank's own records instead of being left as one unexplained figure.",
+      help: "Which of your bank accounts Square moves this money into. Square never reports those transfers, so naming the account here is the only way they can be taken off the Square balance as they happen — without it, the figure climbs all month and is only corrected at month end.",
     },
   ],
   steps: [
@@ -583,9 +583,17 @@ const squareStoredBalance: BalanceMethod = {
       providerKey: "squarePayoutsSinceAnchor",
       label: "Paid in by Square since then",
       description:
-        "Everything Square has settled into the account since that checked figure, already after card processing fees and customer refunds. Money you moved out to your bank is not included, because Square does not report those transfers at all — that is what the month end check corrects.",
+        "Everything Square has settled into the account since that checked figure, already after card processing fees and customer refunds. This is money in only — what you moved out to your bank is a separate step below, because Square does not report those transfers at all.",
       source: "Square payouts",
       direction: "add",
+    },
+    {
+      providerKey: "squareSweepsSinceAnchor",
+      label: "Moved out to your bank since then",
+      description:
+        "Transfers from Square to your bank account since that checked figure, recognised from your bank's own record of them arriving — Square does not report them at all. Only deposits Square originated are counted, matched on the payment identifier Square puts on every transfer. This step is left out entirely, rather than counted as nothing, when no bank account is named above or its transactions have not been imported for the period.",
+      source: "Bank transactions",
+      direction: "subtract",
     },
   ],
 };
