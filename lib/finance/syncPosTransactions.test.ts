@@ -49,11 +49,18 @@ const order: Order = {
 };
 
 describe("classifyOrderForSync", () => {
+  // Something on it and money attached — otherwise the empty-shell rule fires
+  // first and every case below reads "skip" for the wrong reason.
+  const sale = {
+    line_items: [{ uid: "li1", name: "Pint", quantity: "1" }],
+    total_money: { amount: 700, currency: "USD" },
+  };
+
   it("upserts COMPLETED, cancels CANCELED, skips the rest", () => {
-    expect(classifyOrderForSync({ state: "COMPLETED" })).toBe("upsert");
-    expect(classifyOrderForSync({ state: "CANCELED" })).toBe("cancel");
-    expect(classifyOrderForSync({ state: "OPEN" })).toBe("skip");
-    expect(classifyOrderForSync({ state: "DRAFT" })).toBe("skip");
+    expect(classifyOrderForSync({ ...sale, state: "COMPLETED" })).toBe("upsert");
+    expect(classifyOrderForSync({ ...sale, state: "CANCELED" })).toBe("cancel");
+    expect(classifyOrderForSync({ ...sale, state: "OPEN" })).toBe("skip");
+    expect(classifyOrderForSync({ ...sale, state: "DRAFT" })).toBe("skip");
   });
 
   it("skips return orders, which arrive COMPLETED but are refunds, not sales", () => {
@@ -64,7 +71,26 @@ describe("classifyOrderForSync", () => {
   });
 
   it("treats an empty returns array as a normal sale", () => {
-    expect(classifyOrderForSync({ state: "COMPLETED", returns: [] })).toBe("upsert");
+    expect(classifyOrderForSync({ ...sale, state: "COMPLETED", returns: [] })).toBe("upsert");
+  });
+
+  // Blank $0 rows in the Orders ledger: a cash-drawer open, a ticket started
+  // and abandoned, a tab emptied before it was closed.
+  it("skips empty shell orders in either state", () => {
+    const noSale = {
+      state: "COMPLETED",
+      total_money: { amount: 0, currency: "USD" },
+      tenders: [{ type: "NO_SALE" }],
+    };
+    expect(classifyOrderForSync(noSale)).toBe("skip");
+    expect(classifyOrderForSync({ state: "CANCELED" })).toBe("skip");
+  });
+
+  // The guard that keeps the empty-shell rule from swallowing a real sale:
+  // Square keeps both line_items and total_money on an order it cancels, so a
+  // canceled sale still routes to "cancel" and gets actively withdrawn.
+  it("still cancels a real sale that was canceled", () => {
+    expect(classifyOrderForSync({ ...sale, state: "CANCELED" })).toBe("cancel");
   });
 });
 

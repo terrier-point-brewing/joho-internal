@@ -21,6 +21,7 @@ import type { CatalogItem, Order } from "@/types/square";
 import { fetchCompletedOrders, fetchCanceledOrders, fetchOrdersByIds } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { isReturnOrder } from "@/lib/square/returnOrders";
+import { isEmptyShellOrder } from "@/lib/square/emptyOrders";
 import { buildLineItemTaxRows, type LineItemTaxRow } from "@/lib/finance/lineItemTaxRows";
 import {
   buildLineItemIndexes,
@@ -78,9 +79,24 @@ interface InvoiceLookupRow {
  * The refund itself is captured by syncRefunds.ts, which resolves return orders
  * straight from the Square API rather than from `square_orders`, so dropping
  * them here costs no refund attribution.
+ *
+ * Empty shell orders are skipped for the same reason — a cash-drawer open, an
+ * abandoned ticket, a tab closed at $0. See lib/square/emptyOrders.ts for why
+ * that test cannot swallow a real sale that was canceled.
+ *
+ * Whatever this function skips, `countSquareOrdersByDay` (lib/finance/gapScan.ts)
+ * must skip too: the gap scan compares Square-side and DB-side order counts per
+ * day, so an order the sync drops but the scan counts is a shortfall it would
+ * re-sync forever without ever converging. It calls this function to stay in
+ * step — keep the rules here, not there.
  */
-export function classifyOrderForSync(order: Pick<Order, "state"> & { returns?: unknown[] }): OrderSyncAction {
+export function classifyOrderForSync(
+  order: Pick<Order, "state" | "line_items" | "total_money" | "total_tax_money" | "total_tip_money"> & {
+    returns?: unknown[];
+  },
+): OrderSyncAction {
   if (isReturnOrder(order)) return "skip";
+  if (isEmptyShellOrder(order)) return "skip";
   if (order.state === "COMPLETED") return "upsert";
   if (order.state === "CANCELED") return "cancel";
   return "skip";

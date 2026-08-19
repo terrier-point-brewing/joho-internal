@@ -14,7 +14,7 @@
  *
  * Pure: the caller supplies the already-fetched orders and rows.
  */
-import { isReturnOrder } from "@/lib/square/returnOrders";
+import { classifyOrderForSync } from "@/lib/finance/syncPosTransactions";
 import { localDateString, BREWERY_TZ } from "@/lib/utils/datetime";
 import type { Order } from "@/types/square";
 
@@ -29,17 +29,18 @@ export function orderTransactionDate(order: Order, tz: string = BREWERY_TZ): str
 }
 
 /**
- * Square-side counts per local day.
+ * Square-side counts per local day — of the orders the sync actually persists.
  *
- * Return orders are excluded because the sync deliberately skips them
- * (classifyOrderForSync) — counting them would show a permanent phantom
- * shortfall on every day that had a refund, and this scan would re-sync those
- * days forever without ever converging.
+ * `classifyOrderForSync` is the authority on that, and this asks it rather than
+ * restating its rules. Anything it skips (return orders, empty shell orders)
+ * must not be counted here: it would show a permanent phantom shortfall on
+ * every day that had a refund or a cash-drawer open, and this scan would
+ * re-sync those days forever without ever converging.
  */
 export function countSquareOrdersByDay(orders: Order[], tz: string = BREWERY_TZ): Map<string, number> {
   const counts = new Map<string, number>();
   for (const order of orders) {
-    if (isReturnOrder(order)) continue;
+    if (classifyOrderForSync(order) === "skip") continue;
     const day = orderTransactionDate(order, tz);
     if (!day) continue;
     counts.set(day, (counts.get(day) ?? 0) + 1);

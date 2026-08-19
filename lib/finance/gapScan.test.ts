@@ -9,6 +9,9 @@ import type { Order } from "@/types/square";
 
 const TZ = "America/New_York";
 
+// A real sale: it has something on it and money attached, so the sync persists
+// it. Orders missing both are empty shells the sync drops — see the exclusion
+// test below.
 function order(overrides: Partial<Order> = {}): Order {
   return {
     id: "ORDER_1",
@@ -17,6 +20,8 @@ function order(overrides: Partial<Order> = {}): Order {
     created_at: "2026-05-16T18:00:00Z",
     updated_at: "2026-05-16T18:05:00Z",
     closed_at: "2026-05-16T18:06:00Z",
+    line_items: [{ uid: "li1", name: "Pint" }],
+    total_money: { amount: 700, currency: "USD" },
     ...overrides,
   } as Order;
 }
@@ -75,6 +80,24 @@ describe("countSquareOrdersByDay", () => {
       [
         order({ id: "sale", closed_at: "2026-05-16T18:00:00Z" }),
         order({ id: "refund", closed_at: "2026-05-16T19:00:00Z", returns: [{ uid: "r1", source_order_id: "sale" }] }),
+      ],
+      TZ,
+    );
+    expect(counts.get("2026-05-16")).toBe(1);
+  });
+
+  // Same convergence trap as return orders: the sync drops a cash-drawer open
+  // or an abandoned $0 ticket, so counting it here would strand the day.
+  it("excludes empty shell orders, which the sync never persists", () => {
+    const counts = countSquareOrdersByDay(
+      [
+        order({ id: "sale", closed_at: "2026-05-16T18:00:00Z" }),
+        order({
+          id: "no-sale",
+          closed_at: "2026-05-16T19:00:00Z",
+          line_items: undefined,
+          total_money: { amount: 0, currency: "USD" },
+        }),
       ],
       TZ,
     );
