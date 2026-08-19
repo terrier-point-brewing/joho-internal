@@ -45,7 +45,7 @@ interface ActivityFormLine {
   vsp: string;
 }
 
-const RECIPE_EMPTY = { beer_name: "", style: "", abv: "", partner_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", notes: "" };
+const RECIPE_EMPTY = { beer_name: "", style: "", abv: "", ibu: "", partner_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", notes: "" };
 
 const STAGE_BADGES: Record<"brewhouse" | "fermenter" | "brite", { label: string; badge: string }> = {
   brewhouse: { label: EQ.brewhouse.label, badge: EQ.brewhouse.badge },
@@ -141,6 +141,7 @@ export default function RecipesTab() {
       beer_name: r.beer_name,
       style: r.style ?? "",
       abv: r.abv != null ? String(r.abv) : "",
+      ibu: r.ibu != null ? String(r.ibu) : "",
       partner_id: r.partner_id ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
@@ -171,6 +172,7 @@ export default function RecipesTab() {
       beer_name: "",
       style: r.style ?? "",
       abv: r.abv != null ? String(r.abv) : "",
+      ibu: r.ibu != null ? String(r.ibu) : "",
       partner_id: r.partner_id ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
@@ -230,6 +232,7 @@ export default function RecipesTab() {
         beer_name: form.beer_name,
         style: form.style || null,
         abv: form.abv ? parseFloat(form.abv) : null,
+        ibu: form.ibu ? parseInt(form.ibu, 10) : null,
         partner_id: form.partner_id || null,
         expected_yield_bbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
         days_brewhouse: form.days_brewhouse ? parseInt(form.days_brewhouse) : null,
@@ -396,6 +399,9 @@ export default function RecipesTab() {
                     )}
                     {r.abv != null && (
                       <span className="text-xs text-muted tabular-nums">{r.abv}% ABV</span>
+                    )}
+                    {r.ibu != null && (
+                      <span className="text-xs text-muted tabular-nums">{r.ibu} IBU</span>
                     )}
                     {r.partner?.company_name && (
                       <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
@@ -684,6 +690,14 @@ export default function RecipesTab() {
                 <input type="number" step="0.1" min="0" max="99.9" className="inp" placeholder="e.g. 5.2"
                   value={form.abv}
                   onChange={(e) => setForm((f) => ({ ...f, abv: e.target.value }))} />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="IBU" hint="bitterness, as a whole number">
+                <input type="number" step="1" min="0" max="200" className="inp" placeholder="e.g. 45"
+                  value={form.ibu}
+                  onChange={(e) => setForm((f) => ({ ...f, ibu: e.target.value }))} />
               </Field>
             </div>
 

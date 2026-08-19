@@ -258,6 +258,8 @@ export interface Recipe {
   style: string | null;
   /** % alcohol by volume — a fact of the liquid, owned by Production. */
   abv: number | null;
+  /** International Bitterness Units — a fact of the liquid, owned by Production. */
+  ibu: number | null;
   partner_id: string | null;
   expected_yield_bbl: number | null;
   days_brewhouse: number | null;
