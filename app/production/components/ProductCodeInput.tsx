@@ -12,9 +12,12 @@ import type { RecipePackagingVariation } from "../types";
 export default function ProductCodeInput({
   link,
   onSaved,
+  showLabel = true,
 }: {
   link: RecipePackagingVariation;
   onSaved: () => void;
+  /** Off where a column header already says "Product Code". */
+  showLabel?: boolean;
 }) {
   const [value, setValue] = useState(link.product_code ?? "");
   const [saving, setSaving] = useState(false);
@@ -40,7 +43,7 @@ export default function ProductCodeInput({
 
   return (
     <label className="flex items-center gap-1.5">
-      <span className="text-xs text-faint">Code</span>
+      {showLabel && <span className="text-xs text-faint">Code</span>}
       <input
         className="inp-sm w-32"
         placeholder="product code"
