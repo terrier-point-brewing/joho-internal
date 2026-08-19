@@ -16,6 +16,27 @@ const SQUARE_DESCRIPTOR =
 const sweep = (amountCents: number) => ({ description: SQUARE_DESCRIPTOR, counterpartyName: null, amountCents });
 
 describe("computeDrift", () => {
+  it("deducts the sweeps the derivation already took off the balance", () => {
+    // Must mirror providers/squareBalance.ts exactly: derived_cents is what the
+    // balance sheet published for the month, not a second opinion about it.
+    const { derivedCents, driftCents } = computeDrift({
+      anchorCents: 1000000,
+      payoutsCents: 4000000,
+      sweptCents: 3900000,
+      actualCents: 1100000,
+    });
+    expect(derivedCents).toBe(1100000);
+    expect(driftCents).toBe(0);
+  });
+
+  it("deducts nothing when no sweeps were given, which is not a claim that none happened", () => {
+    // An account with no declared destination, or no imported feed. The
+    // provider deducted nothing either, so the two still agree -- and the drift
+    // carries the whole month of sweeping, exactly as it did before.
+    const { driftCents } = computeDrift({ anchorCents: 1000000, payoutsCents: 4000000, actualCents: 1100000 });
+    expect(driftCents).toBe(-3900000);
+  });
+
   it("derives anchor plus settlements", () => {
     expect(computeDrift({ anchorCents: 1104175, payoutsCents: 4268279, actualCents: 0 }).derivedCents).toBe(5372454);
   });
@@ -38,26 +59,27 @@ describe("computeDrift", () => {
 });
 
 describe("splitDrift", () => {
-  it("reconciles a month to exactly zero when the bank saw every dollar leave", () => {
-    // The whole point of the feature. Drift is negative because money left
-    // Square; the sweep is the same money arriving at the bank, so it is
-    // positive, and the two cancel.
-    const result = splitDrift(-3900000, [sweep(2745635), sweep(1154365)]);
+  it("passes the drift through as the unexplained figure, never re-subtracting the sweeps", () => {
+    // The sweeps are already inside derivedCents (computeDrift deducted them),
+    // so a month the bank fully explains arrives here with drift ALREADY zero.
+    // Adding the totals back in a second time is the regression this pins.
+    const result = splitDrift(0, [sweep(2745635), sweep(1154365)]);
     expect(result.unexplainedCents).toBe(0);
     expect(result.exactCents).toBe(3900000);
     expect(result.matchedCount).toBe(2);
   });
 
-  it("leaves the part the bank cannot account for", () => {
-    const result = splitDrift(-3900000, [sweep(2745635)]);
+  it("carries the residual the deduction could not account for", () => {
+    // $11,543.65 left Square by some route the declared bank account never saw.
+    const result = splitDrift(-1154365, [sweep(2745635)]);
     expect(result.unexplainedCents).toBe(-1154365);
   });
 
-  it("keeps exact and name-only matches apart while still adding both to the explanation", () => {
-    // A dollar that arrived is a dollar that arrived whichever rule found it, so
-    // both count toward the explanation -- but a reader deciding how far to
-    // trust it needs to see how much rests on prose.
-    const result = splitDrift(-4798364, [
+  it("keeps exact and name-only matches apart, both having been deducted", () => {
+    // Both were deducted from the balance, because a dollar that arrived is a
+    // dollar that arrived whichever rule found it -- but a reader deciding how
+    // far to trust the month needs to see how much rests on prose.
+    const result = splitDrift(0, [
       sweep(2745635),
       { description: "ORIG CO NAME:Square Inc", counterpartyName: null, amountCents: 2052729 },
     ]);
@@ -68,8 +90,8 @@ describe("splitDrift", () => {
 
   it("leaves the whole drift unexplained when a live feed matched nothing", () => {
     // Different from having no feed at all, which never reaches this function.
-    // Here the bank WAS checked and had ordinary traffic, so zero explained is a
-    // real finding worth recording.
+    // Here the bank WAS checked and had ordinary traffic, so nothing was
+    // deducted and the full drift stands as a real finding worth recording.
     const result = splitDrift(-3900000, [
       { description: "POS PURCHASE TOWN SQUARE HARDWARE", counterpartyName: null, amountCents: 9999 },
     ]);
@@ -77,10 +99,11 @@ describe("splitDrift", () => {
     expect(result.matchedCount).toBe(0);
   });
 
-  it("does not let a Square-originated debit reduce the explanation", () => {
+  it("does not let a Square-originated debit count as a sweep", () => {
     // A chargeback is not a payout. The matcher already ignores it; this pins
     // that the split cannot quietly reintroduce it.
     const result = splitDrift(-100000, [sweep(-50000)]);
+    expect(result.totalCents).toBe(0);
     expect(result.unexplainedCents).toBe(-100000);
   });
 });
@@ -174,7 +197,7 @@ describe("recordSquareDrift", () => {
     expect(sumNetPayoutCents).not.toHaveBeenCalled();
   });
 
-  it("splits the drift when a destination account is declared and has bank lines", async () => {
+  it("deducts the sweeps from the derivation when a destination account is declared", async () => {
     sumNetPayoutCents.mockResolvedValue(4000000);
     readBankLines.mockResolvedValue([sweep(2745635), sweep(1154365)]);
 
@@ -191,8 +214,12 @@ describe("recordSquareDrift", () => {
     // The bank window matches the payouts window exactly: the prior anchor date
     // is already inside the anchor figure, so it is excluded on the left.
     expect(readBankLines).toHaveBeenCalledWith(supabase, "coa-1020", "2026-06-30", "2026-07-31");
+    // $10,000.00 anchor + $40,000.00 paid in - $39,000.00 swept = $11,000.00,
+    // which is exactly what the operator counted. The month reconciles, and
+    // derived_cents is the same figure the balance sheet showed all month.
     expect(written).toMatchObject({
-      drift_cents: -3900000,
+      derived_cents: 1100000,
+      drift_cents: 0,
       swept_exact_cents: 3900000,
       swept_name_only_cents: 0,
       swept_match_count: 2,

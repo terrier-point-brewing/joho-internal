@@ -3,9 +3,10 @@
  *
  * When an operator closes a month by entering the real Square balance, that
  * figure replaces the derived one and becomes the next month's starting point.
- * The gap between the two is the drift, and it is the ONLY visibility anyone
- * gets into money that left the Square balance -- sweeps to the bank appear in
- * no feed and in no posting (see providers/squareBalance.ts for the evidence).
+ * The gap between the two is the drift. It used to be the ONLY visibility
+ * anyone had into money leaving the Square balance; now that the derivation
+ * deducts the sweeps its own declared bank account can see, the drift is what
+ * is left AFTER that -- see providers/squareBalance.ts.
  *
  * Recording it turns a silent correction into a number someone can look at,
  * because re-anchoring is by construction self-healing and would otherwise hide
@@ -13,20 +14,23 @@
  *
  * ── What this log can and cannot tell you ────────────────────────────────────
  * Sweeps from the Square balance to the linked Chase account are real and
- * regular, so the expected drift is LARGE and negative -- roughly a month of
- * sweeping -- not a small residual.
+ * regular, and Square reports none of them. Where the method names a
+ * `sweepDestinationCoaId` with an imported feed, the derivation now DEDUCTS
+ * those sweeps as they post (providers/squareBalance.ts), so the expected drift
+ * is a small residual and a large one is a signal rather than the norm.
  *
- * When the Square method names a `sweepDestinationCoaId` and that account has
- * imported bank lines for the period, the drift is now SPLIT: the Square
- * deposits recognised on the bank side are separated out, and what remains is a
- * genuine error term. Where there is no bank feed, the row stays exactly as it
- * was -- one undifferentiated figure, with the split columns left NULL. A
- * missing feed must never produce a confident-looking zero swept.
+ * Where there is no such feed, nothing is deducted and the old shape holds: the
+ * drift is roughly a month of sweeping, undifferentiated, with the split
+ * columns left NULL. A missing feed must never produce a confident-looking zero
+ * swept.
  *
- * Even undifferentiated the log establishes the shape: drift that is positive,
- * or wildly out of step with the month's takings, is not explainable as sweeping
- * and wants investigating. And it preserves the inputs, so a month recorded
- * before the feed existed can be recomputed once it does.
+ * What the residual means, once sweeps are being deducted: money that left the
+ * Square balance by a route the declared bank account never saw. Positive drift
+ * -- money arriving that the payouts feed did not account for -- is not
+ * explainable by sweeping in either direction and always wants investigating.
+ *
+ * The inputs are preserved on every row, so a month recorded under either
+ * arrangement can be recomputed and compared.
  *
  * Deliberately not an adjusting journal entry. A correcting posting would have
  * to be coded somewhere, would flow into the P&L if coded wrongly, and would
@@ -44,6 +48,13 @@ type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 export interface DriftInputs {
   anchorCents: number;
   payoutsCents: number;
+  /**
+   * Transfers to the bank the derivation already deducted, as a positive
+   * figure. Zero is the right default and is NOT the same claim as "nothing was
+   * swept" -- it means the derivation deducted nothing, which is exactly the
+   * case for an account with no declared destination or no imported feed.
+   */
+  sweptCents?: number;
   actualCents: number;
 }
 
@@ -61,7 +72,11 @@ export interface DriftResult {
  * account for, which is not expected and is worth a look.
  */
 export function computeDrift(inputs: DriftInputs): DriftResult {
-  const derivedCents = inputs.anchorCents + inputs.payoutsCents;
+  // Mirrors providers/squareBalance.ts step for step, and must keep doing so.
+  // `derived_cents` is what the balance sheet SHOWED for this month; a
+  // reconciliation whose starting figure is not the published one explains a
+  // number nobody saw.
+  const derivedCents = inputs.anchorCents + inputs.payoutsCents - (inputs.sweptCents ?? 0);
   return { derivedCents, driftCents: inputs.actualCents - derivedCents };
 }
 
@@ -72,22 +87,24 @@ export interface DriftSplit extends SweepTotals {
 }
 
 /**
- * Pure. How much of a month's drift the bank side accounts for.
+ * Pure. The sweep totals behind a month's derivation, and what it still cannot
+ * explain.
  *
- * The arithmetic is an ADDITION and it is worth being explicit about why. Drift
- * is negative when money left Square. A sweep is the same money arriving at the
- * bank, so it is positive. A month where every dollar that left Square landed in
- * Chase has drift of exactly minus the swept total, and adding the two gives
- * zero — which is the reading "fully explained".
+ * `unexplainedCents` is simply the drift, and that is the point of the change
+ * that made it so. The sweeps are no longer subtracted here after the fact --
+ * providers/squareBalance.ts deducted them from the balance as they posted, so
+ * they are already inside `derivedCents` and adding them again would explain
+ * the same dollars twice. What is left over is the genuine error term: money
+ * that left Square by a route the declared bank account never saw.
  *
- * Exact and name-only matches are added together here, because a dollar that
- * arrived is a dollar that arrived whichever rule recognised it. They stay
- * separate on the stored row so a reader can see how much of the explanation
- * rests on prose rather than on Square's ACH originator id.
+ * The totals are still carried and still split exact from name-only. They are
+ * no longer the explanation -- they are the evidence for the deduction the
+ * derivation already made, and a reader checking a month needs to see how much
+ * of it rested on prose rather than on Square's ACH originator id.
  */
 export function splitDrift(driftCents: number, lines: Parameters<typeof totalSquareSweeps>[0]): DriftSplit {
   const totals = totalSquareSweeps(lines);
-  return { ...totals, unexplainedCents: driftCents + totals.totalCents };
+  return { ...totals, unexplainedCents: driftCents };
 }
 
 interface AnchorRow {
@@ -158,22 +175,30 @@ export async function recordSquareDrift(
   const priorRow = prior as AnchorRow;
 
   const payoutsCents = await sumNetPayoutCents(priorRow.as_of_date, periodEnd);
-  const result = computeDrift({
-    anchorCents: priorRow.amount_cents,
-    payoutsCents,
-    actualCents: closingRow.amount_cents,
-  });
 
   // The same window the payouts term covers: the prior anchor date is already
   // reflected in the anchor figure, so a sweep dated that day belongs to the
   // period before this one.
+  //
+  // Read BEFORE the drift is computed, not after, because the derivation now
+  // subtracts these -- they are an input to the figure rather than a
+  // commentary on it.
   const destinationCoaId = await sweepDestinationOf(supabase, coaId);
   const lines = destinationCoaId
     ? await readBankLines(supabase, destinationCoaId, priorRow.as_of_date, periodEnd)
     : null;
-  // Null all the way down when there is nothing to check against. Writing zeroes
-  // would say "we looked and found no sweeps", which is a different and much
-  // stronger claim than "there was nothing to look at".
+
+  // Null all the way down when there is nothing to check against, and zero
+  // deducted in that case -- which is what the provider did too, so the two
+  // still agree. Writing zeroes into the swept columns would instead say "we
+  // looked and found no sweeps", a different and much stronger claim than
+  // "there was nothing to look at".
+  const result = computeDrift({
+    anchorCents: priorRow.amount_cents,
+    payoutsCents,
+    sweptCents: lines ? totalSquareSweeps(lines).totalCents : 0,
+    actualCents: closingRow.amount_cents,
+  });
   const split = lines ? splitDrift(result.driftCents, lines) : null;
 
   const { error: writeError } = await supabase.from("square_balance_reconciliations").upsert(
