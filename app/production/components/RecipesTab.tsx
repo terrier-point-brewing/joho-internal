@@ -857,7 +857,9 @@ export default function RecipesTab() {
                           </div>
                           <div className="flex gap-2 items-end">
                             <div className="flex-1">
-                              <label className="text-xs text-muted mb-1 block">Qty / Turn</label>
+                              <label className="text-xs text-muted mb-1 block">
+                                Qty / Turn{ing ? ` (${ing.unit})` : ""}
+                              </label>
                               <input
                                 type="text" inputMode="decimal" placeholder="qty/turn"
                                 className="inp text-right w-full"
@@ -942,11 +944,12 @@ export default function RecipesTab() {
                                 : "—"}
                             </td>
                             <td className="px-3 py-1.5 w-32">
+                              <div className="flex items-stretch">
                               <input
                                 type="text"
                                 inputMode="decimal"
                                 placeholder="qty/turn"
-                                className="inp-sm text-right w-full"
+                                className="inp-sm text-right w-full rounded-r-none border-r-0"
                                 value={line.quantity_per_turn}
                                 onChange={(e) => {
                                   const raw = e.target.value.replace(/,/g, "");
@@ -963,6 +966,13 @@ export default function RecipesTab() {
                                   setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
                                 }}
                               />
+                              {/* The unit belongs against the number, not two
+                                  columns away in "Cost / Unit" — which is also
+                                  blank whenever an ingredient has no cost. */}
+                              <span className="inp-sm flex items-center rounded-l-none border-l text-xs text-secondary bg-surface/60 whitespace-nowrap">
+                                {ing?.unit ?? "—"}
+                              </span>
+                              </div>
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs tabular-nums whitespace-nowrap">
                               {costPerTurnLine != null

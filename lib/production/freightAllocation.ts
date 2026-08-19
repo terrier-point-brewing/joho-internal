@@ -1,18 +1,4 @@
-/** Ounces per 1 unit, keyed by normalized unit string. */
-const OZ_PER_UNIT: Record<string, number> = {
-  oz: 1, ounce: 1, ounces: 1,
-  lb: 16, lbs: 16, pound: 16, pounds: 16, "#": 16,
-  g: 0.035274, gram: 0.035274, grams: 0.035274,
-  kg: 35.274, kilogram: 35.274, kilograms: 35.274,
-};
-
-function normalizeUnit(unit: string): string {
-  return unit.trim().toLowerCase().replace(/\.$/, "");
-}
-
-function ozPerUnit(unit: string): number | null {
-  return OZ_PER_UNIT[normalizeUnit(unit)] ?? null;
-}
+import { normalizeUnit, ouncesPerUnit } from "./units";
 
 export interface FreightLineInput {
   unit: string;
@@ -34,7 +20,7 @@ export function allocateFreightByWeight(
 ): number[] {
   if (lines.length === 0) return [];
 
-  const factors = lines.map((l) => ozPerUnit(l.unit));
+  const factors = lines.map((l) => ouncesPerUnit(l.unit));
 
   // Majority matched unit (by count, ties broken by first occurrence).
   const counts = new Map<string, number>();
@@ -51,7 +37,7 @@ export function allocateFreightByWeight(
     for (const u of order) {
       if (counts.get(u)! > counts.get(best)!) best = u;
     }
-    majorityFactor = OZ_PER_UNIT[best];
+    majorityFactor = ouncesPerUnit(best)!;
   }
 
   const weights = lines.map((l, i) => l.quantity * (factors[i] ?? majorityFactor));

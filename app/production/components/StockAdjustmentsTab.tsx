@@ -105,7 +105,11 @@ function buildRows(
       type: a.type,
       typeLabel: ING_TYPE_LABELS[a.type] ?? a.type,
       quantity: a.quantity,
-      unitLabel: a.ingredients?.unit ?? ing?.unit ?? "",
+      // The snapshot first: `stock_adjustments.unit` records what the unit WAS
+      // when the row was written, which is the whole reason the column exists.
+      // Reading the ingredient's current unit restated every historical line
+      // the moment anyone converted the ingredient.
+      unitLabel: a.unit ?? a.ingredients?.unit ?? ing?.unit ?? "",
       costPerUnit: a.cost_per_unit_usd,
       valueChange: a.total_value_change_usd,
       note: a.note,

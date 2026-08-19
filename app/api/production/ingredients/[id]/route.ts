@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { describeUnitError } from "@/lib/production/units";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,11 @@ export async function PATCH(
   const { id } = await params;
   const body = await req.json();
 
+  // `unit` deliberately still travels: the DB decides whether this particular
+  // change is a free correction (nothing depends on the unit yet) or a
+  // conversion that has to go through convert_ingredient_unit(). Stripping it
+  // here would make the field silently un-fixable on a brand-new row, and
+  // would put the gate somewhere a second caller could route around.
   const { data, error } = await supabase
     .from("ingredients")
     .update(body)
@@ -23,7 +29,11 @@ export async function PATCH(
     .select("*, suppliers(company_name), contract_brewing_partners(company_name)")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    const unitError = describeUnitError(error);
+    if (unitError) return NextResponse.json({ error: unitError }, { status: 409 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   return NextResponse.json(data);
 }
 

@@ -6,7 +6,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Ingredient, AdjustmentType, IngredientCategory, INGREDIENT_CATEGORIES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import BulkReceiveModal from "./BulkReceiveModal";
-import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, productionKeys } from "../hooks/queries";
+import ConvertUnitModal from "./ConvertUnitModal";
+import { useContractPartnersQuery, useSuppliersQuery, useIngredientsQuery, useIngredientUnitsQuery, productionKeys } from "../hooks/queries";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { CATEGORY_BADGE_CLASS as CC } from "../lib/categoryColors";
@@ -374,6 +375,8 @@ export default function IngredientsTab() {
   const canCreateMaster = can(CAP.ingredientMasterCreate);
   const canOperate = can(CAP.inventoryOperate);
   const { data: ingredients = [] } = useIngredientsQuery();
+  const { data: unitVocabulary = [] } = useIngredientUnitsQuery();
+  const offerableUnits = unitVocabulary.filter((u) => u.is_active);
   const { data: suppliersList = [] } = useSuppliersQuery();
   const { data: partnersList = [] } = useContractPartnersQuery();
   const onRefresh = () => qc.invalidateQueries({ queryKey: productionKeys.ingredients });
@@ -385,6 +388,11 @@ export default function IngredientsTab() {
   const [ingForm, setIngForm] = useState(ING_EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Starts locked and only opens once the server confirms nothing depends on
+  // the unit yet. Defaulting the other way would let a slow response leave the
+  // field editable for the moment it matters most.
+  const [unitEditable, setUnitEditable] = useState(true);
+  const [convertIngredient, setConvertIngredient] = useState<Ingredient | null>(null);
 
   const [showAdjModal, setShowAdjModal] = useState(false);
   const [adjIngredient, setAdjIngredient] = useState<Ingredient | null>(null);
@@ -426,7 +434,6 @@ export default function IngredientsTab() {
           const orig = ingredients.find((i) => i.id === row.id);
           if (
             orig?.name === row.name &&
-            orig?.unit === row.unit &&
             String(orig?.cost_per_unit_usd ?? "") === row.cost_per_unit_usd
           )
             return Promise.resolve();
@@ -441,7 +448,8 @@ export default function IngredientsTab() {
               category: orig?.category ?? null,
               supplier_id: orig?.supplier_id ?? null,
               partner_id: orig?.partner_id ?? null,
-              unit: row.unit,
+              // `unit` is deliberately absent: a unit change is a conversion,
+              // not a cell edit, and this grid rewrites many rows at once.
               cost_per_unit_usd: row.cost_per_unit_usd !== "" ? parseFloat(row.cost_per_unit_usd) : null,
               stock_quantity: orig?.stock_quantity ?? 0,
             }),
@@ -462,7 +470,7 @@ export default function IngredientsTab() {
     }
   }
 
-  function openNew() { setIngForm(ING_EMPTY); setEditingId(null); setShowIngModal(true); }
+  function openNew() { setIngForm(ING_EMPTY); setEditingId(null); setUnitEditable(true); setShowIngModal(true); }
   function openEdit(ing: Ingredient) {
     setIngForm({
       name: ing.name,
@@ -476,7 +484,14 @@ export default function IngredientsTab() {
       color_lovibond: ing.color_lovibond != null ? String(ing.color_lovibond) : "",
     });
     setEditingId(ing.id);
+    setUnitEditable(false);
     setShowIngModal(true);
+    // A brand-new row with no stock, no recipe line and no history can still
+    // have its unit corrected outright — that is a typo, not a conversion.
+    fetch(`/api/production/ingredients/${ing.id}/convert-unit`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => { if (body && body.has_dependents === false) setUnitEditable(true); })
+      .catch(() => { /* stay locked; the convert dialog is always available */ });
   }
 
   async function handleIngSubmit(e: React.FormEvent) {
@@ -699,8 +714,7 @@ export default function IngredientsTab() {
                               <td className="px-2 py-1.5 text-secondary truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
                               <td className="px-3 py-2.5 text-faint text-xs text-right">—</td>
                               <td className="px-2 py-1.5">
-                                <input className="inp-sm w-full" value={bulkRow.unit}
-                                  onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, unit: e.target.value } : r))} />
+                                <span className="text-secondary">{ing.unit}</span>
                               </td>
                               <td className="px-2 py-1.5">
                                 <input type="number" step="0.0001" min="0" className="inp-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit_usd}
@@ -782,6 +796,19 @@ export default function IngredientsTab() {
         />
       )}
 
+      {convertIngredient && (
+        <ConvertUnitModal
+          ingredient={convertIngredient}
+          onClose={() => setConvertIngredient(null)}
+          onConverted={async () => {
+            // Recipes and commitments moved too, so the whole production cache
+            // is stale — not just the ingredient row.
+            await Promise.all([onRefresh(), onAdjustmentsRefresh()]);
+            await qc.invalidateQueries({ queryKey: productionKeys.recipes });
+          }}
+        />
+      )}
+
       {/* Ingredient modal */}
       {showIngModal && (
         <Modal title={editingId ? "Edit Ingredient" : "New Ingredient"} onClose={() => setShowIngModal(false)}>
@@ -817,8 +844,34 @@ export default function IngredientsTab() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Unit" required>
-                <input className="inp" placeholder="lb, oz, each…" value={ingForm.unit} required
-                  onChange={(e) => setIngForm((f) => ({ ...f, unit: e.target.value }))} />
+                {unitEditable ? (
+                  <select className="inp" value={ingForm.unit} required
+                    onChange={(e) => setIngForm((f) => ({ ...f, unit: e.target.value }))}>
+                    <option value="">— select —</option>
+                    {offerableUnits.map((u) => <option key={u.code} value={u.code}>{u.label}</option>)}
+                    {/* A retired code the row still sits on has to stay renderable. */}
+                    {ingForm.unit && !offerableUnits.some((u) => u.code === ingForm.unit) && (
+                      <option value={ingForm.unit}>{ingForm.unit}</option>
+                    )}
+                  </select>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="inp flex items-center gap-1.5 text-secondary bg-surface/60 cursor-not-allowed">
+                      <span aria-hidden="true">🔒</span>{ingForm.unit}
+                    </div>
+                  </div>
+                )}
+                {!unitEditable && editingId && (
+                  <button type="button" className="btn-secondary btn-xxs mt-1"
+                    onClick={() => {
+                      const ing = ingredients.find((i) => i.id === editingId);
+                      if (!ing) return;
+                      setShowIngModal(false);
+                      setConvertIngredient(ing);
+                    }}>
+                    Change unit &amp; convert
+                  </button>
+                )}
               </Field>
               <Field label="Cost per Unit ($)">
                 <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000"
