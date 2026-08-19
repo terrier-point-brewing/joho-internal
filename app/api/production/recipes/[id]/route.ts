@@ -5,6 +5,13 @@ import { resyncRecipeCommitments } from "@/lib/production/commitments";
 
 export const dynamic = "force-dynamic";
 
+/** A hop line carries a boil time; everything else leaves it null. */
+interface RecipeLineInput {
+  ingredient_id: string;
+  quantity_per_turn: number;
+  boil_minutes?: number | null;
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -15,7 +22,7 @@ export async function PATCH(
   const supabase = await createSupabaseServerClient();
 
   const { id } = await params;
-  const { beer_name, style, abv, ibu, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = await req.json();
+  const { beer_name, style, abv, ibu, ibu_source, original_gravity, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = await req.json();
 
   const { error: recipeErr } = await supabase
     .from("recipes")
@@ -24,6 +31,8 @@ export async function PATCH(
       style: style || null,
       abv: abv ?? null,
       ibu: ibu ?? null,
+      ibu_source: ibu_source === "calculated" ? "calculated" : "manual",
+      original_gravity: original_gravity ?? null,
       partner_id: partner_id || null,
       expected_yield_bbl: expected_yield_bbl || null,
       days_brewhouse: days_brewhouse || null,
@@ -39,10 +48,11 @@ export async function PATCH(
     await supabase.from("recipe_ingredients").delete().eq("recipe_id", id);
     if (lines.length > 0) {
       // quantity_per_bbl is derived from quantity_per_turn by trigger.
-      const rows = lines.map((l: { ingredient_id: string; quantity_per_turn: number }) => ({
+      const rows = lines.map((l: RecipeLineInput) => ({
         recipe_id: id,
         ingredient_id: l.ingredient_id,
         quantity_per_turn: l.quantity_per_turn,
+        boil_minutes: l.boil_minutes ?? null,
       }));
       const { error: lineErr } = await supabase.from("recipe_ingredients").insert(rows);
       if (lineErr) return NextResponse.json({ error: lineErr.message }, { status: 500 });

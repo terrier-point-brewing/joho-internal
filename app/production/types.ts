@@ -223,6 +223,8 @@ export interface RecipeIngredientRow {
   ingredient_id: string;
   /** Quantity charged into one brew turn, exactly as entered. Source of truth. */
   quantity_per_turn: number;
+  /** Minutes in the boil, for hop lines. Null elsewhere and until someone times it. */
+  boil_minutes: number | null;
   /**
    * quantity_per_turn ÷ expected_yield_bbl, maintained by a DB trigger. Never
    * written by the app, and never multiply it back out to get a quantity: the
@@ -258,8 +260,16 @@ export interface Recipe {
   style: string | null;
   /** % alcohol by volume — a fact of the liquid, owned by Production. */
   abv: number | null;
-  /** International Bitterness Units — a fact of the liquid, owned by Production. */
+  /** International Bitterness Units — the value of record, whatever ibu_source says. */
   ibu: number | null;
+  /**
+   * Where `ibu` came from. 'manual' is the default and, for now, the normal
+   * case: no hop carries an alpha acid yet, so nothing can be calculated.
+   * Recording an IBU must never wait on that data arriving.
+   */
+  ibu_source: "manual" | "calculated";
+  /** Target OG (e.g. 1.052). Feeds the Tinseth bigness factor. */
+  original_gravity: number | null;
   partner_id: string | null;
   expected_yield_bbl: number | null;
   days_brewhouse: number | null;

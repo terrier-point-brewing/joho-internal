@@ -6,6 +6,8 @@ import { formatCurrency } from "@/lib/format";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays, RecipePackagingVariation } from "../types";
+import { computeIbu, type IbuLine } from "@/lib/production/recipeIbu";
+import ButtonGroup from "@/app/components/ButtonGroup";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
 import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys, fetchJson, usePackagingVariationsQuery, useRecipePackagingVariationsQuery } from "../hooks/queries";
@@ -34,6 +36,8 @@ interface RecipeFormLine {
   ingredient_id: string;
   quantity_per_turn: string;
   category: IngredientCategory | "";
+  /** Minutes in the boil. Only meaningful on a Hops line. */
+  boil_minutes: string;
 }
 
 interface ActivityFormLine {
@@ -45,7 +49,7 @@ interface ActivityFormLine {
   vsp: string;
 }
 
-const RECIPE_EMPTY = { beer_name: "", style: "", abv: "", ibu: "", partner_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", notes: "" };
+const RECIPE_EMPTY = { beer_name: "", style: "", abv: "", ibu: "", ibu_source: "manual" as "manual" | "calculated", original_gravity: "", partner_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", notes: "" };
 
 const STAGE_BADGES: Record<"brewhouse" | "fermenter" | "brite", { label: string; badge: string }> = {
   brewhouse: { label: EQ.brewhouse.label, badge: EQ.brewhouse.badge },
@@ -71,7 +75,12 @@ const UNMEASURED = Number.MAX_SAFE_INTEGER;
 
 const RECIPE_CONTROLS: ControlsConfig<Recipe> = {
   search: [{ param: "q", accessor: (r) => [r.beer_name, r.style, r.partner?.company_name] }],
-  filters: [{ param: "partner", accessor: (r) => r.partner?.company_name ?? PARTNER_HOUSE }],
+  filters: [
+    { param: "partner", accessor: (r) => r.partner?.company_name ?? PARTNER_HOUSE },
+    // The backfill worklist. IBU is recorded by hand for now, so "which
+    // recipes still have none" is the question that actually needs answering.
+    { param: "ibu_state", accessor: (r) => (r.ibu == null ? "missing" : "recorded") },
+  ],
   sort: {
     columns: [
       { key: "name",        accessor: (r) => r.beer_name },
@@ -126,6 +135,30 @@ export default function RecipesTab() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(RECIPE_EMPTY);
   const [lines, setLines] = useState<RecipeFormLine[]>([]);
+
+  // Live IBU from whatever is currently in the form, so the operator sees the
+  // number (or the reason there isn't one) before saving. Returns null and a
+  // list of what is missing rather than a partial sum — see recipeIbu.ts.
+  const computedIbu = useMemo(() => {
+    const ibuLines: IbuLine[] = lines
+      .filter((l) => l.ingredient_id && l.quantity_per_turn)
+      .map((l) => {
+        const ing = ingredients.find((i) => i.id === l.ingredient_id);
+        return {
+          name: ing?.name ?? "this ingredient",
+          category: l.category || (ing?.category ?? null),
+          quantityPerTurn: parseFloat(l.quantity_per_turn.replace(/,/g, "")) || 0,
+          unit: ing?.unit ?? "",
+          alphaAcid: ing?.alpha_acid ?? null,
+          boilMinutes: l.boil_minutes ? parseInt(l.boil_minutes, 10) : null,
+        };
+      });
+    return computeIbu({
+      lines: ibuLines,
+      expectedYieldBbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
+      originalGravity: form.original_gravity ? parseFloat(form.original_gravity) : null,
+    });
+  }, [lines, ingredients, form.expected_yield_bbl, form.original_gravity]);
   const [activityLines, setActivityLines] = useState<ActivityFormLine[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -151,6 +184,8 @@ export default function RecipesTab() {
       style: r.style ?? "",
       abv: r.abv != null ? String(r.abv) : "",
       ibu: r.ibu != null ? String(r.ibu) : "",
+      ibu_source: r.ibu_source ?? "manual",
+      original_gravity: r.original_gravity != null ? String(r.original_gravity) : "",
       partner_id: r.partner_id ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
@@ -163,6 +198,7 @@ export default function RecipesTab() {
         ingredient_id: ri.ingredient_id,
         quantity_per_turn: String(ri.quantity_per_turn),
         category: (ri.ingredients.category as IngredientCategory) ?? "",
+        boil_minutes: ri.boil_minutes != null ? String(ri.boil_minutes) : "",
       }))
     );
     setActivityLines(
@@ -182,6 +218,8 @@ export default function RecipesTab() {
       style: r.style ?? "",
       abv: r.abv != null ? String(r.abv) : "",
       ibu: r.ibu != null ? String(r.ibu) : "",
+      ibu_source: r.ibu_source ?? "manual",
+      original_gravity: r.original_gravity != null ? String(r.original_gravity) : "",
       partner_id: r.partner_id ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
@@ -194,6 +232,7 @@ export default function RecipesTab() {
         ingredient_id: ri.ingredient_id,
         quantity_per_turn: String(ri.quantity_per_turn),
         category: (ri.ingredients.category as IngredientCategory) ?? "",
+        boil_minutes: ri.boil_minutes != null ? String(ri.boil_minutes) : "",
       }))
     );
     setActivityLines(
@@ -204,7 +243,7 @@ export default function RecipesTab() {
   }
 
   function addIngredientLine() {
-    setLines((l) => [...l, { ingredient_id: "", quantity_per_turn: "", category: "" }]);
+    setLines((l) => [...l, { ingredient_id: "", quantity_per_turn: "", category: "", boil_minutes: "" }]);
   }
 
   function removeIngredientLine(i: number) {
@@ -242,6 +281,8 @@ export default function RecipesTab() {
         style: form.style || null,
         abv: form.abv ? parseFloat(form.abv) : null,
         ibu: form.ibu ? parseInt(form.ibu, 10) : null,
+        ibu_source: form.ibu_source,
+        original_gravity: form.original_gravity ? parseFloat(form.original_gravity) : null,
         partner_id: form.partner_id || null,
         expected_yield_bbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
         days_brewhouse: form.days_brewhouse ? parseInt(form.days_brewhouse) : null,
@@ -253,6 +294,7 @@ export default function RecipesTab() {
           .map((l) => ({
             ingredient_id: l.ingredient_id,
             quantity_per_turn: parseFloat(l.quantity_per_turn.replace(/,/g, "")),
+            boil_minutes: l.category === "Hops" && l.boil_minutes ? parseInt(l.boil_minutes, 10) : null,
           })),
       };
       const res = editingId
@@ -362,6 +404,15 @@ export default function RecipesTab() {
               onChange={(v) => setFilter("partner", v)}
             />
           )}
+          <FilterChips
+            label="IBU"
+            options={[
+              { value: "missing",  label: "Not recorded" },
+              { value: "recorded", label: "Recorded"     },
+            ]}
+            value={filters.ibu_state ?? []}
+            onChange={(v) => setFilter("ibu_state", v)}
+          />
           {/* Card list, not a column table → sort is a single-select chip group. */}
           <FilterChips
             label="Sort"
@@ -412,8 +463,13 @@ export default function RecipesTab() {
                     {r.abv != null && (
                       <span className="text-xs text-muted tabular-nums">{r.abv}% ABV</span>
                     )}
-                    {r.ibu != null && (
-                      <span className="text-xs text-muted tabular-nums">{r.ibu} IBU</span>
+                    {r.ibu != null ? (
+                      <span className="text-xs text-muted tabular-nums">
+                        {r.ibu} IBU
+                        {r.ibu_source === "calculated" && <span className="text-faint"> (calc)</span>}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-warning/70">No IBU</span>
                     )}
                     {r.partner?.company_name && (
                       <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
@@ -753,9 +809,58 @@ export default function RecipesTab() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="IBU" hint="bitterness, as a whole number">
+                <ButtonGroup
+                  className="mb-2"
+                  tabs={[
+                    { key: "manual", label: "Enter it" },
+                    { key: "calculated", label: "From the bill" },
+                  ]}
+                  activeKey={form.ibu_source}
+                  onSelect={(v) => setForm((f) => ({
+                    ...f,
+                    ibu_source: v,
+                    // Switching to calculated adopts the computed number as the
+                    // stored value; recipes.ibu stays the single value of record
+                    // either way, so nothing downstream has to know the source.
+                    ibu: v === "calculated" && computedIbu.value != null
+                      ? String(Math.round(computedIbu.value))
+                      : f.ibu,
+                  }))}
+                />
                 <input type="number" step="1" min="0" max="200" className="inp" placeholder="e.g. 45"
                   value={form.ibu}
+                  disabled={form.ibu_source === "calculated"}
                   onChange={(e) => setForm((f) => ({ ...f, ibu: e.target.value }))} />
+                {form.ibu_source === "calculated" ? (
+                  computedIbu.value != null ? (
+                    <p className="text-xs text-faint mt-1">
+                      Tinseth, from {lines.filter((l) => l.category === "Hops").length} hop addition
+                      {lines.filter((l) => l.category === "Hops").length === 1 ? "" : "s"}. Recalculates on save.
+                    </p>
+                  ) : (
+                    <div className="mt-1 rounded border border-warning-border bg-warning-surface/25 px-2.5 py-2">
+                      <p className="text-xs text-warning">Can&apos;t calculate yet — still needs:</p>
+                      <ul className="text-xs text-warning/80 mt-1 list-disc list-inside">
+                        {computedIbu.missing.slice(0, 6).map((m) => <li key={m}>{m}</li>)}
+                        {computedIbu.missing.length > 6 && (
+                          <li>and {computedIbu.missing.length - 6} more</li>
+                        )}
+                      </ul>
+                      <p className="text-xs text-warning/70 mt-1.5">
+                        Switch back to <strong>Enter it</strong> to record a number now.
+                      </p>
+                    </div>
+                  )
+                ) : computedIbu.value != null && form.ibu && Math.abs(Number(form.ibu) - computedIbu.value) >= 3 ? (
+                  <p className="text-xs text-faint mt-1">
+                    The bill computes to {Math.round(computedIbu.value)}.
+                  </p>
+                ) : null}
+              </Field>
+              <Field label="Original Gravity" hint="e.g. 1.052 — only needed to calculate IBU">
+                <input type="number" step="0.001" min="1" max="1.2" className="inp" placeholder="e.g. 1.052"
+                  value={form.original_gravity}
+                  onChange={(e) => setForm((f) => ({ ...f, original_gravity: e.target.value }))} />
               </Field>
             </div>
 
@@ -880,6 +985,15 @@ export default function RecipesTab() {
                                 }}
                               />
                             </div>
+                            {line.category === "Hops" && (
+                              <div className="w-24">
+                                <label className="text-xs text-muted mb-1 block">Boil (min)</label>
+                                <input type="number" min="0" max="240" step="1"
+                                  className="inp text-right w-full" placeholder="—"
+                                  value={line.boil_minutes}
+                                  onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, boil_minutes: e.target.value } : l))} />
+                              </div>
+                            )}
                             {costPerTurnLine != null && (
                               <div className="text-right shrink-0 pb-1.5">
                                 <span className="text-xs text-muted">$ / turn</span>
@@ -902,6 +1016,7 @@ export default function RecipesTab() {
                         <th className="px-3 py-2 text-xs font-medium text-muted text-left">Ingredient</th>
                         <th className="px-3 py-2 text-xs font-medium text-muted text-right">Cost / Unit</th>
                         <th className="px-3 py-2 text-xs font-medium text-muted text-right">Qty / Turn</th>
+                        <th className="px-3 py-2 text-xs font-medium text-muted text-right w-24">Boil (min)</th>
                         <th className="px-3 py-2 text-xs font-medium text-muted text-right">$ / Turn</th>
                         <th className="px-3 py-2 w-6"></th>
                       </tr>
@@ -973,6 +1088,20 @@ export default function RecipesTab() {
                                 {ing?.unit ?? "—"}
                               </span>
                               </div>
+                            </td>
+                            <td className="px-3 py-1.5 w-24">
+                              {/* Only hops bitter the wort, so only hops carry a
+                                  boil time. Tinseth cannot default it: an ounce
+                                  at 60 minutes is worth ~10x the same ounce in
+                                  a whirlpool. */}
+                              {line.category === "Hops" ? (
+                                <input type="number" min="0" max="240" step="1"
+                                  className="inp-sm text-right w-full" placeholder="—"
+                                  value={line.boil_minutes}
+                                  onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, boil_minutes: e.target.value } : l))} />
+                              ) : (
+                                <span className="block text-right text-xs text-disabled">—</span>
+                              )}
                             </td>
                             <td className="px-3 py-1.5 text-right text-xs tabular-nums whitespace-nowrap">
                               {costPerTurnLine != null
