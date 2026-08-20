@@ -54,6 +54,7 @@ const EMPTY_FORM = {
   unit_cost_usd: "",
   volume_fl_oz: "",
   can_count: "",
+  unit_weight_oz: "",
   is_default: false,
 };
 
@@ -149,6 +150,7 @@ export default function PackagingTab() {
       unit_cost_usd:   item.unit_cost_usd != null ? String(item.unit_cost_usd) : "",
       volume_fl_oz: item.volume_fl_oz != null ? String(item.volume_fl_oz) : "",
       can_count:   item.can_count != null ? String(item.can_count) : "",
+      unit_weight_oz: item.unit_weight_oz != null ? String(item.unit_weight_oz) : "",
       is_default:  item.is_default,
     });
     setEditingId(item.id);
@@ -165,7 +167,8 @@ export default function PackagingTab() {
         partner_id: item.partner_id || null,
         supplier_id: item.supplier_id || null,
         unit_cost_usd: item.unit_cost_usd, volume_fl_oz: item.volume_fl_oz,
-        can_count: item.can_count, is_default: newDefault,
+        can_count: item.can_count, unit_weight_oz: item.unit_weight_oz,
+        is_default: newDefault,
       }),
     });
     // fetch resolves on 4xx, so without this an unauthorized toggle just
@@ -190,6 +193,7 @@ export default function PackagingTab() {
         unit_cost_usd:   form.unit_cost_usd ? parseFloat(form.unit_cost_usd) : null,
         volume_fl_oz: needsVolume(form.type) && form.volume_fl_oz ? parseFloat(form.volume_fl_oz) : null,
         can_count:   needsCanCount(form.type) && form.can_count ? parseInt(form.can_count) : null,
+        unit_weight_oz: form.unit_weight_oz ? parseFloat(form.unit_weight_oz) : null,
         is_default:  form.is_default,
       };
       const res = editingId
@@ -423,6 +427,19 @@ export default function PackagingTab() {
               </Field>
             )}
 
+            <Field label="Weight per piece (oz)" hint="only used to split freight across a receipt">
+              <div className="flex items-center gap-2">
+                <input type="number" min="0" step="0.01" className="inp w-40" placeholder="e.g. 0.55"
+                  value={form.unit_weight_oz}
+                  onChange={(e) => setForm((f) => ({ ...f, unit_weight_oz: e.target.value }))} />
+                <span className="text-muted text-sm">oz</span>
+              </div>
+              <p className="text-xs text-faint mt-1">
+                Seeded from catalogue figures, not weighed — correct it if you put a pallet on a scale.
+                Left blank, this item&apos;s freight share is split by piece count instead.
+              </p>
+            </Field>
+
             <div className="flex items-center gap-3 p-3 rounded bg-surface-mid/40 border border-line-strong">
               <input
                 type="checkbox"
@@ -502,7 +519,7 @@ export default function PackagingTab() {
       {showBulkReceive && (
         <BulkReceiveModal
           itemType="packaging"
-          items={packaging.map((p) => ({ id: p.id, name: p.name, unit: p.type }))}
+          items={packaging.map((p) => ({ id: p.id, name: p.name, unit: p.type, unitWeightOz: p.unit_weight_oz }))}
           onClose={() => setShowBulkReceive(false)}
           onDone={async () => {
             setShowBulkReceive(false);

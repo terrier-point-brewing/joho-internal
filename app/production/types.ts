@@ -36,6 +36,12 @@ export interface PackagingItem {
   unit_cost_usd: number | null;
   volume_fl_oz: number | null;
   can_count: number | null;
+  /**
+   * Weight of ONE piece, in ounces. Seeded from catalogue figures and meant to
+   * be corrected against a scale. Used only to apportion freight across a
+   * receipt — null falls back to a count split, flagged as an estimate.
+   */
+  unit_weight_oz: number | null;
   partner_id: string | null;
   supplier_id: string | null;
   /** Joined from contract_brewing_partners */
