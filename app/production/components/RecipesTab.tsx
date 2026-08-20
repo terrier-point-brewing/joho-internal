@@ -390,6 +390,8 @@ export default function RecipesTab() {
             const isOpen = expanded === r.id;
             const costPerTurn = recipeCostPerTurn(r);
             const costPerBblYield = r.expected_yield_bbl ? costPerTurn / r.expected_yield_bbl : null;
+            const hasIdentity = Boolean((r.style && r.style !== r.beer_name) || r.abv != null || r.ibu != null || r.partner?.company_name);
+            const hasSchedule = Boolean(r.expected_yield_bbl || leadTimeDays(r) > 0 || r.days_brewhouse != null || r.days_fermenter != null || r.days_brite != null);
 
             return (
               <div key={r.id} id={`recipe-${r.id}`} className="rounded-lg border border-line overflow-hidden">
@@ -404,294 +406,331 @@ export default function RecipesTab() {
                     <span className="text-sm font-medium text-primary">{r.beer_name}</span>
                     <span className="text-faint text-xs shrink-0">{isOpen ? "▲" : "▼"}</span>
                   </div>
-                  {/* Metadata row — wraps freely on mobile */}
-                  <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
-                    {r.style && r.style !== r.beer_name && (
-                      <span className="text-xs text-secondary">{r.style}</span>
+                  {/* Metadata row — three bands (identity · schedule · money) so the
+                   * row has a reading order instead of one flat wrap. Each band is
+                   * its own flex box, and bands 2 and 3 carry the separator so a
+                   * band that has nothing to show takes its divider with it. */}
+                  <div className="flex items-center gap-x-6 gap-y-1.5 flex-wrap">
+                    {hasIdentity && (
+                      <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap">
+                        {r.style && r.style !== r.beer_name && (
+                          <span className="text-xs text-secondary">{r.style}</span>
+                        )}
+                        {r.abv != null && (
+                          <span className="text-xs text-muted tabular-nums">{r.abv}% ABV</span>
+                        )}
+                        {r.ibu != null && (
+                          <span className="text-xs text-muted tabular-nums">{r.ibu} IBU</span>
+                        )}
+                        {r.partner?.company_name && (
+                          <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
+                            {r.partner.company_name}
+                          </span>
+                        )}
+                      </div>
                     )}
-                    {r.abv != null && (
-                      <span className="text-xs text-muted tabular-nums">{r.abv}% ABV</span>
+                    {hasSchedule && (
+                      <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap">
+                        {r.expected_yield_bbl && (
+                          <span className="text-xs text-muted tabular-nums">
+                            {r.expected_yield_bbl.toLocaleString()} BBL / turn
+                          </span>
+                        )}
+                        {leadTimeDays(r) > 0 && (
+                          <span className="text-xs text-muted tabular-nums">{leadTimeDays(r)}d lead</span>
+                        )}
+                        {r.days_brewhouse != null && (
+                          <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.brewhouse.badge}`}>
+                            {STAGE_BADGES.brewhouse.label} {r.days_brewhouse}d
+                          </span>
+                        )}
+                        {r.days_fermenter != null && (
+                          <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.fermenter.badge}`}>
+                            {STAGE_BADGES.fermenter.label} {r.days_fermenter}d
+                          </span>
+                        )}
+                        {r.days_brite != null && (
+                          <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.brite.badge}`}>
+                            {STAGE_BADGES.brite.label} {r.days_brite}d
+                          </span>
+                        )}
+                      </div>
                     )}
-                    {r.ibu != null && (
-                      <span className="text-xs text-muted tabular-nums">{r.ibu} IBU</span>
-                    )}
-                    {r.partner?.company_name && (
-                      <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
-                        {r.partner.company_name}
+                    <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap">
+                      {costPerTurn > 0 && (
+                        <span className="text-xs font-medium text-body tabular-nums">
+                          {formatCurrency(costPerTurn)}/turn
+                        </span>
+                      )}
+                      {costPerBblYield != null && costPerTurn > 0 && (
+                        <span className="text-xs text-muted tabular-nums">
+                          {formatCurrency(costPerBblYield)}/BBL
+                        </span>
+                      )}
+                      <span className="text-xs text-faint">
+                        {r.recipe_ingredients.length} ingredient{r.recipe_ingredients.length !== 1 ? "s" : ""}
                       </span>
-                    )}
-                    {r.expected_yield_bbl && (
-                      <span className="text-xs text-muted">
-                        {r.expected_yield_bbl.toLocaleString()} BBL / turn
-                      </span>
-                    )}
-                    {leadTimeDays(r) > 0 && (
-                      <span className="text-xs text-muted">{leadTimeDays(r)}d lead</span>
-                    )}
-                    {r.days_brewhouse != null && (
-                      <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.brewhouse.badge}`}>
-                        {STAGE_BADGES.brewhouse.label} {r.days_brewhouse}d
-                      </span>
-                    )}
-                    {r.days_fermenter != null && (
-                      <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.fermenter.badge}`}>
-                        {STAGE_BADGES.fermenter.label} {r.days_fermenter}d
-                      </span>
-                    )}
-                    {r.days_brite != null && (
-                      <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES.brite.badge}`}>
-                        {STAGE_BADGES.brite.label} {r.days_brite}d
-                      </span>
-                    )}
-                    {costPerTurn > 0 && (
-                      <span className="text-xs text-secondary tabular-nums">
-                        {formatCurrency(costPerTurn)}/turn
-                      </span>
-                    )}
-                    {costPerBblYield != null && costPerTurn > 0 && (
-                      <span className="text-xs text-faint tabular-nums">
-                        {formatCurrency(costPerBblYield)}/BBL
-                      </span>
-                    )}
-                    <span className="text-xs text-faint">
-                      {r.recipe_ingredients.length} ingredient{r.recipe_ingredients.length !== 1 ? "s" : ""}
-                    </span>
+                    </div>
                   </div>
                 </button>
 
                 {/* Expanded detail */}
                 {isOpen && (
                   <div className="border-t border-line">
-                    {/* Ingredient bill table — grouped by category */}
-                    {r.recipe_ingredients.length > 0 ? (() => {
-                      const grouped: Record<string, typeof r.recipe_ingredients> = {};
-                      for (const ri of r.recipe_ingredients) {
-                        const cat = ri.ingredients.category ?? "Uncategorized";
-                        if (!grouped[cat]) grouped[cat] = [];
-                        grouped[cat].push(ri);
-                      }
-                      // Read the bill the way it is brewed: malts, hops, yeast,
-                      // then everything else. INGREDIENT_CATEGORIES already
-                      // carries that order; anything off that list sorts last.
-                      const catRank = (c: string) => {
-                        const i = INGREDIENT_CATEGORIES.indexOf(c as IngredientCategory);
-                        return i === -1 ? INGREDIENT_CATEGORIES.length : i;
-                      };
-                      const groups = Object.entries(grouped)
-                        .sort(([a], [b]) => catRank(a) - catRank(b) || a.localeCompare(b))
-                        .map(([cat, items]) => [
-                          cat,
-                          [...items].sort((x, y) => x.ingredients.name.localeCompare(y.ingredients.name)),
-                        ] as const);
-                      return (
-                        <div className="overflow-x-auto">
-                        <table className="w-full text-sm min-w-[360px]">
-                          <thead>
-                            <tr className="border-b border-line bg-surface/50 text-left">
-                              <th className="px-4 py-2 text-xs font-medium text-muted">Ingredient</th>
-                              <th className="px-4 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Cost / Unit</th>
-                              <th className="px-4 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Qty / Turn</th>
-                              <th className="px-4 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">$ / Turn</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {groups.map(([cat, items]) => (
-                              <Fragment key={cat}>
-                                <tr className="border-b border-line/40 bg-surface/60">
-                                  <td colSpan={4} className="px-4 py-1 text-xs font-semibold text-muted uppercase tracking-wider">{cat}</td>
-                                </tr>
-                                {items.map((ri, idx) => {
-                                  const ing = ri.ingredients;
-                                  const qtyPerTurn = ri.quantity_per_turn;
-                                  const costPerLine = qtyPerTurn * (ing.cost_per_unit_usd ?? 0);
-                                  return (
-                                    <tr key={ri.id} className={`border-b border-line/40 ${idx % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                                      <td className="px-4 py-2 text-strong pl-6">{ing.name}</td>
-                                      <td className="px-4 py-2 text-muted text-right tabular-nums">
-                                        {ing.cost_per_unit_usd != null
-                                          ? `${formatCurrency(Number(ing.cost_per_unit_usd))} / ${ing.unit}`
-                                          : "—"}
-                                      </td>
-                                      <td className="px-4 py-2 text-secondary text-right tabular-nums">
-                                        {qtyPerTurn.toLocaleString(undefined, { maximumFractionDigits: 6 })} {ing.unit}
-                                      </td>
-                                      <td className="px-4 py-2 text-body text-right tabular-nums">
-                                        {ing.cost_per_unit_usd != null
-                                          ? formatCurrency(costPerLine)
-                                          : "—"}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </Fragment>
-                            ))}
-                            {costPerTurn > 0 && (
-                              <tr className="border-t border-line-strong bg-surface/50">
-                                <td className="px-4 py-2 text-xs font-medium text-secondary" colSpan={3}>Total cost / turn</td>
-                                <td className="px-4 py-2 text-right text-strong font-medium tabular-nums">
-                                  {formatCurrency(costPerTurn)}
-                                </td>
-                              </tr>
-                            )}
-                            {costPerBblYield != null && costPerTurn > 0 && (
-                              <tr className="bg-surface/30">
-                                <td className="px-4 py-2 text-xs font-medium text-muted" colSpan={3}>Cost / BBL yield</td>
-                                <td className="px-4 py-2 text-right text-secondary tabular-nums text-xs">
-                                  {formatCurrency(costPerBblYield)}
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                        </div>
-                      );
-                    })() : (
-                      <p className="text-xs text-faint px-4 py-3">No ingredients on this recipe.</p>
-                    )}
+                    {/* Actions ride at the top of the panel: on a long recipe the bottom
+                      * of the card sits two screens from the name it belongs to. Delete is
+                      * pushed to the far edge so it is not a slip away from Clone. */}
+                    <div className="flex items-center gap-3 px-4 py-2.5 border-b border-line bg-surface/30">
+                      <button onClick={() => openEdit(r)} className="btn-secondary">Edit recipe</button>
+                      <button onClick={() => openClone(r)} className="btn-secondary">Clone</button>
+                      <button onClick={() => setManagingFor(r.id)} className="btn-secondary">Manage variations</button>
+                      <button onClick={() => handleDelete(r.id, r.beer_name)} className="btn-danger ml-auto">Delete</button>
+                    </div>
 
-                    {/* Stage durations */}
-                    {(r.days_brewhouse || r.days_fermenter || r.days_brite) && (
-                      <div className="px-4 py-3 border-t border-line">
-                        <p className="text-xs font-medium text-muted mb-2">Stage Duration</p>
-                        <div className="flex gap-4">
-                          {(["brewhouse", "fermenter", "brite"] as const).map((stage) => {
-                            const val = stage === "brewhouse" ? r.days_brewhouse : stage === "fermenter" ? r.days_fermenter : r.days_brite;
-                            if (val == null) return null;
-                            return (
-                              <div key={stage} className="flex items-center gap-2">
-                                <span className={`text-xs px-1.5 py-px rounded border ${STAGE_BADGES[stage].badge}`}>
-                                  {STAGE_BADGES[stage].label}
-                                </span>
-                                <span className="text-sm text-body">{val} days</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Brew Steps */}
-                    {r.recipe_brew_activity_templates && r.recipe_brew_activity_templates.length > 0 && (
-                      <div className="px-4 py-3 border-t border-line">
-                        <p className="text-xs font-medium text-muted mb-2">Brew Steps</p>
-                        <div className="overflow-x-auto rounded border border-line/60">
-                          <table className="w-full text-xs">
+                    {/* Two columns from lg up: what the beer is made of on the left, how
+                      * it is scheduled and packaged on the right. The old layout stacked
+                      * six full-width bands and ran past two viewport heights. */}
+                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-start lg:items-stretch">
+                      <div className="min-w-0">
+                      {/* Ingredient bill — the same section shape as Brew Steps and
+                        * Packaging Variations: uppercase label, then a bordered table.
+                        * It used to be a bare flush table sitting beside two bordered
+                        * cards, which read as two different kinds of thing. */}
+                      <div className="px-4 py-3">
+                        <p className="text-xs font-medium text-muted uppercase tracking-wider mb-2">Ingredient Bill</p>
+                      {r.recipe_ingredients.length > 0 ? (() => {
+                        const grouped: Record<string, typeof r.recipe_ingredients> = {};
+                        for (const ri of r.recipe_ingredients) {
+                          const cat = ri.ingredients.category ?? "Uncategorized";
+                          if (!grouped[cat]) grouped[cat] = [];
+                          grouped[cat].push(ri);
+                        }
+                        // Read the bill the way it is brewed: malts, hops, yeast,
+                        // then everything else. INGREDIENT_CATEGORIES already
+                        // carries that order; anything off that list sorts last.
+                        const catRank = (c: string) => {
+                          const i = INGREDIENT_CATEGORIES.indexOf(c as IngredientCategory);
+                          return i === -1 ? INGREDIENT_CATEGORIES.length : i;
+                        };
+                        const groups = Object.entries(grouped)
+                          .sort(([a], [b]) => catRank(a) - catRank(b) || a.localeCompare(b))
+                          .map(([cat, items]) => [
+                            cat,
+                            [...items].sort((x, y) => x.ingredients.name.localeCompare(y.ingredients.name)),
+                          ] as const);
+                        return (
+                          <div className="overflow-x-auto rounded-lg border border-line">
+                          <table className="w-full text-sm min-w-[360px]">
                             <thead>
-                              <tr className="border-b border-line bg-surface/40 text-left">
-                                <th className="px-3 py-2 font-medium text-muted">#</th>
-                                <th className="px-3 py-2 font-medium text-muted">Activity</th>
-                                <th className="px-3 py-2 font-medium text-muted text-right">Time (min)</th>
-                                <th className="px-3 py-2 font-medium text-muted text-right">Temp</th>
-                                <th className="px-3 py-2 font-medium text-muted text-right">Amount</th>
-                                <th className="px-3 py-2 font-medium text-muted text-right">VSP</th>
+                              <tr className="border-b border-line bg-surface/50 text-left">
+                                <th className="px-3 py-2 text-xs font-medium text-muted">Ingredient</th>
+                                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Cost / Unit</th>
+                                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Qty / Turn</th>
+                                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">$ / Turn</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {[...r.recipe_brew_activity_templates].sort((a, b) => a.sort_order - b.sort_order).map((t, i) => {
-                                const tAny = t as RecipeBrewActivityTemplate & { vsp?: number | null };
-                                return (
-                                <tr key={t.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                                  <td className="px-3 py-2 text-faint tabular-nums">{i + 1}</td>
-                                  <td className="px-3 py-2 text-body">{t.activity}</td>
-                                  <td className="px-3 py-2 text-muted text-right tabular-nums">{t.time_label ?? "—"}</td>
-                                  <td className="px-3 py-2 text-muted text-right tabular-nums">{t.temp != null ? `${t.temp}°F` : "—"}</td>
-                                  <td className="px-3 py-2 text-muted text-right tabular-nums">{t.amount != null ? t.amount.toLocaleString() : "—"}</td>
-                                  <td className="px-3 py-2 text-muted text-right tabular-nums">{tAny.vsp != null ? tAny.vsp : "—"}</td>
+                              {groups.map(([cat, items]) => (
+                                <Fragment key={cat}>
+                                  <tr className="border-b border-line/40 bg-surface/60">
+                                    <td colSpan={4} className="px-3 py-1 text-xs font-semibold text-muted uppercase tracking-wider">{cat}</td>
+                                  </tr>
+                                  {items.map((ri, idx) => {
+                                    const ing = ri.ingredients;
+                                    const qtyPerTurn = ri.quantity_per_turn;
+                                    const costPerLine = qtyPerTurn * (ing.cost_per_unit_usd ?? 0);
+                                    return (
+                                      <tr key={ri.id} className={`border-b border-line/40 ${idx % 2 !== 0 ? "bg-surface/20" : ""}`}>
+                                        <td className="px-3 py-2 text-strong pl-6">{ing.name}</td>
+                                        <td className="px-3 py-2 text-muted text-right tabular-nums">
+                                          {ing.cost_per_unit_usd != null
+                                            ? `${formatCurrency(Number(ing.cost_per_unit_usd))} / ${ing.unit}`
+                                            : "—"}
+                                        </td>
+                                        <td className="px-3 py-2 text-secondary text-right tabular-nums">
+                                          {qtyPerTurn.toLocaleString(undefined, { maximumFractionDigits: 6 })} {ing.unit}
+                                        </td>
+                                        <td className="px-3 py-2 text-body text-right tabular-nums">
+                                          {ing.cost_per_unit_usd != null
+                                            ? formatCurrency(costPerLine)
+                                            : "—"}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </Fragment>
+                              ))}
+                              {costPerTurn > 0 && (
+                                <tr className="border-t border-line-strong bg-surface/50">
+                                  <td className="px-3 py-2 text-xs font-medium text-secondary" colSpan={3}>Total cost / turn</td>
+                                  <td className="px-3 py-2 text-right text-strong font-medium tabular-nums">
+                                    {formatCurrency(costPerTurn)}
+                                  </td>
                                 </tr>
-                                );
-                              })}
+                              )}
+                              {costPerBblYield != null && costPerTurn > 0 && (
+                                <tr className="bg-surface/30">
+                                  <td className="px-3 py-2 text-xs font-medium text-muted" colSpan={3}>Cost / BBL yield</td>
+                                  <td className="px-3 py-2 text-right text-secondary tabular-nums text-xs">
+                                    {formatCurrency(costPerBblYield)}
+                                  </td>
+                                </tr>
+                              )}
                             </tbody>
                           </table>
-                        </div>
+                          </div>
+                        );
+                      })() : (
+                        <p className="text-xs text-faint">No ingredients on this recipe.</p>
+                      )}
                       </div>
-                    )}
 
-                    {/* Packaging Variations — a container and its product code
-                     * are one fact, so they read as an aligned two-column list
-                     * rather than a chip with an input trailing off its side. */}
-                    {(() => {
-                      const links = [...variationsFor(r.id)].sort((a, b) =>
-                        (a.packaging_variations?.name ?? "").localeCompare(b.packaging_variations?.name ?? ""),
-                      );
-                      return (
-                    <div className="px-4 py-3 border-t border-line">
-                      <div className="flex items-baseline justify-between gap-3 mb-2 max-w-2xl">
-                        <p className="text-xs font-medium text-muted uppercase tracking-wider">Packaging Variations</p>
-                        {links.length > 0 && (
-                          <span className="text-xs text-faint tabular-nums">
-                            {links.filter((l) => l.product_code).length} of {links.length} coded
-                          </span>
+                      {/* Brew Steps — always rendered, empty or not: a section that
+                        * hides itself gives no hint the recipe can hold brew steps. */}
+                      <div className="px-4 py-3 border-t border-line">
+                        <p className="text-xs font-medium text-muted uppercase tracking-wider mb-2">Brew Steps</p>
+                        {r.recipe_brew_activity_templates && r.recipe_brew_activity_templates.length > 0 ? (
+                          <div className="overflow-x-auto rounded-lg border border-line">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b border-line bg-surface/50 text-left">
+                                  <th className="px-3 py-2 font-medium text-muted">#</th>
+                                  <th className="px-3 py-2 font-medium text-muted">Activity</th>
+                                  <th className="px-3 py-2 font-medium text-muted text-right">Time (min)</th>
+                                  <th className="px-3 py-2 font-medium text-muted text-right">Temp</th>
+                                  <th className="px-3 py-2 font-medium text-muted text-right">Amount</th>
+                                  <th className="px-3 py-2 font-medium text-muted text-right">VSP</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {[...r.recipe_brew_activity_templates].sort((a, b) => a.sort_order - b.sort_order).map((t, i) => {
+                                  const tAny = t as RecipeBrewActivityTemplate & { vsp?: number | null };
+                                  return (
+                                  <tr key={t.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
+                                    <td className="px-3 py-2 text-faint tabular-nums">{i + 1}</td>
+                                    <td className="px-3 py-2 text-body">{t.activity}</td>
+                                    <td className="px-3 py-2 text-muted text-right tabular-nums">{t.time_label ?? "—"}</td>
+                                    <td className="px-3 py-2 text-muted text-right tabular-nums">{t.temp != null ? `${t.temp}°F` : "—"}</td>
+                                    <td className="px-3 py-2 text-muted text-right tabular-nums">{t.amount != null ? t.amount.toLocaleString() : "—"}</td>
+                                    <td className="px-3 py-2 text-muted text-right tabular-nums">{tAny.vsp != null ? tAny.vsp : "—"}</td>
+                                  </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-faint">No brew steps on this recipe — add them under <span className="text-muted">Edit recipe</span>.</p>
                         )}
                       </div>
-
-                      {links.length > 0 ? (
-                        <div className="rounded-lg border border-line overflow-hidden mb-3 max-w-2xl">
-                          <div className="flex items-center gap-3 px-3 py-1.5 bg-surface/50 border-b border-line">
-                            <span className="flex-1 text-xs font-medium text-muted">Container</span>
-                            <span className="w-32 text-xs font-medium text-muted">Product Code</span>
-                            <span className="w-5" aria-hidden />
-                          </div>
-                          {links.map((link, idx) => (
-                            <div
-                              key={link.id}
-                              className={`flex items-center gap-3 px-3 py-2 ${idx > 0 ? "border-t border-line/40" : ""} ${idx % 2 !== 0 ? "bg-surface/20" : ""}`}
-                            >
-                              <span className="flex-1 text-sm text-body truncate">
-                                {link.packaging_variations?.name ?? "—"}
-                              </span>
-                              <ProductCodeInput
-                                link={link}
-                                showLabel={false}
-                                onSaved={() => qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations })}
-                              />
-                              <button
-                                onClick={() => unlinkVariation(link.id)}
-                                aria-label={`Unlink ${link.packaging_variations?.name ?? "variation"}`}
-                                title="Unlink"
-                                className="w-5 text-center text-faint hover:text-danger leading-none"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-faint mb-3">No packaging variations linked yet.</p>
-                      )}
-                      <button onClick={() => setManagingFor(r.id)} className="btn-secondary">
-                        {links.length > 0 ? "Manage variations" : "+ Link variations"}
-                      </button>
-                    </div>
-                      );
-                    })()}
-
-                    {/* Notes */}
-                    {r.notes && (
-                      <div className="px-4 pb-3 border-t border-line pt-3">
-                        <p className="text-xs text-muted italic">{r.notes}</p>
                       </div>
-                    )}
+                      <div className="min-w-0 border-t border-line lg:border-t-0 lg:border-l lg:border-line">
+                        {/* Schedule — yield, lead, and the stage clock. The header chips
+                          * summarise these; this is where they get a labelled home. */}
+                        <div className="px-4 py-3">
+                          <p className="text-xs font-medium text-muted uppercase tracking-wider mb-2">Schedule</p>
+                          {hasSchedule ? (<>
+                            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mb-2">
+                              {r.expected_yield_bbl && (
+                                <span className="text-sm text-body tabular-nums">
+                                  {r.expected_yield_bbl.toLocaleString()} <span className="text-xs text-muted">BBL / turn</span>
+                                </span>
+                              )}
+                              {leadTimeDays(r) > 0 && (
+                                <span className="text-sm text-body tabular-nums">
+                                  {leadTimeDays(r)} <span className="text-xs text-muted">days lead</span>
+                                </span>
+                              )}
+                            </div>
+                            {(r.days_brewhouse != null || r.days_fermenter != null || r.days_brite != null) && (
+                              <div className="flex flex-col gap-1">
+                                {(["brewhouse", "fermenter", "brite"] as const).map((stage) => {
+                                  const val = stage === "brewhouse" ? r.days_brewhouse : stage === "fermenter" ? r.days_fermenter : r.days_brite;
+                                  if (val == null) return null;
+                                  return (
+                                    <div key={stage} className="flex items-center gap-2">
+                                      <span className={`text-xs px-1.5 py-px rounded border w-24 text-center ${STAGE_BADGES[stage].badge}`}>
+                                        {STAGE_BADGES[stage].label}
+                                      </span>
+                                      <span className="text-sm text-body tabular-nums">{val} {val === 1 ? "day" : "days"}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </>) : (
+                            <p className="text-xs text-faint">No schedule set on this recipe — add it under <span className="text-muted">Edit recipe</span>.</p>
+                          )}
+                        </div>
 
-                    {/* Actions */}
-                    <div className="flex gap-3 px-4 py-2.5 border-t border-line bg-surface/30">
-                      <button
-                        onClick={() => openEdit(r)}
-                        className="btn-secondary"
-                      >
-                        Edit recipe
-                      </button>
-                      <button
-                        onClick={() => openClone(r)}
-                        className="btn-secondary"
-                      >
-                        Clone
-                      </button>
-                      <button
-                        onClick={() => handleDelete(r.id, r.beer_name)}
-                        className="btn-danger"
-                      >
-                        Delete
-                      </button>
+                        {/* Notes — a human wrote this about the recipe, so it reads at body
+                          * size near the top of the rail, not as faint italic in the basement. */}
+                        <div className="px-4 py-3 border-t border-line">
+                          <p className="text-xs font-medium text-muted uppercase tracking-wider mb-2">Notes</p>
+                          {r.notes
+                            ? <p className="text-sm text-secondary whitespace-pre-line">{r.notes}</p>
+                            : <p className="text-xs text-faint">No notes on this recipe — add them under <span className="text-muted">Edit recipe</span>.</p>}
+                        </div>
+
+                      {/* Packaging Variations — a container and its product code
+                       * are one fact, so they read as an aligned two-column list
+                       * rather than a chip with an input trailing off its side. */}
+                      {(() => {
+                        const links = [...variationsFor(r.id)].sort((a, b) =>
+                          (a.packaging_variations?.name ?? "").localeCompare(b.packaging_variations?.name ?? ""),
+                        );
+                        return (
+                      <div className="px-4 py-3 border-t border-line">
+                        <div className="flex items-baseline justify-between gap-3 mb-2">
+                          <p className="text-xs font-medium text-muted uppercase tracking-wider">Packaging Variations</p>
+                          {links.length > 0 && (
+                            <span className="text-xs text-faint tabular-nums">
+                              {links.filter((l) => l.product_code).length} of {links.length} coded
+                            </span>
+                          )}
+                        </div>
+
+                        {links.length > 0 ? (
+                          <div className="rounded-lg border border-line overflow-hidden">
+                            <div className="flex items-center gap-3 px-3 py-2 bg-surface/50 border-b border-line">
+                              <span className="flex-1 text-xs font-medium text-muted">Container</span>
+                              <span className="w-32 text-xs font-medium text-muted">Product Code</span>
+                              <span className="w-5" aria-hidden />
+                            </div>
+                            {links.map((link, idx) => (
+                              <div
+                                key={link.id}
+                                className={`flex items-center gap-3 px-3 py-2 ${idx > 0 ? "border-t border-line/40" : ""} ${idx % 2 !== 0 ? "bg-surface/20" : ""}`}
+                              >
+                                {/* These names differ only in their tail — "…Labeled Can" vs
+                                  * "…Labeled Can Case" — so truncating the end cuts exactly the
+                                  * half that tells them apart. Wrap instead. */}
+                                <span className="flex-1 text-sm text-body leading-snug break-words">
+                                  {link.packaging_variations?.name ?? "—"}
+                                </span>
+                                <ProductCodeInput
+                                  link={link}
+                                  showLabel={false}
+                                  onSaved={() => qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations })}
+                                />
+                                <button
+                                  onClick={() => unlinkVariation(link.id)}
+                                  aria-label={`Unlink ${link.packaging_variations?.name ?? "variation"}`}
+                                  title="Unlink"
+                                  className="w-5 text-center text-faint hover:text-danger leading-none"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-faint">No packaging variations linked yet — use <span className="text-muted">Manage variations</span> above.</p>
+                        )}
+                      </div>
+                        );
+                      })()}
+                      </div>
                     </div>
                   </div>
                 )}
