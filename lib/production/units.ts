@@ -36,15 +36,36 @@ export interface IngredientUnit {
 }
 
 /**
- * Ounces per 1 unit, keyed by normalized string. Physical constants, so the
- * weight entries here match the `base_factor` the migration seeds for the
- * corresponding vocabulary codes. The extra keys are typed-in aliases.
+ * Ounces per 1 unit, keyed by normalized string. Used for ONE purpose:
+ * apportioning a shipment's freight across its lines by weight. It is never a
+ * conversion factor — that is `base_factor` on the vocabulary row, and the two
+ * are deliberately allowed to disagree.
+ *
+ * Everything above the divider is a physical constant and matches the
+ * `base_factor` the migration seeds for the corresponding code. The extra keys
+ * there are just spellings a human might type.
+ *
+ * `bricks` below the divider is different, and the distinction matters. A dry
+ * yeast brick is conventionally 500 g, which is a fact about how the industry
+ * packages yeast rather than about the unit — a brick of something else could
+ * weigh anything. That is enough to split a freight bill fairly and NOT enough
+ * to restate someone's stock, so `bricks` keeps `base_factor = null` in the
+ * vocabulary and stays unconvertible. Weighing a shipment is an estimate by
+ * nature; rewriting an inventory figure is not.
  */
 const OZ_PER_UNIT: Record<string, number> = {
   oz: 1, ounce: 1, ounces: 1,
   lb: 16, lbs: 16, pound: 16, pounds: 16, "#": 16,
   g: 0.035274, gram: 0.035274, grams: 0.035274,
   kg: 35.274, kilogram: 35.274, kilograms: 35.274,
+
+  // Conventional packaging weights, for freight apportionment only.
+  brick: 17.637, bricks: 17.637,   // 500 g dry yeast brick
+  // Liquid yeast and the like, taken at the density of water. This is the
+  // freight weight ONLY — `liters` is a volume in the vocabulary and keeps its
+  // own base_factor of 33.814 fl oz, which is a real constant rather than an
+  // assumption about what is in the container.
+  liter: 35.274, liters: 35.274, litre: 35.274, litres: 35.274, l: 35.274,
 };
 
 /** Lowercase, trim, drop a trailing period. `"Lbs."` and `" LBS "` are both `lbs`. */

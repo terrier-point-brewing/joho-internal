@@ -49,8 +49,8 @@ export async function POST(req: NextRequest) {
 
   // packaging_items has no `unit` column, so every line gets an unmatchable unit —
   // allocateFreightByWeight's fallback then splits freight by raw quantity.
-  const shippingByLine = allocateFreightByWeight(
-    lines.map((l) => ({ unit: "", quantity: Number(l.quantity) })),
+  const { dollars: shippingByLine, guessed: freightGuesses } = allocateFreightByWeight(
+    lines.map((l) => ({ unit: "", quantity: Number(l.quantity), label: l.packaging_item_id })),
     freightTotal
   );
 
@@ -97,5 +97,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ results, errors }, { status: errors.length === 0 ? 201 : 207 });
+  // freight_guesses rides along so the caller can say which lines had their
+  // shipping share estimated by count rather than weighed. Empty on the normal
+  // path, and never an error — the receipt is still correct, it is just less
+  // precise than it looks.
+  return NextResponse.json(
+    { results, errors, freight_guesses: freightGuesses },
+    { status: errors.length === 0 ? 201 : 207 }
+  );
 }
