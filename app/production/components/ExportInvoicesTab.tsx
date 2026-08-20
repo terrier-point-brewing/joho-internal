@@ -12,6 +12,7 @@ import FilterBar from "@/app/components/ui/FilterBar";
 import SortableTh from "@/app/components/ui/SortableTh";
 import type { ControlsConfig } from "@/lib/table/types";
 import { CreditInvoiceModal } from "./CreditInvoiceModal";
+import CancelInvoiceModal from "./CancelInvoiceModal";
 
 /**
  * A line item is two things and only two things: a LABEL and a NOTE.
@@ -128,6 +129,7 @@ function InvoiceExpandedPanel({
   // Non-fatal follow-up from an action that otherwise succeeded.
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [creditOpen, setCreditOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const queryClient = useQueryClient();
 
   // Inline line-item editing (Draft only).
@@ -139,6 +141,9 @@ function InvoiceExpandedPanel({
   const isDraft = invoice.status === "draft";
   const isSquare = invoice.source === "square";
   const isPaid = invoice.status === "paid";
+  // Paid is deliberately absent: money has changed hands, and Credit Invoice is
+  // the instrument for giving it back. Mirrors CANCELLABLE in lib/finance/cancelInvoice.
+  const isCancellable = ["draft", "open", "partial"].includes(invoice.status);
 
   // Resolve a Square catalog variation ID to its "Item · Variation" name so the
   // panel shows the same label the generate-invoice UI does. The line's Square
@@ -584,7 +589,7 @@ function InvoiceExpandedPanel({
       </div>
 
       {/* Actions */}
-      {(isDraft || isPaid || (isSquare && !isPaid)) && (
+      {(isDraft || isPaid || isCancellable || (isSquare && !isPaid)) && (
         <div className={`${panelClass} flex items-center gap-2`}>
           {isDraft && (
             <button
@@ -615,9 +620,37 @@ function InvoiceExpandedPanel({
               Credit Invoice
             </button>
           )}
+          {/* Rightmost and ghosted: destructive, and the only action here that
+              cannot be undone by clicking something else. */}
+          {isCancellable && (
+            <button
+              onClick={() => setCancelOpen(true)}
+              disabled={actionLoading}
+              className="btn-danger ml-auto"
+            >
+              Cancel Invoice
+            </button>
+          )}
           {actionError && <span className="text-xs text-danger">{actionError}</span>}
           {actionNotice && <span className="text-xs text-accent">{actionNotice}</span>}
         </div>
+      )}
+
+      {cancelOpen && (
+        <CancelInvoiceModal
+          invoiceId={invoice.id}
+          invoiceNumber={invoice.invoice_number}
+          status={invoice.status}
+          shipmentCount={invoice.shipments.length}
+          onClose={() => setCancelOpen(false)}
+          onDone={() => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.production.exportInvoices() });
+            // The released shipments reappear on the Export tab's Invoice
+            // Required queue, which reads its own list.
+            queryClient.invalidateQueries({ queryKey: queryKeys.production.exports() });
+            onRefresh();
+          }}
+        />
       )}
 
       {creditOpen && (
