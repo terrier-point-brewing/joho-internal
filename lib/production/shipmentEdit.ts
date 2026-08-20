@@ -38,6 +38,8 @@ export interface ShipmentEditRow {
   invoice_id: string | null;
   is_phantom: boolean | null;
   allocation_id: string | null;
+  /** Present on revision rows; the edit guards never read it. */
+  quantity?: number;
 }
 
 /** Fields an operator may change. Omitted keys are left untouched. */
@@ -61,7 +63,8 @@ export type ShipmentEditPlan =
       clearsCredits: boolean;
     };
 
-function reject(error: string): ShipmentEditPlan {
+/** Shared by both planners, so a rejection reads the same whichever one produced it. */
+function reject(error: string): { ok: false; error: string } {
   return { ok: false, error };
 }
 
@@ -186,4 +189,123 @@ export function planShipmentEdit(
   }
 
   return { ok: true, updates, allocationsToRecheck, clearsCredits };
+}
+
+
+// ── Revision (quantities and packaging, not just labels) ─────────────────────
+//
+// An edit re-labels a shipment: same beer, same units, different channel or
+// recipient. A REVISION changes what physically went out — 10 half kegs were
+// actually 8, or two of them were sixtels. That cannot be done by updating
+// columns, because the units have to come back into cold storage and the
+// partner's allocation credit has to be re-planned against the new volume. So a
+// revision is an unship followed by a rebook, and the rebook runs the same
+// planShipment the original ship did.
+//
+// Which is also why a revision may enter contract_brewing while an edit may not
+// (see the reject in planShipmentEdit, which says exactly this): the credits are
+// planned from scratch rather than carried across.
+
+/** One line of what actually shipped. An empty list means the shipment is being unshipped entirely. */
+export interface RevisionLine {
+  variation_id: string;
+  quantity: number;
+}
+
+export interface ShipmentRevisionPatch {
+  lines: RevisionLine[];
+  reason?: string | null;
+  /** Optional; defaults to the shipment's current channel. */
+  channel?: string;
+  recipient_id?: string | null;
+}
+
+export type ShipmentRevisionPlan =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      lines: RevisionLine[];
+      reason: string;
+      /** True when every line was dropped — the shipment goes away and nothing replaces it. */
+      isUnshipOnly: boolean;
+      /** Distinct allocations whose commitment must be re-checked after the unship. */
+      allocationsToRecheck: string[];
+    };
+
+/**
+ * Decide whether a revision is legal and what the replacement shipment should be.
+ *
+ * Shares rejectOnRowState with planShipmentEdit, so the two can never disagree
+ * about what a revisable shipment is — with ONE addition that only applies here:
+ * every row must still be `invoice_required`. rejectOnRowState already refuses an
+ * invoiced shipment, but a row can be `unpaid` with a null invoice_id (a
+ * `record`-source invoice that was later removed), and reversing that would
+ * restock beer somebody has already been billed for.
+ */
+export function planShipmentRevision(
+  rows: ShipmentEditRow[],
+  patch: ShipmentRevisionPatch,
+): ShipmentRevisionPlan {
+  // Order matters. rejectOnRowState answers "payment has already been recorded"
+  // for an `unpaid` row, which is true of an EDIT but unhelpful here — for a
+  // revision the actionable fact is that an invoice is in the way and can be
+  // cancelled. So the revision's own status rule is asked first, after the two
+  // conditions that are about the row being the wrong KIND of thing entirely and
+  // for which "cancel the invoice" would be nonsense.
+  if (rows.length === 0) return reject("Shipment not found.");
+  if (rows.some((r) => r.channel === "taproom")) {
+    return reject("Taproom consumption is recorded by the POS sync and cannot be revised here.");
+  }
+  if (rows.some((r) => r.is_phantom === true)) {
+    return reject("Phantom recount rows have no physical shipment to revise.");
+  }
+  if (rows.some((r) => r.status !== "invoice_required")) {
+    return reject(
+      "Only a shipment still waiting to be invoiced can be revised. Cancel its invoice first, on the Export Invoices tab.",
+    );
+  }
+
+  const rowStateError = rejectOnRowState(rows);
+  if (rowStateError) return reject(rowStateError);
+
+  const lines = (patch.lines ?? []).filter((l) => l.variation_id && l.quantity > 0);
+  if (lines.some((l) => !Number.isFinite(l.quantity))) {
+    return reject("Every line needs a real quantity.");
+  }
+
+  // Two lines for the same variation would each be planned against the
+  // allocation separately and the second would see stock the first had not yet
+  // taken. Merging them is the caller's job, so this is an error, not a silent fix.
+  const seen = new Set<string>();
+  for (const l of lines) {
+    if (seen.has(l.variation_id)) {
+      return reject("The same packaging appears twice — combine those lines into one quantity.");
+    }
+    seen.add(l.variation_id);
+  }
+
+  const reason = patch.reason?.trim();
+  if (!reason) {
+    return reject("A reason is required to revise a shipment.");
+  }
+
+  if (patch.channel === "taproom") {
+    return reject("A shipment cannot be converted into taproom consumption.");
+  }
+
+  return {
+    ok: true,
+    lines,
+    reason,
+    isUnshipOnly: lines.length === 0,
+    allocationsToRecheck: [...new Set(rows.map((r) => r.allocation_id).filter((a): a is string => !!a))],
+  };
+}
+
+/**
+ * Cheap client-side mirror for showing or hiding the Revise affordance. Stricter
+ * than isShipmentEditable by exactly the invoice_required rule above.
+ */
+export function isShipmentRevisable(rows: ShipmentEditRow[]): boolean {
+  return rejectOnRowState(rows) === null && rows.every((r) => r.status === "invoice_required");
 }

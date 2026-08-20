@@ -28,7 +28,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveProductSku } from "@/lib/square/skuMappings";
-import { fetchCurrentCounts, receiveStock } from "@/lib/square/inventory";
+import { fetchCurrentCounts, receiveStock, removeStock } from "@/lib/square/inventory";
 
 const COUNT_EPS = 1e-6;
 
@@ -224,6 +224,88 @@ export async function restoreSubstitutedInventory(
       const message = e instanceof Error ? e.message : String(e);
       await supabase.from("invoice_sku_substitutions").update({ restore_error: message }).eq("id", row.id);
       out.warnings.push(`Square credit failed for ${variationId}: ${message}`);
+    }
+  }
+  return out;
+}
+
+
+export interface ReverseOutcome {
+  reversed: number;
+  warnings: string[];
+}
+
+/**
+ * Take back the credits this invoice's substituted lines received, because the
+ * invoice has been cancelled.
+ *
+ * The credit only ever existed to offset a deduction Square made for a borrowed
+ * item at send. Cancelling the invoice unmakes that deduction — Square restocks
+ * the borrowed units itself — and the credit is then an unmatched addition,
+ * leaving Square over by exactly the credited quantity. Removing it restores the
+ * pairing the credit was always half of.
+ *
+ * Mirrors restoreSubstitutedInventory in every respect that matters:
+ *
+ *  * only rows that were actually CREDITED are eligible (`restored_at not null`),
+ *    so a credit that failed or was never attempted is never "taken back";
+ *  * once-only, guarded by `reversed_at`;
+ *  * the count is read back and the delta checked, because Square accepts a
+ *    write against an object it does not have and returns no error;
+ *  * it never throws. A cancel that reached Square has already happened, and
+ *    failing the response would tell the operator their invoice is still live
+ *    when it demonstrably is not. A reversal that did not land is recorded on
+ *    the row as `reverse_error` and surfaced as a warning for a human.
+ */
+export async function reverseSubstitutedInventory(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  occurredAt: string = new Date().toISOString(),
+): Promise<ReverseOutcome> {
+  const out: ReverseOutcome = { reversed: 0, warnings: [] };
+
+  const { data: rows, error } = await supabase
+    .from("invoice_sku_substitutions")
+    .select("id, square_variation_id, quantity")
+    .eq("invoice_id", invoiceId)
+    .not("restored_at", "is", null)
+    .is("reversed_at", null);
+  if (error) throw new Error(error.message);
+  if (!rows?.length) return out;
+
+  for (const row of rows) {
+    const variationId = row.square_variation_id as string;
+    // The credit was applied in whole units (restoreSubstitutedInventory rounds
+    // and skips anything under one), so the reversal uses the same rounding and
+    // takes back exactly what went in.
+    const units = Math.round(Number(row.quantity));
+    if (units < 1) continue;
+
+    try {
+      const before = (await fetchCurrentCounts([variationId])).get(variationId) ?? null;
+      await removeStock(variationId, units, occurredAt);
+      const after = (await fetchCurrentCounts([variationId])).get(variationId) ?? null;
+
+      const landed = before != null && after != null && Math.abs(before - after - units) <= COUNT_EPS;
+      if (!landed) {
+        const detail = `removed ${units}, Square went from ${before ?? "no count"} to ${after ?? "no count"}`;
+        await supabase
+          .from("invoice_sku_substitutions")
+          .update({ reverse_error: detail })
+          .eq("id", row.id);
+        out.warnings.push(`Square credit NOT taken back for ${variationId}: ${detail}. Square is over by ${units} units until someone corrects it.`);
+        continue;
+      }
+
+      await supabase
+        .from("invoice_sku_substitutions")
+        .update({ reversed_at: occurredAt, reverse_error: null })
+        .eq("id", row.id);
+      out.reversed++;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      await supabase.from("invoice_sku_substitutions").update({ reverse_error: message }).eq("id", row.id);
+      out.warnings.push(`Square credit could not be taken back for ${variationId}: ${message}. Square is over by ${units} units until someone corrects it.`);
     }
   }
   return out;

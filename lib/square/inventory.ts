@@ -119,6 +119,50 @@ export async function receiveStock(
   }
 }
 
+/**
+ * Take units back OUT of stock as a relative ADJUSTMENT (IN_STOCK → NONE) —
+ * the exact inverse of receiveStock, and the only thing it is for.
+ *
+ * A substitution credit is paired 1:1 with a deduction Square made for a
+ * borrowed item (see lib/production/invoiceSkuSubstitutions). Cancelling that
+ * invoice unmakes the deduction, which leaves the credit standing on its own and
+ * Square over-counted by exactly the credited quantity. This undoes the credit,
+ * not the deduction — Square handles its own.
+ *
+ * Same reasoning as receiveStock for the push gate: this states a DELTA and
+ * cannot overwrite Square's absolute count, so it is deliberately not behind it.
+ * Nothing else may reuse this to sneak an absolute push past that gate.
+ */
+export async function removeStock(
+  variationId: string,
+  quantity: number,
+  occurredAt: string,
+): Promise<void> {
+  const locationId = squareLocationId();
+  const res = await squarePost<{ errors?: Array<{ detail?: string }> }>(
+    "/inventory/changes/batch-create",
+    {
+      idempotency_key: crypto.randomUUID(),
+      changes: [
+        {
+          type: "ADJUSTMENT",
+          adjustment: {
+            catalog_object_id: variationId,
+            location_id: locationId,
+            quantity: String(quantity),
+            from_state: "IN_STOCK",
+            to_state: "NONE",
+            occurred_at: occurredAt,
+          },
+        },
+      ],
+    },
+  );
+  if (res.errors?.length) {
+    throw new Error(res.errors[0].detail ?? "Square inventory adjustment failed");
+  }
+}
+
 interface OrderLineItem {
   uid?: string;
   catalog_object_id?: string;

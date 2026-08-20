@@ -30,9 +30,11 @@ describe("exportStatusForLedger", () => {
     expect(exportStatusForLedger("open")).toBe("unpaid");
     expect(exportStatusForLedger("partial")).toBe("unpaid");
   });
-  it("targets nothing (null) for draft/voided/unknown", () => {
+  it("targets 'invoice_required' when voided, releasing the shipment to be re-invoiced", () => {
+    expect(exportStatusForLedger("voided")).toBe("invoice_required");
+  });
+  it("targets nothing (null) for draft/unknown", () => {
     expect(exportStatusForLedger("draft")).toBeNull();
-    expect(exportStatusForLedger("voided")).toBeNull();
     expect(exportStatusForLedger("unknown")).toBeNull();
   });
 });
@@ -89,13 +91,34 @@ describe("cascadeExportTransactionsStatus", () => {
     expect(calls.filters).toContainEqual({ method: "eq", args: ["status", "invoice_required"] });
   });
 
-  it("touches nothing for draft/voided/unknown ledger statuses", async () => {
+  it("touches nothing for draft/unknown ledger statuses", async () => {
     const { client, calls } = exportTransactionsUpdateStub({ returned: [] });
 
     const updated = await cascadeExportTransactionsStatus(client, "inv-3", "draft");
 
     expect(updated).toBe(0);
     expect(calls.filters).toEqual([]);
+  });
+
+  it("releases unpaid rows back to invoice_required and clears invoice_id when voided", async () => {
+    const { client, calls } = exportTransactionsUpdateStub({ returned: [{ id: "t1" }, { id: "t2" }] });
+
+    const updated = await cascadeExportTransactionsStatus(client, "inv-4", "voided");
+
+    expect(updated).toBe(2);
+    expect(calls.payload).toEqual({ status: "invoice_required", invoice_id: null });
+    expect(calls.filters).toContainEqual({ method: "eq", args: ["invoice_id", "inv-4"] });
+  });
+
+  it("only releases rows that are still unpaid, so a full refund's paid rows survive", async () => {
+    // REFUNDED maps to `voided` too. Those rows are 'paid' and writeRefundReturn
+    // finds them BY invoice_id — releasing them would regress a settled row and
+    // orphan the return. The status filter is the only thing separating the two.
+    const { client, calls } = exportTransactionsUpdateStub({ returned: [] });
+
+    await cascadeExportTransactionsStatus(client, "inv-5", "voided");
+
+    expect(calls.filters).toContainEqual({ method: "eq", args: ["status", "unpaid"] });
   });
 });
 
@@ -210,7 +233,15 @@ function voidPathStub(opts: {
         update: (payload: Record<string, unknown>) => {
           opts.updates.push({ table, payload });
           const error = opts.updateError ? { message: opts.updateError } : null;
-          return { eq: () => Promise.resolve({ error }) };
+          // `invoices` and `batch_allocations` end at a single .eq(); the
+          // export_transactions release chains .eq().eq().select(). Thenable so
+          // both shapes resolve off the same object.
+          const chain = {
+            eq: () => chain,
+            select: () => Promise.resolve({ data: [], error }),
+            then: (resolve: (v: { error: unknown }) => unknown) => Promise.resolve({ error }).then(resolve),
+          };
+          return chain;
         },
       };
     },

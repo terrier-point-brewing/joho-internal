@@ -15,12 +15,23 @@ export const MISSING_SQUARE_STATUS = "DELETED";
 /**
  * Target `export_transactions.status` for a given ledger status, or null when
  * the status should not touch export transactions. `paid` settles the invoice's
- * lines; `open`/`partial` mean it's out (unpaid). draft/voided/unknown are
- * left alone (the orchestrator never regresses a paid row).
+ * lines; `open`/`partial` mean it's out (unpaid); `voided` RELEASES them back to
+ * `invoice_required` so the shipment can be re-invoiced. draft/unknown are left
+ * alone.
+ *
+ * `voided` covers three different real events — our own Cancel Invoice action, a
+ * cancel or delete done in the Square dashboard, and a FULL REFUND (see
+ * mapSquareInvoiceStatus). Only the first two should release anything, and what
+ * separates them is the row's own status, not the invoice's: a refunded
+ * invoice's rows are `paid`, and the release below touches `unpaid` rows only.
+ * That is the whole guard — see cascadeExportTransactionsStatus.
  */
-export function exportStatusForLedger(ledger: InvoiceStatus): "paid" | "unpaid" | null {
+export function exportStatusForLedger(
+  ledger: InvoiceStatus,
+): "paid" | "unpaid" | "invoice_required" | null {
   if (ledger === "paid") return "paid";
   if (ledger === "open" || ledger === "partial") return "unpaid";
+  if (ledger === "voided") return "invoice_required";
   return null;
 }
 
@@ -32,7 +43,7 @@ export function exportStatusForLedger(ledger: InvoiceStatus): "paid" | "unpaid" 
  * previously only the reconcile path did, so an invoice that flipped to paid
  * via a plain Square sync (no reconcile in between) left its shipments stuck
  * on Unpaid even though the invoice ledger correctly showed Paid.
- * draft/voided/unknown never touch export_transactions; paid/open/partial do.
+ * draft/unknown never touch export_transactions; paid/open/partial/voided do.
  */
 export async function cascadeExportTransactionsStatus(
   supabase: SupabaseClient,
@@ -58,6 +69,27 @@ export async function cascadeExportTransactionsStatus(
       .eq("status", "invoice_required")
       .select("id");
     if (error) throw new Error(`export_transactions unpaid update failed: ${error.message}`);
+    return data?.length ?? 0;
+  }
+  if (exportTarget === "invoice_required") {
+    // The invoice is dead, so its shipments go back to the Export tab's Invoice
+    // Required queue and `invoice_id` is cleared — a row still pointing at a
+    // voided invoice would be read as an invoiced one by
+    // selectPendingDeductionRecipes, which decides from the invoice's line items
+    // whether Square still owes a deduction.
+    //
+    // `.eq("status", "unpaid")` is load-bearing, not defensive. A FULL REFUND
+    // also lands here (REFUNDED maps to `voided`), and its rows are `paid` — the
+    // beer shipped and settled, the reversal is its own negative row written by
+    // writeRefundReturn, which finds those rows BY invoice_id. Releasing them
+    // would both regress a settled row and orphan the return.
+    const { data, error } = await supabase
+      .from("export_transactions")
+      .update({ status: "invoice_required", invoice_id: null })
+      .eq("invoice_id", invoiceId)
+      .eq("status", "unpaid")
+      .select("id");
+    if (error) throw new Error(`export_transactions release failed: ${error.message}`);
     return data?.length ?? 0;
   }
   return 0;
@@ -288,6 +320,14 @@ async function voidMissingInvoice(
     .eq("id", inv.id);
   if (ledgerErr) throw new Error(`ledger void failed: ${ledgerErr.message}`);
   base.updatedLedger = true;
+
+  // ── Export transactions ──────────────────────────────────────────────────────
+  // An invoice deleted in the Square dashboard leaves its shipments with nothing
+  // billing them, so they go back to Invoice Required exactly as our own Cancel
+  // Invoice action would leave them. Previously this path voided the ledger row
+  // and stopped, stranding the shipments on Unpaid against an invoice that no
+  // longer existed anywhere.
+  base.updatedExportTransactions = await cascadeExportTransactionsStatus(supabase, inv.id, "voided");
 
   // ── Deposit allocation ───────────────────────────────────────────────────────
   // A deleted deposit invoice reopens the allocation (same as CANCELED); no
