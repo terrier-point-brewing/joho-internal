@@ -165,3 +165,63 @@ describe("allocateFreightByWeight — yeast bricks now weigh something", () => {
     expect(dollars[1]).toBeCloseTo(50 * (176.37 / 1776.37), 1);
   });
 });
+
+describe("allocateFreightByWeight — packaging weighs by the piece", () => {
+  it("splits a mixed packaging receipt by weight, not piece count", () => {
+    // The defect this exists to fix: 4,000 cans (0.55 oz) and 5,000 labels
+    // (0.02 oz) on one invoice. By count the labels take 5/9 of the freight;
+    // by weight they take under 5%.
+    const { dollars, guessed } = allocateFreightByWeight(
+      [
+        { unit: "", quantity: 4000, label: "16oz Blank", ouncesPerPiece: 0.55 },
+        { unit: "", quantity: 5000, label: "CBC Oktoberfest Label", ouncesPerPiece: 0.02 },
+      ],
+      900
+    );
+    expect(guessed).toEqual([]);
+    expect(dollars[0] + dollars[1]).toBeCloseTo(900, 2);
+    expect(dollars[1]).toBeLessThan(45);
+    // What the old count split would have charged the labels.
+    expect(dollars[1]).toBeLessThan(900 * (5000 / 9000));
+  });
+
+  it("reports the item with no recorded weight and still splits the rest", () => {
+    const { dollars, guessed } = allocateFreightByWeight(
+      [
+        { unit: "", quantity: 100, label: "16oz Blank", ouncesPerPiece: 0.55 },
+        { unit: "", quantity: 100, label: "Mystery Carton", ouncesPerPiece: null },
+      ],
+      100
+    );
+    expect(guessed).toEqual([{ label: "Mystery Carton", unit: "" }]);
+    expect(dollars[0] + dollars[1]).toBeCloseTo(100, 2);
+  });
+
+  it("takes precedence over the unit lookup", () => {
+    // If a caller states the weight, that wins — the unit string is not
+    // consulted at all.
+    const { dollars } = allocateFreightByWeight(
+      [
+        { unit: "lbs", quantity: 1, ouncesPerPiece: 1 },
+        { unit: "lbs", quantity: 1 },
+      ],
+      17
+    );
+    expect(dollars).toEqual([1, 16]);
+  });
+
+  it("a directly-weighed line never becomes the majority unit", () => {
+    // Packaging passes unit:"" alongside a weight. If that empty string could
+    // win the majority vote, an unweighed line would inherit a nonsense factor.
+    const { dollars } = allocateFreightByWeight(
+      [
+        { unit: "", quantity: 1, label: "Weighed", ouncesPerPiece: 100 },
+        { unit: "", quantity: 1, label: "Weighed too", ouncesPerPiece: 100 },
+        { unit: "lbs", quantity: 1, label: "Malt" },
+      ],
+      216
+    );
+    // 100 + 100 + 16 oz total.
+    expect(dollars).toEqual([100, 100, 16]);
+  });
+});

@@ -5,6 +5,18 @@ export interface FreightLineInput {
   quantity: number;
   /** Optional name, so a guessed line can be reported by something other than its index. */
   label?: string;
+  /**
+   * Ounces per one of this line, when the caller knows it directly.
+   *
+   * Ingredients derive weight from their unit string — "lbs" is 16 oz and
+   * always will be. Packaging cannot: every packaging item is counted in
+   * pieces, and a piece is a can or a keg or a label, which is a fact about
+   * the item rather than about its unit. So packaging_items carries its own
+   * unit_weight_oz and passes it here.
+   *
+   * Takes precedence over the unit lookup. Null or undefined falls through.
+   */
+  ouncesPerPiece?: number | null;
 }
 
 export interface FreightAllocation {
@@ -40,13 +52,16 @@ export function allocateFreightByWeight(
 ): FreightAllocation {
   if (lines.length === 0) return { dollars: [], guessed: [] };
 
-  const factors = lines.map((l) => ouncesPerUnit(l.unit));
+  const factors = lines.map((l) => l.ouncesPerPiece ?? ouncesPerUnit(l.unit));
 
   // Majority matched unit (by count, ties broken by first occurrence).
   const counts = new Map<string, number>();
   const order: string[] = [];
   lines.forEach((l, i) => {
     if (factors[i] == null) return;
+    // A line weighed via ouncesPerPiece has no meaningful unit string to
+    // contribute — packaging passes "" — so it must not become the majority.
+    if (l.ouncesPerPiece != null) return;
     const norm = normalizeUnit(l.unit);
     if (!counts.has(norm)) { counts.set(norm, 0); order.push(norm); }
     counts.set(norm, counts.get(norm)! + 1);
