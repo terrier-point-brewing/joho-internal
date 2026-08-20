@@ -6,7 +6,8 @@ import { fetchJson, useContractPartnersQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import InvoicePreviewModal from "./InvoicePreviewModal";
 import EditShipmentModal from "./EditShipmentModal";
-import { isShipmentEditable } from "@/lib/production/shipmentEdit";
+import ReviseShipmentModal from "./ReviseShipmentModal";
+import { isShipmentEditable, isShipmentRevisable } from "@/lib/production/shipmentEdit";
 import { CHANNEL_COLOR } from "../lib/categoryColors";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -348,6 +349,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
   const [selected, setSelected] = useState<{ customerId: string; ids: Set<string> } | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<InvoiceGroup | null>(null);
+  const [revising, setRevising] = useState<string | null>(null);
   const [showMarkPaid, setShowMarkPaid] = useState(false);
   const [mpSource, setMpSource] = useState<"quickbooks" | "other">("quickbooks");
   const [mpRef, setMpRef] = useState("");
@@ -622,6 +624,24 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                         Edit
                       </button>
                     )}
+                    {/* Revise is offered only for a single-shipment group. A
+                        group can span several shipment_ids (they were invoiced
+                        together), and a revision is scoped to ONE shipment
+                        because the unship + rebook has to reverse a coherent
+                        physical drop. */}
+                    {(() => {
+                      const shipmentIds = [...new Set(group.rows.map((r) => r.shipment_id))];
+                      if (shipmentIds.length !== 1) return null;
+                      if (!isShipmentRevisable(group.rows)) return null;
+                      return (
+                        <button
+                          onClick={() => setRevising(shipmentIds[0])}
+                          className="btn-secondary"
+                        >
+                          Revise
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -801,6 +821,17 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
           onSaved={() => {
             setEditing(null);
             qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
+          }}
+        />
+      )}
+
+      {revising && (
+        <ReviseShipmentModal
+          shipmentId={revising}
+          onClose={() => setRevising(null)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
+            qc.invalidateQueries({ queryKey: queryKeys.production.coldStorage() });
           }}
         />
       )}

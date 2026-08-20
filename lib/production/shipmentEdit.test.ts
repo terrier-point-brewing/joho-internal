@@ -9,7 +9,9 @@
 import { describe, it, expect } from "vitest";
 import {
   planShipmentEdit,
+  planShipmentRevision,
   isShipmentEditable,
+  isShipmentRevisable,
   allowedTargetChannels,
   type ShipmentEditRow,
 } from "./shipmentEdit";
@@ -263,5 +265,121 @@ describe("isShipmentEditable", () => {
       const plan = planShipmentEdit(rows, { channel: "wholesale", edit_reason: "x" });
       expect(plan.ok).toBe(false);
     }
+  });
+});
+
+
+// ── planShipmentRevision ────────────────────────────────────────────────────
+//
+// A revision changes what physically went out, so it is an unship + rebook, not
+// a column update. These cover the guards that decide whether that is allowed;
+// the unship itself is public.reverse_shipment and the rebook is the ordinary
+// ship path.
+
+const LINE = { variation_id: "var-half-keg", quantity: 8 };
+
+/** Narrow to the success branch, failing loudly with the guard message if not. */
+function okRevision(plan: ReturnType<typeof planShipmentRevision>) {
+  if (!plan.ok) throw new Error(`expected an allowed revision, got: ${plan.error}`);
+  return plan;
+}
+
+describe("planShipmentRevision", () => {
+  it("allows a quantity change on an uninvoiced shipment", () => {
+    const plan = okRevision(planShipmentRevision([row()], { lines: [LINE], reason: "shipped 8 not 10" }));
+    expect(plan.lines).toEqual([LINE]);
+    expect(plan.isUnshipOnly).toBe(false);
+  });
+
+  it("treats an empty line list as an unship rather than an error", () => {
+    // The shipment never happened. planShipmentEdit's own reject text tells the
+    // operator to "unship and rebook" — this is the unship half of that.
+    const plan = okRevision(planShipmentRevision([row()], { lines: [], reason: "never left the building" }));
+    expect(plan.isUnshipOnly).toBe(true);
+  });
+
+  it("requires a reason", () => {
+    const plan = planShipmentRevision([row()], { lines: [LINE], reason: "   " });
+    expect(plan.ok).toBe(false);
+  });
+
+  it("refuses a shipment that is no longer invoice_required", () => {
+    // Stricter than isShipmentEditable by exactly this rule: a row can be
+    // 'unpaid' with a null invoice_id, and reversing that would restock beer
+    // somebody has already been billed for.
+    const plan = planShipmentRevision([row({ status: "unpaid" })], { lines: [LINE], reason: "wrong qty" });
+    expect(plan.ok).toBe(false);
+    if (!plan.ok) expect(plan.error).toMatch(/Cancel its invoice first/);
+  });
+
+  it("refuses an invoiced shipment", () => {
+    const plan = planShipmentRevision([row({ invoice_id: "inv-1" })], { lines: [LINE], reason: "wrong qty" });
+    expect(plan.ok).toBe(false);
+  });
+
+  it("refuses a phantom row", () => {
+    const plan = planShipmentRevision([row({ is_phantom: true })], { lines: [LINE], reason: "wrong qty" });
+    expect(plan.ok).toBe(false);
+  });
+
+  it("refuses taproom consumption", () => {
+    const plan = planShipmentRevision([row({ channel: "taproom", status: "invoice_required" })], {
+      lines: [LINE],
+      reason: "wrong qty",
+    });
+    expect(plan.ok).toBe(false);
+  });
+
+  it("refuses the same packaging twice instead of silently merging it", () => {
+    // Two lines for one variation would each be planned against the allocation
+    // separately, and the second would see stock the first had not yet taken.
+    const plan = planShipmentRevision([row()], {
+      lines: [LINE, { variation_id: "var-half-keg", quantity: 2 }],
+      reason: "wrong qty",
+    });
+    expect(plan.ok).toBe(false);
+    if (!plan.ok) expect(plan.error).toMatch(/twice/);
+  });
+
+  it("drops zero and negative quantities rather than booking them", () => {
+    const plan = okRevision(
+      planShipmentRevision([row()], {
+        lines: [LINE, { variation_id: "var-sixtel", quantity: 0 }],
+        reason: "dropped the sixtels",
+      }),
+    );
+    expect(plan.lines).toEqual([LINE]);
+  });
+
+  it("collects the allocations whose commitment must be re-checked", () => {
+    const plan = okRevision(
+      planShipmentRevision(
+        [row({ allocation_id: "a1" }), row({ id: "r2", allocation_id: "a1" }), row({ id: "r3", allocation_id: "a2" })],
+        { lines: [LINE], reason: "wrong qty" },
+      ),
+    );
+    expect(plan.allocationsToRecheck.sort()).toEqual(["a1", "a2"]);
+  });
+
+  it("allows entering contract_brewing, which a plain edit refuses", () => {
+    // The edit refuses it because credits would be carried across unplanned. A
+    // revision replans them from scratch, which is exactly what that reject asks for.
+    const plan = planShipmentRevision([row()], {
+      lines: [LINE],
+      reason: "billed as contract",
+      channel: "contract_brewing",
+    });
+    expect(plan.ok).toBe(true);
+  });
+});
+
+describe("isShipmentRevisable", () => {
+  it("is true for an uninvoiced shipment awaiting an invoice", () => {
+    expect(isShipmentRevisable([row()])).toBe(true);
+  });
+
+  it("is false once the shipment is sent, even where isShipmentEditable is true", () => {
+    const sent = [row({ status: "unpaid" })];
+    expect(isShipmentRevisable(sent)).toBe(false);
   });
 });
