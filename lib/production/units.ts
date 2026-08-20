@@ -61,6 +61,11 @@ const OZ_PER_UNIT: Record<string, number> = {
 
   // Conventional packaging weights, for freight apportionment only.
   brick: 17.637, bricks: 17.637,   // 500 g dry yeast brick
+  // Liquid yeast and the like, taken at the density of water. This is the
+  // freight weight ONLY — `liters` is a volume in the vocabulary and keeps its
+  // own base_factor of 33.814 fl oz, which is a real constant rather than an
+  // assumption about what is in the container.
+  liter: 35.274, liters: 35.274, litre: 35.274, litres: 35.274, l: 35.274,
 };
 
 /** Lowercase, trim, drop a trailing period. `"Lbs."` and `" LBS "` are both `lbs`. */

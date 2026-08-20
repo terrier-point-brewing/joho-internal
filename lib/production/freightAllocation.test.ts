@@ -152,14 +152,16 @@ describe("allocateFreightByWeight — yeast bricks now weigh something", () => {
     expect(dollars[1]).toBeCloseTo(150 * (35.274 / 8035.274), 1);
   });
 
-  it("still reports a guess for liters, which nobody has given a density", () => {
-    const { guessed } = allocateFreightByWeight(
+  it("weighs liters as water, so no guess is reported", () => {
+    const { guessed, dollars } = allocateFreightByWeight(
       [
         { unit: "lbs", quantity: 100, label: "Malt" },
         { unit: "liters", quantity: 5, label: "Liquid Yeast" },
       ],
       50
     );
-    expect(guessed).toEqual([{ label: "Liquid Yeast", unit: "liters" }]);
+    expect(guessed).toEqual([]);
+    // 5 L = 176.37 oz against 1600 oz of malt.
+    expect(dollars[1]).toBeCloseTo(50 * (176.37 / 1776.37), 1);
   });
 });

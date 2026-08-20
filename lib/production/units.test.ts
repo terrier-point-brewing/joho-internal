@@ -37,9 +37,23 @@ describe("ouncesPerUnit", () => {
     expect(ouncesPerUnit("kg")).toBeCloseTo(35.274, 3);
   });
 
-  it("returns null rather than guessing at a non-weight", () => {
-    expect(ouncesPerUnit("liters")).toBeNull();
+  it("returns null for a unit with no assumed weight at all", () => {
     expect(ouncesPerUnit("")).toBeNull();
+    expect(ouncesPerUnit("pallets")).toBeNull();
+  });
+
+  it("weighs a liter as water, for freight only", () => {
+    expect(ouncesPerUnit("liters")).toBeCloseTo(35.274, 3);
+    expect(ouncesPerUnit("l")).toBe(ouncesPerUnit("liters"));
+  });
+
+  it("keeps the liter's VOLUME factor separate from its assumed weight", () => {
+    // 33.814 fl oz is what a liter is. 35.274 oz is what we assume it weighs.
+    // Conflating them would let a density assumption rewrite a stock figure.
+    const liters = VOCAB.find((u) => u.code === "liters")!;
+    expect(liters.base_factor).toBeCloseTo(33.814, 3);
+    expect(liters.dimension).toBe("volume");
+    expect(conversionRatio("liters", "lbs", VOCAB)).toBeNull();
   });
 
   it("knows a dry yeast brick is 500 g, for freight only", () => {
