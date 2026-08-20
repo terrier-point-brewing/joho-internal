@@ -12,7 +12,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { id } = await params;
   const body = await req.json();
-  const { type, name, partner_id, supplier_id, unit_cost_usd, volume_fl_oz, can_count, is_default } = body;
+  const { type, name, partner_id, supplier_id, unit_cost_usd, volume_fl_oz, can_count, unit_weight_oz, is_default } = body;
 
   // Non-keg types: one default per type — clear any existing default of this type first (excluding self)
   if (is_default && type !== "keg") {
@@ -29,6 +29,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       unit_cost_usd: unit_cost_usd != null ? parseFloat(unit_cost_usd) : null,
       volume_fl_oz: volume_fl_oz != null ? parseFloat(volume_fl_oz) : null,
       can_count: can_count != null ? parseInt(can_count) : null,
+      unit_weight_oz: unit_weight_oz != null && unit_weight_oz !== "" ? parseFloat(unit_weight_oz) : null,
       is_default: is_default ?? false,
     })
     .eq("id", id)

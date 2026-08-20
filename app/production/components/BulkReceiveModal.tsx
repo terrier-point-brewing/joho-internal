@@ -9,6 +9,8 @@ export interface BulkReceiveItem {
   id: string;
   name: string;
   unit: string | null;
+  /** Packaging only: ounces per piece. Ingredients derive weight from `unit`. */
+  unitWeightOz?: number | null;
 }
 
 export interface BulkReceiveModalProps {
@@ -53,6 +55,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
         unit: itemType === "ingredient" ? item?.unit ?? "" : "",
         quantity: parseFloat(r.quantity) || 0,
         label: item?.name ?? "this line",
+        ouncesPerPiece: itemType === "packaging" ? item?.unitWeightOz ?? null : null,
       };
     }),
     freightNum
@@ -120,7 +123,9 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
               <tr className="border-b border-line bg-surface/50 text-left">
                 <th className="px-3 py-2 text-xs font-medium text-muted">Item</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right">Quantity</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted">Unit</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted">
+                  {itemType === "ingredient" ? "Unit" : "Weight / pc"}
+                </th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Total Cost ($)</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Allocated Freight</th>
                 <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Purchase $/Unit</th>
@@ -164,7 +169,11 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
                       />
                     </td>
                     <td className="px-3 py-1.5 text-secondary whitespace-nowrap">
-                      {itemsById.get(row.itemId)?.unit || "—"}
+                      {itemType === "ingredient"
+                        ? itemsById.get(row.itemId)?.unit || "—"
+                        : itemsById.get(row.itemId)?.unitWeightOz != null
+                          ? `${itemsById.get(row.itemId)!.unitWeightOz} oz`
+                          : "—"}
                     </td>
                     <td className="px-2 py-1.5">
                       <input

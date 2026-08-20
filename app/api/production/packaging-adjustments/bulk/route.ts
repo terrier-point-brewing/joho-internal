@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const { data: itemsData, error: fetchErr } = await supabase
     .from("packaging_items")
-    .select("id, stock_quantity, unit_cost_usd")
+    .select("id, name, stock_quantity, unit_cost_usd, unit_weight_oz")
     .in("id", ids);
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
 
@@ -47,10 +47,19 @@ export async function POST(req: NextRequest) {
   if (missing.length > 0)
     return NextResponse.json({ error: `Packaging item(s) not found: ${missing.join(", ")}` }, { status: 404 });
 
-  // packaging_items has no `unit` column, so every line gets an unmatchable unit —
-  // allocateFreightByWeight's fallback then splits freight by raw quantity.
+  // packaging_items has no `unit` column and never will — every item is counted
+  // in pieces. Weight comes from the item itself instead. An item with no
+  // recorded weight still falls back to a count split, and now says so.
   const { dollars: shippingByLine, guessed: freightGuesses } = allocateFreightByWeight(
-    lines.map((l) => ({ unit: "", quantity: Number(l.quantity), label: l.packaging_item_id })),
+    lines.map((l) => {
+      const item = byId.get(l.packaging_item_id)!;
+      return {
+        unit: "",
+        quantity: Number(l.quantity),
+        label: item.name as string,
+        ouncesPerPiece: item.unit_weight_oz != null ? Number(item.unit_weight_oz) : null,
+      };
+    }),
     freightTotal
   );
 
