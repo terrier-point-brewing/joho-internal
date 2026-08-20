@@ -39,8 +39,21 @@ describe("ouncesPerUnit", () => {
 
   it("returns null rather than guessing at a non-weight", () => {
     expect(ouncesPerUnit("liters")).toBeNull();
-    expect(ouncesPerUnit("bricks")).toBeNull();
     expect(ouncesPerUnit("")).toBeNull();
+  });
+
+  it("knows a dry yeast brick is 500 g, for freight only", () => {
+    expect(ouncesPerUnit("bricks")).toBeCloseTo(500 / 28.3495, 2);
+    expect(ouncesPerUnit("brick")).toBe(ouncesPerUnit("bricks"));
+  });
+
+  it("still refuses to CONVERT bricks — a freight weight is not a stock factor", () => {
+    // The whole point of keeping base_factor null in the vocabulary: knowing
+    // roughly what a brick weighs is enough to split a shipping bill and not
+    // enough to restate someone's inventory.
+    expect(conversionRatio("bricks", "lbs", VOCAB)).toBeNull();
+    expect(conversionRatio("lbs", "bricks", VOCAB)).toBeNull();
+    expect(convertibleTargets("bricks", VOCAB)).toEqual([]);
   });
 });
 
