@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Equipment, BrewBatch, BatchTankAssignment, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
-import { computeTankVolumes } from "@/lib/production/volumeLedger";
+import { computeTankVolumes, hasLedgerActivity } from "@/lib/production/volumeLedger";
 import { BREWHOUSE_BBL, Modal, Field, ModalActions } from "./shared";
 import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
@@ -229,10 +229,30 @@ export default function BrewStatusTab() {
 
   // Ledger: current volume per batch per tank, derived from transfer history
   const tankVolumesByBatch: Record<string, Record<string, number>> = {};
+  // Batches the ledger has anything to say about. A batch missing from this set
+  // has no recorded movements at all, so a tile showing it may fall back to the
+  // batch's headline volume; a batch IN the set is described entirely by
+  // tankVolumesByBatch, and a tank absent from that map holds nothing.
+  const batchesWithLedger = new Set<string>();
   for (const b of batches) {
-    const vols = computeTankVolumes(b.id, Number(b.volume_bbl ?? 0), transfers);
-    if (Object.keys(vols).length > 0) tankVolumesByBatch[b.id] = vols;
+    tankVolumesByBatch[b.id] = computeTankVolumes(b.id, Number(b.volume_bbl ?? 0), transfers);
+    if (hasLedgerActivity(b.id, transfers)) batchesWithLedger.add(b.id);
   }
+
+  // Volume this batch holds in one specific tank.
+  //
+  // The fallback to the batch's headline volume answers "the ledger has never
+  // heard of this batch, so assume it is all here" — true for a batch dropped
+  // straight into a tank with no transfer behind it. It must NOT answer "the
+  // ledger knows this batch but places none of it here": that reads a tank the
+  // ledger says is empty as holding the entire batch, which is how B-059 and
+  // B-060 each appeared in two tanks at once after a 0 BBL transfer.
+  const volumeInTank = (batchId: string | undefined, headlineVol: number, tankId: string): number => {
+    if (!batchId) return 0;
+    const known = tankVolumesByBatch[batchId]?.[tankId];
+    if (known != null) return known;
+    return batchesWithLedger.has(batchId) ? 0 : headlineVol;
+  };
 
   // Next planned batch per tank (for empty tank tiles) — earliest future uncancelled entry per equipment_id
   const nextPlannedByTank = React.useMemo(() => {
@@ -531,7 +551,7 @@ export default function BrewStatusTab() {
               const isColdStorage = tank.type === "cold_storage";
               const isBacklog = tank.type === "backlog";
               const isUnconstrained = UNCONSTRAINED_EQUIPMENT_TYPES.includes(tank.type);
-              const volFor = (b: typeof batch) => b ? (tankVolumesByBatch[b.id]?.[tank.id] ?? Number(b.volume_bbl ?? 0)) : 0;
+              const volFor = (b: typeof batch) => volumeInTank(b?.id, Number(b?.volume_bbl ?? 0), tank.id);
               const ledgerVol = volFor(batch) + combinedAssignments.reduce((s, a) => s + volFor(a.brew_batches), 0);
 
               return (
@@ -922,7 +942,7 @@ export default function BrewStatusTab() {
                     {isTank && (() => {
                       // Ledger volume in THIS specific tank, summed across every
                       // batch combined into it (may be a partial split per batch).
-                      const volFor = (b: typeof batch) => b ? (tankVolumesByBatch[b.id]?.[tank.id] ?? Number(b.volume_bbl ?? 0)) : 0;
+                      const volFor = (b: typeof batch) => volumeInTank(b?.id, Number(b?.volume_bbl ?? 0), tank.id);
                       const ledgerVol = volFor(batch) + combinedAssignments.reduce((s, a) => s + volFor(a.brew_batches), 0);
                       // Next planned occupant — shown even while this tank is in use, hidden
                       // when it's actually the same batch (e.g. an in-place fermenter → brite move).

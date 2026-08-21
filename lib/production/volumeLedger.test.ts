@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeTankVolumes, computeLocationBreakdown, type LedgerTransfer } from "./volumeLedger";
+import { computeTankVolumes, computeLocationBreakdown, hasLedgerActivity, type LedgerTransfer } from "./volumeLedger";
 
 // Minimal transfer factory — only the fields the ledger math reads.
 function tx(over: Partial<LedgerTransfer>): LedgerTransfer {
@@ -100,5 +100,48 @@ describe("computeLocationBreakdown — conversion-target batch", () => {
     const bd = computeLocationBreakdown("B-038", 25, [conversionInflow], tankTypes, /* isAssigned */ false);
     expect(bd.brite).toBeCloseTo(24.5, 5);
     expect(bd.backlog).toBe(0);
+  });
+});
+
+describe("hasLedgerActivity — separates 'unknown' from 'known to be empty'", () => {
+  const BREWHOUSE = "bh-1";
+
+  it("is false for a batch the ledger has never heard of", () => {
+    expect(hasLedgerActivity("b1", [])).toBe(false);
+    expect(hasLedgerActivity("b1", [tx({ batch_id: "someone-else" })])).toBe(false);
+  });
+
+  it("is true for a batch whose own transfers exist", () => {
+    expect(hasLedgerActivity("b1", [tx({ batch_id: "b1" })])).toBe(true);
+  });
+
+  it("is true for a conversion-born batch, whose only row belongs to the source", () => {
+    expect(hasLedgerActivity("b1", [tx({ batch_id: "src", to_batch_id: "b1" })])).toBe(true);
+  });
+
+  // The B-059 / B-060 shape: a 0 BBL transfer out of the brewhouse. The source
+  // still nets its full volume, the destination nets nothing, and the batch is
+  // assigned to both tanks. computeTankVolumes alone cannot tell a caller that
+  // the destination is genuinely empty rather than simply unrecorded.
+  it("lets a caller tell an empty tank apart from an unrecorded one", () => {
+    const zeroMove = tx({ batch_id: "b1", from_tank_id: BREWHOUSE, to_tank_id: FERM, volume_bbl: 0 });
+    const vols = computeTankVolumes("b1", 20, [zeroMove]);
+
+    expect(vols[BREWHOUSE]).toBeCloseTo(20, 5);
+    expect(vols[FERM]).toBeUndefined();
+    // Because the ledger DOES describe this batch, the undefined above means
+    // "nothing here" — not "fall back to the batch's 20 BBL".
+    expect(hasLedgerActivity("b1", [zeroMove])).toBe(true);
+  });
+
+  it("stays true for a batch drained to zero everywhere — only computeTankVolumes goes quiet", () => {
+    const drained = [
+      tx({ batch_id: "b1", to_tank_id: FERM, volume_bbl: 20, transferred_at: "2026-01-01T00:00:00Z" }),
+      tx({ batch_id: "b1", from_tank_id: FERM, to_tank_id: null, volume_bbl: 20, transferred_at: "2026-01-02T00:00:00Z" }),
+    ];
+    expect(computeTankVolumes("b1", 20, drained)).toEqual({});
+    // Still true: the batch is fully packaged out, not unrecorded. A caller
+    // gating on this reports 0, instead of resurrecting 20 BBL onto its tank.
+    expect(hasLedgerActivity("b1", drained)).toBe(true);
   });
 });
