@@ -72,9 +72,10 @@ export function writebackSourceRef(invoiceId: string, lineItemId: string): strin
  * knowing.
  *
  * Four things must all hold, and each one is load-bearing:
- *  - the invoice is PAID, because Square only decrements at payment. Draining
- *    cold storage for an unpaid invoice would take stock that is still on the
- *    shelf and may never be sold.
+ *  - the invoice has been SENT, because publishing is when Square decrements —
+ *    see SENT_STATUSES, and pendingSquareDeduction, which reads 'unpaid' as
+ *    "sent" for the same reason. Draining cold storage for a DRAFT invoice would
+ *    take stock that is still on the shelf and may never be sold.
  *  - it has NO export transactions, or the Export Bay already drained it and
  *    this would be the second bite.
  *  - it is not one of the app's own invoice types, which is the same guard from

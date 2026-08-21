@@ -230,9 +230,12 @@ describe("reconcileSquareCanInventory (IO)", () => {
     });
   }
 
-  it("plans the loose-equivalent correction but does NOT push it to Square (observe-only)", async () => {
+  it("pushes the loose-equivalent correction and journals it once Square confirms", async () => {
     mockRegularFamilySkus();
-    fetchCounts.mockResolvedValue(new Map([["SQ-BASE", 40]]));
+    // 40 on the way in, 32 on the read-back — Square agreeing that the write landed.
+    fetchCounts
+      .mockResolvedValueOnce(new Map([["SQ-BASE", 40]]))
+      .mockResolvedValueOnce(new Map([["SQ-BASE", 32]]));
     recount.mockResolvedValue(undefined);
     const sink = { reconciliations: [] as unknown[] };
 
@@ -249,7 +252,6 @@ describe("reconcileSquareCanInventory (IO)", () => {
     // 8 loose + 0 packs*4 + 1 case*24 = 32 loose-equivalent; Square was at 40.
     const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"], occurredAt: "2026-07-08T12:00:00Z" });
 
-    // The drift is fully measured and reported...
     expect(res.writes).toEqual([
       expect.objectContaining({
         recipeId: "r1",
@@ -260,13 +262,51 @@ describe("reconcileSquareCanInventory (IO)", () => {
       }),
     ]);
 
-    // ...but nothing is written to Square, and nothing is journalled as applied,
-    // while the push is off. A journal row means "we changed Square"; recording
-    // one for a write we never sent is exactly the lie that hid the stale-link
-    // bug for nine days.
-    expect(recount).not.toHaveBeenCalled();
-    expect(sink.reconciliations).toEqual([]);
+    // The correction is an ABSOLUTE count of the family's loose equivalent, sent
+    // against the BASE variation — packs and cases derive from that pool rather
+    // than holding counts of their own.
+    expect(recount).toHaveBeenCalledWith("SQ-BASE", 32, "2026-07-08T12:00:00Z");
+    expect(res.applied).toBe(1);
+    expect(res.warnings).toEqual([]);
+    expect(sink.reconciliations).toEqual([
+      expect.objectContaining({
+        recipe_id: "r1",
+        base_square_variation_id: "SQ-BASE",
+        cold_storage_cans: 32,
+        square_cans_before: 40,
+        drift: 8,
+      }),
+    ]);
+  });
+
+  it("warns instead of journalling when Square's count did not actually move", async () => {
+    mockRegularFamilySkus();
+    // The POST succeeds and the read-back still says 40. That is the exact shape
+    // of the stale-link bug: Square takes a PHYSICAL_COUNT against a variation it
+    // does not have, returns no error, and changes nothing. A journal row here
+    // would claim a correction that never happened — 1,040 of them, last time.
+    fetchCounts.mockResolvedValue(new Map([["SQ-BASE", 40]]));
+    recount.mockResolvedValue(undefined);
+    const sink = { reconciliations: [] as unknown[] };
+
+    const supabase = fakeSupabase({
+      coldStorageRows: [
+        csRow("r1", "PV-LOOSE", 8, loosePv),
+        csRow("r1", "PV-PACK", 0, packPv),
+        csRow("r1", "PV-CASE", 1, casePv),
+      ],
+      catalogVariationsByItem: { "ITEM-1": baseItemVars },
+      sink,
+    });
+
+    const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"], occurredAt: "2026-07-08T12:00:00Z" });
+
+    expect(recount).toHaveBeenCalledWith("SQ-BASE", 32, "2026-07-08T12:00:00Z");
     expect(res.applied).toBe(0);
+    expect(sink.reconciliations).toEqual([]);
+    expect(res.warnings).toEqual([
+      expect.stringContaining("write NOT verified"),
+    ]);
   });
 
   it("skips a family whose item's matching parent is not inventory-tracked (Be Like Mike)", async () => {
