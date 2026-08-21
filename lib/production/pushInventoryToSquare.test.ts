@@ -28,11 +28,17 @@ describe("selectPushable", () => {
 });
 
 describe("push gate", () => {
-  // A deliberate tripwire. Flipping this on makes cold storage overwrite Square
-  // across every mapped SKU, and the two sides are known to disagree on beers
-  // nobody has adjudicated yet. If this test fails, that decision is being made
-  // — make sure it is being made on purpose.
-  it("is shut", () => {
-    expect(PUSH_TO_SQUARE_ENABLED).toBe(false);
+  // Still a deliberate tripwire, now pointing the other way. It was shut from
+  // 2026-08-03 until 2026-08-20, held by this test while seventeen drifting SKUs
+  // went unadjudicated; it opened once a person had ruled on every one of them
+  // and the drift measured zero across all 61 mapped SKUs.
+  //
+  // If this test fails, someone is shutting the push off again. That is a real
+  // decision, not a cleanup: while it is shut, packaging runs stop reaching
+  // Square but sales and invoices keep deducting, so Square drifts low and
+  // eventually negative — which is precisely how it got to −15 Pace Yourself
+  // 1/6 kegs the last time. Shut it deliberately, and re-open it deliberately.
+  it("is open", () => {
+    expect(PUSH_TO_SQUARE_ENABLED).toBe(true);
   });
 });
