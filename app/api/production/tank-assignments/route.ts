@@ -225,6 +225,52 @@ export async function POST(req: NextRequest) {
           await releaseCommitments(supabase, batch_id);
         }
       }
+
+      // ── Ledger origin row ────────────────────────────────────────────────
+      // A brew turn is the moment beer enters the system, so it gets a ledger
+      // row like every later movement does. Without one the ledger simply had
+      // no record of how the brewhouse got its volume, and computeTankVolumes
+      // had to guess it with a backward-compat seed — a guess that turns any
+      // mis-recorded outbound transfer into a phantom tank occupancy.
+      //
+      // from_tank_id stays null: "Backlog" is a rendering concept keyed off
+      // transfer_type === "brewing" (see BatchLogTab), and pointing at the
+      // Backlog equipment row would make the seed credit it a phantom volume.
+      //
+      // Best-effort: the turn itself (status, history, stock) is already
+      // committed, and a missing ledger row degrades to the old seed behaviour
+      // rather than losing the brew.
+      if (tank.type === "brewhouse") {
+        try {
+          const totalVol = Number(batch?.volume_bbl ?? 0);
+          const turns    = Math.max(1, Number(batch?.turns ?? 1));
+
+          // Cap at the volume not yet on the ledger, so a re-assigned turn or a
+          // batch whose brews were backfilled by hand can never over-credit.
+          const { data: priorOrigins } = await supabase
+            .from("batch_transfers")
+            .select("volume_bbl")
+            .eq("batch_id", batch_id)
+            .eq("transfer_type", "brewing");
+          const alreadyRecorded = (priorOrigins ?? []).reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0);
+          const turnVolume = Math.min(totalVol / turns, totalVol - alreadyRecorded);
+
+          if (turnVolume > 0.001) {
+            await supabase.from("batch_transfers").insert({
+              batch_id,
+              from_tank_id:  null,
+              to_tank_id:    tank_id,
+              volume_bbl:    turnVolume,
+              shrinkage_bbl: 0,
+              transfer_type: "brewing",
+              notes:         `Turn ${turnsCompleted + 1} — brew turn start`,
+              created_by:    currentUser?.id ?? null,
+            });
+          }
+        } catch (originErr) {
+          console.error("[tank-assignments] Ledger origin row failed (turn committed):", originErr);
+        }
+      }
     }
   }
 

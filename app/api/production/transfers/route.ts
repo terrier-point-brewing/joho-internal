@@ -789,6 +789,21 @@ export async function POST(req: NextRequest) {
 
   const totalVolumeForCapacityCheck = lines.reduce((s, l) => s + l.volume_bbl, 0);
 
+  // Zero-volume guard: moving no beer INTO a tank is never a real event. Worse,
+  // it is silently destructive — the source tank keeps its whole ledger volume,
+  // so the partial-transfer branch in reconcileSchedule re-inserts the source
+  // assignment and the batch ends up occupying two tanks at once (B-059 landed
+  // in both B-1 and fermenter 14 this way on 2026-08-21).
+  //
+  // Deliberately keyed on to_tank_id, not from_tank_id: a dump or write-off
+  // leaves via shrinkage with no destination, and must stay allowed.
+  if (to_tank_id && totalVolumeForCapacityCheck <= 0) {
+    return NextResponse.json(
+      { error: "Transfer volume must be greater than zero." },
+      { status: 422 }
+    );
+  }
+
   // Capacity guard: reject before writing anything if destination is a
   // constrained tank and the total transfer volume exceeds its capacity_bbl.
   if (to_tank_id && totalVolumeForCapacityCheck > 0) {

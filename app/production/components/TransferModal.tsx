@@ -244,7 +244,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         const usingExisting = convertTarget === "existing";
         if (usingExisting && !convertToBatchId) { alert("Select a target batch."); return; }
         if (!usingExisting && (!newBeerName.trim() || !newRecipeId)) { alert("Enter a name and recipe for the new batch."); return; }
-        if (!convertBbl) { alert("Enter the volume to convert."); return; }
+        if (!(parseFloat(convertBbl) > 0)) { alert("Enter the volume to convert."); return; }
 
         const res = await fetch("/api/production/transfers", {
           method: "POST",
@@ -264,6 +264,17 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         if (!res.ok) throw new Error((await res.json()).error ?? "Error");
         await onDone();
         onClose();
+        return;
+      }
+
+      // A transfer that moves no beer is never what the brewer meant, and it is
+      // actively harmful: the source keeps its full ledger volume, so the server
+      // reads the move as a partial draw and re-occupies the source tank — the
+      // batch then shows in two tanks at once. The volume box starts empty
+      // (partial is the default mode), so submitting without typing a number is
+      // one click away.
+      if (!isPackagingForm && !(drawBbl > 0)) {
+        alert("Enter the volume to transfer.");
         return;
       }
 

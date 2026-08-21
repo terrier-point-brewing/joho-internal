@@ -16,6 +16,21 @@ export interface LedgerTransfer {
 }
 
 /**
+ * Whether the ledger says anything at all about this batch — its own transfers,
+ * or a sibling's conversion row handing it volume.
+ *
+ * Distinct from `computeTankVolumes(...)` returning `{}`, which conflates two
+ * very different situations: a batch nobody has recorded a movement for, and a
+ * batch whose every tank has been drained to zero. Callers that fall back to the
+ * batch's headline volume when the ledger is silent MUST gate that fallback on
+ * this, or they will paint a batch's full volume onto a tank the ledger knows is
+ * empty (see BrewStatusTab's tank tiles).
+ */
+export function hasLedgerActivity(batchId: string, allTransfers: LedgerTransfer[]): boolean {
+  return allTransfers.some((t) => t.batch_id === batchId || t.to_batch_id === batchId);
+}
+
+/**
  * Compute the volume currently held in each tank for a single batch.
  *
  * Algorithm:
