@@ -15,6 +15,7 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
 import RecipeVariationPicker from "./RecipeVariationPicker";
 import ProductCodeInput from "./ProductCodeInput";
+import { splitBillAgainstBase } from "@/lib/production/recipeLineage";
 import type { ControlsConfig } from "@/lib/table/types";
 
 interface BrewStepTemplateData {
@@ -45,7 +46,7 @@ interface ActivityFormLine {
   vsp: string;
 }
 
-const RECIPE_EMPTY = { beer_name: "", style: "", abv: "", ibu: "", partner_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", notes: "" };
+const RECIPE_EMPTY = { beer_name: "", style: "", abv: "", ibu: "", partner_id: "", base_recipe_id: "", expected_yield_bbl: "", days_brewhouse: "", days_fermenter: "", days_brite: "", notes: "" };
 
 const STAGE_BADGES: Record<"brewhouse" | "fermenter" | "brite", { label: string; badge: string }> = {
   brewhouse: { label: EQ.brewhouse.label, badge: EQ.brewhouse.badge },
@@ -152,6 +153,7 @@ export default function RecipesTab() {
       abv: r.abv != null ? String(r.abv) : "",
       ibu: r.ibu != null ? String(r.ibu) : "",
       partner_id: r.partner_id ?? "",
+      base_recipe_id: r.base_recipe_id ?? "",
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
       days_fermenter: r.days_fermenter != null ? String(r.days_fermenter) : "",
@@ -183,6 +185,11 @@ export default function RecipesTab() {
       abv: r.abv != null ? String(r.abv) : "",
       ibu: r.ibu != null ? String(r.ibu) : "",
       partner_id: r.partner_id ?? "",
+      // Cloning declares the lineage the clone was made for. Cloning a recipe
+      // that is itself derived produces a SIBLING, not a chain — Grapefruit
+      // Pilsner cloned off Orange Pilsner is another Pace Yourself derivative —
+      // which is also the only shape the flat-lineage trigger accepts.
+      base_recipe_id: r.base_recipe_id ?? r.id,
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
       days_fermenter: r.days_fermenter != null ? String(r.days_fermenter) : "",
@@ -243,6 +250,7 @@ export default function RecipesTab() {
         abv: form.abv ? parseFloat(form.abv) : null,
         ibu: form.ibu ? parseInt(form.ibu, 10) : null,
         partner_id: form.partner_id || null,
+        base_recipe_id: form.base_recipe_id || null,
         expected_yield_bbl: form.expected_yield_bbl ? parseFloat(form.expected_yield_bbl) : null,
         days_brewhouse: form.days_brewhouse ? parseInt(form.days_brewhouse) : null,
         days_fermenter: form.days_fermenter ? parseInt(form.days_fermenter) : null,
@@ -328,6 +336,78 @@ export default function RecipesTab() {
     document.getElementById(`recipe-${deepLinkedId}`)?.scrollIntoView({ block: "center" });
   }, [deepLinkedRendered, deepLinkedId]);
 
+  // How many recipes name each one as their base. A recipe with derivatives
+  // cannot itself become derived (the DB trigger keeps lineage one level deep),
+  // and it is also what makes deleting it consequential.
+  const derivedCountById = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of recipes) {
+      if (r.base_recipe_id) counts.set(r.base_recipe_id, (counts.get(r.base_recipe_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [recipes]);
+
+  const recipeById = useMemo(
+    () => new Map(recipes.map((r) => [r.id, r])),
+    [recipes],
+  );
+
+  /** Recipes that may serve as a base: originals only, never the recipe itself. */
+  const baseOptions = useMemo(
+    () => recipes
+      .filter((r) => r.id !== editingId && !r.base_recipe_id)
+      .sort((a, b) => a.beer_name.localeCompare(b.beer_name)),
+    [recipes, editingId],
+  );
+
+  /** True while editing a recipe that other recipes are already based on. */
+  const editingIsABase = Boolean(editingId && (derivedCountById.get(editingId) ?? 0) > 0);
+
+  /**
+   * Sever a recipe's link to its base, leaving a standalone original behind.
+   *
+   * Nothing about the bill changes: a derived recipe already stores the COMPLETE
+   * list of what goes into the beer, and the link only ever told a conversion
+   * which of those lines the parent batch had already paid for. So the recipe
+   * keeps every ingredient it had, and from here on a conversion into it charges
+   * nothing — because there is no longer a base to measure the addition against.
+   */
+  async function breakBaseLink(r: Recipe) {
+    const baseName = recipeById.get(r.base_recipe_id ?? "")?.beer_name ?? "its base";
+    const confirmed = confirm(
+      `Break the link between "${r.beer_name}" and "${baseName}"?\n\n` +
+      `"${r.beer_name}" keeps its full ingredient bill and becomes a standalone recipe. ` +
+      `Converting into it will no longer charge just the additions — future conversions ` +
+      `will charge nothing until it is linked again.`,
+    );
+    if (!confirmed) return;
+
+    const res = await fetch(`/api/production/recipes/${r.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      // Every scalar the recipe already has is echoed back: this PATCH writes the
+      // full row, so omitting them would blank them out.
+      body: JSON.stringify({
+        beer_name: r.beer_name,
+        style: r.style,
+        abv: r.abv,
+        ibu: r.ibu,
+        partner_id: r.partner_id,
+        base_recipe_id: null,
+        expected_yield_bbl: r.expected_yield_bbl,
+        days_brewhouse: r.days_brewhouse,
+        days_fermenter: r.days_fermenter,
+        days_brite: r.days_brite,
+        notes: r.notes,
+      }),
+    });
+    if (!res.ok) {
+      alert((await res.json().catch(() => ({}))).error ?? "Could not break the link");
+      return;
+    }
+    await refresh();
+  }
+
   const partnerOptions = useMemo(() => {
     const names = new Set<string>();
     let hasHouse = false;
@@ -388,6 +468,15 @@ export default function RecipesTab() {
         <div className="space-y-2">
           {visibleRecipes.map((r) => {
             const isOpen = expanded === r.id;
+            const baseRecipe = r.base_recipe_id ? recipeById.get(r.base_recipe_id) ?? null : null;
+            const derivedCount = derivedCountById.get(r.id) ?? 0;
+            // What a conversion off the base would actually charge for. Empty when
+            // the recipe is an original, or when a clone was never finished — Coffee
+            // Epic is still a byte-identical copy of Epic Hazy with no coffee in it.
+            const billSplit = baseRecipe
+              ? splitBillAgainstBase(r.recipe_ingredients, baseRecipe.recipe_ingredients)
+              : null;
+            const addedIds = new Set((billSplit?.added ?? []).map((l) => l.id));
             const costPerTurn = recipeCostPerTurn(r);
             const costPerBblYield = r.expected_yield_bbl ? costPerTurn / r.expected_yield_bbl : null;
             const hasIdentity = Boolean((r.style && r.style !== r.beer_name) || r.abv != null || r.ibu != null || r.partner?.company_name);
@@ -403,7 +492,21 @@ export default function RecipesTab() {
                 >
                   {/* Name + chevron row */}
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-sm font-medium text-primary">{r.beer_name}</span>
+                    <span className="flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="text-sm font-medium text-primary">{r.beer_name}</span>
+                      {/* Lineage reads on the collapsed row: which beer this one is
+                        * converted from, or how many others convert from it. */}
+                      {baseRecipe && (
+                        <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
+                          Based on {baseRecipe.beer_name}
+                        </span>
+                      )}
+                      {derivedCount > 0 && (
+                        <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
+                          {derivedCount} variant{derivedCount !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </span>
                     <span className="text-faint text-xs shrink-0">{isOpen ? "▲" : "▼"}</span>
                   </div>
                   {/* Metadata row — three bands (identity · schedule · money) so the
@@ -484,6 +587,9 @@ export default function RecipesTab() {
                       <button onClick={() => openEdit(r)} className="btn-secondary">Edit recipe</button>
                       <button onClick={() => openClone(r)} className="btn-secondary">Clone</button>
                       <button onClick={() => setManagingFor(r.id)} className="btn-secondary">Manage variations</button>
+                      {baseRecipe && (
+                        <button onClick={() => breakBaseLink(r)} className="btn-secondary">Break link</button>
+                      )}
                       <button onClick={() => handleDelete(r.id, r.beer_name)} className="btn-danger ml-auto">Delete</button>
                     </div>
 
@@ -498,6 +604,26 @@ export default function RecipesTab() {
                         * cards, which read as two different kinds of thing. */}
                       <div className="px-4 py-3">
                         <p className="text-xs font-medium text-muted uppercase tracking-wider mb-2">Ingredient Bill</p>
+                      {billSplit && (
+                        // The bill is complete — brewing this from scratch charges all
+                        // of it. What a CONVERSION charges is only the marked lines, so
+                        // say which those are rather than leaving the reader to diff
+                        // two recipes by eye.
+                        <p className="text-xs text-muted mb-2">
+                          {billSplit.added.length > 0 ? (
+                            <>
+                              Converting from {baseRecipe?.beer_name} charges only the{" "}
+                              <span className="text-secondary">+ added</span> line
+                              {billSplit.added.length !== 1 ? "s" : ""}; the rest came with the base beer.
+                            </>
+                          ) : (
+                            <>
+                              This bill is identical to {baseRecipe?.beer_name}, so a conversion charges
+                              nothing. Add what this beer puts on top of it.
+                            </>
+                          )}
+                        </p>
+                      )}
                       {r.recipe_ingredients.length > 0 ? (() => {
                         const grouped: Record<string, typeof r.recipe_ingredients> = {};
                         for (const ri of r.recipe_ingredients) {
@@ -541,7 +667,12 @@ export default function RecipesTab() {
                                     const costPerLine = qtyPerTurn * (ing.cost_per_unit_usd ?? 0);
                                     return (
                                       <tr key={ri.id} className={`border-b border-line/40 ${idx % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                                        <td className="px-3 py-2 text-strong pl-6">{ing.name}</td>
+                                        <td className="px-3 py-2 text-strong pl-6">
+                                          {ing.name}
+                                          {addedIds.has(ri.id) && (
+                                            <span className="ml-2 text-xs text-secondary">+ added</span>
+                                          )}
+                                        </td>
                                         <td className="px-3 py-2 text-muted text-right tabular-nums">
                                           {ing.cost_per_unit_usd != null
                                             ? `${formatCurrency(Number(ing.cost_per_unit_usd))} / ${ing.unit}`
@@ -777,6 +908,38 @@ export default function RecipesTab() {
                 </select>
               </Field>
             </div>
+
+            {/* Lineage. The bill below stays COMPLETE either way — this only tells
+              * a conversion which of those lines the parent batch already paid for. */}
+            <Field
+              label="Based On"
+              hint="the beer this one is normally made by converting"
+            >
+              <select
+                className="inp"
+                value={form.base_recipe_id}
+                disabled={editingIsABase}
+                onChange={(e) => setForm((f) => ({ ...f, base_recipe_id: e.target.value }))}
+              >
+                <option value="">— none (an original) —</option>
+                {baseOptions.map((r) => (
+                  <option key={r.id} value={r.id}>{r.beer_name}</option>
+                ))}
+              </select>
+              {editingIsABase ? (
+                <p className="text-xs text-faint mt-1">
+                  Other recipes are based on this one, so it cannot itself be derived. Break those
+                  links first.
+                </p>
+              ) : form.base_recipe_id ? (
+                <p className="text-xs text-muted mt-1">
+                  Enter the <span className="text-secondary">complete</span> bill below — everything
+                  that goes into the beer. A conversion charges only what this recipe adds on top of{" "}
+                  {recipeById.get(form.base_recipe_id)?.beer_name ?? "its base"}; brewing it from
+                  scratch still charges all of it.
+                </p>
+              ) : null}
+            </Field>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Beer Style" hint="the plain style, as printed on the label">

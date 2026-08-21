@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkAndCompleteBatch } from "./batchCompletion";
-import { upsertCommitments } from "./commitments";
+import { upsertCommitments, upsertConversionCommitments } from "./commitments";
+import { resolveConversionBase } from "./conversionIngredients";
 
 /** Batch status implied by the stage a batch occupies in a given equipment type. */
 export function conversionTargetStatus(
@@ -83,11 +84,14 @@ export async function reconcileConvertedBatchVolume(
 ): Promise<void> {
   const { data: batchRow } = await supabase
     .from("brew_batches")
-    .select("volume_bbl, converted_volume_bbl, recipe_id, turns")
+    .select("volume_bbl, converted_volume_bbl, recipe_id, turns, converted_from_batch_id")
     .eq("id", targetBatchId)
     .single();
   const batch = batchRow as
-    | { volume_bbl: number | null; converted_volume_bbl: number | null; recipe_id: string | null; turns: number | null }
+    | {
+        volume_bbl: number | null; converted_volume_bbl: number | null; recipe_id: string | null;
+        turns: number | null; converted_from_batch_id: string | null;
+      }
     | null;
   if (!batch) return;
 
@@ -116,21 +120,35 @@ export async function reconcileConvertedBatchVolume(
 
   // Re-sync the commitment set against the current recipe — but only when the
   // batch already carries commitments, so a liquid-only conversion target never
-  // gains phantom grain reservations. The delivered volume deliberately does not
-  // enter the quantities: commitments are per brewhouse turn, and reconciling
-  // liquid that came from somewhere else does not change the grain bill.
+  // gains phantom grain reservations.
   if (batch.recipe_id) {
     const { count } = await supabase
       .from("batch_ingredient_commitments")
       .select("*", { count: "exact", head: true })
       .eq("batch_id", targetBatchId);
     if ((count ?? 0) > 0) {
-      await upsertCommitments(
-        supabase,
-        targetBatchId,
-        batch.recipe_id,
-        Math.max(1, Number(batch.turns ?? 1)),
-      );
+      // A recipe that declares this conversion's source as its base reserves only
+      // what the conversion ADDS, scaled to the volume that actually arrived.
+      // Running the full bill here would undo that and reserve the base grain a
+      // second time — the very double-count the link exists to prevent.
+      const link = batch.converted_from_batch_id
+        ? await resolveConversionBase(supabase, batch.converted_from_batch_id, targetBatchId)
+        : null;
+      if (link) {
+        await upsertConversionCommitments(
+          supabase, targetBatchId, link.derivedRecipeId, link.baseRecipeId, deliveredVol,
+        );
+      } else {
+        // Unlinked: the delivered volume deliberately does not enter the
+        // quantities. Commitments are per brewhouse turn, and reconciling liquid
+        // that came from somewhere else does not change the grain bill.
+        await upsertCommitments(
+          supabase,
+          targetBatchId,
+          batch.recipe_id,
+          Math.max(1, Number(batch.turns ?? 1)),
+        );
+      }
     }
   }
 }

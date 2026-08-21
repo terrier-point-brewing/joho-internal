@@ -15,25 +15,43 @@ export async function PATCH(
   const supabase = await createSupabaseServerClient();
 
   const { id } = await params;
-  const { beer_name, style, abv, ibu, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = await req.json();
+  const body = await req.json();
+  const { beer_name, style, abv, ibu, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = body;
+
+  const updates: Record<string, unknown> = {
+    beer_name,
+    style: style || null,
+    abv: abv ?? null,
+    ibu: ibu ?? null,
+    partner_id: partner_id || null,
+    expected_yield_bbl: expected_yield_bbl || null,
+    days_brewhouse: days_brewhouse || null,
+    days_fermenter: days_fermenter || null,
+    days_brite: days_brite || null,
+    notes: notes || null,
+  };
+
+  // Lineage moves only when the caller says so. Every other field above is
+  // written unconditionally because the recipe form always sends the full set,
+  // but Break link is a one-field PATCH and a partial save from anywhere else
+  // must not quietly sever a link it never mentioned.
+  if ("base_recipe_id" in body) {
+    updates.base_recipe_id = body.base_recipe_id || null;
+  }
 
   const { error: recipeErr } = await supabase
     .from("recipes")
-    .update({
-      beer_name,
-      style: style || null,
-      abv: abv ?? null,
-      ibu: ibu ?? null,
-      partner_id: partner_id || null,
-      expected_yield_bbl: expected_yield_bbl || null,
-      days_brewhouse: days_brewhouse || null,
-      days_fermenter: days_fermenter || null,
-      days_brite: days_brite || null,
-      notes: notes || null,
-    })
+    .update(updates)
     .eq("id", id);
 
-  if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
+  if (recipeErr) {
+    // The flat-lineage trigger rejects a chain (basing on an already-derived
+    // recipe, or deriving one that others are based on) with its own message.
+    // That is the operator's problem to fix, not a server fault.
+    const isLineage = recipeErr.message.includes("Cannot base a recipe on")
+      || recipeErr.message.includes("Cannot make");
+    return NextResponse.json({ error: recipeErr.message }, { status: isLineage ? 409 : 500 });
+  }
 
   if (lines !== undefined) {
     await supabase.from("recipe_ingredients").delete().eq("recipe_id", id);

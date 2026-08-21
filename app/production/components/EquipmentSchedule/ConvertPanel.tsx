@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import type { BrewBatch } from "../../types";
+import type { BrewBatch, Recipe } from "../../types";
 import type { ScheduleEntry } from "../../hooks/queries";
 import { STAGE_LABELS } from "./constants";
 
@@ -10,6 +10,8 @@ export function ConvertPanel({
   sourceEntry,
   totalBbl,
   allBatches,
+  sourceRecipeId,
+  recipes,
   onSaved,
   onClose,
 }: {
@@ -17,6 +19,9 @@ export function ConvertPanel({
   sourceEntry: ScheduleEntry;
   totalBbl: number;
   allBatches: BrewBatch[];
+  /** Recipe of the batch being drawn from — the base a target may be linked to. */
+  sourceRecipeId: string | null;
+  recipes: Recipe[];
   onSaved: () => void;
   onClose: () => void;
 }) {
@@ -35,6 +40,20 @@ export function ConvertPanel({
     b.converted_from_batch_id !== batchId &&
     b.status !== "complete"
   );
+
+  // A target whose recipe names this batch's beer as its base is one whose
+  // additions can be reserved and charged — the difference between the two
+  // bills. Everything else stays selectable and simply warns: converting into
+  // an unrelated beer is a real thing to do, it just cannot be costed.
+  const derivedRecipeIds = new Set(
+    recipes.filter(r => r.base_recipe_id != null && r.base_recipe_id === sourceRecipeId).map(r => r.id),
+  );
+  const linkedBatches   = candidateBatches.filter(b => b.recipe_id != null && derivedRecipeIds.has(b.recipe_id));
+  const unlinkedBatches = candidateBatches.filter(b => !(b.recipe_id != null && derivedRecipeIds.has(b.recipe_id)));
+
+  const selectedRecipeId = candidateBatches.find(b => b.id === toBatchId)?.recipe_id ?? null;
+  const targetUnlinked = Boolean(toBatchId) && !(selectedRecipeId != null && derivedRecipeIds.has(selectedRecipeId));
+  const sourceBeerName = allBatches.find(b => b.id === batchId)?.beer_name ?? "this batch";
 
   async function save() {
     if (!toBatchId) { alert("Select a target batch."); return; }
@@ -81,12 +100,31 @@ export function ConvertPanel({
           <label className="block text-[10px] mb-1 text-muted">Target Batch</label>
           <select className="inp text-xs w-full" value={toBatchId} onChange={e => setToBatchId(e.target.value)}>
             <option value="">— select batch —</option>
-            {candidateBatches.map(b => (
-              <option key={b.id} value={b.id}>
-                {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
-              </option>
-            ))}
+            {linkedBatches.length > 0 && (
+              <optgroup label={`Based on ${sourceBeerName}`}>
+                {linkedBatches.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {unlinkedBatches.length > 0 && (
+              <optgroup label={linkedBatches.length > 0 ? "Other batches" : "All batches"}>
+                {unlinkedBatches.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
+          {targetUnlinked && (
+            <p className="text-[11px] text-[var(--cat-amber-fg)] mt-1">
+              Not based on {sourceBeerName} — no added ingredients will be reserved or charged.
+              The conversion still goes through.
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-[10px] mb-1 text-muted">Volume to Convert (BBL)</label>

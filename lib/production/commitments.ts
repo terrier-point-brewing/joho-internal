@@ -13,6 +13,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { conversionDelta, type BillLine } from "./recipeLineage";
 
 export interface IngredientShortfall {
   ingredient_id: string;
@@ -55,8 +56,31 @@ export async function upsertCommitments(
     .select("ingredient_id, quantity_per_turn")
     .eq("recipe_id", recipeId);
 
-  if (!ris?.length) {
-    // A recipe with no lines commits nothing — drop whatever the batch still holds.
+  await writeCommitmentSet(
+    supabase,
+    batchId,
+    (ris ?? []).map((ri) => ({
+      ingredient_id: ri.ingredient_id,
+      committed_qty: ri.quantity_per_turn * turns,
+    })),
+  );
+}
+
+/**
+ * Make this batch's active commitments be exactly `rows`, and nothing else.
+ *
+ * Shared by the two ways a batch acquires ingredients — brewed from a recipe,
+ * or converted off another batch — because the replace-don't-add semantics are
+ * the same either way and getting them wrong is what left B-056 reporting the
+ * union of two recipes.
+ */
+async function writeCommitmentSet(
+  supabase: SupabaseClient,
+  batchId: string,
+  rows: Array<{ ingredient_id: string; committed_qty: number }>,
+): Promise<void> {
+  if (!rows.length) {
+    // Nothing to commit — drop whatever the batch still holds.
     await releaseCommitments(supabase, batchId);
     return;
   }
@@ -64,10 +88,10 @@ export async function upsertCommitments(
   await supabase
     .from("batch_ingredient_commitments")
     .upsert(
-      ris.map((ri) => ({
+      rows.map((r) => ({
         batch_id:      batchId,
-        ingredient_id: ri.ingredient_id,
-        committed_qty: ri.quantity_per_turn * turns,
+        ingredient_id: r.ingredient_id,
+        committed_qty: r.committed_qty,
         // The unique key is (batch_id, ingredient_id) with no regard for
         // released_at, so an ingredient that was pruned on an earlier swap and
         // has now come back resolves to that same released row. Without this the
@@ -84,7 +108,63 @@ export async function upsertCommitments(
     .update({ released_at: new Date().toISOString() })
     .eq("batch_id", batchId)
     .is("released_at", null)
-    .not("ingredient_id", "in", `(${ris.map((ri) => ri.ingredient_id).join(",")})`);
+    .not("ingredient_id", "in", `(${rows.map((r) => r.ingredient_id).join(",")})`);
+}
+
+/**
+ * Commit what a CONVERSION adds, rather than what the beer costs to brew.
+ *
+ * A conversion-born batch is liquid that already exists: the base recipe's grain
+ * went into the parent batch and was deducted there. Committing the derived
+ * recipe's full bill would reserve all of it a second time — 725 lb of silo malt
+ * for beer that is already in the tank. Committing nothing, which is what the
+ * code did before it could tell base from addition, loses the puree and the
+ * oranges entirely.
+ *
+ * So: the per-bbl difference between the two bills, scaled by the volume drawn
+ * off. Rates rather than turns, because a conversion takes a volume of finished
+ * liquid and never a brewhouse turn.
+ *
+ * This is the deliberate exception to "never multiply quantity_per_bbl back out"
+ * — that rule exists because reconstructing a TURN from the rate inflates the
+ * bill by turn/yield, the denominator being post-loss liquid rather than the
+ * brewhouse fill. Here the multiplier IS post-loss liquid: 68 lb of puree per
+ * 20 bbl turn is 3.4 lb for every bbl of finished Reaper's Harvest, and drawing
+ * 23.5 bbl off the parent needs 79.9 lb of it. Reading quantity_per_turn instead
+ * would charge a full turn's puree no matter how little liquid was converted.
+ *
+ * When the two recipes are not linked, or the derived bill adds nothing, the
+ * batch ends up with no commitments — the same place it was before, which is the
+ * right answer for liquid that consumed no new stock.
+ */
+export async function upsertConversionCommitments(
+  supabase: SupabaseClient,
+  batchId: string,
+  derivedRecipeId: string,
+  baseRecipeId: string,
+  convertedVolumeBbl: number,
+): Promise<void> {
+  const volume = Number(convertedVolumeBbl);
+  if (!Number.isFinite(volume) || volume <= 0) return;
+
+  const [derived, base] = await Promise.all([
+    supabase.from("recipe_ingredients").select("ingredient_id, quantity_per_bbl").eq("recipe_id", derivedRecipeId),
+    supabase.from("recipe_ingredients").select("ingredient_id, quantity_per_bbl").eq("recipe_id", baseRecipeId),
+  ]);
+
+  const delta = conversionDelta(
+    (derived.data ?? []) as BillLine[],
+    (base.data ?? []) as BillLine[],
+  );
+
+  await writeCommitmentSet(
+    supabase,
+    batchId,
+    delta.map((d) => ({
+      ingredient_id: d.ingredient_id,
+      committed_qty: d.quantity_per_bbl * volume,
+    })),
+  );
 }
 
 /** Batch statuses that have NOT yet consumed their ingredients. */

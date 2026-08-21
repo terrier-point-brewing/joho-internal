@@ -424,6 +424,8 @@ export function EquipmentScheduleSection({
           sourceEntry={panel.entry}
           totalBbl={Number(panel.entry.volume_bbl ?? batch?.volume_bbl ?? 0)}
           allBatches={allBatches}
+          sourceRecipeId={batch?.recipe_id ?? null}
+          recipes={recipes ?? []}
           onSaved={() => { reload(); qc.invalidateQueries({ queryKey: productionKeys.batchConversions }); }}
           onClose={closePanel}
         />
