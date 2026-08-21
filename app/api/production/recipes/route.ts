@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
   const body = await req.json();
-  const { beer_name, style, abv, ibu, partner_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = body;
+  const { beer_name, style, abv, ibu, partner_id, base_recipe_id, expected_yield_bbl, days_brewhouse, days_fermenter, days_brite, notes, ingredients: lines } = body;
 
   const { data: recipe, error: recipeErr } = await supabase
     .from("recipes")
@@ -34,6 +34,10 @@ export async function POST(req: NextRequest) {
       abv: abv ?? null,
       ibu: ibu ?? null,
       partner_id: partner_id || null,
+      // Set by Clone, or chosen by hand. The lines below are still the COMPLETE
+      // bill — the link only tells a conversion which of them the base already
+      // paid for. A DB trigger rejects a base that is itself derived.
+      base_recipe_id: base_recipe_id || null,
       expected_yield_bbl: expected_yield_bbl || null,
       days_brewhouse: days_brewhouse || null,
       days_fermenter: days_fermenter || null,
@@ -43,7 +47,12 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
+  if (recipeErr) {
+    // The flat-lineage trigger rejects a base that is itself derived; surface it
+    // as the operator's choice to fix rather than a server fault.
+    const isLineage = recipeErr.message.includes("Cannot base a recipe on");
+    return NextResponse.json({ error: recipeErr.message }, { status: isLineage ? 409 : 500 });
+  }
 
   // Link the generic house kegs by default so the draft swap-keg dropdown offers
   // them for this recipe. The dropdown lists only explicitly-linked variations.

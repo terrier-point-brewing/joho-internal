@@ -5,6 +5,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { finalizeConversion, createConversionTargetBatch, reconcileConvertedBatchVolume } from "@/lib/production/conversionFinalizer";
+import { consumeConversionAdditions } from "@/lib/production/conversionIngredients";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { applyPackagingLoss } from "@/lib/production/packagingMaterials";
@@ -891,6 +892,26 @@ export async function POST(req: NextRequest) {
         await reconcileConvertedBatchVolume(supabase, targetBatchId);
       } catch (reconcileErr) {
         console.error("[transfers] Converted-batch volume reconcile failed (transfer committed):", reconcileErr);
+      }
+
+      // Charge what the conversion ADDS — the puree, the oranges, the coffee —
+      // and nothing the parent batch already paid for at the brewhouse. Only a
+      // target whose recipe names this source as its base is charged; an
+      // unlinked pair is left alone, because guessing which lines the parent
+      // covered is worse than either answer. Runs after the volume reconcile so
+      // the deduction is sized on the liquid that actually arrived, and never
+      // rolls back the committed transfer.
+      try {
+        const additions = await consumeConversionAdditions(supabase, {
+          sourceBatchId: batch_id,
+          targetBatchId,
+          volumeBbl:     convertedVol,
+        });
+        if (additions.status === "unlinked") {
+          console.info("[transfers] Conversion additions not charged — recipes are not linked.");
+        }
+      } catch (additionsErr) {
+        console.error("[transfers] Conversion additions failed (transfer committed):", additionsErr);
       }
 
       // Hand the destination tank to the target batch and complete the exhausted

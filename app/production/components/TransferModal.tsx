@@ -148,6 +148,28 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const [newBeerName, setNewBeerName] = useState(initialConvert?.beerName ?? "");
   const [newRecipeId, setNewRecipeId] = useState("");
 
+  // ── Conversion lineage ──────────────────────────────────────────────────────
+  // A recipe that names this batch's beer as its base is one a conversion can
+  // cost correctly: the difference between the two bills is what goes in the
+  // tank. Anything else converts fine, but charges nothing, because there is no
+  // way to tell which of its lines this batch already paid for. Linked options
+  // are surfaced first; unlinked ones warn rather than disappear, since blends
+  // and one-off experiments are real.
+  const derivedRecipeIds = new Set(
+    recipes.filter((r) => r.base_recipe_id != null && r.base_recipe_id === batch.recipe_id).map((r) => r.id),
+  );
+  const linkedRecipes   = recipes.filter((r) => derivedRecipeIds.has(r.id));
+  const unlinkedRecipes = recipes.filter((r) => !derivedRecipeIds.has(r.id));
+
+  const convertCandidates = batches.filter((b) => b.id !== batch.id && b.status !== "complete");
+  const linkedBatches   = convertCandidates.filter((b) => b.recipe_id != null && derivedRecipeIds.has(b.recipe_id));
+  const unlinkedBatches = convertCandidates.filter((b) => !(b.recipe_id != null && derivedRecipeIds.has(b.recipe_id)));
+
+  const selectedTargetRecipeId = convertTarget === "new"
+    ? (newRecipeId || null)
+    : (convertCandidates.find((b) => b.id === convertToBatchId)?.recipe_id ?? null);
+  const conversionUnlinked = selectedTargetRecipeId != null && !derivedRecipeIds.has(selectedTargetRecipeId);
+
   const destTank = allTanks.find((t) => t.id === destId);
 
   // Recompute destTanks when mode changes — reset destId if current selection is invalid
@@ -433,13 +455,24 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                   <Field label="Target Batch" required>
                     <select className="inp" value={convertToBatchId} required onChange={e => setConvertToBatchId(e.target.value)}>
                       <option value="">— select batch —</option>
-                      {batches
-                        .filter(b => b.id !== batch.id && b.status !== "complete")
-                        .map(b => (
-                          <option key={b.id} value={b.id}>
-                            {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
-                          </option>
-                        ))}
+                      {linkedBatches.length > 0 && (
+                        <optgroup label={`Based on ${batch.beer_name}`}>
+                          {linkedBatches.map(b => (
+                            <option key={b.id} value={b.id}>
+                              {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {unlinkedBatches.length > 0 && (
+                        <optgroup label={linkedBatches.length > 0 ? "Other batches" : "All batches"}>
+                          {unlinkedBatches.map(b => (
+                            <option key={b.id} value={b.id}>
+                              {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </Field>
                 ) : (
@@ -451,12 +484,34 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                     <Field label="Recipe" required>
                       <select className="inp" value={newRecipeId} required onChange={e => setNewRecipeId(e.target.value)}>
                         <option value="">— select recipe —</option>
-                        {recipes.map(r => (
-                          <option key={r.id} value={r.id}>{r.beer_name}</option>
-                        ))}
+                        {linkedRecipes.length > 0 && (
+                          <optgroup label={`Based on ${batch.beer_name}`}>
+                            {linkedRecipes.map(r => (
+                              <option key={r.id} value={r.id}>{r.beer_name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {unlinkedRecipes.length > 0 && (
+                          <optgroup label={linkedRecipes.length > 0 ? "Other recipes" : "All recipes"}>
+                            {unlinkedRecipes.map(r => (
+                              <option key={r.id} value={r.id}>{r.beer_name}</option>
+                            ))}
+                          </optgroup>
+                        )}
                       </select>
                     </Field>
                   </>
+                )}
+
+                {/* A warning, never a block: converting into an unrelated recipe is a
+                  * real thing to do. It just cannot be costed, so say so plainly
+                  * instead of silently charging nothing. */}
+                {conversionUnlinked && (
+                  <p className="text-xs text-[var(--cat-amber-fg)]">
+                    This recipe isn&apos;t based on {batch.beer_name}, so the conversion won&apos;t
+                    charge any added ingredients. Set &ldquo;Based On&rdquo; on the recipe to have
+                    its additions costed. The conversion itself will go through either way.
+                  </p>
                 )}
 
                 <Field label="Volume to Convert (BBL)" required>

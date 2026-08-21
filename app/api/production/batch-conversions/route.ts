@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { reserveConversionAdditions } from "@/lib/production/conversionIngredients";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,21 @@ export async function POST(req: NextRequest) {
     .update({ converted_from_batch_id: source_batch_id })
     .eq("id", target_batch_id)
     .is("converted_from_batch_id", null);
+
+  // Reserve what the conversion will add, so a shortfall on the puree surfaces
+  // now rather than on conversion day. Replaces whatever the target was holding:
+  // a pre-planned target created as an ordinary batch carries its recipe's FULL
+  // bill, which reserves the base grain the parent already consumed. No-op when
+  // the recipes are not linked — the planner has nothing to go on there.
+  try {
+    await reserveConversionAdditions(supabase, {
+      sourceBatchId: source_batch_id,
+      targetBatchId: target_batch_id,
+      volumeBbl:     Number(volume_bbl),
+    });
+  } catch (reserveErr) {
+    console.error("[batch-conversions] Reserving conversion additions failed (plan saved):", reserveErr);
+  }
 
   return NextResponse.json(data, { status: 201 });
 }

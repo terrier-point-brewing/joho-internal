@@ -235,6 +235,12 @@ export interface RecipeIngredientRow {
    * denominator is post-loss liquid, not the turn size, so the round-trip
    * inflates the bill by turn/yield. Commitments, stock deductions and deposit
    * pricing all read quantity_per_turn instead.
+   *
+   * The one legitimate multiplier is a CONVERSION volume (see
+   * upsertConversionCommitments). That case asks a different question — how much
+   * of an addition does N bbl of FINISHED beer need — and finished beer is
+   * exactly what this denominator measures, so the rate applies directly. It is
+   * a brewhouse TURN that must never be reconstructed from it.
    */
   quantity_per_bbl: number;
   ingredients: Ingredient;
@@ -267,6 +273,12 @@ export interface Recipe {
   /** International Bitterness Units — a fact of the liquid, owned by Production. */
   ibu: number | null;
   partner_id: string | null;
+  /** The recipe this one is normally made by converting — Orange Pilsner is
+   * based on Pace Yourself Pilsner. The bill below is still COMPLETE (base plus
+   * additions), so brewing it from scratch charges the whole thing; only a
+   * conversion consults the base, and charges the difference. NULL = an
+   * original. Lineage is one level deep: a base is never itself derived. */
+  base_recipe_id: string | null;
   expected_yield_bbl: number | null;
   days_brewhouse: number | null;
   days_fermenter: number | null;
