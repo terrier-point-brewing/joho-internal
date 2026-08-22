@@ -11,6 +11,7 @@ import {
   type PendingTapSwap,
 } from "@/lib/taproom/tapSwaps";
 import { findDeadLinks } from "./linkHealth";
+import { fetchFungibleSkus, fungibleKey } from "@/lib/production/fungibleSkus";
 
 /** A queued swap unrung for this long is surfaced as a discrepancy, never auto-expired. */
 const STALE_SWAP_DAYS = 7;
@@ -48,6 +49,16 @@ export interface RecountInstruction {
 export interface ConsumptionUnit {
   recipeId: string;
   variationId: string; // packaging_variations.id to deplete from cold storage
+  /**
+   * Every packaging variation the sale may be filled from, when its Square SKU
+   * is declared fungible (see square_fungible_skus). Includes `variationId`.
+   * Absent for the ordinary one-packaging-per-button case.
+   *
+   * Deliberately UNORDERED here: the drain order is the age of the cold-storage
+   * lots, which assembly cannot see and which changes every time stock lands.
+   * The recorder reads the lots and sorts them.
+   */
+  variationIds?: string[];
   quantity: number; // TARGET units for this (source); reconciler computes the delta
   sourceRef: string; // "sqsale:<sqVarId>:<day>" | "sqkegswap:<physicalCountId>" | "sqtransfer:<orderId>:<lineUid>"
   kind: ConsumptionKind;
@@ -205,23 +216,50 @@ export interface KegCanLink {
  * on the underlying select, the winner was whichever row the database happened
  * to return last: an 18 July sale booked the house keg and a 10 July sale, booked
  * later from the same rows, took the Fortnight one.
+ *
+ * `fungible` is the escape hatch, and only a person can open it: when the SKU is
+ * declared in `square_fungible_skus`, several packagings behind one button is
+ * the INTENT rather than a mapping fault, so every candidate comes back and the
+ * sale is filled across all of them. The guard above still governs everything
+ * undeclared — which is everything, until somebody says otherwise.
  */
-export function selectSaleLink(candidates: KegCanLink[]): {
+export function selectSaleLink(candidates: KegCanLink[], fungible = false): {
   link: KegCanLink | null;
   ambiguous: boolean;
+  /** The declared group's variations, or [] when this SKU maps to one packaging. */
+  groupVariationIds: string[];
 } {
-  if (candidates.length === 0) return { link: null, ambiguous: false };
-  if (candidates.length === 1) return { link: candidates[0], ambiguous: false };
+  if (candidates.length === 0) return { link: null, ambiguous: false, groupVariationIds: [] };
+  if (candidates.length === 1) return { link: candidates[0], ambiguous: false, groupVariationIds: [] };
+
+  // Sorting by variation id keeps the representative stable run to run. Which
+  // one wins barely matters for a declared group — it supplies the label and the
+  // recipe, both shared by every member — but a representative that changed
+  // between runs would make the summary lines churn for no reason.
+  const stableOrder = [...candidates].sort((a, b) => a.variationId.localeCompare(b.variationId));
+
+  if (fungible) {
+    // A group mixing kegs and cans is not a group: one "unit sold" would mean two
+    // different volumes of beer. Fall through to the guard, which reports it.
+    const kinds = new Set(candidates.map((l) => l.kind));
+    if (kinds.size === 1) {
+      return {
+        link: stableOrder[0],
+        ambiguous: false,
+        groupVariationIds: [...new Set(stableOrder.map((l) => l.variationId))],
+      };
+    }
+  }
 
   const house = candidates.filter((l) => l.partnerId == null);
-  if (house.length === 1) return { link: house[0], ambiguous: false };
+  if (house.length === 1) return { link: house[0], ambiguous: false, groupVariationIds: [] };
 
   // Either nothing is house stock or more than one thing is. Both are real
   // mapping problems, not something to guess at. A deterministic pick still
   // beats row order, so the books stay stable run to run while it is reported.
   const pool = house.length > 1 ? house : candidates;
   const stable = [...pool].sort((a, b) => a.variationId.localeCompare(b.variationId))[0];
-  return { link: stable, ambiguous: true };
+  return { link: stable, ambiguous: true, groupVariationIds: [] };
 }
 
 // draft link (recipe-grain)
@@ -259,6 +297,12 @@ export function assembleConsumption(input: {
    * than silently dropped. Omit to keep the old silent behaviour.
    */
   unmappedSaleCandidates?: ReadonlySet<string>;
+  /**
+   * Square SKUs a person has declared fungible, as `fungibleKey(recipeId,
+   * squareVariationId)`. Members of one of these fill a sale together instead of
+   * competing to be its single winner. Omit for the undeclared default.
+   */
+  fungibleSkus?: ReadonlySet<string>;
   nowIso?: string; // enables staleness reporting; omitted keeps this fully time-free
 }): { units: ConsumptionUnit[]; discrepancies: AssemblyDiscrepancy[] } {
   const {
@@ -269,6 +313,7 @@ export function assembleConsumption(input: {
     tapRestockLinks = [],
     pendingSwaps = [],
     unmappedSaleCandidates,
+    fungibleSkus,
     nowIso,
   } = input;
 
@@ -286,9 +331,14 @@ export function assembleConsumption(input: {
   }
 
   const linkByVarId = new Map<string, KegCanLink>();
+  const groupByVarId = new Map<string, string[]>();
   for (const [sqVarId, candidates] of candidatesByVarId) {
-    const { link, ambiguous } = selectSaleLink(candidates);
+    // A declaration is per (recipe, SKU); every candidate on one SKU shares the
+    // recipe in practice, so the first one answers for the group.
+    const declared = candidates.some((c) => fungibleSkus?.has(fungibleKey(c.recipeId, sqVarId)));
+    const { link, ambiguous, groupVariationIds } = selectSaleLink(candidates, declared);
     if (link) linkByVarId.set(sqVarId, link);
+    if (groupVariationIds.length > 1) groupByVarId.set(sqVarId, groupVariationIds);
     if (ambiguous) {
       discrepancies.push({
         kind: "ambiguous_sale_link",
@@ -321,9 +371,11 @@ export function assembleConsumption(input: {
       }
       continue;
     }
+    const group = groupByVarId.get(sqVarId);
     units.push({
       recipeId: link.recipeId,
       variationId: link.variationId,
+      ...(group ? { variationIds: group } : {}),
       quantity: qty,
       sourceRef: `sqsale:${sqVarId}:${day}`,
       kind: link.kind,
@@ -654,6 +706,8 @@ export async function deriveTaproomConsumption(
       ? await fetchDraftRestockLineItems(startDate, endDate, restockSquareVarIds)
       : [];
 
+  const fungibleSkus = await fetchFungibleSkus(supabase);
+
   const assembled = assembleConsumption({
     salesByDay,
     kegCanLinks,
@@ -662,6 +716,7 @@ export async function deriveTaproomConsumption(
     tapRestockLinks,
     pendingSwaps,
     unmappedSaleCandidates,
+    fungibleSkus,
     nowIso: new Date().toISOString(),
   });
 

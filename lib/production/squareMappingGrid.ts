@@ -82,6 +82,22 @@ export interface Suggestion {
   confidence: "high" | "medium";
 }
 
+/**
+ * Set on a linked variation whose Square item is declared fungible — several
+ * packagings sell from one button (see square_fungible_skus).
+ *
+ * `pourRank` is the position in the drain order, which is the age of the stock
+ * rather than anything stored: 1 pours next. Null when this member has nothing
+ * on hand, since a variation with no lots has no age to sort on and will be
+ * skipped until it does.
+ */
+export interface SharedSquareItem {
+  /** The other packagings on the same button, for display. */
+  withNames: string[];
+  pourRank: number | null;
+  onHand: number;
+}
+
 export interface CellVariation {
   variationId: string;          // packaging_variation UUID (null string sentinel for draft)
   variationName: string;
@@ -91,6 +107,7 @@ export interface CellVariation {
   suggestion: Suggestion | null;
   ignored: boolean;
   ignoreId: string | null;
+  shared: SharedSquareItem | null;
 }
 
 export interface GridCell {
@@ -247,13 +264,29 @@ export function deriveColumns(rpvs: RpvRow[]): ColumnDef[] {
 
 // ── buildGrid ─────────────────────────────────────────────────────────────────
 
+/**
+ * Everything the grid needs to describe a declared fungible SKU, gathered by the
+ * caller so this stays pure.
+ *
+ * `stockAgeByVariation` is each variation's OLDEST cold-storage lot timestamp.
+ * That is what orders the drain, so it is what orders the display — a variation
+ * absent from the map has nothing on hand and pours after everything that does.
+ */
+export interface FungibleContext {
+  /** `${recipeId}\t${squareVariationId}` for every declared group. */
+  declared: ReadonlySet<string>;
+  stockAgeByVariation: ReadonlyMap<string, string>;
+  onHandByVariation: ReadonlyMap<string, number>;
+}
+
 export function buildGrid(
   recipes: { id: string; beerName: string; partnerName?: string | null }[],
   columns: ColumnDef[],
   rpvs: RpvRow[],
   links: LinkRow[],
   sqVars: SquareCatalogVariationFlat[],
-  ignores: IgnoreRow[] = []
+  ignores: IgnoreRow[] = [],
+  fungible?: FungibleContext
 ): GridRow[] {
   // Index links by `${variationId}::${recipeId}` (composite) and by recipeId (for draft).
   // Keying by variationId alone causes all recipes sharing a generic keg variation
@@ -302,6 +335,51 @@ export function buildGrid(
     if (!genericKegByVolume.has(rpv.volumeFlOz)) genericKegByVolume.set(rpv.volumeFlOz, rpv);
   }
 
+  // ── Declared fungible SKUs: who shares a button, and what pours next ────────
+  const packagingNameByVariation = new Map<string, string>();
+  for (const rpv of rpvs) packagingNameByVariation.set(rpv.variationId, rpv.variationName);
+
+  const linksBySku = new Map<string, LinkRow[]>(); // `${recipeId}\t${squareVariationId}`
+  for (const l of links) {
+    if (l.packaging === "draft" || !l.variationId) continue;
+    const key = `${l.recipeId}\t${l.squareVariationId}`;
+    const list = linksBySku.get(key);
+    if (list) list.push(l);
+    else linksBySku.set(key, [l]);
+  }
+
+  /**
+   * The share description for one linked packaging, or null when its button
+   * isn't declared or it turns out to be the only packaging behind it.
+   *
+   * Pour rank counts only members that actually HAVE stock — a rank among empty
+   * lots would be a prediction, and the next case packaged changes it.
+   */
+  function shareInfo(recipeId: string, link: LinkRow | undefined): SharedSquareItem | null {
+    if (!fungible || !link?.variationId) return null;
+    const key = `${recipeId}\t${link.squareVariationId}`;
+    if (!fungible.declared.has(key)) return null;
+    const members = linksBySku.get(key) ?? [];
+    if (members.length < 2) return null;
+
+    const stocked = members
+      .filter((m) => m.variationId && fungible.stockAgeByVariation.has(m.variationId))
+      .sort((a, b) =>
+        fungible.stockAgeByVariation.get(a.variationId!)!.localeCompare(
+          fungible.stockAgeByVariation.get(b.variationId!)!,
+        ),
+      );
+    const position = stocked.findIndex((m) => m.variationId === link.variationId);
+
+    return {
+      withNames: members
+        .filter((m) => m.variationId !== link.variationId)
+        .map((m) => packagingNameByVariation.get(m.variationId!) ?? "another packaging"),
+      pourRank: position >= 0 ? position + 1 : null,
+      onHand: fungible.onHandByVariation.get(link.variationId) ?? 0,
+    };
+  }
+
   return recipes.map((recipe) => {
     const recipeRpvs = rpvsByRecipeCol.get(recipe.id);
     const cells: Record<string, GridCell | null> = {};
@@ -327,6 +405,9 @@ export function buildGrid(
               suggestion,
               ignored: !link && !!ignore,
               ignoreId: ignore?.id ?? null,
+              // Draft is recipe-grain — one slot, no packaging behind it, so
+              // there is nothing for a second packaging to share.
+              shared: null,
             },
           ],
         };
@@ -366,6 +447,7 @@ export function buildGrid(
           suggestion,
           ignored: !link && !!ignore,
           ignoreId: ignore?.id ?? null,
+          shared: shareInfo(recipe.id, link),
         };
       });
 

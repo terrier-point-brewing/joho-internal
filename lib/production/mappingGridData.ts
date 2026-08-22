@@ -16,6 +16,7 @@ import type {
   IgnoreRow,
   ColumnDef,
   GridRow,
+  FungibleContext,
 } from "@/lib/production/squareMappingGrid";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -173,7 +174,60 @@ export async function fetchMappingGrid(supabase: DbClient): Promise<MappingGrid>
     });
 
   const columns = deriveColumns(allRpvRows);
-  const rows = buildGrid(recipesList, columns, allRpvRows, linkRows, sqVarRows, ignoreRows);
+  const rows = buildGrid(
+    recipesList, columns, allRpvRows, linkRows, sqVarRows, ignoreRows,
+    await fetchFungibleContext(supabase, linkRows),
+  );
 
   return { columns, rows, catalogSyncedAt };
+}
+
+/**
+ * Declared fungible SKUs plus the stock ages that order their drain.
+ *
+ * Costs one query normally and two once a group exists — the cold-storage read
+ * is scoped to the member variations rather than the whole table, so a grid with
+ * no shared buttons pays almost nothing for the feature.
+ */
+async function fetchFungibleContext(supabase: DbClient, links: LinkRow[]): Promise<FungibleContext> {
+  const { data, error } = await supabase
+    .from("square_fungible_skus")
+    .select("recipe_id, square_variation_id");
+  if (error) throw new Error(error.message);
+
+  const declared = new Set(
+    ((data ?? []) as { recipe_id: string; square_variation_id: string }[]).map(
+      (r) => `${r.recipe_id}\t${r.square_variation_id}`,
+    ),
+  );
+  const stockAgeByVariation = new Map<string, string>();
+  const onHandByVariation = new Map<string, number>();
+  if (declared.size === 0) return { declared, stockAgeByVariation, onHandByVariation };
+
+  const memberVariationIds = [
+    ...new Set(
+      links
+        .filter((l) => l.variationId && declared.has(`${l.recipeId}\t${l.squareVariationId}`))
+        .map((l) => l.variationId as string),
+    ),
+  ];
+  if (memberVariationIds.length === 0) return { declared, stockAgeByVariation, onHandByVariation };
+
+  const { data: lots, error: lotErr } = await supabase
+    .from("cold_storage_inventory")
+    .select("variation_id, quantity_on_hand, created_at")
+    .in("variation_id", memberVariationIds);
+  if (lotErr) throw new Error(lotErr.message);
+
+  for (const lot of (lots ?? []) as { variation_id: string; quantity_on_hand: number | string; created_at: string }[]) {
+    const qty = Number(lot.quantity_on_hand);
+    if (!(qty > 0)) continue; // an empty lot is not stock, and has no age worth ranking
+    onHandByVariation.set(lot.variation_id, (onHandByVariation.get(lot.variation_id) ?? 0) + qty);
+    const seen = stockAgeByVariation.get(lot.variation_id);
+    if (seen === undefined || lot.created_at.localeCompare(seen) < 0) {
+      stockAgeByVariation.set(lot.variation_id, lot.created_at);
+    }
+  }
+
+  return { declared, stockAgeByVariation, onHandByVariation };
 }

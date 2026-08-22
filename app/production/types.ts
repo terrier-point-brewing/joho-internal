@@ -653,6 +653,16 @@ export interface MappingCellVariation {
   } | null;
   ignored: boolean;
   ignoreId: string | null;
+  /**
+   * Set when this packaging's Square item is declared fungible — several
+   * packagings sell from one button. `pourRank` is 1 for whatever drains next
+   * (oldest cold-storage lot wins) and null when this member holds no stock.
+   */
+  shared: {
+    withNames: string[];
+    pourRank: number | null;
+    onHand: number;
+  } | null;
 }
 
 export interface MappingCell {
