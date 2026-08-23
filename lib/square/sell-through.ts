@@ -97,7 +97,7 @@ export async function fetchSellThrough(
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return links.map((l: any): LinkSellThrough => {
+  return collapseSharedSkuLinks(links.map((l: any): LinkSellThrough => {
     const qty = currentCounts.get(l.square_variation_id as string) ?? 0;
 
     if (l.packaging === "draft") {
@@ -157,5 +157,39 @@ export async function fetchSellThrough(
       daily_sell_through_bbl:    Number(unitsToBbl(dailyUnits).toFixed(4)),
       recipe:                    l.recipes ?? null,
     };
-  });
+  }));
+}
+
+/**
+ * One row per Square SKU per recipe, for keg and can links.
+ *
+ * Every number above is read at SKU grain — Square's on-hand count and its order
+ * sales are both keyed on square_variation_id — so two packagings mapped to one
+ * button produce two rows carrying the SAME figures. Anything that sums them
+ * (the taproom-inventory route adds current_bbl and daily_sell_through_bbl
+ * across a recipe's links to get its stockout and brew-by dates) counts that
+ * beer twice, and would push a brew-by date out by weeks.
+ *
+ * Collapsing keeps the first link's identity: which of two interchangeable
+ * packagings labels the row does not change any figure on it.
+ *
+ * Draft is left alone. Those links are recipe-grain by construction
+ * (rsl_draft_uniq), so there is nothing to collapse, and folding two recipes
+ * that happened to share a draft SKU into one row would erase a real one.
+ * Exported for unit testing.
+ */
+export function collapseSharedSkuLinks(links: LinkSellThrough[]): LinkSellThrough[] {
+  const seen = new Set<string>();
+  const out: LinkSellThrough[] = [];
+  for (const l of links) {
+    if (l.packaging === "draft") {
+      out.push(l);
+      continue;
+    }
+    const key = `${l.recipe_id}\t${l.square_variation_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(l);
+  }
+  return out;
 }

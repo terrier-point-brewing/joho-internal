@@ -13,7 +13,7 @@ const columns: ColumnDef[] = [
 ];
 
 function cellVar(variationId: string, variationName: string, linkId: string | null) {
-  return { variationId, variationName, linkId, linkedSquareCatalogVariationId: null, linkedSquareName: linkId ? "Square Item" : null, suggestion: null, ignored: false, ignoreId: null };
+  return { variationId, variationName, linkId, linkedSquareCatalogVariationId: null, linkedSquareName: linkId ? "Square Item" : null, suggestion: null, ignored: false, ignoreId: null, shared: null };
 }
 function row(recipeId: string, recipeName: string, cells: GridRow["cells"], partner: string | null = null): GridRow {
   return { recipeId, recipeName, recipePartnerName: partner, cells };

@@ -25,7 +25,7 @@ async function acceptSuggestion(
   packaging: "draft" | "keg" | "can",
   variationId: string | null,
   suggestion: NonNullable<MappingCellVariation["suggestion"]>
-) {
+): Promise<"linked" | "conflict"> {
   const body: Record<string, unknown> = {
     recipe_id: recipeId,
     packaging,
@@ -40,10 +40,17 @@ async function acceptSuggestion(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  // A 409 means the suggested Square item already belongs to another packaging.
+  // Whether that is a move or a shared button is a person's call, and a bulk
+  // "accept the obvious ones" is the last place to make it — so the row is left
+  // untouched and counted, not resolved and not thrown. Throwing would also take
+  // down the whole Promise.all around it and abandon the fills that did work.
+  if (res.status === 409) return "conflict";
   if (!res.ok) {
     const json = await res.json().catch(() => ({}));
     throw new Error((json as { error?: string }).error ?? "Accept failed");
   }
+  return "linked";
 }
 
 function colPackaging(col: MappingColumn): "draft" | "keg" | "can" {
@@ -80,6 +87,12 @@ export default function MappingGrid({
   const canSyncCatalog = can(CAP.financeTransactionsManage);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  /**
+   * Suggestions a bulk fill declined to apply because the Square item already
+   * belongs to another packaging. Surfaced as a count rather than resolved —
+   * see acceptSuggestion.
+   */
+  const [conflictsSkipped, setConflictsSkipped] = useState(0);
 
   async function refreshFromSquare() {
     setSyncing(true);
@@ -122,8 +135,8 @@ export default function MappingGrid({
   const highByCol = new Map(columns.map((c) => [c.key, countHighConfidence(c.key)]));
   const totalHigh = [...highByCol.values()].reduce((s, vs) => s + vs.length, 0);
 
-  async function fillColumn(col: MappingColumn) {
-    await Promise.all(
+  async function fillColumn(col: MappingColumn): Promise<number> {
+    const outcomes = await Promise.all(
       rows.flatMap((row) => {
         const cell = row.cells[col.key];
         if (!cell) return [];
@@ -139,11 +152,15 @@ export default function MappingGrid({
           );
       })
     );
+    const skipped = outcomes.filter((o) => o === "conflict").length;
+    setConflictsSkipped(skipped);
     invalidateSquareMappings(qc);
+    return skipped;
   }
 
   async function fillAll() {
-    await Promise.all(columns.map((col) => fillColumn(col)));
+    const skipped = await Promise.all(columns.map((col) => fillColumn(col)));
+    setConflictsSkipped(skipped.reduce((a, b) => a + b, 0));
   }
 
   async function acceptOne(
@@ -154,12 +171,13 @@ export default function MappingGrid({
   ) {
     e.stopPropagation();
     if (!v.suggestion) return;
-    await acceptSuggestion(
+    const outcome = await acceptSuggestion(
       row.recipeId,
       colPackaging(col),
       v.variationId === "draft" ? null : v.variationId,
       v.suggestion
     );
+    setConflictsSkipped(outcome === "conflict" ? 1 : 0);
     invalidateSquareMappings(qc);
   }
 
@@ -180,6 +198,16 @@ export default function MappingGrid({
         </div>
         {syncError && <span className="text-xs text-danger">{syncError}</span>}
       </div>
+
+      {conflictsSkipped > 0 && (
+        <div className="mb-3 rounded-lg border border-accent-border/40 bg-accent-muted/20 px-4 py-2.5">
+          <span className="text-sm text-accent-soft">
+            {conflictsSkipped} suggestion{conflictsSkipped !== 1 ? "s were" : " was"} left alone —
+            that Square item already belongs to another packaging. Open the cell to move it or sell
+            both from the same button.
+          </span>
+        </div>
+      )}
 
       {totalHigh > 0 && (
         <div className="mb-3 flex items-center justify-between rounded-lg border border-info-border/40 bg-info-surface/20 px-4 py-2.5">

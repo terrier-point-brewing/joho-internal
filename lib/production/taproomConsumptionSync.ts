@@ -481,6 +481,9 @@ export async function runTaproomConsumptionSync(
       shipmentId,
       recipeId: u.recipeId,
       variationId: u.variationId,
+      // Set only for a declared fungible SKU; the recorder falls back to the
+      // single-variation path when it's absent.
+      variationIds: u.variationIds,
       quantity: delta,
       sourceRef: u.sourceRef,
       notes: null,

@@ -20,17 +20,26 @@ vi.mock("./coldStorageDepletion", () => ({
   getAvailableColdStorageQuantity: vi.fn(),
 }));
 vi.mock("./applyBreakDown", () => ({ applyBreakDown: vi.fn() }));
+vi.mock("./coldStorageGroupDraw", () => ({
+  fetchGroupDraw: vi.fn(),
+  fetchGroupLots: vi.fn(),
+  orderGroupByAge: vi.fn(),
+}));
 
 import { recordTaproomConsumption } from "./recordTaproomConsumption";
 import { writeColdStorageShipment } from "./shipmentWriter";
 import { writePhantomExport } from "./writePhantomExport";
 import { getAvailableColdStorageQuantity } from "./coldStorageDepletion";
 import { applyBreakDown } from "./applyBreakDown";
+import { fetchGroupDraw, fetchGroupLots, orderGroupByAge } from "./coldStorageGroupDraw";
 
 const writeMock = vi.mocked(writeColdStorageShipment);
 const phantomMock = vi.mocked(writePhantomExport);
 const availableMock = vi.mocked(getAvailableColdStorageQuantity);
 const applyBreakDownMock = vi.mocked(applyBreakDown);
+const groupDrawMock = vi.mocked(fetchGroupDraw);
+const groupLotsMock = vi.mocked(fetchGroupLots);
+const orderGroupMock = vi.mocked(orderGroupByAge);
 
 const supabase = {} as unknown as SupabaseClient;
 
@@ -60,6 +69,8 @@ beforeEach(() => {
     shipmentId: "ship-1",
     exportTransactionId: "tx-phantom",
   });
+  groupLotsMock.mockResolvedValue([]);
+  orderGroupMock.mockImplementation((_lots, ids) => [...ids]);
 });
 
 describe("recordTaproomConsumption", () => {
@@ -269,5 +280,121 @@ describe("recordTaproomConsumption break-down integration", () => {
     });
 
     expect(result.warnings).toEqual(["6-pack variation v-pack: volume implies 4 cans, expected 6 for format '6-pack'"]);
+  });
+});
+
+// A Square button declared fungible (square_fungible_skus) sells one product
+// backed by several packagings. The sale is filled across them oldest-lot-first,
+// and each packaging still gets its OWN export row — collapsing them would put
+// one can's volume and packaging-loss on beer that came out of another.
+describe("recordTaproomConsumption across a fungible group", () => {
+  const groupParams = {
+    ...baseParams,
+    kind: "can_sale" as const,
+    variationIds: ["variation-printed", "variation-labeled"],
+  };
+
+  it("writes one shipment per packaging the draw touched, sharing a shipment id", async () => {
+    groupDrawMock.mockResolvedValue({
+      slices: [
+        { variationId: "variation-printed", quantity: 10 },
+        { variationId: "variation-labeled", quantity: 4 },
+      ],
+      shortfall: 0,
+    });
+
+    const res = await recordTaproomConsumption(supabase, { ...groupParams, quantity: 14 });
+
+    expect(writeMock).toHaveBeenCalledTimes(2);
+    expect(writeMock.mock.calls[0][1]).toMatchObject({ variationId: "variation-printed", quantity: 10, shipmentId: "ship-1" });
+    expect(writeMock.mock.calls[1][1]).toMatchObject({ variationId: "variation-labeled", quantity: 4, shipmentId: "ship-1" });
+    expect(phantomMock).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ recordedQty: 14, shortfallQty: 0 });
+  });
+
+  it("does not break anything open while the group still has stock on hand", async () => {
+    groupDrawMock.mockResolvedValue({
+      slices: [{ variationId: "variation-printed", quantity: 3 }],
+      shortfall: 0,
+    });
+
+    await recordTaproomConsumption(supabase, { ...groupParams, quantity: 3 });
+
+    expect(applyBreakDownMock).not.toHaveBeenCalled();
+  });
+
+  it("cracks a higher tier only after the whole group's on-hand is gone", async () => {
+    groupDrawMock.mockResolvedValue({
+      slices: [{ variationId: "variation-printed", quantity: 2 }],
+      shortfall: 3,
+    });
+    applyBreakDownMock.mockResolvedValue({
+      applied: [{ batchId: "b1", fromVariationId: "v-case", toVariationId: "variation-printed", toUnits: 6 }],
+      shortfall: 0,
+      warnings: [],
+    });
+    availableMock.mockResolvedValue(6);
+
+    const res = await recordTaproomConsumption(supabase, { ...groupParams, quantity: 5 });
+
+    expect(applyBreakDownMock).toHaveBeenCalledWith(supabase, expect.objectContaining({ variationId: "variation-printed", needed: 3 }));
+    expect(writeMock).toHaveBeenLastCalledWith(supabase, expect.objectContaining({ variationId: "variation-printed", quantity: 3 }));
+    expect(res).toMatchObject({ recordedQty: 5, shortfallQty: 0 });
+    expect(res.breaks).toHaveLength(1);
+  });
+
+  // The oldest CASES go first for the same reason the oldest singles do.
+  it("tries the packaging with the oldest stock first when cracking", async () => {
+    groupDrawMock.mockResolvedValue({ slices: [], shortfall: 4 });
+    orderGroupMock.mockReturnValue(["variation-labeled", "variation-printed"]);
+    applyBreakDownMock.mockResolvedValue({ applied: [], shortfall: 0, warnings: [] });
+
+    await recordTaproomConsumption(supabase, { ...groupParams, quantity: 4 });
+
+    expect(applyBreakDownMock.mock.calls.map((c) => c[1].variationId)).toEqual([
+      "variation-labeled",
+      "variation-printed",
+    ]);
+  });
+
+  it("phantoms only what the whole group could not cover, against the packaging that ran out", async () => {
+    groupDrawMock.mockResolvedValue({
+      slices: [
+        { variationId: "variation-printed", quantity: 2 },
+        { variationId: "variation-labeled", quantity: 1 },
+      ],
+      shortfall: 2,
+    });
+
+    const res = await recordTaproomConsumption(supabase, { ...groupParams, quantity: 5 });
+
+    expect(phantomMock).toHaveBeenCalledWith(
+      supabase,
+      expect.objectContaining({ variationId: "variation-labeled", quantityKegs: 2 }),
+    );
+    expect(res).toMatchObject({ recordedQty: 3, shortfallQty: 2 });
+  });
+
+  it("charges the shortfall to the link's own packaging when the group was already empty", async () => {
+    groupDrawMock.mockResolvedValue({ slices: [], shortfall: 5 });
+
+    await recordTaproomConsumption(supabase, { ...groupParams, quantity: 5 });
+
+    expect(writeMock).not.toHaveBeenCalled();
+    expect(phantomMock).toHaveBeenCalledWith(
+      supabase,
+      expect.objectContaining({ variationId: "variation-1", quantityKegs: 5 }),
+    );
+  });
+
+  // Everything that is not a declared group must keep the path it has always
+  // taken, untouched.
+  it("leaves a one-member group on the single-variation path", async () => {
+    availableMock.mockResolvedValue(5);
+
+    await recordTaproomConsumption(supabase, { ...baseParams, variationIds: ["variation-1"], quantity: 5 });
+
+    expect(groupDrawMock).not.toHaveBeenCalled();
+    expect(availableMock).toHaveBeenCalled();
   });
 });

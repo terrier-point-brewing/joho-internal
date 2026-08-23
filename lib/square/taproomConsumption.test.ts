@@ -52,6 +52,57 @@ function empty() {
   };
 }
 
+describe("assembleConsumption — fungible Square SKUs", () => {
+  const printed: KegCanLink = {
+    squareVariationId: "sqvar-shared",
+    recipeId: "recipe-epic",
+    variationId: "pv-printed",
+    kind: "can_sale",
+    beerName: "Epic Hazy IPA",
+    variationName: "Printed Can Case",
+    partnerId: "partner-argus",
+  };
+  const labeled: KegCanLink = { ...printed, variationId: "pv-labeled", variationName: "Labeled Can Case" };
+
+  it("hands the recorder the whole group when the SKU is declared", () => {
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      salesByDay: new Map([["sqvar-shared\t2026-08-22", 6]]),
+      kegCanLinks: [printed, labeled],
+      fungibleSkus: new Set(["recipe-epic\tsqvar-shared"]),
+    });
+
+    expect(discrepancies).toEqual([]);
+    expect(units).toHaveLength(1);
+    expect(units[0].quantity).toBe(6);
+    expect(units[0].variationIds?.slice().sort()).toEqual(["pv-labeled", "pv-printed"]);
+  });
+
+  // Undeclared, two partner packagings on one SKU is the pre-existing mapping
+  // fault, and must keep being reported rather than quietly treated as a group.
+  it("still reports an undeclared clash instead of grouping it", () => {
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      salesByDay: new Map([["sqvar-shared\t2026-08-22", 6]]),
+      kegCanLinks: [printed, labeled],
+    });
+
+    expect(units[0].variationIds).toBeUndefined();
+    expect(discrepancies.some((d) => d.kind === "ambiguous_sale_link")).toBe(true);
+  });
+
+  it("leaves an ordinary one-packaging sale with no group at all", () => {
+    const { units } = assembleConsumption({
+      ...empty(),
+      salesByDay: new Map([["sqvar-can\t2026-07-02", 5]]),
+      kegCanLinks: [canLink],
+      fungibleSkus: new Set(["recipe-can\tsqvar-can"]),
+    });
+
+    expect(units[0].variationIds).toBeUndefined();
+  });
+});
+
 describe("assembleConsumption — keg/can sales", () => {
   it("maps a keg sale to a keg_sale unit with the right sourceRef", () => {
     const { units, discrepancies } = assembleConsumption({
@@ -398,7 +449,7 @@ describe("selectSaleLink", () => {
   const fortnight: KegCanLink = { ...house, variationId: "pv-fortnight", variationName: "Fortnight - 1/6 Keg", partnerId: "partner-fortnight" };
 
   it("takes the house variation over a partner one", () => {
-    expect(selectSaleLink([house, fortnight])).toEqual({ link: house, ambiguous: false });
+    expect(selectSaleLink([house, fortnight])).toEqual({ link: house, ambiguous: false, groupVariationIds: [] });
   });
 
   // Order used to decide this: the map was keyed on the Square SKU and simply
@@ -410,8 +461,34 @@ describe("selectSaleLink", () => {
   });
 
   it("passes a lone link straight through, partner or not", () => {
-    expect(selectSaleLink([fortnight])).toEqual({ link: fortnight, ambiguous: false });
-    expect(selectSaleLink([])).toEqual({ link: null, ambiguous: false });
+    expect(selectSaleLink([fortnight])).toEqual({ link: fortnight, ambiguous: false, groupVariationIds: [] });
+    expect(selectSaleLink([])).toEqual({ link: null, ambiguous: false, groupVariationIds: [] });
+  });
+
+  // Declared fungible: several packagings behind one button is the intent, not a
+  // fault, so every candidate comes back instead of one winner.
+  it("returns the whole group when the SKU is declared fungible", () => {
+    const printed = { ...house, variationId: "pv-printed", partnerId: "partner-argus" };
+    const labeled = { ...house, variationId: "pv-labeled", partnerId: "partner-argus" };
+    const { link, ambiguous, groupVariationIds } = selectSaleLink([labeled, printed], true);
+    expect(ambiguous).toBe(false);
+    expect(groupVariationIds).toEqual(["pv-labeled", "pv-printed"]);
+    // Stable representative, so summary lines do not churn between runs.
+    expect(link?.variationId).toBe("pv-labeled");
+    expect(selectSaleLink([printed, labeled], true).link?.variationId).toBe("pv-labeled");
+  });
+
+  it("declaring a SKU fungible does not change a single-packaging button", () => {
+    expect(selectSaleLink([house], true)).toEqual({ link: house, ambiguous: false, groupVariationIds: [] });
+  });
+
+  // One "unit sold" cannot mean both a keg and a can. The declaration is ignored
+  // and the ordinary guard reports it.
+  it("refuses to group a keg with a can even when declared", () => {
+    const asCan = { ...fortnight, variationId: "pv-can", kind: "can_sale" as const };
+    const { ambiguous, groupVariationIds } = selectSaleLink([fortnight, asCan], true);
+    expect(groupVariationIds).toEqual([]);
+    expect(ambiguous).toBe(true);
   });
 
   it("flags, but still decides, when no candidate is house stock", () => {

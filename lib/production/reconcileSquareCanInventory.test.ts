@@ -10,6 +10,7 @@ vi.mock("@/lib/square/skuMappings", () => ({
 
 import {
   planCanReconciliation,
+  mergeFamiliesByBase,
   variantStem,
   pickBaseVariation,
   reconcileSquareCanInventory,
@@ -30,6 +31,53 @@ const fam = (over: Partial<ReconcileFamilyInput> = {}): ReconcileFamilyInput => 
   cansEachByVar: { loose: 1, pack: 4, case: 24 },
   onHandByVar: { loose: 8, pack: 0, case: 1 }, // 8 + 24 = 32 loose-equiv
   ...over,
+});
+
+describe("mergeFamiliesByBase", () => {
+  // Two can-identity families of one beer — a partner's printed can and a
+  // labeled blank — behind one declared-fungible Square button. Planned apart,
+  // each would push its own total at that one variation and the count would flip
+  // back and forth on every cron pass for as long as both held stock.
+  it("sums two families that push to the same Square variation", () => {
+    const printed = fam({ cansEachByVar: { p_loose: 1, p_case: 24 }, onHandByVar: { p_loose: 0, p_case: 1 } });
+    const labeled = fam({ cansEachByVar: { l_loose: 1, l_case: 24 }, onHandByVar: { l_loose: 5, l_case: 2 } });
+
+    const merged = mergeFamiliesByBase([printed, labeled]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].onHandByVar).toEqual({ p_loose: 0, p_case: 1, l_loose: 5, l_case: 2 });
+
+    const plan = planCanReconciliation({ families: [printed, labeled], squareCountByVar: { "SQ-LOOSE": 0 } });
+    expect(plan.writes).toHaveLength(1);
+    // 24 + 5 + 48 — both families, one number.
+    expect(plan.writes[0].coldStorageCans).toBe(77);
+  });
+
+  it("keeps the slices of every member so the drift still decomposes", () => {
+    const printed = fam({ cansEachByVar: { p_case: 24 }, onHandByVar: { p_case: 1 } });
+    const labeled = fam({ cansEachByVar: { l_case: 24 }, onHandByVar: { l_case: 1 } });
+    const plan = planCanReconciliation({ families: [printed, labeled], squareCountByVar: { "SQ-LOOSE": 48 } });
+    const components = plan.measurements[0].components;
+    expect(components.map((c) => c.variationId).sort()).toEqual(["l_case", "p_case"]);
+    expect(components.reduce((s, c) => s + c.cansEach * c.onHand, 0)).toBe(48);
+  });
+
+  it("leaves families pushing to different variations alone", () => {
+    const a = fam({ baseSquareVariationId: "SQ-A" });
+    const b = fam({ baseSquareVariationId: "SQ-B" });
+    expect(mergeFamiliesByBase([a, b])).toHaveLength(2);
+  });
+
+  it("does not fold unrelated families together just because neither resolved a base", () => {
+    const a = fam({ recipeId: "r1", baseSquareVariationId: null });
+    const b = fam({ recipeId: "r2", baseSquareVariationId: null });
+    expect(mergeFamiliesByBase([a, b])).toHaveLength(2);
+  });
+
+  it("keeps one recipe's families apart from another's", () => {
+    const a = fam({ recipeId: "r1" });
+    const b = fam({ recipeId: "r2" });
+    expect(mergeFamiliesByBase([a, b])).toHaveLength(2);
+  });
 });
 
 describe("planCanReconciliation", () => {

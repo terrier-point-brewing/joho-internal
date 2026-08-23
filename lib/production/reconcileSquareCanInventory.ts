@@ -96,6 +96,59 @@ export interface ReconcilePlan {
   warnings: string[];
 }
 
+/**
+ * Collapse families that push to the SAME base Square variation into one.
+ *
+ * A can-identity family is (container, lid, label, partner) — so a beer canned
+ * both in a partner's printed can and in a labeled blank is two families. When
+ * their Square SKU is declared fungible they are one product to Square, one
+ * button, one inventory count. Planned separately, each family would compute its
+ * own total and issue its own PHYSICAL_COUNT against that one variation: the
+ * count would land on whichever ran last and flip back on the next cron pass,
+ * for as long as both families held stock.
+ *
+ * Merging is also what makes the drift reviewable. `components` then carries
+ * every tier of every member, so the slices still sum to the total the push
+ * writes — a variance you cannot decompose is not one you can act on.
+ *
+ * Families with no resolved base are left alone: they are about to be skipped
+ * individually, and keying them together on `null` would merge unrelated ones
+ * into a single misleading skip. Exported for unit testing.
+ */
+export function mergeFamiliesByBase(families: ReconcileFamilyInput[]): ReconcileFamilyInput[] {
+  const merged = new Map<string, ReconcileFamilyInput>();
+  const passthrough: ReconcileFamilyInput[] = [];
+
+  for (const fam of families) {
+    if (!fam.baseSquareVariationId) {
+      passthrough.push(fam);
+      continue;
+    }
+    const key = `${fam.recipeId}\t${fam.baseSquareVariationId}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, {
+        ...fam,
+        cansEachByVar: { ...fam.cansEachByVar },
+        onHandByVar: { ...fam.onHandByVar },
+      });
+      continue;
+    }
+    // Variation ids are unique to one family by construction, so these unions
+    // never collide — but sum rather than overwrite so a future grain change
+    // degrades to a wrong total instead of a silently dropped tier.
+    for (const [varId, cansEach] of Object.entries(fam.cansEachByVar)) {
+      existing.cansEachByVar[varId] = cansEach;
+    }
+    for (const [varId, onHand] of Object.entries(fam.onHandByVar)) {
+      existing.onHandByVar[varId] = (existing.onHandByVar[varId] ?? 0) + onHand;
+    }
+    existing.baseVariationName = existing.baseVariationName ?? fam.baseVariationName;
+  }
+
+  return [...merged.values(), ...passthrough];
+}
+
 export function planCanReconciliation(input: {
   families: ReconcileFamilyInput[];
   squareCountByVar: Record<string, number>;
@@ -104,7 +157,7 @@ export function planCanReconciliation(input: {
   const threshold = input.threshold ?? DRIFT_THRESHOLD;
   const plan: ReconcilePlan = { writes: [], measurements: [], skips: [], warnings: [] };
 
-  for (const fam of input.families) {
+  for (const fam of mergeFamiliesByBase(input.families)) {
     if (!fam.baseSquareVariationId) {
       plan.skips.push({ recipeId: fam.recipeId, reason: "no base Square variation for family" });
       continue;
