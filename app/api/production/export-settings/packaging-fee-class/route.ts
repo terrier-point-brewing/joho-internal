@@ -4,12 +4,29 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Writes packaging-fee mappings across a volume class, or across one owner's
+ * containers within it.
+ *
+ * The original whole-class write is how the blank containers were mapped, but
+ * it is a point-in-time fan-out: a container added afterwards — always a
+ * partner-printed can or keg — gets no row, and the export invoice throws on it
+ * because findMapping() keys on packaging_item_id exactly. `owner` narrows the
+ * write to the blanks or to one partner's printed containers, so a printed run
+ * that genuinely bills at its own rate can be priced apart from the blank, and
+ * so the fan-out re-covers that owner's containers whenever it is re-saved.
+ *
+ * `owner` is packaging_items.partner_id — who the container is printed for —
+ * NOT invoice_item_mappings.partner_id, which is who the fee is billed to.
+ */
 export async function POST(req: NextRequest) {
   try { await requirePermission(CAP.productionSettingsOperate); } catch (res) { return res as Response; }
 
   const body = await req.json() as {
     type: "keg" | "can";
     volume_fl_oz: number;
+    /** "all" every container in the class · "blank" the unbranded ones · a partner uuid */
+    owner?: string | null;
     format: "case" | "loose" | null;
     partner_id: string | null;
     square_catalog_item_id: string;
@@ -29,16 +46,23 @@ export async function POST(req: NextRequest) {
 
   const supabase = createSupabaseAdminClient();
 
-  // Find all packaging_items in this volume class
-  const { data: items, error: itemsErr } = await supabase
+  const owner = body.owner ?? "all";
+  let query = supabase
     .from("packaging_items")
     .select("id")
     .eq("type", body.type)
     .eq("volume_fl_oz", body.volume_fl_oz);
+  if (owner === "blank") query = query.is("partner_id", null);
+  else if (owner !== "all") query = query.eq("partner_id", owner);
+
+  const { data: items, error: itemsErr } = await query;
 
   if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 });
   if (!items || items.length === 0) {
-    return NextResponse.json({ error: `No packaging_items found for type=${body.type} volume_fl_oz=${body.volume_fl_oz}` }, { status: 404 });
+    return NextResponse.json(
+      { error: `No packaging_items found for type=${body.type} volume_fl_oz=${body.volume_fl_oz} owner=${owner}` },
+      { status: 404 }
+    );
   }
 
   const rows = items.map((item) => ({

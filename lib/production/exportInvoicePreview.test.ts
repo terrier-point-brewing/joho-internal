@@ -254,8 +254,15 @@ function pvStub(variationsByKey: Record<string, unknown[]>): SupabaseClient {
         select() { return chain; },
         eq(col: string, val: unknown) { filters[col] = val; return chain; },
         then(resolve: (r: { data: unknown[]; error: null }) => void) {
+          // Two queries now: resolveShippedVariationId matches the legacy label
+          // to a variation id, then the slot fetch keys on that id. The stub
+          // uses the composite key itself as the id so the fixtures are unchanged.
+          if (filters["variation_id"] !== undefined) {
+            resolve({ data: variationsByKey[filters["variation_id"] as string] ?? [], error: null });
+            return;
+          }
           const key = `${filters["recipe_id"]}|${filters["packaging_variations.name"]}`;
-          resolve({ data: variationsByKey[key] ?? [], error: null });
+          resolve({ data: variationsByKey[key] ? [{ variation_id: key }] : [], error: null });
         },
       };
       return chain;
@@ -275,7 +282,7 @@ const caseVariationRow = {
   },
 };
 
-function matRows(rows: Array<Partial<{ id: string; recipe_id: string | null; packaging_item_id: string; packaging_format: string | null; quantity: number; units_per_package: number; variant_label: string }>>) {
+function matRows(rows: Array<Partial<{ id: string; recipe_id: string | null; variation_id: string | null; packaging_item_id: string; packaging_format: string | null; quantity: number; units_per_package: number; variant_label: string }>>) {
   return rows as unknown as Parameters<typeof buildPackagingMaterialLines>[1];
 }
 
@@ -444,7 +451,7 @@ function productStub(opts: {
   return client as unknown as SupabaseClient;
 }
 
-function prodRows(rows: Array<Partial<{ id: string; recipe_id: string | null; packaging_item_id: string; packaging_format: string | null; quantity: number; variant_label: string }>>) {
+function prodRows(rows: Array<Partial<{ id: string; recipe_id: string | null; variation_id: string | null; packaging_item_id: string; packaging_format: string | null; quantity: number; variant_label: string }>>) {
   return rows as unknown as Parameters<typeof buildProductLines>[1];
 }
 
@@ -474,6 +481,25 @@ describe("buildProductLines", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ quantity: 4, unitPriceCents: 4500, squareCatalogVariationId: "sq-cbc" });
     expect(lines[0].description).toBe("CBC Pumpkin Reaper Ale · 16oz Can (Case) (case)");
+  });
+
+  it("resolves by variation_id, ignoring a variant_label the rename left stale", async () => {
+    // The Aug 2026 prod break: "Fortnight Octoberfest…" was renamed, orphaning
+    // the shipment. With variation_id stamped, the dead label is just history.
+    const supabase = productStub({
+      pvByKey: {},  // no name matches anything any more
+      skuByKey: {
+        "pv-oktoberfest|oktoberfest": { square_variation_id: "sq-okt", item_name: "Fortnight Oktoberfest", variation_name: "16oz Can (Case)" },
+      },
+    });
+    const lines = await buildProductLines(
+      supabase,
+      prodRows([{ id: "t1", recipe_id: "oktoberfest", variation_id: "pv-oktoberfest", packaging_item_id: "can-16", packaging_format: "case", quantity: 30, variant_label: "Fortnight Octoberfest - 16 oz Labeled can - 16oz Labeled Can Case" }]),
+      new Map([["sq-okt", 3000]]),
+      pkgName,
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ quantity: 30, unitPriceCents: 3000, squareCatalogVariationId: "sq-okt" });
   });
 
   it("throws (fail-closed) when the shipped variant_label resolves to no variation", async () => {

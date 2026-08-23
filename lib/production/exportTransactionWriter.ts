@@ -34,6 +34,9 @@ export async function writeExportTransaction(
     batchId: string | null;
     recipeId: string;
     packagingItemId: string;
+    /** The packaging variation shipped — the authoritative link, resolved by id downstream. */
+    variationId: string | null;
+    /** The variation's name at ship time. Display only; readers must not key on it. */
     variantLabel: string;
     quantity: number;
     volumeBbl: number;
@@ -71,6 +74,7 @@ export async function writeExportTransaction(
       recipe_id: params.recipeId,
       allocation_id: params.allocationId,
       packaging_item_id: params.packagingItemId,
+      variation_id: params.variationId,
       variant_label: params.variantLabel,
       quantity: params.quantity,
       packaging_format: params.packagingFormat,

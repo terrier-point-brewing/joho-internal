@@ -74,6 +74,7 @@ export async function writePhantomExport(
     isPhantom: true,
     recipeId: params.recipeId,
     packagingItemId: variation.container_id,
+    variationId: params.variationId,
     variantLabel: variation.name,
     quantity: params.quantityKegs,
     volumeBbl,

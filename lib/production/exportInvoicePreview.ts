@@ -4,6 +4,7 @@ import { fetchCatalogItems } from "@/lib/square/catalog";
 import { buildStandalonePriceMap } from "@/lib/square/catalog";
 import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import { resolveProductSku } from "@/lib/square/skuMappings";
+import { resolveShippedVariationId } from "@/lib/production/resolveShippedVariation";
 import { dollarsToCents } from "@/lib/money";
 import {
   computeMaterialBreakdown,
@@ -107,10 +108,13 @@ interface ExportTxRow {
   units_per_package: number;
   channel: string;
   recipe_id: string | null;
-  // The literal packaging variation shipped, stored by name at ship time
-  // (writeExportTransaction: variant_label = variation.name). Pinpoints the exact
-  // label-variant for the materials charge — (recipe ∩ container ∩ format) can be
-  // ambiguous when one liquid ships under two brand labels.
+  /**
+   * The packaging variation shipped. Authoritative — (recipe ∩ container ∩
+   * format) is ambiguous when one liquid ships under two brand labels, and
+   * `variant_label` is only a snapshot of the name on the day.
+   */
+  variation_id: string | null;
+  /** What the variation was called at ship time. Display only — goes stale on rename. */
   variant_label: string;
   /** Canning loss % inherited from the run that filled these cans; 0 for kegs. */
   packaging_loss_pct: number | null;
@@ -348,15 +352,17 @@ export async function buildPackagingMaterialLines(
       continue;
     }
 
-    // Resolve the LITERAL variation shipped, recorded on the export as
-    // variant_label (= the variation's name at ship time). This pinpoints the
-    // exact label-variant — (recipe ∩ container ∩ format) alone is ambiguous when
-    // one liquid ships under two brand labels sharing a can + format.
-    const { data: pvRows, error } = await supabase
-      .from("recipe_packaging_variations")
-      .select(MATERIAL_SLOT_SELECT)
-      .eq("recipe_id", tx.recipe_id)
-      .eq("packaging_variations.name", tx.variant_label);
+    // Resolve the LITERAL variation shipped — (recipe ∩ container ∩ format)
+    // alone is ambiguous when one liquid ships under two brand labels sharing a
+    // can + format.
+    const shippedVariationId = await resolveShippedVariationId(supabase, tx);
+    const { data: pvRows, error } = shippedVariationId
+      ? await supabase
+          .from("recipe_packaging_variations")
+          .select(MATERIAL_SLOT_SELECT)
+          .eq("recipe_id", tx.recipe_id)
+          .eq("variation_id", shippedVariationId)
+      : { data: null, error: null };
     if (error || !pvRows || pvRows.length !== 1) {
       warnings.push(`Couldn't resolve packaging materials for ${beerName ?? containerName} ("${tx.variant_label}") — no materials charged. Check Link Styles to Square.`);
       continue;
@@ -439,7 +445,7 @@ export async function computeMaterialBreakdownsForTransactions(
   if (transactionIds.length === 0) return [];
   const { data: txs, error } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variant_label, packaging_loss_pct")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct")
     .in("id", transactionIds);
   if (error || !txs?.length) return [];
 
@@ -473,13 +479,12 @@ export async function buildProductLines(
   pkgNameById: Map<string, string>,
   recipeNameById: Map<string, string> = new Map()
 ): Promise<InvoiceLineItemDraft[]> {
-  // export_transactions does NOT store variation_id (confirmed against the live
-  // schema), so resolve the packaging_variation each transaction shipped, then
-  // the product SKU at variation grain via the unified resolver. Match on the
-  // LITERAL variation shipped — variant_label (= packaging_variations.name at
-  // ship time) — scoped to the recipe. (recipe ∩ container ∩ format) is
-  // ambiguous when one liquid ships under two brand labels sharing a can +
-  // format, and would block the whole invoice.
+  // Resolve the packaging_variation each transaction shipped, then the product
+  // SKU at variation grain via the unified resolver. Rows carry variation_id;
+  // older ones fall back to the variant_label name match, which is exactly the
+  // fallback that breaks on a rename. (recipe ∩ container ∩ format) is not an
+  // alternative — it is ambiguous when one liquid ships under two brand labels
+  // sharing a can + format, and would block the whole invoice.
   const lineItems: InvoiceLineItemDraft[] = [];
   for (const tx of rows) {
     if (!tx.recipe_id) {
@@ -489,20 +494,15 @@ export async function buildProductLines(
     }
     const pkgName = pkgNameById.get(tx.packaging_item_id) ?? tx.packaging_item_id;
 
-    const { data: pvRows, error: pvErr } = await supabase
-      .from("recipe_packaging_variations")
-      .select("variation_id, packaging_variations!inner(id, name)")
-      .eq("recipe_id", tx.recipe_id)
-      .eq("packaging_variations.name", tx.variant_label);
-    if (pvErr) throw new Error(pvErr.message);
-    if (!pvRows || pvRows.length !== 1) {
+    const variationId = await resolveShippedVariationId(supabase, tx);
+    if (!variationId) {
       throw new Error(
-        `Cannot resolve the packaging variation "${tx.variant_label}" for recipe + "${pkgName}" ` +
-        `— ${pvRows?.length ?? 0} candidates. ` +
+        `Cannot resolve the packaging variation "${tx.variant_label}" for recipe + "${pkgName}". ` +
+        `This shipment predates variation_id and its label no longer matches any variation ` +
+        `on the recipe — the variation was most likely renamed. ` +
         `Resolve the mapping in Production → Link Styles to Square.`
       );
     }
-    const variationId = pvRows[0].variation_id as string;
 
     const sku = await resolveProductSku(supabase, { kind: "packaged", variationId, recipeId: tx.recipe_id });
     if (!sku) {
@@ -546,7 +546,7 @@ export async function buildInvoicePreview(
   // ── 1. Load transactions + validate same-customer, invoice_required ───────
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variant_label, packaging_loss_pct")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct")
     .in("id", transactionIds);
   if (txErr) throw new Error(txErr.message);
   if (!txs || txs.length !== transactionIds.length) {

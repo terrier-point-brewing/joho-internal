@@ -23,6 +23,7 @@
 
 import crypto from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveShippedVariationId, type ShippedVariationRef } from "@/lib/production/resolveShippedVariation";
 
 export interface RefundReturnResult {
   shipmentId: string;
@@ -83,22 +84,14 @@ export async function restockColdStorage(
 
 /**
  * Resolve the packaging variation a shipped export transaction used, so the
- * restock lands on the same cold-storage lot the shipment drained. Same lookup
- * buildProductLines and invoiceLineVolumes do — by the literal `variant_label`
- * stamped at ship time, scoped to the recipe.
+ * restock lands on the same cold-storage lot the shipment drained. Same resolver
+ * buildProductLines and invoiceLineVolumes use.
  */
 async function resolveVariationId(
   supabase: SupabaseClient,
-  tx: { recipe_id: string | null; variant_label: string | null },
+  tx: ShippedVariationRef,
 ): Promise<string | null> {
-  if (!tx.recipe_id || !tx.variant_label) return null;
-  const { data } = await supabase
-    .from("recipe_packaging_variations")
-    .select("variation_id, packaging_variations!inner(id, name)")
-    .eq("recipe_id", tx.recipe_id)
-    .eq("packaging_variations.name", tx.variant_label);
-  if (!data || data.length !== 1) return null;
-  return data[0].variation_id as string;
+  return resolveShippedVariationId(supabase, tx);
 }
 
 export async function writeRefundReturn(
@@ -122,7 +115,7 @@ export async function writeRefundReturn(
   const { data: txs, error } = await supabase
     .from("export_transactions")
     .select(
-      "id, batch_id, recipe_id, allocation_id, packaging_item_id, variant_label, quantity, volume_bbl, channel, recipient_id, recipient_name, packaging_format, units_per_package, packaging_loss_pct",
+      "id, batch_id, recipe_id, allocation_id, packaging_item_id, variation_id, variant_label, quantity, volume_bbl, channel, recipient_id, recipient_name, packaging_format, units_per_package, packaging_loss_pct",
     )
     .eq("invoice_id", invoiceId)
     // Only reverse rows that represent a real outbound movement. A reversal we
@@ -181,6 +174,7 @@ export async function writeRefundReturn(
         // and a return should not silently hand a partner their entitlement back.
         allocation_id: null,
         packaging_item_id: tx.packaging_item_id,
+        variation_id: tx.variation_id,
         variant_label: tx.variant_label,
         quantity: -qty,
         packaging_format: tx.packaging_format,

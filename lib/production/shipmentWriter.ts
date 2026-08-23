@@ -169,6 +169,7 @@ export async function writeColdStorageShipment(
       batchId: w.batchId,
       recipeId,
       packagingItemId: variation.container_id,
+      variationId,
       variantLabel: variation.name,
       quantity: w.qty,
       volumeBbl: w.bbl,

@@ -130,6 +130,39 @@ export default function InvoicePreviewModal({
     ? discountById.get(data.defaultDiscountCatalogId)
     : undefined;
 
+  // ── Ingredient deposit (manual, contract-brewing only) ────────────────────
+  // Not automatic: a shipment that WAS a contract-brewing allocation already
+  // paid its deposit up front, so adding this to every contract invoice would
+  // charge those partners twice. The operator adds it when a distribution
+  // shipment is being re-billed as contract brewing and never paid one.
+  const [depositPending, setDepositPending] = useState(false);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const [depositWarnings, setDepositWarnings] = useState<string[]>([]);
+  const hasDepositLine = effectiveLineItems.some((li) =>
+    li.squareCatalogVariationId != null && /ingredient deposit/i.test(li.description)
+  );
+
+  async function addIngredientDeposit() {
+    setDepositPending(true);
+    setDepositError(null);
+    try {
+      const res = await fetch(`/api/production/export/ingredient-deposit?ids=${transactionIds.join(",")}`);
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Couldn't compute the ingredient deposit");
+      const added = (body.lineItems ?? []) as DraftLineItem[];
+      setDepositWarnings(body.warnings ?? []);
+      if (added.length === 0) {
+        setDepositError("No ingredient deposit could be computed for these shipments.");
+        return;
+      }
+      setLineItems([...effectiveLineItems, ...added]);
+    } catch (e) {
+      setDepositError(e instanceof Error ? e.message : "Couldn't compute the ingredient deposit");
+    } finally {
+      setDepositPending(false);
+    }
+  }
+
   // ── Line mutations ────────────────────────────────────────────────────────
   function updateLine(id: string, patch: Partial<DraftLineItem>) {
     setLineItems(effectiveLineItems.map((li) => (li.id === id ? { ...li, ...patch } : li)));
@@ -321,6 +354,31 @@ export default function InvoicePreviewModal({
                 />
               </div>
             </>
+          )}
+
+          {/* ── Ingredient deposit ─────────────────────────────────────────── */}
+          {channel === "contract_brewing" && !hasDepositLine && (
+            <div className="space-y-1">
+              <button
+                onClick={addIngredientDeposit}
+                disabled={depositPending}
+                className="btn-secondary"
+              >
+                {depositPending ? "Calculating…" : "+ Add Ingredient Deposit"}
+              </button>
+              <p className="text-xs text-faint">
+                This shipment&rsquo;s share of the batch&rsquo;s ingredient bill, by packaged volume so
+                shrinkage is shared. Only for shipments that never paid a deposit up front.
+              </p>
+            </div>
+          )}
+          {depositError && <Banner tone="danger">{depositError}</Banner>}
+          {depositWarnings.length > 0 && (
+            <Banner tone="accent">
+              <ul className="list-disc pl-4 space-y-0.5">
+                {depositWarnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </Banner>
           )}
 
           {/* ── Preview advisories (missing costs, unresolved materials) ──────── */}

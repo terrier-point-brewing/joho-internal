@@ -8,10 +8,9 @@
  * lib/finance/refundPlanner.ts — the planner refuses rather than guess when this
  * returns nothing for a line.
  *
- * `export_transactions` does NOT store a Square variation id (buildProductLines
- * says so, and the live schema agrees), so the link back is resolved the same
- * way the invoice was built: packaging variation from the literal `variant_label`
- * shipped, scoped to the recipe, then the product SKU at variation grain.
+ * `export_transactions` stores the packaging variation shipped, not a Square
+ * variation id, so the link back is resolved the same way the invoice was built:
+ * packaging variation from the shipment, then the product SKU at variation grain.
  *
  * Two transactions can share a variation and become two invoice lines, so a
  * variation is not a unique key back to a single line. That is fine: same
@@ -22,6 +21,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveProductSku } from "@/lib/square/skuMappings";
+import { resolveShippedVariationId, type ShippedVariationRef } from "@/lib/production/resolveShippedVariation";
 
 interface VolumeGroup {
   quantity: number;
@@ -36,23 +36,16 @@ interface VolumeGroup {
  */
 async function resolveVariationId(
   supabase: SupabaseClient,
-  tx: { recipe_id: string | null; variant_label: string | null },
+  tx: ShippedVariationRef,
 ): Promise<string | null> {
-  if (!tx.recipe_id || !tx.variant_label) return null;
-
-  const { data: pvRows } = await supabase
-    .from("recipe_packaging_variations")
-    .select("variation_id, packaging_variations!inner(id, name)")
-    .eq("recipe_id", tx.recipe_id)
-    .eq("packaging_variations.name", tx.variant_label);
-
-  // Exactly one, same as buildProductLines — an ambiguous mapping is not a
-  // volume we can stand behind.
-  if (!pvRows || pvRows.length !== 1) return null;
+  // Same resolver buildProductLines uses — an unresolvable or ambiguous mapping
+  // is not a volume we can stand behind.
+  const variationId = await resolveShippedVariationId(supabase, tx);
+  if (!variationId || !tx.recipe_id) return null;
 
   const sku = await resolveProductSku(supabase, {
     kind: "packaged",
-    variationId: pvRows[0].variation_id as string,
+    variationId,
     recipeId: tx.recipe_id,
   });
   return sku?.squareVariationId ?? null;
@@ -71,7 +64,7 @@ export async function resolveInvoiceLineVolumes(
 ): Promise<Map<string, number>> {
   const { data: txs } = await supabase
     .from("export_transactions")
-    .select("id, recipe_id, variant_label, quantity, volume_bbl")
+    .select("id, recipe_id, variation_id, variant_label, quantity, volume_bbl")
     .eq("invoice_id", invoiceId);
 
   const byVariation = new Map<string, VolumeGroup>();
