@@ -227,20 +227,20 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
             with existing stock as a weighted average to produce the new Cost/Unit shown on the {itemType === "ingredient" ? "Ingredients" : "Packaging"} table.
           </p>
           {showFreightGuessNote && (
-            <div className="mt-2 rounded border border-warning-border bg-warning-surface/25 px-2.5 py-2">
-              <p className="text-xs text-warning">
+            <div className="mt-2 rounded border border-accent-border/40 bg-accent-muted/20 px-2.5 py-2">
+              <p className="text-xs text-accent-soft">
                 Freight for {namedGuesses.length === 1 ? "this item was" : "these items was"} split by
                 count, not weight — {namedGuesses.length === 1 ? "its unit does" : "their units do"} not
                 name a weight:
               </p>
-              <ul className="text-xs text-warning/80 mt-1 list-disc list-inside">
+              <ul className="text-xs text-accent-soft/80 mt-1 list-disc list-inside">
                 {namedGuesses.map((g) => (
                   <li key={`${g.label}-${g.unit}`}>
-                    {g.label} <span className="text-warning/60">({g.unit || "no unit"})</span>
+                    {g.label} <span className="text-accent-soft/60">({g.unit || "no unit"})</span>
                   </li>
                 ))}
               </ul>
-              <p className="text-xs text-warning/70 mt-1.5">
+              <p className="text-xs text-accent-soft/70 mt-1.5">
                 The receipt is still correct — its freight share is just an estimate.
               </p>
             </div>
