@@ -166,7 +166,14 @@ delete of a delivery and recomputes the parent entry by a ladder, first match wi
 (no deliveries, or all `skipped`) → derive nothing. `publishing` outranks `failed` on
 purpose — while a channel is still moving the entry is still in progress. "Derive
 nothing" is what lets a draft keep its channels: a set of deliveries that is entirely
-`pending` is a person's channel choice, not queued work. **App code that writes a derived
+`pending` is a person's channel choice, not queued work.
+
+"Derive nothing" has one qualification, and it is the fix for a bug chip 7 found: an
+entry already sitting on a *derived* status falls back to `approved` rather than keeping
+it. Leaving it alone froze entries — an approved entry whose only delivery went
+`publishing` and then `skipped` read `in_progress` forever, with nothing in flight and no
+way out. A `draft` or `approved` entry is still left exactly as it is, which is what that
+rung was always for. **App code that writes a derived
 status is a bug even when it happens to be right.**
 
 **`details` is owned by plugins and the chassis never reads it.** It is a per-kind
