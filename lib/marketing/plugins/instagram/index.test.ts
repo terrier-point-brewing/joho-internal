@@ -173,23 +173,35 @@ describe("instagram plugin identity", () => {
 describe("instagram connect — the dialog", () => {
   it("builds the Facebook OAuth dialog and round-trips state verbatim", () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     const url = new URL(createInstagramChannelPlugin().connect.authUrl("v1.aGk.123.abc.sig"));
 
     expect(url.origin + url.pathname).toBe(`https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`);
     expect(url.searchParams.get("client_id")).toBe("app-123");
     expect(url.searchParams.get("redirect_uri")).toBe(INSTAGRAM_REDIRECT_URI);
     expect(url.searchParams.get("state")).toBe("v1.aGk.123.abc.sig");
-    expect(url.searchParams.get("scope")).toBe(
-      "instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list",
-    );
+    // Login for Business takes config_id, not scope — Meta ignores scope here,
+    // and the configuration behind this id is what designates the Page and the
+    // Instagram account the app may reach.
+    expect(url.searchParams.get("config_id")).toBe("cfg-test");
+    expect(url.searchParams.get("scope")).toBeNull();
     // Without this, an account that already authorised the app is handed back
     // its ORIGINAL grant and any scope added since is silently missing.
     expect(url.searchParams.get("auth_type")).toBe("rerequest");
     expect(url.searchParams.get("response_type")).toBe("code");
   });
 
+  it("refuses in a sentence when META_LOGIN_CONFIG_ID is not set", () => {
+    // Without it the dialog would load with no configuration and grant no
+    // assets, which fails much later and much less legibly.
+    vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "");
+    expect(() => createInstagramChannelPlugin().connect.authUrl("s")).toThrow(/META_LOGIN_CONFIG_ID/);
+  });
+
   it("refuses in a sentence when META_APP_ID is not set", () => {
     vi.stubEnv("META_APP_ID", "");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     expect(() => createInstagramChannelPlugin().connect.authUrl("s")).toThrow(/META_APP_ID/);
     expect(() => createInstagramChannelPlugin().connect.authUrl("s")).toThrow(/Settings → Basic/);
   });
@@ -218,6 +230,7 @@ function connectAnswers(over: { expiresIn?: number; pages?: unknown[] } = {}): A
 describe("instagram connect — the callback", () => {
   it("exchanges the code, then the token, then resolves the page", async () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     vi.stubEnv("META_APP_SECRET", "secret-456");
     const transport = stubTransport(connectAnswers());
 
@@ -246,6 +259,7 @@ describe("instagram connect — the callback", () => {
 
   it("stores the page token as the one that publishes, and the user token beside it", async () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     vi.stubEnv("META_APP_SECRET", "secret-456");
     const account = await createInstagramChannelPlugin({ transport: stubTransport(connectAnswers()) }).connect.callback(
       "c",
@@ -260,6 +274,7 @@ describe("instagram connect — the callback", () => {
 
   it("records the user token's expiry, because that is what token_expires_at means", async () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     vi.stubEnv("META_APP_SECRET", "secret-456");
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-23T12:00:00.000Z"));
@@ -275,6 +290,7 @@ describe("instagram connect — the callback", () => {
 
   it("leaves the expiry null when Meta issues a token without one", async () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     vi.stubEnv("META_APP_SECRET", "secret-456");
     const answers = connectAnswers();
     answers[1] = { access_token: "long-user-token" };
@@ -285,6 +301,7 @@ describe("instagram connect — the callback", () => {
 
   it("names the missing permission when Meta lists no pages at all", async () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     vi.stubEnv("META_APP_SECRET", "secret-456");
     const transport = stubTransport(connectAnswers({ pages: [] }));
 
@@ -295,6 +312,7 @@ describe("instagram connect — the callback", () => {
 
   it("says to link the account when a page has no Instagram behind it", async () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     vi.stubEnv("META_APP_SECRET", "secret-456");
     const transport = stubTransport(
       connectAnswers({ pages: [{ id: PAGE_ID, name: "Joho Brewing", access_token: "t", instagram_business_account: null }] }),
@@ -307,6 +325,7 @@ describe("instagram connect — the callback", () => {
 
   it("refuses to guess when two pages both have Instagram accounts", async () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     vi.stubEnv("META_APP_SECRET", "secret-456");
     const page = (id: string, name: string) => ({
       id,
@@ -323,6 +342,7 @@ describe("instagram connect — the callback", () => {
 
   it("refuses in a sentence when META_APP_SECRET is not set, without calling anything", async () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     vi.stubEnv("META_APP_SECRET", "");
     const transport = forbiddenTransport();
 
@@ -609,6 +629,7 @@ describe("instagram plugin — secrets stay out of what anybody can read", () =>
 
   it("never puts the app secret in the dialog URL", () => {
     vi.stubEnv("META_APP_ID", "app-123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "cfg-test");
     vi.stubEnv("META_APP_SECRET", "secret-456");
 
     expect(createInstagramChannelPlugin().connect.authUrl("s")).not.toContain("secret-456");

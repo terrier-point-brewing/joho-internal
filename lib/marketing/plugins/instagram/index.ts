@@ -171,13 +171,22 @@ interface InstagramCredentials {
  * `lib/env.ts` because marketing's import boundary does not admit that module,
  * and `oauthState.ts` set the precedent for exactly this case.
  */
-function metaEnv(name: "META_APP_ID" | "META_APP_SECRET"): string {
+type MetaEnvName = "META_APP_ID" | "META_APP_SECRET" | "META_LOGIN_CONFIG_ID";
+
+/** Where each value is found, so the error tells a person what to go and do. */
+const META_ENV_SOURCE: Record<MetaEnvName, string> = {
+  META_APP_ID: "the Meta app's App ID, from App Dashboard → Settings → Basic",
+  META_APP_SECRET: "the Meta app's App Secret, from App Dashboard → Settings → Basic",
+  META_LOGIN_CONFIG_ID:
+    "the Configuration ID from App Dashboard → Facebook Login for Business → Configurations. " +
+    "The configuration must grant the Pages and Instagram accounts assets, or the login " +
+    "designates nothing and the Page lookup comes back empty",
+};
+
+function metaEnv(name: MetaEnvName): string {
   const value = process.env[name];
   if (!value) {
-    throw new Error(
-      `Connecting Instagram needs ${name} set. It is the Meta app's ` +
-        `${name === "META_APP_ID" ? "App ID" : "App Secret"}, from App Dashboard → Settings → Basic.`,
-    );
+    throw new Error(`Connecting Instagram needs ${name} set. It is ${META_ENV_SOURCE[name]}.`);
   }
   return value;
 }
@@ -316,7 +325,23 @@ export function createInstagramChannelPlugin(options: InstagramChannelOptions = 
         url.searchParams.set("client_id", metaEnv("META_APP_ID"));
         url.searchParams.set("redirect_uri", INSTAGRAM_REDIRECT_URI);
         url.searchParams.set("state", state);
-        url.searchParams.set("scope", INSTAGRAM_SCOPES.join(","));
+        // Facebook Login for BUSINESS, which is a different product from
+        // Facebook Login and takes a different parameter. Meta's own words:
+        // "config_id has replaced scope (which should not be used)."
+        //
+        // A configuration is built in the App Dashboard and bundles the token
+        // type, the permissions, and — the part that matters here — the
+        // ASSETS the login grants access to. An app can only reach assets the
+        // person designated while completing the flow, so the Page and the
+        // Instagram account have to be in the configuration or /me/accounts
+        // comes back empty no matter which permissions were ticked.
+        //
+        // That emptiness is what three earlier fixes chased: it looks exactly
+        // like a missing permission, and then like a stale grant, and then
+        // like someone not administering the Page. It was none of those. The
+        // scopes below are still declared because the configuration must match
+        // them, and because they document what this plugin needs.
+        url.searchParams.set("config_id", metaEnv("META_LOGIN_CONFIG_ID"));
         url.searchParams.set("response_type", "code");
         // Force the dialog to ask again.
         //
