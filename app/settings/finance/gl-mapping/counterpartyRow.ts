@@ -66,13 +66,24 @@ export function counterpartyRowState(rule: RowFacts, inclusion: InclusionState):
   const asksAccountSource = !feedOff && !excluded
     && (selfClassifying || treatmentNeedsAccount(treatment));
 
+  // An unanswered step 1 outranks a claim, and the order is the point.
+  //
+  // A claim says who owns the ACCOUNT. It says nothing about what the money is,
+  // so a claimed counterparty with no answer to step 1 is still waiting on a
+  // person. Ranking the claim first counted Square as finished while its own row
+  // read "answer step 1 first" — and Square's four Chase payouts sitting
+  // unclassified is the exact failure this screen was rebuilt to surface.
+  //
+  // A self-classifying feed is never "awaiting": step 1 was answered at import.
+  const awaitingStepOne = !selfClassifying && treatment === "";
+
   const bucket: RowState["bucket"] =
       feedOff                        ? "feed-off"
     : excluded                       ? "excluded"
+    : awaitingStepOne                ? "awaiting-decision"
     : rule.handledElsewhere          ? "handled-elsewhere"
     : asksAccountSource              ? "needs-account"
-    : getTreatment(treatment)        ? "no-account-needed"
-    :                                  "awaiting-decision";
+    :                                  "no-account-needed";
 
   return { feedOff, selfClassifying, treatment, asksAccountSource, bucket };
 }

@@ -110,4 +110,19 @@ describe("summary buckets", () => {
     const s = counterpartyRowState(rule({ counterparty_key: "square", flow_type: "deposit", handledElsewhere: true }), NO_RULES);
     expect(s.treatment).toBe("deposit");
   });
+
+  // Ranking the claim first counted Square as finished while its own row read
+  // "answer step 1 first" — the summary quietly hiding the very gap the screen
+  // exists to surface.
+  it("a claimed counterparty with no answer is still awaiting one", () => {
+    const s = counterpartyRowState(rule({ counterparty_key: "square", flow_type: null, handledElsewhere: true }), NO_RULES);
+    expect(s.bucket).toBe("awaiting-decision");
+  });
+
+  // …but a self-classifying feed answered step 1 at import, so a claimed Ramp
+  // counterparty is genuinely finished rather than waiting.
+  it("a claimed counterparty on a self-classifying feed is not awaiting", () => {
+    const s = counterpartyRowState(rule({ source: "ramp", counterparty_key: "gusto", flow_type: null, handledElsewhere: true }), NO_RULES);
+    expect(s.bucket).toBe("handled-elsewhere");
+  });
 });

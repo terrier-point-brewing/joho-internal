@@ -434,9 +434,11 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
             {/* ── Step 3 · which account? ───────────────────────────────────
                 Only when step 2 says the account is chosen here. */}
             <td className="px-4 py-2">
-              {!asksAccountSource ? (
-                <span className="text-2xs text-faint">—</span>
-              ) : handled ? (
+              {handled ? (
+                // Shown whether or not an account is being asked for. A claim is
+                // information as much as a control: "GL 1040's sweep calculation
+                // accounts for this" is worth saying even once the flow has
+                // settled that no account of its own is used.
                 <div className="flex items-center gap-2">
                   <Badge tone="accent">{handled.badge}</Badge>
                   {handled.manageHref && (
@@ -445,6 +447,8 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
                     </a>
                   )}
                 </div>
+              ) : !asksAccountSource ? (
+                <span className="text-2xs text-faint">—</span>
               ) : (
                 <div className="flex items-center gap-2">
                   <AccountSelect
