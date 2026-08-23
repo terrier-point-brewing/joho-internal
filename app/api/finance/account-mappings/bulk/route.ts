@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { autoMapPosLineItems, autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
+import { upsertGlDefaultRule, type GlRuleScope, type GlDefaultPatch } from "@/lib/finance/glDefaultRules";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,30 @@ export async function POST(req: NextRequest) {
 
   const supabase = createSupabaseAdminClient();
 
+  // The same decision, recorded as a standing default. Bulk mapping used to be a
+  // one-shot write over today's variations, so an item Square added tomorrow
+  // came back unresolved even though a person had already coded its category.
+  // The rule is what the catalog sync reads when it first sees a variation.
+  //
+  // Only positive declarations are stored: clearing a bulk mapping (a null CoA)
+  // says "these rows have no account", not "future rows must have none", and an
+  // `excluded: false` is not something any bulk action sends.
+  async function recordRule(scope: GlRuleScope, scopeKey: string | null) {
+    const fields: GlDefaultPatch = {};
+    for (const f of ["chart_of_accounts_id", "chart_of_accounts_id_pos", "chart_of_accounts_id_invoice"] as const) {
+      if (f in patch && patch[f]) fields[f] = patch[f] as string;
+    }
+    if (patch.excluded === true) fields.excluded = true;
+    if (Object.keys(fields).length === 0) return;
+    try {
+      await upsertGlDefaultRule(supabase, scope, scopeKey, fields);
+    } catch (e) {
+      // Never fail the bulk map over its own memory: the variations in scope are
+      // already written and correct. The rule can be re-declared by re-applying.
+      console.error("[account-mappings/bulk] failed to record standing rule", { scope, scopeKey, error: e });
+    }
+  }
+
   async function updateVariations(itemIds: string[]): Promise<string[]> {
     if (!itemIds.length) return [];
     let q = supabase
@@ -97,6 +122,7 @@ export async function POST(req: NextRequest) {
     // ── Item scope ────────────────────────────────────────────────────────────
     if (body.catalog_item_id) {
       const affectedVariationIds = await updateVariations([body.catalog_item_id]);
+      await recordRule("item", body.catalog_item_id);
       scheduleCascade(affectedVariationIds);
       return NextResponse.json({ updated: affectedVariationIds.length });
     }
@@ -116,6 +142,7 @@ export async function POST(req: NextRequest) {
             .is("parent_category_id", null);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       const affectedVariationIds = await updateVariations((items ?? []).map((i) => i.id));
+      await recordRule("parent", pgid ?? null);
       scheduleCascade(affectedVariationIds);
       return NextResponse.json({ updated: affectedVariationIds.length });
     }
@@ -127,6 +154,7 @@ export async function POST(req: NextRequest) {
       : await supabase.from("square_catalog_items").select("id").is("category_id", null);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const affectedVariationIds = await updateVariations((items ?? []).map((i) => i.id));
+    await recordRule("category", category_id ?? null);
     scheduleCascade(affectedVariationIds);
     return NextResponse.json({ updated: affectedVariationIds.length });
   } catch (e) {

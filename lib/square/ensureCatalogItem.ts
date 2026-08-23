@@ -20,6 +20,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncSquareCatalog } from "./syncCatalog";
+import { applyGlDefaultRulesToNewVariations } from "@/lib/finance/glDefaultRules";
 
 export interface EnsureResult {
   /** True when the mirror already had the variation and nothing was fetched. */
@@ -63,6 +64,10 @@ export async function ensureCatalogItemMirrored(
         warning: `Square returned no variations for item ${squareItemId}; the link is saved but the catalog mirror has not caught up.`,
       };
     }
+    // Same standing GL defaults the full sync applies — a variation pulled in by
+    // a link is just as new to the mirror. Swallows its own errors.
+    await applyGlDefaultRulesToNewVariations(db, result.insertedVariationIds);
+
     return { alreadyMirrored: false, synced: true };
   } catch (e) {
     return {

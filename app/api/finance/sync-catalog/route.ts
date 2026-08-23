@@ -3,6 +3,7 @@ import { revalidateTag } from "next/cache";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { syncSquareCatalog } from "@/lib/square/syncCatalog";
+import { applyGlDefaultRulesToNewVariations } from "@/lib/finance/glDefaultRules";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,14 @@ export async function POST() {
   revalidateTag("square-catalog", "max");
 
   try {
-    const result = await syncSquareCatalog(createSupabaseAdminClient());
-    return NextResponse.json(result);
+    const db = createSupabaseAdminClient();
+    const result = await syncSquareCatalog(db);
+    // A variation the mirror has never seen inherits whatever standing GL
+    // default a person already declared for its category. Non-fatal: a sync that
+    // mirrored the catalog correctly is still a good sync if a default could not
+    // be written, and the mapping tree shows the row as unresolved either way.
+    const defaults = await applyGlDefaultRulesToNewVariations(db, result.insertedVariationIds);
+    return NextResponse.json({ ...result, defaultsApplied: defaults.applied, defaultsError: defaults.error });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
