@@ -100,6 +100,8 @@ interface RuleRow {
   routing: string;
   /** What kind of movement this counterparty's bank lines are. Null = no opinion. */
   flow_type: string | null;
+  /** Whether this counterparty has any `expenses` rows — what its account codes on a self-classifying feed. */
+  has_expenses: boolean;
   claim: Claim | null;
 }
 
@@ -263,7 +265,10 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
     [feedIncluded, counterpartyIncluded],
   );
   const stateOf = (r: RuleRow) =>
-    counterpartyRowState({ ...r, handledElsewhere: effectiveHandler(r) !== null }, inclusion);
+    counterpartyRowState(
+      { ...r, handledElsewhere: effectiveHandler(r) !== null, hasExpenses: r.has_expenses },
+      inclusion,
+    );
 
   const buckets = rows.map(stateOf).map((s) => s.bucket);
   const count = (b: RowState["bucket"]) => buckets.filter((x) => x === b).length;
@@ -337,11 +342,20 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
         const handled = effectiveHandler(rule);
         const { feedOff, selfClassifying, treatment, asksAccountSource } = stateOf(rule);
         const treatmentDef = getTreatment(treatment);
-        // Why the account questions are absent, said rather than left blank.
-        const whyNoAccount = feedOff
-          ? "This whole bank feed is switched off."
-          : treatmentDef?.effect ?? "Say what this money is first — an account is only used by some answers.";
-        const whyNoAccountShort = feedOff ? "feed is off" : treatmentDef ? "no account needed" : "answer step 1 first";
+        // Why the account questions are absent, said rather than left blank —
+        // and there are three different reasons, which must not be collapsed.
+        //
+        // "answer step 1 first" is only ever true where step 1 is ASKED. On a
+        // self-classifying feed it is not, so a counterparty there with nothing
+        // to code would have been told to answer a question it was never shown.
+        const [whyNoAccountShort, whyNoAccount] =
+          feedOff
+            ? ["feed is off", "This whole bank feed is switched off, so nothing about this counterparty is counted."]
+          : selfClassifying
+            ? ["nothing to code", `${feedName(rule.source)} routes this counterparty's spend to expenses and leaves transfers and settlements in the bank ledger. There is none of the first, so there is no account to choose.`]
+          : treatmentDef
+            ? ["no account needed", treatmentDef.effect]
+            : ["answer step 1 first", "Say what this money is first — an account is only used by some of the answers."];
         return (
           <tr key={key} className="border-t border-line/40 hover:bg-surface-mid/20">
             {showFeed && <td className="px-4 py-2 text-secondary whitespace-nowrap">{feedName(rule.source)}</td>}

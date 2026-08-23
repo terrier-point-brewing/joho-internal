@@ -25,6 +25,22 @@ interface CounterpartyRow {
   routing: string;
   /** What kind of movement this counterparty's bank lines are. Null = no opinion, leave them for review. */
   flow_type: string | null;
+  /**
+   * Whether this counterparty has any `expenses` rows — the ONLY thing the rule's
+   * account codes on a self-classifying feed.
+   *
+   * Ramp diverts its operating-expense bank lines into `expenses` and leaves the
+   * rest in `bank_ledger`, so a Ramp counterparty is one of two kinds: one whose
+   * money is spend (Duke Energy, Erie) and needs an account, or one whose money
+   * is only ever a transfer or a settlement (TPB OPERATING FUNDS — the receiving
+   * end of the Chase → Ramp wallet funding) and never will.
+   *
+   * Without this the screen asked the second kind for an account forever, because
+   * the flow question it would otherwise be answered by is not put to a
+   * self-classifying feed. That row used to be hidden by a counterparty
+   * exclusion, which is how it went unnoticed.
+   */
+  has_expenses: boolean;
   chart_of_accounts: CoaJoin | null;
   /**
    * Set when something else already accounts for this counterparty (see
@@ -70,6 +86,7 @@ export async function GET() {
     auto_matched: r.auto_matched as boolean,
     routing: r.routing as string,
     flow_type: (r.flow_type ?? null) as string | null,
+    has_expenses: false,
     chart_of_accounts: (r.chart_of_accounts as unknown as CoaJoin | null) ?? null,
     claim: null,
   }));
@@ -98,10 +115,27 @@ export async function GET() {
       auto_matched: false,
       routing: SINGLE_ACCOUNT,
       flow_type: null,
+      has_expenses: false,
       chart_of_accounts: null,
       claim: null,
     });
   }
+
+  // Which counterparties actually have spend to code. Read once for the whole
+  // list rather than per row; `expenses` is a few hundred rows here and the
+  // alternative is a query per counterparty.
+  const expenseRows = await fetchAllRows<{ counterparty_key: string | null }>(() =>
+    supabase
+      .from("expenses")
+      .select("counterparty_key")
+      .not("counterparty_key", "is", null)
+      .is("excluded_at", null)
+      .order("id", { ascending: true }),
+  );
+  const withExpenses = new Set(expenseRows.map((e) => e.counterparty_key));
+  // Keyed by counterparty alone, not by (feed, counterparty): `expenses` holds
+  // only Ramp rows, so its keys can only ever mean the Ramp side.
+  for (const row of rows) row.has_expenses = withExpenses.has(row.counterparty_key);
 
   // Anything already accounted for elsewhere. Resolved AFTER the union above so
   // a claim can cover a ledger-only counterparty that has never had a rule row
