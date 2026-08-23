@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { resolveBankBackfill, resolvePosBackfill, resolveInvoiceBackfill, counterpartyRuleKey } from "./autoMap";
+import { resolveBankBackfill, resolvePosBackfill, resolveInvoiceBackfill, counterpartyRuleKey, type CounterpartyRule } from "./autoMap";
+
+/** A rule that names an account and takes no view on the flow — the shape every rule had before flow types. */
+const account = (id: string): CounterpartyRule => ({ chart_of_accounts_id: id, flow_type: null });
 
 describe("resolveBankBackfill", () => {
-  const rules = new Map<string, string>([[counterpartyRuleKey("ramp", "gusto"), "coa-payroll"]]);
+  const rules = new Map<string, CounterpartyRule>([[counterpartyRuleKey("ramp", "gusto"), account("coa-payroll")]]);
 
   it("maps an unmapped row whose counterparty has a rule", () => {
     const out = resolveBankBackfill(
@@ -56,9 +59,9 @@ describe("resolveBankBackfill", () => {
   });
 
   it("uses each feed's own rule when both feeds have one for the same name", () => {
-    const both = new Map<string, string>([
-      [counterpartyRuleKey("ramp", "gusto"), "coa-payroll"],
-      [counterpartyRuleKey("plaid", "gusto"), "coa-other"],
+    const both = new Map<string, CounterpartyRule>([
+      [counterpartyRuleKey("ramp", "gusto"), account("coa-payroll")],
+      [counterpartyRuleKey("plaid", "gusto"), account("coa-other")],
     ]);
     const out = resolveBankBackfill(
       [
@@ -71,6 +74,70 @@ describe("resolveBankBackfill", () => {
       { id: "r1", chart_of_accounts_id: "coa-payroll" },
       { id: "r2", chart_of_accounts_id: "coa-other" },
     ]);
+  });
+
+  describe("a rule that carries a flow type", () => {
+    const flowRules = new Map<string, CounterpartyRule>([
+      [counterpartyRuleKey("plaid", "ramp wallet"), { chart_of_accounts_id: null, flow_type: "internal_transfer" }],
+      [counterpartyRuleKey("plaid", "erie insurance"), { chart_of_accounts_id: "coa-ins", flow_type: "operating_expense" }],
+    ]);
+    const row = (over: Record<string, unknown> = {}) => ({
+      id: "r1", source: "plaid", counterparty_key: null, counterparty_name: "Ramp Wallet",
+      mapping_source: "unmapped", chart_of_accounts_id: null, flow_type: "unclassified", ...over,
+    });
+
+    it("classifies a row without giving it an account it cannot use", () => {
+      expect(resolveBankBackfill([row()], flowRules)).toEqual([
+        { id: "r1", chart_of_accounts_id: null, flow_type: "internal_transfer", affects_pl: false },
+      ]);
+    });
+
+    // The bug the whole registry exists to close: an operating expense has to
+    // reach the P&L, and affects_pl is what the reader filters on.
+    it("sets affects_pl from the flow, so an expense actually reaches the P&L", () => {
+      const out = resolveBankBackfill([row({ counterparty_name: "Erie Insurance" })], flowRules);
+      expect(out).toEqual([
+        { id: "r1", chart_of_accounts_id: "coa-ins", flow_type: "operating_expense", affects_pl: true },
+      ]);
+    });
+
+    it("leaves a row that already says what it is", () => {
+      expect(resolveBankBackfill([row({ flow_type: "deposit" })], flowRules)).toEqual([]);
+    });
+
+    it("still fills an account on an already-classified row when the flow uses one", () => {
+      const out = resolveBankBackfill(
+        [row({ counterparty_name: "Erie Insurance", flow_type: "operating_expense" })],
+        flowRules,
+      );
+      expect(out).toEqual([{ id: "r1", chart_of_accounts_id: "coa-ins" }]);
+    });
+
+    // A half-changed rule: somebody set the flow to a transfer and left the old
+    // account behind. The balance-sheet reader matches on the account alone, so
+    // leaving it would go on moving a reported balance.
+    it("clears an account the newly applied flow cannot hold", () => {
+      const half = new Map<string, CounterpartyRule>([
+        [counterpartyRuleKey("plaid", "ramp wallet"), { chart_of_accounts_id: "coa-stale", flow_type: "internal_transfer" }],
+      ]);
+      const out = resolveBankBackfill([row({ chart_of_accounts_id: "coa-stale" })], half);
+      expect(out).toEqual([
+        { id: "r1", chart_of_accounts_id: null, flow_type: "internal_transfer", affects_pl: false },
+      ]);
+    });
+
+    it("never touches a manual row, flow or account", () => {
+      expect(resolveBankBackfill([row({ mapping_source: "manual" })], flowRules)).toEqual([]);
+    });
+
+    // A rule with no flow behaves exactly as it did before this column existed.
+    it("an account-only rule leaves the flow alone", () => {
+      const out = resolveBankBackfill(
+        [row({ counterparty_name: "Gusto", source: "ramp", counterparty_key: "gusto" })],
+        rules,
+      );
+      expect(out).toEqual([{ id: "r1", chart_of_accounts_id: "coa-payroll" }]);
+    });
   });
 });
 

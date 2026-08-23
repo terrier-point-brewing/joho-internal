@@ -11,17 +11,15 @@ import { normalizeCounterparty, type RampBankLine } from "@/lib/ramp";
 import { dollarsToCents, type ExpenseRecord } from "./expenses";
 import { counterpartyRuleKey } from "./autoMap";
 import { chunk } from "@/lib/utils/chunk";
+// The flow-type vocabulary, its consequences and its display copy all live in
+// ./flowTypes.ts -- one table, so `affects_pl` and "does this flow need an
+// account" cannot drift from the value they are supposed to be functions of.
+import { type FlowType, FLOW_TYPES, flowAffectsPl, getFlowType } from "./flowTypes";
+
+// Re-exported because this module was the type's home and every importer names it here.
+export type { FlowType } from "./flowTypes";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
-
-export type FlowType =
-  | "operating_expense"
-  | "interest_income"
-  | "internal_transfer"
-  | "bill_settlement"
-  | "card_settlement"
-  | "deposit"
-  | "unclassified";
 
 export interface BankClassification {
   flow_type:         FlowType;
@@ -150,26 +148,33 @@ export function selectPrunableExpenseIds(
   return { deletable, skipped, setAside };
 }
 
-/** How each flow reads in a sentence. Exhaustive by type, so a new FlowType has to be given words here. */
-const FLOW_TYPE_PHRASE: Record<FlowType, string> = {
-  operating_expense: "an operating expense",
-  interest_income:   "interest income",
-  internal_transfer: "an internal transfer",
-  bill_settlement:   "a bill settlement",
-  card_settlement:   "a card statement payment",
-  deposit:           "a deposit",
-  unclassified:      "a bank flow, not an expense",
-};
+/** How each flow reads in a sentence. Sourced from the registry, so a new FlowType has to be given words there. */
+const FLOW_TYPE_PHRASE: Record<FlowType, string> = Object.fromEntries(
+  FLOW_TYPES.map((f) => [f.key, f.phrase]),
+) as Record<FlowType, string>;
 
 /** The sentence a bookkeeper reads on the excluded row, so the automatic decision explains itself. */
 export function setAsideReason(flowType: FlowType | null): string {
-  const what = flowType ? FLOW_TYPE_PHRASE[flowType] : FLOW_TYPE_PHRASE.unclassified;
+  const what = getFlowType(flowType)?.phrase ?? FLOW_TYPE_PHRASE.unclassified;
   return `Ramp now reports this as ${what}, already recorded in the bank ledger. Set aside rather than deleted because it was coded by hand — include it again if that is wrong.`;
 }
 
-/** Whether a bank-ledger flow_type affects the P&L. In the ledger table only interest is income; transfers/settlements/deposits/unclassified are non-P&L. */
+/**
+ * Whether a bank-ledger flow_type affects the P&L.
+ *
+ * This used to answer true for `interest_income` and nothing else, which was
+ * correct only while Ramp was the sole writer of this table: Ramp diverts an
+ * operating expense into `expenses` (see `is_expense` below), so the only P&L
+ * movement that ever reached bank_ledger really was interest. Plaid has no such
+ * diversion -- its rows always land here -- so under the old answer an operator
+ * could code a Chase vendor debit to an expense account and it would never reach
+ * the P&L or the cash-flow statement, with nothing anywhere reporting a problem.
+ *
+ * The registry is now the answer, and it is the same table the picker renders
+ * from, so what an operator is told a choice does is what it does.
+ */
 export function affectsPlForFlowType(flowType: FlowType): boolean {
-  return flowType === "interest_income";
+  return flowAffectsPl(flowType);
 }
 
 export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>, billTotals: BillTotals = new Map()): BankClassification {
@@ -178,38 +183,45 @@ export function classifyBankLine(line: RampBankLine, ownAccounts: Set<string>, b
   const srcKey  = normalizeCounterparty(line.source_account_name);
   const destOwn = destKey !== "" && ownAccounts.has(destKey);
 
-  const make = (flow_type: FlowType, affects_pl: boolean, direction: "inflow" | "outflow", partyName: string): BankClassification => ({
+  // affects_pl is DERIVED, never passed in: it is a function of the flow type and
+  // nothing else, and a call site that could disagree with the registry is the
+  // exact drift this consolidation removes.
+  const make = (flow_type: FlowType, direction: "inflow" | "outflow", partyName: string): BankClassification => ({
     flow_type,
-    affects_pl,
+    affects_pl: flowAffectsPl(flow_type),
     is_expense: flow_type === "operating_expense",
     direction,
     counterparty_name: partyName,
     counterparty_key:  normalizeCounterparty(partyName),
   });
 
-  if (desc === "Interest") return make("interest_income", true, "inflow", line.source_account_name ?? "Interest");
-  if (desc === "Deposit")  return make("deposit", false, "inflow", line.source_account_name ?? "");
-  if (desc === "Vendor Payment") return make("bill_settlement", false, "outflow", line.destination_account_name ?? "");
+  if (desc === "Interest") return make("other_income", "inflow", line.source_account_name ?? "Interest");
+  // A Ramp "Deposit" is the receiving half of a Chase -> Ramp wallet funding, and
+  // the Chase side of the same movement is an internal transfer. Calling one end
+  // a deposit and the other a transfer described one movement two ways and put an
+  // own-account transfer in the group that means "already recorded elsewhere".
+  if (desc === "Deposit")  return make("internal_transfer", "inflow", line.source_account_name ?? "");
+  if (desc === "Vendor Payment") return make("bill_settlement", "outflow", line.destination_account_name ?? "");
 
   if (desc === "Withdrawal") {
     const dest = line.destination_account_name ?? "";
-    if (destKey === "") return make("unclassified", false, "outflow", "");
-    if (destOwn) return make("internal_transfer", false, "outflow", dest);
+    if (destKey === "") return make("unclassified", "outflow", "");
+    if (destOwn) return make("internal_transfer", "outflow", dest);
     // A vendor paid by direct ACH autopay (not routed through Ramp Bill Pay)
     // shows up here as a plain Withdrawal, not "Vendor Payment" — match it
     // against a recorded bill's total so it's excluded like any other
     // settlement instead of double-booked as a second, separate expense.
     if (billTotals.get(billMatchKey(dest))?.has(dollarsToCents(line.amount))) {
-      return make("bill_settlement", false, "outflow", dest);
+      return make("bill_settlement", "outflow", dest);
     }
     // Otherwise a Withdrawal to an external party is a direct operating-expense
     // debit (Gusto, Erie, tax). Card statement settlements never appear in this
     // feed — they are ingested authoritatively from /transfers (see transferLedger).
-    return make("operating_expense", true, "outflow", dest);
+    return make("operating_expense", "outflow", dest);
   }
 
   // Unknown description — surface for manual review, never auto-book.
-  return make("unclassified", false, srcKey && !ownAccounts.has(srcKey) ? "inflow" : "outflow", line.destination_account_name ?? line.source_account_name ?? "");
+  return make("unclassified", srcKey && !ownAccounts.has(srcKey) ? "inflow" : "outflow", line.destination_account_name ?? line.source_account_name ?? "");
 }
 
 export interface BankLedgerRecord {

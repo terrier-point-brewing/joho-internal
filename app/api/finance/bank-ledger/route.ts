@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { affectsPlForFlowType, type FlowType } from "@/lib/finance/bankLedger";
+import { isFlowType, flowNeedsAccount } from "@/lib/finance/flowTypes";
 import { loadBankLedgerInclusion, INCLUSION_COLUMNS, type InclusionFacts } from "@/lib/finance/bankLedgerInclusion";
 
 export const dynamic = "force-dynamic";
@@ -56,11 +57,29 @@ export async function PATCH(req: NextRequest) {
 
   const patch: Record<string, unknown> = {};
   if (body.flow_type) {
+    // Checked against the registry rather than left to the table's CHECK
+    // constraint. The constraint would reject an unknown value too, but as a
+    // 500 from Postgres several layers down; and a value this build does not
+    // know is a client sending something a newer deploy invented, which is a
+    // 400 about the request rather than a database error.
+    if (!isFlowType(body.flow_type)) {
+      return NextResponse.json({ error: `unknown flow_type: ${body.flow_type}` }, { status: 400 });
+    }
     patch.flow_type = body.flow_type;
     patch.affects_pl = affectsPlForFlowType(body.flow_type as FlowType);
     patch.mapping_source = "manual";
+    // Reclassifying to a flow that does not use an account CLEARS the account.
+    // Hiding the picker is not enough: the balance-sheet reader (sumBank in
+    // balances/providers/transactionPostings.ts) matches on chart_of_accounts_id
+    // and never looks at flow_type, so an account left behind on a row someone
+    // moved to "internal transfer" would go on moving a reported balance with
+    // nothing on screen admitting it was still there.
+    if (!flowNeedsAccount(body.flow_type)) patch.chart_of_accounts_id = null;
   }
-  if ("chart_of_accounts_id" in body) {
+  // A body carrying both a flow and an account is a client that has not caught up
+  // with the flow it just sent -- the clear above wins, because "this flow does
+  // not use an account" is a property of the flow and not a preference.
+  if ("chart_of_accounts_id" in body && !(patch.flow_type && !flowNeedsAccount(patch.flow_type as string))) {
     patch.chart_of_accounts_id = body.chart_of_accounts_id ?? null;
     if (!patch.mapping_source) patch.mapping_source = body.chart_of_accounts_id ? "manual" : "unmapped";
   }

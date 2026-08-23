@@ -5,6 +5,7 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { autoMapBankLedger } from "@/lib/finance/autoMap";
 import { counterpartyKeyOf } from "@/lib/finance/bankLedgerInclusion";
 import { isSelectableHandler, SINGLE_ACCOUNT } from "@/lib/finance/counterpartyHandlers";
+import { isFlowType, flowNeedsAccount } from "@/lib/finance/flowTypes";
 import { resolveCounterpartyClaims, claimKey, type CounterpartyClaim } from "@/lib/finance/balances/counterpartyClaims";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,8 @@ interface CounterpartyRow {
   auto_matched: boolean;
   /** The STORED handler. Not necessarily the effective one — a claim overrides it. */
   routing: string;
+  /** What kind of movement this counterparty's bank lines are. Null = no opinion, leave them for review. */
+  flow_type: string | null;
   chart_of_accounts: CoaJoin | null;
   /**
    * Set when something else already accounts for this counterparty (see
@@ -54,7 +57,7 @@ export async function GET() {
 
   const { data: ruleRows, error } = await supabase
     .from("expense_counterparty_mappings")
-    .select(`id, source, counterparty_key, counterparty_label, chart_of_accounts_id, auto_matched, routing, chart_of_accounts!expense_counterparty_mappings_chart_of_accounts_id_fkey ( account_name, account_number )`)
+    .select(`id, source, counterparty_key, counterparty_label, chart_of_accounts_id, auto_matched, routing, flow_type, chart_of_accounts!expense_counterparty_mappings_chart_of_accounts_id_fkey ( account_name, account_number )`)
     .order("counterparty_label", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -66,6 +69,7 @@ export async function GET() {
     chart_of_accounts_id: r.chart_of_accounts_id as string | null,
     auto_matched: r.auto_matched as boolean,
     routing: r.routing as string,
+    flow_type: (r.flow_type ?? null) as string | null,
     chart_of_accounts: (r.chart_of_accounts as unknown as CoaJoin | null) ?? null,
     claim: null,
   }));
@@ -93,6 +97,7 @@ export async function GET() {
       chart_of_accounts_id: null,
       auto_matched: false,
       routing: SINGLE_ACCOUNT,
+      flow_type: null,
       chart_of_accounts: null,
       claim: null,
     });
@@ -116,6 +121,8 @@ export async function PATCH(req: NextRequest) {
     counterparty_label?: string;
     chart_of_accounts_id?: string | null;
     routing?: string;
+    /** Null clears the rule's opinion; absent leaves it untouched. */
+    flow_type?: string | null;
   };
   const source = body.source?.trim();
   const counterpartyKey = body.counterparty_key?.trim();
@@ -128,6 +135,16 @@ export async function PATCH(req: NextRequest) {
   // the second source of truth claims exist to remove.
   if (body.routing !== undefined && !isSelectableHandler(body.routing)) {
     return NextResponse.json({ error: `Unknown routing '${body.routing}'.` }, { status: 400 });
+  }
+
+  // A rule may take no view on the flow (null), but it may never say
+  // "unclassified": a rule whose conclusion is "somebody should look at this" is
+  // indistinguishable from having no rule, and storing one would mean the grid
+  // showed a row as auto-classified while still asking for a decision.
+  if (body.flow_type !== undefined && body.flow_type !== null) {
+    if (!isFlowType(body.flow_type) || body.flow_type === "unclassified") {
+      return NextResponse.json({ error: `Unknown flow type '${body.flow_type}'.` }, { status: 400 });
+    }
   }
 
   const supabase = createSupabaseAdminClient();
@@ -157,6 +174,7 @@ export async function PATCH(req: NextRequest) {
   // existing account choice or trigger the cascade below, so the two shapes of
   // update are kept apart.
   const isAccountUpdate = "chart_of_accounts_id" in body;
+  const isFlowUpdate = "flow_type" in body;
   const patch: Record<string, unknown> = {
     source,
     counterparty_key: counterpartyKey,
@@ -167,15 +185,25 @@ export async function PATCH(req: NextRequest) {
     patch.auto_matched = false;
   }
   if (body.routing) patch.routing = body.routing;
+  if (isFlowUpdate) {
+    patch.flow_type = body.flow_type ?? null;
+    // A flow that cannot hold an account drops the rule's account with it, for
+    // the same reason resolveBankBackfill clears it on the row: an account left
+    // on a transfer rule goes on feeding the balance sheet from every line the
+    // rule touches, and nothing on screen would say so.
+    if (body.flow_type !== null && !flowNeedsAccount(body.flow_type)) {
+      patch.chart_of_accounts_id = null;
+    }
+  }
 
   const { data, error } = await supabase
     .from("expense_counterparty_mappings")
     .upsert(patch, { onConflict: "source,counterparty_key" })
-    .select("id, source, counterparty_key, chart_of_accounts_id, routing")
+    .select("id, source, counterparty_key, chart_of_accounts_id, routing, flow_type")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  if (!isAccountUpdate) return NextResponse.json(data);
+  if (!isAccountUpdate && !isFlowUpdate) return NextResponse.json(data);
 
   const coaId = data.chart_of_accounts_id as string | null;
 
@@ -199,7 +227,11 @@ export async function PATCH(req: NextRequest) {
 
   // Cascade to bank-ledger rows for this counterparty, current + prior year, in the background.
   after(async () => {
-    if (!coaId) return;
+    // Runs for a flow-only rule as well: `coaId` may legitimately be null now
+    // that a rule can classify without coding ("every Ramp wallet funding is an
+    // internal transfer"), and gating on it would leave exactly those rules
+    // doing nothing until somebody clicked Auto-map.
+    if (!coaId && !isFlowUpdate) return;
     const year = new Date().getFullYear();
     const ranges = [
       { from: `${year}-01-01`, to: `${year}-12-31` },

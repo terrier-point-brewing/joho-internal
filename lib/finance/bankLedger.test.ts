@@ -21,7 +21,7 @@ describe("classifyBankLine", () => {
 
   it("Interest is income, not an expense", () => {
     const c = classifyBankLine(line({ description: "Interest", source_account_name: null, destination_account_name: "Operating Account" }), OWN);
-    expect(c).toMatchObject({ flow_type: "interest_income", is_expense: false, affects_pl: true, direction: "inflow" });
+    expect(c).toMatchObject({ flow_type: "other_income", is_expense: false, affects_pl: true, direction: "inflow" });
   });
 
   it("Vendor Payment is a bill settlement, excluded from P&L (no double-count with bills)", () => {
@@ -34,9 +34,12 @@ describe("classifyBankLine", () => {
     expect(c).toMatchObject({ flow_type: "internal_transfer", is_expense: false, affects_pl: false, direction: "outflow" });
   });
 
-  it("Deposit is non-P&L pending review", () => {
+  // A Ramp "Deposit" is the receiving end of a Chase -> Ramp wallet funding, and
+  // the Chase side of that same movement is an internal transfer. Both ends now
+  // say so; before, one movement was described two ways.
+  it("Deposit is the receiving half of an internal transfer", () => {
     const c = classifyBankLine(line({ description: "Deposit", source_account_name: "OUTSIDE BANK", destination_account_name: "Operating Account" }), OWN);
-    expect(c).toMatchObject({ flow_type: "deposit", is_expense: false, affects_pl: false, direction: "inflow" });
+    expect(c).toMatchObject({ flow_type: "internal_transfer", is_expense: false, affects_pl: false, direction: "inflow" });
   });
 
   it("a Withdrawal with no counterparty is unclassified (never silently an expense)", () => {
@@ -168,8 +171,8 @@ describe("partitionBankLines", () => {
   });
 
   it("routes interest + transfer to ledger records with flow_type + affects_pl and correct sign", () => {
-    expect(ledgerRecords.map((r) => r.flow_type).sort()).toEqual(["interest_income", "internal_transfer"]);
-    const interest = ledgerRecords.find((r) => r.flow_type === "interest_income")!;
+    expect(ledgerRecords.map((r) => r.flow_type).sort()).toEqual(["internal_transfer", "other_income"]);
+    const interest = ledgerRecords.find((r) => r.flow_type === "other_income")!;
     expect(interest).toMatchObject({ amount_cents: 4001, affects_pl: true, qb_sync_status: "NOT_SYNC_READY" });   // inflow positive
     const xfer = ledgerRecords.find((r) => r.flow_type === "internal_transfer")!;
     expect(xfer.amount_cents).toBe(-500000);                                     // outflow negative
@@ -241,7 +244,7 @@ describe("syncBankLedger", () => {
   const rec: BankLedgerRecord = {
     source: "ramp", source_transaction_id: "int", amount_cents: 4001, currency_code: "USD",
     description: "Interest", counterparty_name: "Interest", counterparty_key: "interest", source_account_name: null,
-    destination_account_name: "Operating Account", flow_type: "interest_income", affects_pl: true, transaction_date: "2026-07-01",
+    destination_account_name: "Operating Account", flow_type: "other_income", affects_pl: true, transaction_date: "2026-07-01",
     qb_sync_status: null, qb_synced_at: null, qb_remote_id: null,
   };
 
@@ -249,18 +252,18 @@ describe("syncBankLedger", () => {
     const sb = fakeSupabase();
     const res = await syncBankLedger(sb as never, [rec]);
     expect(res.imported).toBe(1);
-    expect(res.by_flow_type.interest_income).toBe(1);
+    expect(res.by_flow_type.other_income).toBe(1);
     expect(sb.upserts[0]).toMatchObject({ source_transaction_id: "int", mapping_source: "unmapped", chart_of_accounts_id: null });
   });
 
   it("preserves a manually-coded row's mapping_source + chart_of_accounts_id across re-sync", async () => {
-    const sb = fakeSupabase({ int: { mapping_source: "manual", chart_of_accounts_id: "coa-interest", flow_type: "interest_income", affects_pl: true } });
+    const sb = fakeSupabase({ int: { mapping_source: "manual", chart_of_accounts_id: "coa-interest", flow_type: "other_income", affects_pl: true } });
     await syncBankLedger(sb as never, [rec]);
     expect(sb.upserts[0]).toMatchObject({ mapping_source: "manual", chart_of_accounts_id: "coa-interest" });
   });
 
   it("preserves a non-manual (e.g. rule-derived) prior chart_of_accounts_id across re-sync (fill-nulls-only)", async () => {
-    const sb = fakeSupabase({ int: { mapping_source: "rule", chart_of_accounts_id: "coa-old-rule", flow_type: "interest_income", affects_pl: true } });
+    const sb = fakeSupabase({ int: { mapping_source: "rule", chart_of_accounts_id: "coa-old-rule", flow_type: "other_income", affects_pl: true } });
     await syncBankLedger(sb as never, [rec]);
     expect(sb.upserts[0]).toMatchObject({ mapping_source: "rule", chart_of_accounts_id: "coa-old-rule" });
   });
@@ -304,7 +307,7 @@ describe("syncBankLedger", () => {
   it("lets the freshly-classified flow_type through for a non-manual prior row", async () => {
     const sb = fakeSupabase({ int: { mapping_source: "unmapped", chart_of_accounts_id: null, flow_type: "unclassified", affects_pl: false } });
     await syncBankLedger(sb as never, [rec]);
-    expect(sb.upserts[0]).toMatchObject({ flow_type: "interest_income", affects_pl: true, mapping_source: "unmapped" });
+    expect(sb.upserts[0]).toMatchObject({ flow_type: "other_income", affects_pl: true, mapping_source: "unmapped" });
   });
 });
 

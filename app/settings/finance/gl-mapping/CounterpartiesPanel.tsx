@@ -51,6 +51,12 @@ import {
   getCounterpartyHandler,
   codesFromRuleAccount,
 } from "@/lib/finance/counterpartyHandlers";
+import {
+  FLOW_GROUPS,
+  flowTypesInGroup,
+  getFlowType,
+  flowNeedsAccount,
+} from "@/lib/finance/flowTypes";
 
 const RULES_URL = "/api/finance/expense-counterparty-mappings";
 
@@ -73,6 +79,8 @@ interface RuleRow {
   auto_matched: boolean;
   chart_of_accounts: CoaJoin | null;
   routing: string;
+  /** What kind of movement this counterparty's bank lines are. Null = no opinion. */
+  flow_type: string | null;
   claim: Claim | null;
 }
 
@@ -157,6 +165,27 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
     setRows((rs) => rs.map((r) => (rowKey(r) === rowKey(rule) ? { ...r, routing } : r)));
   }
 
+  /**
+   * Set (or clear) what kind of movement this counterparty's lines are.
+   *
+   * The server drops the rule's account when the new flow cannot hold one, so
+   * the local row is updated to match rather than left showing an account the
+   * rule no longer has — a disagreement that would only surface on reload.
+   */
+  async function handleSetFlow(rule: RuleRow, flowType: string) {
+    const flow_type = flowType === "" ? null : flowType;
+    if (!(await patch(rule, { flow_type }))) return;
+    const keepsAccount = flow_type === null || flowNeedsAccount(flow_type);
+    setRows((rs) => rs.map((r) => (rowKey(r) === rowKey(rule)
+      ? {
+          ...r,
+          flow_type,
+          chart_of_accounts_id: keepsAccount ? r.chart_of_accounts_id : null,
+          chart_of_accounts: keepsAccount ? r.chart_of_accounts : null,
+        }
+      : r)));
+  }
+
   async function handleSetIncluded(rule: RuleRow, included: boolean) {
     const ok = await feedRules.save({
       scope: "counterparty",
@@ -196,13 +225,22 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
   function isHandledElsewhere(r: RuleRow): boolean {
     return effectiveHandler(r) !== null;
   }
+  // A counterparty whose flow is a settlement or a transfer has no account to
+  // pick — the flow answered that. It leaves the denominator for the same reason
+  // an excluded or claimed one does: counting it would report a shortfall that
+  // no amount of work can close.
+  function needsNoAccount(r: RuleRow): boolean {
+    return r.flow_type !== null && !flowNeedsAccount(r.flow_type);
+  }
   const excludedCount = rows.filter(isExcluded).length;
   const handledCount = rows.filter((r) => !isExcluded(r) && isHandledElsewhere(r)).length;
-  const needsMapping = rows.length - excludedCount - handledCount;
-  const mapped = rows.filter((r) => r.chart_of_accounts_id && !isExcluded(r) && !isHandledElsewhere(r)).length;
+  const classifiedCount = rows.filter((r) => !isExcluded(r) && !isHandledElsewhere(r) && needsNoAccount(r)).length;
+  const needsMapping = rows.length - excludedCount - handledCount - classifiedCount;
+  const mapped = rows.filter((r) => r.chart_of_accounts_id && !isExcluded(r) && !isHandledElsewhere(r) && !needsNoAccount(r)).length;
   const asides = [
     excludedCount > 0 ? `${excludedCount} out of the books` : null,
     handledCount > 0 ? `${handledCount} handled elsewhere` : null,
+    classifiedCount > 0 ? `${classifiedCount} need no account` : null,
   ].filter(Boolean);
   // Danger draws the eye when something still needs a decision; success confirms
   // there's nothing left to do; neutral covers "no data yet" / "nothing left to
@@ -230,12 +268,16 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
         title: "No counterparties yet.",
         hint: "Sync a bank account on the Transactions → Bank Ledger tab to import them.",
       }}
-      headers={[...(showFeed ? ["Bank feed"] : []), "Counterparty", "In the books", "Routing", "Chart of Accounts"]}
+      headers={[...(showFeed ? ["Bank feed"] : []), "Counterparty", "In the books", "Routing", "Flow", "Chart of Accounts"]}
       footer={
         <>
           Mapping a counterparty here codes every uncoded bank-line expense from it (e.g. Gusto
-          payroll, Erie insurance). Rows are seeded automatically the first time that counterparty
-          appears in a sync. Switching one out of the books leaves its transactions imported and
+          payroll, Erie insurance). Setting its <strong>Flow</strong> says what kind of movement
+          its bank lines are, so they classify themselves instead of waiting for someone to decide
+          the same thing again every month — leave it on &ldquo;leave for review&rdquo; when the
+          answer genuinely differs line by line. A flow that is not income or expense needs no
+          account, so the Chart of Accounts column disappears for it. Rows are seeded automatically
+          the first time that counterparty appears in a sync. Switching one out of the books leaves its transactions imported and
           visible but keeps them off every report — use that for transfers between accounts the
           business already owns, which are neither income nor expense. A counterparty marked
           &ldquo;set elsewhere&rdquo; is already accounted for by a balance sheet calculation, so there is
@@ -306,6 +348,39 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
             </td>
             <td className="px-4 py-2">
               {excluded ? (
+                <span className="text-2xs text-faint" title="This counterparty is out of the books, so its lines are never counted">
+                  excluded
+                </span>
+              ) : handled ? (
+                <span className="text-2xs text-faint" title="Whatever handles this counterparty decides how its lines are treated">
+                  set elsewhere
+                </span>
+              ) : (
+                <div className="flex flex-col gap-1 min-w-[200px]">
+                  <select
+                    className="inp-sm w-full"
+                    value={rule.flow_type ?? ""}
+                    onChange={(e) => handleSetFlow(rule, e.target.value)}
+                  >
+                    {/* Null is a real answer, not an empty state: "the flow
+                        genuinely differs line by line, so keep asking me". */}
+                    <option value="">— leave for review —</option>
+                    {FLOW_GROUPS.filter((g) => g !== "Needs review").map((group) => (
+                      <optgroup key={group} label={group}>
+                        {flowTypesInGroup(group).map((f) => (
+                          <option key={f.key} value={f.key}>{f.label}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {rule.flow_type && (
+                    <p className="text-2xs text-faint leading-snug">{getFlowType(rule.flow_type)?.effect}</p>
+                  )}
+                </div>
+              )}
+            </td>
+            <td className="px-4 py-2">
+              {excluded ? (
                 <span className="text-2xs text-faint" title="This counterparty is out of the books">
                   excluded
                 </span>
@@ -318,6 +393,14 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
                     </a>
                   )}
                 </div>
+              ) : rule.flow_type && !flowNeedsAccount(rule.flow_type) ? (
+                // The flow settles or transfers rather than earns or spends, so
+                // there is no account for it to code to. A disabled picker would
+                // read as a choice being withheld; the truth is that the flow
+                // already answered the question.
+                <span className="text-2xs text-faint" title={getFlowType(rule.flow_type)?.effect}>
+                  no account needed
+                </span>
               ) : (
                 <div className="flex items-center gap-2">
                   <AccountSelect
