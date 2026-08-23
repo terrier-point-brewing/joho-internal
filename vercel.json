@@ -46,7 +46,7 @@
     },
     {
       "path": "/api/cron/marketing-deliveries",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 10 * * *"
     }
   ]
 }

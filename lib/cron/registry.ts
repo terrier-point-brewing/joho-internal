@@ -154,14 +154,22 @@ export const CRON_JOBS: CronJobMeta[] = [
   {
     job:           "marketing-deliveries",
     path:          "/api/cron/marketing-deliveries",
-    // The only sub-daily job here. A scheduled post is booked to a minute, so
-    // a nightly sweep would publish most of them hours late.
-    schedule:      "*/5 * * * *",
-    scheduleLabel: "Every 5 minutes",
-    description:   "Publishes marketing calendar entries whose scheduled time has arrived, one delivery per channel. A delivery that fails stays failed until a person retries it; nothing is ever re-sent automatically.",
-    // Twelve runs an hour, so an hour without a successful one is already a
-    // long silence — and a silent publisher means posts are quietly not going out.
-    maxAgeHours:   1,
+    // Daily, and deliberately so — the Vercel Hobby plan this project runs on
+    // refuses any sub-daily cron outright (the deployment is rejected at config
+    // validation, before a build even starts), so "*/5 * * * *" is not a thing
+    // that can ship here.
+    //
+    // Daily is the right cadence for what this job currently does rather than a
+    // sad compromise. There is no scheduling UI: an entry is published by Post
+    // now, which runs the worker INLINE and returns, so the ordinary path never
+    // waits on this job at all. The sweep exists to catch a delivery whose
+    // inline run died mid-flight. When scheduling ships and a post can be booked
+    // for Thursday at 9am, this becomes a real constraint and the plan question
+    // reopens — until then it is not one.
+    schedule:      "0 10 * * *",
+    scheduleLabel: "Daily · 10:00 UTC",
+    description:   "Sweeps up marketing deliveries that were left unpublished — normally one whose inline publish died mid-flight. Publishing itself happens immediately when a person presses Post now. A delivery that fails stays failed until a person retries it; nothing is ever re-sent automatically.",
+    maxAgeHours:   25,
     manualRun:     "wait",
     manualNote:    "This posts publicly, straight away, to every connected channel with an entry that is due. A post cannot be taken back once it has gone out. Anything already published is recognised and not sent a second time, and an entry whose time has not yet come is left alone.",
   },
