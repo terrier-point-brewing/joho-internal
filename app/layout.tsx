@@ -65,8 +65,8 @@ const notoSerifSC = Noto_Serif_SC({
 });
 
 export const metadata: Metadata = {
-  title: "TPB Square Reports",
-  description: "Square sales reports for Terrier Point Brewing",
+  title: "TPB Internal",
+  description: "Internal operations, production and finance for Terrier Point Brewing",
 };
 
 // viewport-fit=cover is what makes env(safe-area-inset-bottom) report a real
