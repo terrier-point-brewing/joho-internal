@@ -157,20 +157,31 @@ export async function PATCH(req: NextRequest) {
 
   const supabase = createSupabaseAdminClient();
 
-  // A counterparty something else already accounts for cannot be assigned here.
-  // The panel renders these read-only, so reaching this is either a stale tab or
-  // a direct call; both want the same answer rather than a silent write that the
-  // next page load visibly discards.
+  // A counterparty something else already accounts for cannot have its ACCOUNT
+  // assigned here — but its flow type is a different question and stays open.
+  //
+  // This guard used to reject every field. A claim states who owns the account
+  // ("GL 1040's Square method pays into this bank account"); it says nothing
+  // about what the money IS. Blocking the flow too left Square's four Chase
+  // payouts with no way to be marked as the already-recorded deposits they are,
+  // which is the same conflation the settings screen carried and the reason it
+  // was rebuilt around two separate questions.
+  //
+  // Routing is still refused: that IS the account question, and a claim has
+  // already answered it.
   const label = body.counterparty_label ?? counterpartyKey;
-  const claims = await resolveCounterpartyClaims(supabase, [
-    { source, counterparty_key: counterpartyKey, counterparty_label: label },
-  ]);
-  const claimed = claims.get(claimKey({ source, counterparty_key: counterpartyKey }));
-  if (claimed) {
-    return NextResponse.json(
-      { error: `${label} is already accounted for — ${claimed.badge}. Change it where it is set up.` },
-      { status: 409 },
-    );
+  const touchesAccount = "chart_of_accounts_id" in body || body.routing !== undefined;
+  if (touchesAccount) {
+    const claims = await resolveCounterpartyClaims(supabase, [
+      { source, counterparty_key: counterpartyKey, counterparty_label: label },
+    ]);
+    const claimed = claims.get(claimKey({ source, counterparty_key: counterpartyKey }));
+    if (claimed) {
+      return NextResponse.json(
+        { error: `${label}'s account is already set by ${claimed.badge.replace(/^Handled by /, "")}. Change it where it is set up — its flow type can still be set here.` },
+        { status: 409 },
+      );
+    }
   }
 
   // Identified by (feed, counterparty) rather than by row id, because the row
