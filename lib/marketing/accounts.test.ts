@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ACCOUNT_SAFE_COLUMNS, disconnectAccount, upsertConnectedAccount } from "./accounts";
+import { ACCOUNT_SAFE_COLUMNS, disconnectAccount, listConnectedAccounts, upsertConnectedAccount } from "./accounts";
 import { MarketingRequestError } from "./errors";
 import type { ConnectedAccountInput } from "./plugins/types";
 import { createMarketingTestDb } from "./__fixtures__/marketingDb";
@@ -145,5 +145,53 @@ describe("disconnecting", () => {
   it("says so when there is no such account", async () => {
     const db = connected();
     await expect(disconnectAccount(asClient(db), "nope")).rejects.toBeInstanceOf(MarketingRequestError);
+  });
+});
+
+// ── Listing ────────────────────────────────────────────────────────────────
+// The read both screens share: /marketing/accounts (read-only) and the settings
+// panel that connects and disconnects.
+
+describe("listing the logins", () => {
+  it("hands back every row, disconnected ones included, and never the credential", async () => {
+    const db = createMarketingTestDb({
+      marketing_connected_accounts: [
+        {
+          id: "acc-1",
+          provider: "fake",
+          channel: "fake",
+          external_id: "ext-1",
+          handle: "@fakebrewing",
+          status: "connected",
+          credentials: { accessToken: SECRET },
+          scopes: ["fake.publish"],
+          created_at: "2026-08-01T00:00:00.000Z",
+        },
+        {
+          id: "acc-2",
+          provider: "other",
+          channel: "other",
+          external_id: "ext-2",
+          handle: "@gone",
+          // A channel somebody unlinked. It still has to be listable, or the
+          // panel cannot offer to reconnect the login it means.
+          status: "disconnected",
+          credentials: {},
+          scopes: [],
+          created_at: "2026-08-02T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const accounts = await listConnectedAccounts(asClient(db));
+    expect(accounts.map((a) => a.channel)).toEqual(["fake", "other"]);
+    expect(accounts.map((a) => a.status)).toEqual(["connected", "disconnected"]);
+    expect(accounts[0].handle).toBe("@fakebrewing");
+    expect(JSON.stringify(accounts)).not.toContain(SECRET);
+  });
+
+  it("says nothing at all when nothing is connected — the state this ships in", async () => {
+    const db = createMarketingTestDb({ marketing_connected_accounts: [] });
+    expect(await listConnectedAccounts(asClient(db))).toEqual([]);
   });
 });

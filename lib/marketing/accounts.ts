@@ -71,6 +71,25 @@ function toSummary(row: Record<string, unknown>): ConnectedAccountSummary {
 }
 
 /**
+ * Every stored login, oldest first — what the Accounts screen and the settings
+ * panel both draw.
+ *
+ * Disconnected rows are included on purpose. They are the history of a channel
+ * that WAS connected, and a screen offering "Reconnect" has to be able to say
+ * which login it means. The credential is not here, for the reason the header
+ * gives: {@link ACCOUNT_SAFE_COLUMNS} is the only shape this table is ever read
+ * in.
+ */
+export async function listConnectedAccounts(client: SupabaseClient): Promise<ConnectedAccountSummary[]> {
+  const { data, error } = await client
+    .from(ACCOUNTS)
+    .select(ACCOUNT_SAFE_COLUMNS)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`could not load the channel logins: ${error.message}`);
+  return ((data ?? []) as Record<string, unknown>[]).map(toSummary);
+}
+
+/**
  * Store what a completed OAuth callback produced, replacing whatever was there
  * for that `(provider, channel)`.
  *

@@ -41,6 +41,29 @@ const MARKETING_DIRS = [
 const MARKETING_ALIASES = ["@/app/marketing", "@/lib/marketing", "@/app/api/marketing", "@/app/settings/marketing"];
 
 /**
+ * The settings hub's own chrome, which marketing's settings screen is MOUNTED
+ * INTO.
+ *
+ * This is rule 1's exception list read in the other direction. `/settings` is
+ * one route group with one shell: every group layout wraps itself in
+ * `SettingsGroupShell` (which renders the group row and provides the sub-nav
+ * context) and every group page titles itself with `SettingsHeader`. A settings
+ * screen that declined to use them would not be a more independent marketing —
+ * it would be a settings screen that looks like nothing else in settings, which
+ * is the exact failure docs/UI_STANDARD.md §4 exists to prevent.
+ *
+ * Two exact modules, both pure presentation, neither of which reads marketing's
+ * data. They are listed by full path rather than as an `@/app/settings` prefix
+ * so this does not become a door onto another section's settings logic — the
+ * finance mapping hooks and the payroll config live under that prefix too.
+ *
+ * If marketing is ever extracted, these two are the seam: a host without them
+ * supplies its own shell, and `app/settings/marketing/**` is the only place
+ * that has to change.
+ */
+const SETTINGS_CHASSIS = ["@/app/settings/SettingsGroupShell", "@/app/settings/SettingsHeader"];
+
+/**
  * Host modules marketing may import. Shared infrastructure only — anything
  * with a section's name in it is absent on purpose.
  */
@@ -50,6 +73,7 @@ const HOST_ALLOWED = [
   "@/lib/utils",
   "@/lib/cron",
   "@/app/components",
+  ...SETTINGS_CHASSIS,
   ...MARKETING_ALIASES,
 ];
 

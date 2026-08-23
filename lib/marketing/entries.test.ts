@@ -31,6 +31,10 @@ const CHANNEL = "e-succeed";
 const fake = createFakeChannelPlugin({ channel: CHANNEL });
 registerChannel(fake);
 
+/** A second channel, so "a draft remembers the channels it was given" can be more than one. */
+const CHANNEL_B = "e-succeed-b";
+registerChannel(createFakeChannelPlugin({ channel: CHANNEL_B }));
+
 /**
  * Three media whose ids sort in one order and whose intended order is another.
  * A query that forgot `order("position")` returns them by whatever the store
@@ -105,8 +109,8 @@ describe("what the route will accept", () => {
     expect(() => parseCreateEntry({ ...base, origin: "assistant" })).toThrow(/origin is not settable/);
   });
 
-  it("refuses channels without postNow, because a delivery would derive the entry's status", () => {
-    expect(() => parseCreateEntry({ ...base, channels: [CHANNEL] })).toThrow(/only used when posting now/);
+  it("takes channels on a draft — that is where a compose screen's choice is kept", () => {
+    expect(parseCreateEntry({ ...base, channels: [CHANNEL] }).channels).toEqual([CHANNEL]);
   });
 
   it("refuses postNow with nowhere to post", () => {
@@ -225,6 +229,63 @@ describe("creating an entry", () => {
     const written = db.tables.marketing_calendar_entries.map((r) => r.status);
     expect(written).toEqual(["draft", "approved", "approved"]);
     for (const status of written) expect(["draft", "approved"]).toContain(status);
+  });
+
+  /**
+   * A draft that knows where it is going.
+   *
+   * The two `pending` rows ARE the channel selection — there is no other column
+   * anywhere that records which channels a person picked in Compose, so a save
+   * that dropped them would lose the choice for good.
+   *
+   * The fixture has no triggers (see __fixtures__/marketingDb.ts), so "the
+   * entry is still a draft" is asserted here on the row this module wrote. What
+   * makes it stay a draft in Postgres is the shape of the deliveries: every one
+   * of them `pending`, which
+   * 20261024090000_marketing_pending_is_not_scheduled.sql derives nothing from.
+   * Hence the assertions on status, account and scheduled_at below — those are
+   * the facts the trigger reads.
+   */
+  it("keeps a draft's channels as pending deliveries, and the entry is still a draft", async () => {
+    const db = createMarketingTestDb(seed());
+    const entry = await createEntry(
+      asClient(db),
+      parseCreateEntry({
+        kind: "post",
+        startsAt: "2026-08-24T13:00:00.000Z",
+        caption: "Fresh cans Friday.",
+        channels: [CHANNEL, CHANNEL_B],
+      }),
+    );
+
+    expect(entry.status).toBe("draft");
+    expect(db.tables.marketing_calendar_entries).toHaveLength(1);
+    expect(db.tables.marketing_calendar_entries[0].status).toBe("draft");
+
+    const deliveries = db.tables.marketing_deliveries;
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries.map((d) => d.channel).sort()).toEqual([CHANNEL, CHANNEL_B].sort());
+    for (const delivery of deliveries) {
+      expect(delivery.status).toBe("pending");
+      // Nothing to publish through and nothing to publish at: a pending
+      // delivery is a record of intent, and the worker's claim never sees it.
+      expect(delivery.account_id).toBeNull();
+      expect(delivery.scheduled_at).toBeNull();
+    }
+
+    // And it reads back that way — reopening the draft shows both channels.
+    expect((await getEntry(asClient(db), entry.id))!.deliveries.map((d) => d.channel).sort()).toEqual(
+      [CHANNEL, CHANNEL_B].sort(),
+    );
+  });
+
+  it("refuses a draft pointed at a channel the registry does not know", async () => {
+    const db = createMarketingTestDb(seed());
+    await expect(
+      createEntry(asClient(db), parseCreateEntry({ kind: "post", startsAt: "2026-08-24T13:00:00.000Z", channels: ["tiktok"] })),
+    ).rejects.toThrow(/no channel called "tiktok"/);
+    expect(db.tables.marketing_calendar_entries).toHaveLength(0);
+    expect(db.tables.marketing_deliveries).toHaveLength(0);
   });
 });
 
