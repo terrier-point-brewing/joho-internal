@@ -496,3 +496,24 @@ describe("payroll-advance: a pay period", () => {
     expect(options).toMatchObject({ ignoreDuplicates: true });
   });
 });
+
+// ── marketing-deliveries: a post ────────────────────────────────────────────
+// This job's answer is YES, and it is proved in lib/marketing/worker.test.ts
+// ("re-running the job", plus the whole "two workers running at once" block)
+// rather than here — the same arrangement as balance-close above, and for a
+// second reason on top of it.
+//
+// The reason is the marketing import boundary. scripts/check-marketing-boundary
+// .mjs rule 1 says nothing outside marketing imports marketing, and this file is
+// outside it. The one named exception is lib/cron/jobs/marketingDeliveries.ts,
+// which exists precisely so that the seam is one mounting file and not every
+// module that would like to reach in — a test included. Widening the exception
+// to cover this file would trade a real boundary for a cross-reference, so the
+// cross-reference wins.
+//
+// The answer itself, for the record: re-running publishes nothing a person has
+// already dealt with. The claim matches `status = 'scheduled'` and nothing else,
+// so pending, publishing, published, failed and skipped deliveries are all
+// invisible to it; a failed one stays failed until somebody presses Retry, and
+// a scheduled one that already carries external_ids is handed them and comes
+// back `reused` rather than posted a second time.
