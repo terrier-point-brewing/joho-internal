@@ -1,16 +1,23 @@
 # Marketing chassis — conventions sheet
 
-Derived by inspecting the repo on 2026-08-22. **Include this file verbatim in every
+Derived by inspecting the repo on 2026-08-22, and folded back into on 2026-08-23 with
+what building the chassis actually established. **Include this file verbatim in every
 chip brief.** It exists so no chip invents a parallel abstraction. If a chip finds a
 rule here to be wrong, it must stop and report rather than route around it.
+
+This remains a description of **the repo's idioms**, not a summary of the marketing
+module. For the module itself read `README.md` next to this file; for every place the
+built chassis differs from the original spec, `DEVIATIONS.md`.
 
 ---
 
 ## 0. The single most important thing
 
-This repo has **no `modules/` directory and no module system.** There are no
-`ports/`, no plugin registries, and no import-boundary lint anywhere today. Sections
-are plain Next.js App Router route groups:
+This repo has **no `modules/` directory and no module system.** There are no `ports/`
+and no plugin registries outside marketing, and marketing's import boundary
+(`scripts/check-marketing-boundary.mjs`) is the only one in the repo — every other
+section reaches for whatever it needs. Sections are plain Next.js App Router route
+groups:
 
 ```
 app/<section>/            screens, co-located components, nav-config.ts
@@ -35,7 +42,7 @@ Path alias is `@/` → repo root (`tsconfig.json`, mirrored in `vitest.config.ts
 ## 2. Verify gate
 
 ```bash
-npm run verify   # check:statements && lint && typecheck && test
+npm run verify   # check:statements && check:marketing-boundary && lint && typecheck && test
 ```
 
 Not in `verify`, but CI-relevant and cheap — run both on any chip touching them:
@@ -79,6 +86,24 @@ Registering a new section means editing, in this order:
 2. `lib/auth/capabilities.ts` — add `CAP.*` entries. **Every CAP entry must be referenced somewhere or `check:permissions` fails (rule 3); every scope must be covered by some CAP or it fails (rule 4).**
 3. `lib/auth/roleGrants.ts` — add rows to the `ROLE_BUNDLES` that should hold it.
 4. `lib/auth/__fixtures__/legacy-matrix.ts` — record any movement as an `intentionalChange` row.
+
+Marketing, as built, registers four leaves and five capabilities — no flat grant keys
+anywhere, and **no edit to `ROLE_BUNDLES`**, because role bundles are data in
+`role_permission_grants` and granting marketing to anyone is an admin action in
+Settings → Environment → Users:
+
+| Scope | Capability | Level | Gates |
+|---|---|---|---|
+| `marketing.access` | `CAP.marketingAccess` | `read` | section admission, in the layout and in NavBar — and nothing else |
+| `marketing.calendar` | `CAP.marketingCalendarRead` | `read` | `GET /api/marketing/entries` |
+| `marketing.calendar` | `CAP.marketingCalendarEdit` | `operate` | `POST` entries and media |
+| `marketing.accounts` | `CAP.marketingAccountsManage` | `manage` | connect / callback / disconnect, the Accounts subtab, the Settings group |
+| `marketing.publish` | `CAP.marketingPublish` | `operate` | the retry route and the Retry button |
+
+Each scope also names an RLS scope in SQL: `marketing.calendar` covers
+`marketing_media`, `marketing_calendar_entries`, `marketing_entry_media`;
+`marketing.publish` covers `marketing_deliveries`, `marketing_metrics`;
+`marketing_connected_accounts` is covered by neither, deliberately (§6).
 
 Enforcement:
 
@@ -182,7 +207,10 @@ Upload path is always **upload to storage via the admin client, then insert the 
 `app/api/brand/assets/route.ts` (multipart `FormData`, field `file`). There is no
 shared upload helper; each module has its own ~40-line one. Note `brand-assets` was
 deliberately flipped **private** (`20260903_brand_assets_private.sql`), with a
-comment reserving a separate public bucket for a future marketing site.
+comment reserving a separate public bucket for a future marketing site. That reserved
+bucket now exists: **`marketing-media`, public, path `{yyyy}/{mm}/{uuid}.{ext}`.** Public
+read is not an oversight — a channel fetches the creative from a URL we hand it, so a
+private bucket cannot publish. The two buckets stay separate.
 
 ## 7. API routes
 
@@ -206,8 +234,17 @@ The house pattern is **not** a bare secret-checked POST:
 - `lib/cron/runCronJob.ts` wraps every run: claims a Postgres advisory lease via `try_acquire_sync_lock` under the key `cron:<job>` (default TTL 900s), times it, and writes one `cron_runs` row. A refused run returns **409 busy**, not an error, and is not recorded.
 - `app/api/cron/run/[job]` is the human "Run now" path, gated on `CAP.cronRead`-adjacent permissions rather than the secret.
 
-A job started this way is single-flight *per job*, which is a coarser guarantee than
-the spec's per-row claim. See open question Q3.
+A job started this way is single-flight *per job*, which is a coarser guarantee than a
+per-row claim. Where both exist — as in `marketing-deliveries` — the row claim is the
+mechanism and the lease is a courtesy on top of it.
+
+**Cadence: this project is on the Vercel Hobby plan, which refuses any sub-daily cron.**
+The deployment is rejected at config validation, before a build starts. Every one of the
+twelve entries in `vercel.json` is daily or weekly, and that is not a coincidence or a
+habit — a `*/5 * * * *` schedule cannot ship here at all. If a job genuinely needs a
+tighter loop, the answer is a plan change or an inline path, not a smaller number.
+`marketing-deliveries` took the inline path: Post now and Retry run the worker
+in-process, and the daily job is a sweep for a run that died mid-flight.
 
 `lib/cron/reRunSafety.test.ts` asks one question of every job: *if somebody runs this
 again, does the work a person did by hand survive?* A new job is expected to answer it
@@ -219,16 +256,16 @@ there.
 |---|---|
 | `modules/marketing/` | `app/marketing/`, `app/api/marketing/`, `lib/marketing/` |
 | `migrations/` | `supabase/migrations/` (flat, shared, unique version stamp) |
-| `ports/` | `lib/marketing/ports/` — interfaces + README only; **no implementations, no consumers in the chassis** |
+| `ports/` | `lib/marketing/ports/` — **README only**; the chassis declares no port, and the folder stays empty until a later module needs one |
 | `plugins/` | `lib/marketing/plugins/` (`types.ts`, `registry.ts`, `fake/`) |
 | `nav.ts` | `app/marketing/nav-config.ts` |
 | `components/` | co-located under `app/marketing/**` |
 | `settings/` | an entry in `app/settings/nav-config.tsx` + `app/settings/marketing/**` |
 | `README.md` | `docs/marketing/README.md` (this folder) |
-| `marketing` Postgres schema | `public.marketing_*` tables (see Q1) |
-| grant keys `marketing.view` etc. | scopes `marketing.access`, `marketing.calendar`, `marketing.publish`, `marketing.accounts` + `CAP.*` at the right levels (see Q2) |
-| `POST /api/marketing/deliveries/run` + `CRON_SECRET` | `GET /api/cron/marketing-deliveries` via `createCronRouteHandler` (see Q3) |
-| boundary lint | a new `scripts/check-marketing-boundary.mjs` in the `scripts/check-*.mjs` idiom, wired into `npm run verify` (see Q4) |
+| `marketing` Postgres schema | `public.marketing_*` tables — six of them (`DEVIATIONS.md` #1) |
+| grant keys `marketing.view` etc. | scopes `marketing.access`, `marketing.calendar`, `marketing.publish`, `marketing.accounts` + five `CAP.*` at the levels in §3 (`DEVIATIONS.md` #5) |
+| `POST /api/marketing/deliveries/run` + `CRON_SECRET` | `GET /api/cron/marketing-deliveries` via `createCronRouteHandler`, **daily** (`DEVIATIONS.md` #10, #11) |
+| boundary lint | `scripts/check-marketing-boundary.mjs`, in `npm run verify` **and** in CI; two rules, aliased **and** relative spellings, two rule-1 exceptions and one rule-2 allowance, each named by exact file and exact module (README §1) |
 
 ## 10. Local run / verification
 
