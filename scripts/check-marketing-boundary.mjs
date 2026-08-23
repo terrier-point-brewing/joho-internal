@@ -54,12 +54,41 @@ const HOST_ALLOWED = [
 ];
 
 /**
- * Rule 1's one named exception. Every section's sidebar block imports that
- * section's nav config; pretending marketing is different would mean the
- * sidebar cannot render it at all. Narrow on purpose: this exact file, that
- * exact module.
+ * Rule 1's named exceptions — the host MOUNTING marketing, which is not the
+ * same thing as depending on it.
+ *
+ * Both entries are one host file whose entire job is to give marketing a place
+ * to hang: the sidebar renders its nav, and the cron registry gives its worker
+ * a schedule. Neither reads marketing's data or reaches into its internals, and
+ * neither would survive marketing being deleted — which is the test. A module
+ * that merely WANTED something marketing knows would be a port instead.
+ *
+ * Each entry is one exact file paired with one exact module specifier, and it
+ * stays that way. A `lib/cron/**` → `@/lib/marketing/**` wildcard would let any
+ * future job reach into any part of marketing, which is the hole this list
+ * exists to avoid. If a new mounting point is genuinely needed, it gets its own
+ * one-file, one-module row here and a sentence saying why.
  */
-const NAVBAR_EXCEPTION = { file: join("app", "components", "NavBar.tsx"), spec: "@/app/marketing/nav-config" };
+const RULE_1_EXCEPTIONS = [
+  {
+    // Every section's sidebar block imports that section's nav config;
+    // pretending marketing is different would mean the sidebar cannot render it
+    // at all.
+    file: join("app", "components", "NavBar.tsx"),
+    spec: "@/app/marketing/nav-config",
+  },
+  {
+    // The scheduled publishing job. This wrapper is deliberately a file of its
+    // own rather than an import in lib/cron/jobs/index.ts: index.ts is pulled
+    // in by every cron route, and the seam belongs on the one module that
+    // exists to mount marketing, not on the shared registry.
+    file: join("lib", "cron", "jobs", "marketingDeliveries.ts"),
+    spec: "@/lib/marketing/worker",
+  },
+];
+
+/** How the exceptions read in a violation message. */
+const EXCEPTIONS_SUMMARY = RULE_1_EXCEPTIONS.map((e) => `${e.file} importing "${e.spec}"`).join("; ");
 
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
@@ -141,14 +170,14 @@ for (const { path, text } of files) {
         ? underAny(resolved, MARKETING_DIRS)
         : MARKETING_ALIASES.some((a) => matchesAlias(spec, a));
       if (!reachesIn) continue;
-      if (path === NAVBAR_EXCEPTION.file && spec === NAVBAR_EXCEPTION.spec) continue;
+      if (RULE_1_EXCEPTIONS.some((e) => path === e.file && spec === e.spec)) continue;
       violations.push({
         file: path,
         line,
         msg:
           `imports "${spec}" from outside marketing — marketing is a closed section, so nothing ` +
-          `depends on it (the sole exception is ${NAVBAR_EXCEPTION.file} importing ` +
-          `"${NAVBAR_EXCEPTION.spec}" to render the sidebar).`,
+          `depends on it. The only exceptions are the host mounting marketing: ${EXCEPTIONS_SUMMARY}. ` +
+          `Widening this list is almost never the fix — declare a read-only port in lib/marketing/ports/ instead.`,
       });
     }
   }

@@ -91,9 +91,25 @@ describe("the registry still matches the schedule", () => {
     }
   });
 
-  it("labels each schedule with the hour its cron expression actually names", () => {
+  // Two shapes of schedule now exist, and each gets the assertion it can
+  // actually satisfy. Until the publishing worker landed, every job here fired
+  // at a fixed hour, so "the label contains HH:MM" was the whole rule. An
+  // interval schedule names no hour at all — `*/5 * * * *` would produce the
+  // nonsense "0*:*/5" — so it is checked against the interval it does name.
+  // Neither branch is a relaxation: a schedule that matches neither shape is a
+  // failure, so a new expression cannot slip through unlabelled.
+  it("labels each schedule with the hour or the interval its cron expression actually names", () => {
     for (const meta of CRON_JOBS) {
       const [minute, hour] = meta.schedule.split(" ");
+      const everyNMinutes = /^\*\/(\d+)$/.exec(minute);
+
+      if (everyNMinutes && hour === "*") {
+        expect(meta.scheduleLabel).toContain(`Every ${everyNMinutes[1]} minutes`);
+        continue;
+      }
+
+      expect(minute, `${meta.job}: unrecognised schedule shape "${meta.schedule}"`).toMatch(/^\d+$/);
+      expect(hour, `${meta.job}: unrecognised schedule shape "${meta.schedule}"`).toMatch(/^\d+$/);
       const hh = String(hour).padStart(2, "0");
       const mm = String(minute).padStart(2, "0");
       expect(meta.scheduleLabel).toContain(`${hh}:${mm}`);

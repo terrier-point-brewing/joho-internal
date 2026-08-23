@@ -151,4 +151,18 @@ export const CRON_JOBS: CronJobMeta[] = [
     manualRun:     "wait",
     manualNote:    "This can send reminder emails, and once the month's due date has passed it also freezes the month, which stops its figures being recalculated. A month that is already frozen is left alone.",
   },
+  {
+    job:           "marketing-deliveries",
+    path:          "/api/cron/marketing-deliveries",
+    // The only sub-daily job here. A scheduled post is booked to a minute, so
+    // a nightly sweep would publish most of them hours late.
+    schedule:      "*/5 * * * *",
+    scheduleLabel: "Every 5 minutes",
+    description:   "Publishes marketing calendar entries whose scheduled time has arrived, one delivery per channel. A delivery that fails stays failed until a person retries it; nothing is ever re-sent automatically.",
+    // Twelve runs an hour, so an hour without a successful one is already a
+    // long silence — and a silent publisher means posts are quietly not going out.
+    maxAgeHours:   1,
+    manualRun:     "wait",
+    manualNote:    "This posts publicly, straight away, to every connected channel with an entry that is due. A post cannot be taken back once it has gone out. Anything already published is recognised and not sent a second time, and an entry whose time has not yet come is left alone.",
+  },
 ];

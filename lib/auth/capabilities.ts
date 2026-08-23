@@ -121,6 +121,12 @@ export const CAP = {
    * meaningful read-only face of "here are the tokens".
    */
   marketingAccountsManage: { scope: "marketing.accounts", level: "manage" },
+  /**
+   * Putting a delivery out through a channel, and putting a failed one back on
+   * the queue. `operate` rather than `manage`: publishing what a person already
+   * approved is the day job, not an administrative act.
+   */
+  marketingPublish: { scope: "marketing.publish", level: "operate" },
 
   financeStatementsRead: { scope: "finance.statements", level: "read" },
   financeTransactionsRead: { scope: "finance.transactions", level: "read" },

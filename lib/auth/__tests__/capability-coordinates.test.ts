@@ -111,6 +111,11 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   // screens; its API routes arrive with later chips.
   marketingAccess: { scope: "marketing.access", level: "read" }, // no route
   marketingAccountsManage: { scope: "marketing.accounts", level: "manage" }, // no route
+  // Backs POST /api/marketing/deliveries/[id]/retry. `operate` is the whole
+  // point of the coordinate: publishing what a person already approved is the
+  // day job, and pinning it here is what stops a later edit quietly widening
+  // "put this post out on the internet" to anyone with a marketing grant.
+  marketingPublish: { scope: "marketing.publish", level: "operate" },
 };
 
 describe("CAP coordinates are pinned", () => {
