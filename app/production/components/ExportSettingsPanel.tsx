@@ -54,9 +54,14 @@ function deriveVolumeClasses(packagingItems: PackagingItemForClasses[]): VolumeC
     const piType = pi.type as "keg" | "can";
     const vol = pi.volume_fl_oz;
     const owner = pi.partner_id ?? "blank";
+    // Labelled by the ARTWORK the container carries, not by who gets billed —
+    // that is the column axis. "Printed for Argus" is a physical can; the Argus
+    // column is a price override, and a run in Argus cans can be billed to
+    // anyone. Kegs prove the group is needed: one size holds both
+    // Fortnight-printed and Local Time-printed containers.
     const ownerLabel = pi.partner_id
-      ? `${pi.contract_brewing_partners?.company_name ?? "Partner"} · printed`
-      : "Blank";
+      ? `Printed for ${pi.contract_brewing_partners?.company_name ?? "partner"}`
+      : "Unprinted (blank)";
     const formats = piType === "keg" ? [null] : (["loose", "case"] as const);
     for (const fmt of formats) {
       const k = `${piType}|${vol}|${fmt ?? ""}`;
@@ -518,15 +523,23 @@ function ServiceMappingGrid() {
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-strong mb-3">Service Mappings &amp; Discounts</h3>
+      <h3 className="text-sm font-medium text-strong mb-1">Service Mappings &amp; Discounts</h3>
+      <p className="text-xs text-faint mb-3">
+        Rows are what you&rsquo;re charging for; columns are who gets billed. A partner column
+        overrides the default price for that partner only. Expand a packaging size to price its
+        printed containers apart from the blanks.
+      </p>
       <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)] rounded-lg border border-line">
         <table
-          className="text-xs border-collapse"
-          style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}
+          className="text-xs border-collapse w-full"
+          // Partner columns share whatever is left after the label column, so a
+          // two-partner brewery fills the page instead of stranding half of it,
+          // and a tenth partner still scrolls rather than crushing the others.
+          style={{ tableLayout: "fixed", minWidth: 320 + columns.length * 200 }}
         >
           <colgroup>
-            <col style={{ width: 180 }} />
-            {columns.map((_, i) => <col key={i} style={{ width: 200 }} />)}
+            <col style={{ width: 320 }} />
+            {columns.map((_, i) => <col key={i} style={{ width: `${100 / columns.length}%` }} />)}
           </colgroup>
           <thead>
             <tr className="border-b border-line">
@@ -557,9 +570,12 @@ function ServiceMappingGrid() {
               ) : (
                 <tr key={entry.key} className="border-b border-line/40 hover:bg-surface/20 transition-colors">
                   <td
-                    className={`sticky left-0 z-10 bg-canvas py-2.5 whitespace-nowrap border-r border-line/40 ${
+                    // Truncated, not wrapped: a partner's legal name can be long
+                    // and a two-line row breaks the scan down the column.
+                    className={`sticky left-0 z-10 bg-canvas py-2.5 whitespace-nowrap overflow-hidden text-ellipsis border-r border-line/40 ${
                       entry.indent ? "pl-9 pr-4 font-normal text-secondary" : "px-4 font-medium text-strong"
                     }`}
+                    title={entry.rowLabel}
                   >
                     {entry.toggle ? (
                       <button
@@ -586,7 +602,7 @@ function ServiceMappingGrid() {
                       >
                         {cell.label ? (
                           <span
-                            className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-success-surface/30 border border-success-border/50 text-success break-words leading-4 max-w-[170px] truncate"
+                            className="block w-fit max-w-full px-1.5 py-0.5 rounded text-[10px] bg-success-surface/30 border border-success-border/50 text-success leading-4 truncate"
                             title={cell.label}
                           >
                             ✓ {cell.label}
@@ -678,8 +694,12 @@ function InvoiceTermsSection() {
 export default function ExportSettingsPanel() {
   return (
     <div className="flex flex-col gap-8">
-      <InvoiceTermsSection />
-      <ExciseRatesSection />
+      {/* Forms read badly full-bleed, so they keep the old cap; the grid takes
+          the whole page, which is what it needs once a few partners exist. */}
+      <div className="max-w-3xl flex flex-col gap-8">
+        <InvoiceTermsSection />
+        <ExciseRatesSection />
+      </div>
       <ServiceMappingGrid />
     </div>
   );
