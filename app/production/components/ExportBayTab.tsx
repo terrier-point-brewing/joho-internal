@@ -252,7 +252,7 @@ function PhantomAlertRow({
         <span className="text-xs text-muted">
           {fmtDate(alert.occurredAt)} · {alert.quantityKegs} × {alert.variationName} · {alert.volumeBbl.toFixed(2)} BBL
         </span>
-        {blockedReason && <span className="text-xs text-warning">{blockedReason}</span>}
+        {blockedReason && <span className="text-xs text-accent">{blockedReason}</span>}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {hasOptions && (
