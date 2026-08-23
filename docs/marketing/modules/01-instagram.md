@@ -34,9 +34,18 @@ Permissions to request: `instagram_basic`, `instagram_content_publish`,
 `pages_read_engagement`. Facebook posting later adds `pages_manage_posts` — do not
 request it now.
 
-**No App Review.** The app stays in Development mode, which is all Standard Access
-needs when the only account published to is our own. Switching the app to Live is what
-would trigger review; do not.
+**No App Review.** Standard Access — the default — lets an app request permissions from
+people who hold a **role on that app**, and that is true in Live mode as much as in
+Development mode. Since the only account we publish to is our own, and the person
+connecting is an app Administrator, review never enters into it. Advanced Access, which
+does require review, is for requesting permissions from users with no role.
+
+**The app is the brewery's existing Meta app**, the one already running ads through the
+Marketing API — not a new one. Meta apps carry many use cases at once and adding the
+Instagram one leaves the ads use cases untouched. An earlier draft of this spec called
+for a separate app on the theory that a Live ads app would drag us into review; that
+theory was wrong, and one app means one OAuth flow and one connected account for
+Instagram and Facebook both.
 
 In Development mode a Meta app can only authenticate people who hold a **role on the
 app** — Administrator, Developer or Tester — configured at App Dashboard → **App Roles
@@ -105,14 +114,19 @@ folder. Comment management. Anything that switches the Meta app to Live mode.
 
 ## 6. What Will has to do — none of this is code
 
-1. **Instagram account → Professional → Business.** Not Creator: Meta's docs say either works, but Creator is widely reported to fail on publishing, and the switch is free.
-2. **A Facebook Page for the brewery**, if one does not exist, **linked to that Instagram account.** This is the Facebook-Login path's price, and what makes the Facebook module cheap later.
-3. **A Meta app**, left in **Development mode**. Create it while signed in as the Facebook account that admins the Page — the creator becomes Administrator automatically, which is the app role Development mode requires.
-4. **Only if someone else will run the connect flow**: add that person at App Dashboard → App Roles → Roles. Not the Test Users tab (synthetic accounts, useless here), and not an Instagram Tester invite (that is the Instagram-Login path). They must also admin the Page.
-5. **Credentials into the environment, never into chat** — `META_APP_ID`, `META_APP_SECRET`, and `MARKETING_OAUTH_STATE_SECRET` (any random 32-byte hex), in Vercel and in `.env.local`.
-6. **Page Publishing Authorization**, if the Page asks for it.
+**Done, as of 2026-08-23:**
 
-Steps 1–4 are roughly twenty minutes and block nothing else.
+1. Instagram account switched to **Business** and linked to the brewery's Facebook Page.
+2. The **Instagram use case added to the existing Meta app**, alongside its ads use cases, carrying `instagram_basic`, `instagram_content_publish` and `pages_read_engagement`.
+3. **Valid OAuth Redirect URI** registered under Facebook Login for Business, with Client and Web OAuth Login both on:
+   `https://internal.johobrewing.com/api/marketing/accounts/callback/instagram`
+   Strict Mode is on, so this must match the route byte for byte. The channel key in the registry therefore has to be exactly `instagram`.
+4. Will holds **Administrator** on the app and admin on the Page — the pair Standard Access needs.
+5. `META_APP_ID`, `META_APP_SECRET` and `MARKETING_OAUTH_STATE_SECRET` set in Vercel and redeployed.
+
+**Still outstanding:** Page Publishing Authorization, if the Page asks for it — it surfaces at publish time, not before.
+
+**Not needed, and not to be re-introduced:** a second Meta app, an Instagram Tester invite, the Test Users tab, App Review, or Meta's Facebook Login quickstart (it installs a JavaScript SDK this app has no use for — the OAuth flow is server-side in our own routes).
 
 ## 7. Definition of done
 
