@@ -18,24 +18,15 @@ import ExciseRatesSection from "@/app/settings/tax/filing/ExciseRatesSection";
 const KEG_VOL_LABELS: Record<number, string> = { 1984: "1/2 BBL", 992: "1/4 BBL", 661: "1/6 BBL" };
 const CAN_FORMAT_LABELS: Record<"loose" | "case", string> = { loose: "Loose Can", case: "Case" };
 
-/**
- * One printing of a container class: the blanks, or everything printed for a
- * given partner. A partner's printed cans share a fee, so they are mapped as
- * one row rather than one row per beer.
- */
-interface OwnerGroup {
-  /** packaging_items.partner_id, or "blank" for the unbranded containers. */
-  owner: string;
-  label: string;
-  containerIds: string[];
-}
-
 interface VolumeClass {
   piType: "keg" | "can";
   volumeFlOz: number;
   format: "loose" | "case" | null;
   label: string;
-  groups: OwnerGroup[];
+  /** Unbranded containers in this class — what the Default column prices. */
+  blankIds: string[];
+  /** partner_id → the containers printed for that partner in this class. */
+  printedIdsByPartner: Map<string, string[]>;
 }
 
 type PackagingItemForClasses = {
@@ -44,24 +35,22 @@ type PackagingItemForClasses = {
   type: string;
   volume_fl_oz: number | null;
   partner_id: string | null;
-  contract_brewing_partners?: { company_name: string } | null;
 };
 
+/**
+ * A packaging size/format, split into the containers each column prices.
+ *
+ * There are no per-container rows. A container printed for Argus is only ever
+ * billed to Argus, so a "Printed for Argus" row would say exactly what the Argus
+ * column already says. The split lives on the column axis instead: Default
+ * prices the blanks, and a partner's cell prices that partner's own containers.
+ */
 function deriveVolumeClasses(packagingItems: PackagingItemForClasses[]): VolumeClass[] {
   const seen = new Map<string, VolumeClass>();
   for (const pi of packagingItems) {
     if ((pi.type !== "keg" && pi.type !== "can") || pi.volume_fl_oz == null) continue;
     const piType = pi.type as "keg" | "can";
     const vol = pi.volume_fl_oz;
-    const owner = pi.partner_id ?? "blank";
-    // Labelled by the ARTWORK the container carries, not by who gets billed —
-    // that is the column axis. "Printed for Argus" is a physical can; the Argus
-    // column is a price override, and a run in Argus cans can be billed to
-    // anyone. Kegs prove the group is needed: one size holds both
-    // Fortnight-printed and Local Time-printed containers.
-    const ownerLabel = pi.partner_id
-      ? `Printed for ${pi.contract_brewing_partners?.company_name ?? "partner"}`
-      : "Unprinted (blank)";
     const formats = piType === "keg" ? [null] : (["loose", "case"] as const);
     for (const fmt of formats) {
       const k = `${piType}|${vol}|${fmt ?? ""}`;
@@ -70,20 +59,20 @@ function deriveVolumeClasses(packagingItems: PackagingItemForClasses[]): VolumeC
         const label = piType === "keg"
           ? `${KEG_VOL_LABELS[vol] ?? `${vol} fl oz`} Keg`
           : `${vol}oz Can · ${CAN_FORMAT_LABELS[fmt as "loose" | "case"]}`;
-        vc = { piType, volumeFlOz: vol, format: fmt as VolumeClass["format"], label, groups: [] };
+        vc = {
+          piType, volumeFlOz: vol, format: fmt as VolumeClass["format"], label,
+          blankIds: [], printedIdsByPartner: new Map(),
+        };
         seen.set(k, vc);
       }
-      const group = vc.groups.find((g) => g.owner === owner);
-      if (group) group.containerIds.push(pi.id);
-      else vc.groups.push({ owner, label: ownerLabel, containerIds: [pi.id] });
+      if (pi.partner_id) {
+        const list = vc.printedIdsByPartner.get(pi.partner_id) ?? [];
+        list.push(pi.id);
+        vc.printedIdsByPartner.set(pi.partner_id, list);
+      } else {
+        vc.blankIds.push(pi.id);
+      }
     }
-  }
-  for (const vc of seen.values()) {
-    // Blanks first, then partners alphabetically.
-    vc.groups.sort((a, b) => {
-      if ((a.owner === "blank") !== (b.owner === "blank")) return a.owner === "blank" ? -1 : 1;
-      return a.label.localeCompare(b.label);
-    });
   }
   return [...seen.values()].sort((a, b) => {
     if (a.piType !== b.piType) return a.piType === "keg" ? -1 : 1;
@@ -91,6 +80,28 @@ function deriveVolumeClasses(packagingItems: PackagingItemForClasses[]): VolumeC
     if (a.volumeFlOz !== b.volumeFlOz) return a.volumeFlOz - b.volumeFlOz;
     return (a.format === "loose" ? 0 : 1) - (b.format === "loose" ? 0 : 1);
   });
+}
+
+/**
+ * Which containers a given cell prices, and under whose partner_id.
+ *
+ * Default prices the blanks. A partner's cell prices that partner's printed
+ * containers when they have any — those are theirs alone, so the mapping is
+ * stored partner-agnostically and is found however the shipment is billed.
+ * A partner with no printed container in this size (Fortnight cans a blank and
+ * labels it) keeps the classic meaning: an override on the blank, for them only.
+ */
+function cellTarget(vc: VolumeClass, partnerId: string | null): {
+  containerIds: string[];
+  owner: string;
+  mappingPartnerId: string | null;
+} {
+  if (!partnerId) return { containerIds: vc.blankIds, owner: "blank", mappingPartnerId: null };
+  const printed = vc.printedIdsByPartner.get(partnerId);
+  if (printed && printed.length > 0) {
+    return { containerIds: printed, owner: partnerId, mappingPartnerId: null };
+  }
+  return { containerIds: vc.blankIds, owner: "blank", mappingPartnerId: partnerId };
 }
 
 
@@ -322,7 +333,7 @@ function ServiceMappingDrawer({
 }
 
 type SelectedCell =
-  | { kind: "packaging_fee"; vc: VolumeClass; group: OwnerGroup | null; partnerId: string | null }
+  | { kind: "packaging_fee"; vc: VolumeClass; partnerId: string | null }
   | { kind: "service"; serviceType: ServiceType; mappingKind: "catalog" | "discount"; rowLabel: string; partnerId: string | null };
 
 function ServiceMappingGrid() {
@@ -333,15 +344,6 @@ function ServiceMappingGrid() {
   const qc = useQueryClient();
 
   const [selected, setSelected] = useState<SelectedCell | null>(null);
-  const [expandedClasses, setExpandedClasses] = useState<Set<string>>(new Set());
-
-  function toggleClass(key: string) {
-    setExpandedClasses((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
 
   const items = catalog?.items ?? [];
   const discounts = catalog?.discounts ?? [];
@@ -361,17 +363,17 @@ function ServiceMappingGrid() {
   }
 
   /**
-   * A group's mapping, but only when every container under it maps to the same
-   * variation. Anything else is "Mixed" — an unmapped printed can is exactly
-   * what makes an export invoice throw, so it must never hide behind a sibling.
+   * What a cell shows: a label only when every container it prices maps to the
+   * same variation. Anything else is "Mixed" — an unmapped printed can is
+   * exactly what makes an export invoice throw, so it must never hide behind a
+   * sibling that happens to be mapped.
    */
-  function summariseGroup(vc: VolumeClass, containerIds: string[], partnerId: string | null): { label: string | null; mixed: boolean } {
-    const labels = containerIds.map((id) => catalogLabel(getContainerFeeMapping(vc, id, partnerId)));
+  function summariseCell(vc: VolumeClass, partnerId: string | null): { label: string | null; mixed: boolean } {
+    const { containerIds, mappingPartnerId } = cellTarget(vc, partnerId);
+    if (containerIds.length === 0) return { label: null, mixed: false };
+    const labels = containerIds.map((id) => catalogLabel(getContainerFeeMapping(vc, id, mappingPartnerId)));
     const distinct = new Set(labels);
-    if (distinct.size === 1) {
-      const only = labels[0];
-      return { label: only, mixed: false };
-    }
+    if (distinct.size === 1) return { label: labels[0], mixed: false };
     return { label: null, mixed: true };
   }
 
@@ -387,17 +389,17 @@ function ServiceMappingGrid() {
     return mapping.display_name || null;
   }
 
-  /** `group` null writes every container in the class; otherwise just that owner's. */
-  async function savePackagingFee(vc: VolumeClass, group: OwnerGroup | null, partnerId: string | null, patch: Record<string, unknown>) {
+  async function savePackagingFee(vc: VolumeClass, partnerId: string | null, patch: Record<string, unknown>) {
+    const { owner, mappingPartnerId } = cellTarget(vc, partnerId);
     const res = await fetch("/api/production/export-settings/packaging-fee-class", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: vc.piType,
         volume_fl_oz: vc.volumeFlOz,
-        owner: group?.owner ?? "all",
+        owner,
         format: vc.format,
-        partner_id: partnerId,
+        partner_id: mappingPartnerId,
         display_name: "Packaging Fee",
         ...patch,
       }),
@@ -430,47 +432,19 @@ function ServiceMappingGrid() {
   // Group header rows + data rows as a flat array for tbody
   type TbodyEntry =
     | { type: "header"; key: string; label: string }
-    | { type: "row"; key: string; rowLabel: string; indent?: boolean; toggle?: { expanded: boolean; onToggle: () => void }; getCell: (partnerId: string | null) => { label: string | null; mixed?: boolean; onClick: () => void } };
+    | { type: "row"; key: string; rowLabel: string; getCell: (partnerId: string | null) => { label: string | null; mixed?: boolean; onClick: () => void } };
 
   const entries: TbodyEntry[] = [
     { type: "header", key: "h-pf", label: "Packaging Fees" },
-    ...volumeClasses.flatMap((vc): TbodyEntry[] => {
-      const classKey = `pf|${vc.piType}|${vc.volumeFlOz}|${vc.format ?? ""}`;
-      const expanded = expandedClasses.has(classKey);
-      const allIds = vc.groups.flatMap((g) => g.containerIds);
-      return [
-        {
-          type: "row",
-          key: classKey,
-          rowLabel: vc.label,
-          toggle: { expanded, onToggle: () => toggleClass(classKey) },
-          getCell: (partnerId) => {
-            const { label, mixed } = summariseGroup(vc, allIds, partnerId);
-            return {
-              label,
-              mixed,
-              onClick: () => setSelected({ kind: "packaging_fee", vc, group: null, partnerId }),
-            };
-          },
-        },
-        ...(expanded
-          ? vc.groups.map((g): TbodyEntry => ({
-              type: "row",
-              key: `${classKey}|${g.owner}`,
-              rowLabel: g.containerIds.length > 1 ? `${g.label} (${g.containerIds.length})` : g.label,
-              indent: true,
-              getCell: (partnerId) => {
-                const { label, mixed } = summariseGroup(vc, g.containerIds, partnerId);
-                return {
-                  label,
-                  mixed,
-                  onClick: () => setSelected({ kind: "packaging_fee", vc, group: g, partnerId }),
-                };
-              },
-            }))
-          : []),
-      ];
-    }),
+    ...volumeClasses.map((vc): TbodyEntry => ({
+      type: "row",
+      key: `pf|${vc.piType}|${vc.volumeFlOz}|${vc.format ?? ""}`,
+      rowLabel: vc.label,
+      getCell: (partnerId) => {
+        const { label, mixed } = summariseCell(vc, partnerId);
+        return { label, mixed, onClick: () => setSelected({ kind: "packaging_fee", vc, partnerId }) };
+      },
+    })),
     { type: "header", key: "h-svc", label: "Services" },
     ...SERVICE_ROWS.filter((r) => r.kind === "catalog").map((r): TbodyEntry => ({
       type: "row",
@@ -504,16 +478,16 @@ function ServiceMappingGrid() {
   let drawerOnSave: ((patch: Record<string, unknown>) => Promise<void>) | null = null;
 
   if (selected?.kind === "packaging_fee") {
-    drawerLabel = selected.group
-      ? `${selected.vc.label} · ${selected.group.label}`
-      : `${selected.vc.label} · all containers`;
-    // Only show a current mapping when the whole group agrees on one.
-    const scopeIds = selected.group?.containerIds ?? selected.vc.groups.flatMap((g) => g.containerIds);
-    const summary = summariseGroup(selected.vc, scopeIds, selected.partnerId);
+    const target = cellTarget(selected.vc, selected.partnerId);
+    // Name the containers the cell actually prices, so it is never a guess
+    // whether you are setting the blank's fee or a partner's printed one.
+    drawerLabel = `${selected.vc.label} · ${target.owner === "blank" ? "unprinted" : "printed"}`;
+    // Only show a current mapping when every container it prices agrees on one.
+    const summary = summariseCell(selected.vc, selected.partnerId);
     drawerMapping = summary.label
-      ? getContainerFeeMapping(selected.vc, scopeIds[0], selected.partnerId)
+      ? getContainerFeeMapping(selected.vc, target.containerIds[0], target.mappingPartnerId)
       : null;
-    drawerOnSave = (patch) => savePackagingFee(selected.vc, selected.group, selected.partnerId, patch);
+    drawerOnSave = (patch) => savePackagingFee(selected.vc, selected.partnerId, patch);
   } else if (selected?.kind === "service") {
     drawerLabel = selected.rowLabel;
     drawerKind = selected.mappingKind;
@@ -525,9 +499,9 @@ function ServiceMappingGrid() {
     <section>
       <h3 className="text-sm font-medium text-strong mb-1">Service Mappings &amp; Discounts</h3>
       <p className="text-xs text-faint mb-3">
-        Rows are what you&rsquo;re charging for; columns are who gets billed. A partner column
-        overrides the default price for that partner only. Expand a packaging size to price its
-        printed containers apart from the blanks.
+        Rows are what you&rsquo;re charging for; columns are who gets billed. For packaging fees,
+        Default prices the unprinted container and a partner&rsquo;s cell prices their own printed
+        one — or, if they have none in that size, overrides the unprinted price for them.
       </p>
       <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)] rounded-lg border border-line">
         <table
@@ -570,27 +544,10 @@ function ServiceMappingGrid() {
               ) : (
                 <tr key={entry.key} className="border-b border-line/40 hover:bg-surface/20 transition-colors">
                   <td
-                    // Truncated, not wrapped: a partner's legal name can be long
-                    // and a two-line row breaks the scan down the column.
-                    className={`sticky left-0 z-10 bg-canvas py-2.5 whitespace-nowrap overflow-hidden text-ellipsis border-r border-line/40 ${
-                      entry.indent ? "pl-9 pr-4 font-normal text-secondary" : "px-4 font-medium text-strong"
-                    }`}
+                    className="sticky left-0 z-10 bg-canvas px-4 py-2.5 font-medium text-strong whitespace-nowrap overflow-hidden text-ellipsis border-r border-line/40"
                     title={entry.rowLabel}
                   >
-                    {entry.toggle ? (
-                      <button
-                        onClick={entry.toggle.onToggle}
-                        className="inline-flex items-center gap-1.5 text-left hover:text-primary transition-colors"
-                        aria-expanded={entry.toggle.expanded}
-                      >
-                        <span className="text-faint text-[9px] w-2 inline-block">
-                          {entry.toggle.expanded ? "▼" : "▶"}
-                        </span>
-                        {entry.rowLabel}
-                      </button>
-                    ) : (
-                      entry.rowLabel
-                    )}
+                    {entry.rowLabel}
                   </td>
                   {columns.map((col) => {
                     const cell = entry.getCell(col.partnerId);
