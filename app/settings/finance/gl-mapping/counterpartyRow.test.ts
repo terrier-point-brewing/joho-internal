@@ -10,6 +10,7 @@ function rule(over: Partial<RowFacts> = {}): RowFacts {
     counterparty_key: "erie insurance",
     flow_type: null,
     handledElsewhere: false,
+    hasExpenses: true,
     ...over,
   };
 }
@@ -57,10 +58,24 @@ describe("step 2 — is the account asked for?", () => {
   // A Ramp counterparty's `expenses` rows are operating expenses by
   // construction, so its account is live even though step 1 never appeared.
   // This is the case a single merged dropdown could not serve.
-  it("is always asked on a self-classifying feed", () => {
+  it("is asked on a self-classifying feed when there is spend to code", () => {
     const s = counterpartyRowState(rule({ source: "ramp", counterparty_key: "dukeenergy" }), NO_RULES);
     expect(s.asksAccountSource).toBe(true);
     expect(s.bucket).toBe("needs-account");
+  });
+
+  // …and NOT when there is none. Ramp leaves transfers and settlements in
+  // bank_ledger, so a counterparty like TPB OPERATING FUNDS — the receiving end
+  // of the Chase → Ramp wallet funding — has no expense row and never will.
+  // Asking it for an account is asking a question with no answer; it went
+  // unnoticed only because a counterparty exclusion used to hide the row.
+  it("is not asked on a self-classifying feed with no spend to code", () => {
+    const s = counterpartyRowState(
+      rule({ source: "ramp", counterparty_key: "tpb operating funds (···· 4077)", hasExpenses: false }),
+      NO_RULES,
+    );
+    expect(s.asksAccountSource).toBe(false);
+    expect(s.bucket).toBe("no-account-needed");
   });
 
   it("is not asked when the whole feed is switched off", () => {

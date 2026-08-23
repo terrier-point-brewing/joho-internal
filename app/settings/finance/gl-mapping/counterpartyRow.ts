@@ -13,7 +13,7 @@
  * worse than one that says nothing.
  */
 import { feedClassifiesOwnLines } from "./bankFeeds";
-import { OUT_OF_BOOKS, getTreatment, treatmentNeedsAccount } from "@/lib/finance/flowTypes";
+import { OUT_OF_BOOKS, treatmentNeedsAccount } from "@/lib/finance/flowTypes";
 
 /** The parts of a counterparty rule this decision reads. */
 export interface RowFacts {
@@ -23,6 +23,12 @@ export interface RowFacts {
   flow_type: string | null;
   /** Whether something else already accounts for this counterparty. */
   handledElsewhere: boolean;
+  /**
+   * Whether this counterparty has any `expenses` rows to code. Only consulted on
+   * a self-classifying feed, where no flow question is put to the operator — see
+   * the note on asksAccountSource.
+   */
+  hasExpenses: boolean;
 }
 
 /** The standing include/exclude rules, as the panel already holds them. */
@@ -60,11 +66,21 @@ export function counterpartyRowState(rule: RowFacts, inclusion: InclusionState):
   // which table is an implementation fact and was never the operator's problem.
   const treatment = excluded ? OUT_OF_BOOKS : (rule.flow_type ?? "");
 
-  // A self-classifying feed always asks for the account: its `expenses` rows are
-  // operating expenses by construction, because the importer diverts them there.
-  // So the account is live even though step 1 was never put to the operator.
+  // On a self-classifying feed the account question stands on whether there is
+  // any SPEND to code.
+  //
+  // Ramp diverts its operating-expense bank lines into `expenses` and leaves the
+  // rest in `bank_ledger`, so a Ramp counterparty is one of two kinds. One whose
+  // money is spend (Duke Energy, Erie) has expense rows and needs an account.
+  // One whose money is only ever a transfer or a settlement — TPB OPERATING
+  // FUNDS, the receiving end of the Chase -> Ramp wallet funding — has none and
+  // never will, and asking it for an account is asking a question with no answer.
+  //
+  // This used to be a flat `selfClassifying`, which asked everything on the feed.
+  // It went unnoticed because the one counterparty it was wrong for was hidden
+  // behind a counterparty exclusion at the time.
   const asksAccountSource = !feedOff && !excluded
-    && (selfClassifying || treatmentNeedsAccount(treatment));
+    && (selfClassifying ? rule.hasExpenses : treatmentNeedsAccount(treatment));
 
   // An unanswered step 1 outranks a claim, and the order is the point.
   //
