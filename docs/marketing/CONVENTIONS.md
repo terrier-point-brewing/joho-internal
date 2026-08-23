@@ -45,13 +45,22 @@ npm run check:permissions   # --strict
 npm run check:migrations    # --strict
 ```
 
+**CI is not `verify`.** `.github/workflows/ci.yml` runs lint, `tsc`, test,
+`check:search-filter`, `check:permissions`, `check:migrations` and `build` — plus
+`check:marketing-boundary`. It does **not** run `check:statements`, which therefore
+only fires locally. Never assume a green PR means every local gate ran.
+
 `npm test` is `vitest run`. Tests are `*.test.ts` co-located next to their subject;
 `vitest.config.ts` includes `lib/**/*.test.ts` and `app/**/*.test.ts`. **Environment
 is `node`, and there is no jsdom/testing-library in the repo** — component rendering
 is not testable today. UI gates are verified in a browser, not in Vitest.
 
-Coverage ratchet: `lines`/`statements` ≥ 86 over `lib/**/*.ts` only. Logic placed in
-`lib/marketing/` counts toward it, so put logic there and keep route handlers thin.
+Coverage: `vitest.config.ts` declares an 86% `lines`/`statements` ratchet over
+`lib/**/*.ts`. **It is not enforced anywhere** — neither `npm test` nor CI runs vitest
+with `--coverage`, and the real figure on `main` is around 79%. Treat it as intent, not
+a gate: put logic in `lib/marketing/` and test it because the chassis needs to be
+provably correct, not because a threshold will catch you. Do not claim a chip "meets
+the ratchet"; the honest claim is that coverage did not regress.
 
 ## 3. Permissions — scope + level, not flat keys
 
