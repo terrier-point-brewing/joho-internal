@@ -166,7 +166,7 @@ recorded here only so nobody later invents a "seasons" scope for it.
 
 ## 8. Definition of done
 
-- `brand_season_assets` exists, with RLS via `apply_grant_policies` on `brand.templates`, and `motif_set`'s contents migrated into it.
+- `brand_season_assets` exists, **service-role only — RLS on, zero policies**, and `motif_set`'s contents migrated into it. An earlier draft of this line called for `apply_grant_policies` on `brand.templates`; that was wrong. Every other `brand_*` table carries RLS with no policies at all, `brand_seasons` among them, so the grant-aware pair would have left a child readable over the Data API while its own parent was not. Reads go through `createSupabaseAdminClient()` behind `requirePermission`, which is where the gate on brand data actually lives.
 - `palette` and `voice_note` on `brand_seasons`; palette roles resolve to canon token keys and are validated against the canon rather than free text.
 - The Seasons board renders a complete kit, marks the active season unmistakably, and names what is missing on an incomplete one.
 - Motifs and examples can be added, ordered, re-roled and removed.
