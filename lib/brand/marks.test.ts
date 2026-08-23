@@ -19,6 +19,8 @@ const season = (over: Partial<BrandSeason> & { id: string; name: string }): Bran
   cultural_lean: null,
   motif_set: [],
   season_logo_asset_id: null,
+  palette: {},
+  voice_note: null,
   starts_at: null,
   ends_at: null,
   status: "active",

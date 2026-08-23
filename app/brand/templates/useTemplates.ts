@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BrandTemplate } from "@/lib/brand/templates";
-import type { BrandSeason } from "@/lib/brand/seasons";
+import type { BrandSeason, SeasonAssetRole, SeasonKit } from "@/lib/brand/seasons";
 
 const TEMPLATES = ["brand", "templates"] as const;
 const SEASONS = ["brand", "seasons"] as const;
@@ -44,8 +44,9 @@ export function useTemplateAction() {
   });
 }
 
+/** Seasons, each already carrying its kit rows — one read per board. */
 export function useSeasons() {
-  return useQuery<BrandSeason[]>({
+  return useQuery<SeasonKit[]>({
     queryKey: SEASONS,
     queryFn: async () => {
       const res = await fetch("/api/brand/seasons");
@@ -79,6 +80,65 @@ export function useUpdateSeason() {
       qc.invalidateQueries({ queryKey: SEASONS });
       qc.invalidateQueries({ queryKey: TEMPLATES });
     },
+  });
+}
+
+/**
+ * The kit rows — motifs, examples and textures.
+ *
+ * Unlike the season's own fields, these save on the click rather than into a
+ * draft the way SeasonEditor batches into "Save season": a membership row is
+ * added, moved or removed as one whole act, and there is nothing to accumulate.
+ * Every one of them invalidates SEASONS, since the kit rides along in that
+ * query's payload.
+ */
+interface SeasonAssetKeyBody {
+  seasonId: string;
+  asset_id: string;
+  role: SeasonAssetRole;
+}
+
+export function useAddSeasonAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ seasonId, ...body }: SeasonAssetKeyBody & { note?: string | null }) =>
+      send(`/api/brand/seasons/${seasonId}/assets`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SEASONS }),
+  });
+}
+
+/** Reorder (`direction`), re-role (`to_role`) or annotate (`note`) one row. */
+export function useUpdateSeasonAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      seasonId,
+      ...body
+    }: SeasonAssetKeyBody & {
+      direction?: "up" | "down";
+      to_role?: SeasonAssetRole;
+      note?: string | null;
+    }) =>
+      send(`/api/brand/seasons/${seasonId}/assets`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SEASONS }),
+  });
+}
+
+export function useRemoveSeasonAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ seasonId, asset_id, role }: SeasonAssetKeyBody) =>
+      send(
+        `/api/brand/seasons/${seasonId}/assets?asset_id=${encodeURIComponent(asset_id)}&role=${role}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SEASONS }),
   });
 }
 

@@ -3,7 +3,14 @@
 import { useState } from "react";
 import Banner from "@/app/components/ui/Banner";
 import { assetFileUrl, type BrandAsset } from "@/lib/brand/assets";
-import { seasonGaps, type BrandSeason } from "@/lib/brand/seasons";
+import {
+  seasonGaps,
+  SEASON_PALETTE_ROLES,
+  type BrandSeason,
+  type CanonToken,
+  type SeasonPalette,
+  type SeasonPaletteRole,
+} from "@/lib/brand/seasons";
 import { useAssets } from "../assets/useAssets";
 import { useUpdateSeason } from "./useTemplates";
 
@@ -16,14 +23,20 @@ import { useUpdateSeason } from "./useTemplates";
  * artist commission brief in the Releases label workflow. Mixing them into one
  * flat form hides which fields can break a render.
  *
- * `motif_set` is deliberately absent: nothing reads it yet, and an asset-list
- * editor for a field with no consumer is a UI that can only go stale.
+ * `motif_set` is deliberately absent and now legacy: a season's motifs are rows
+ * in `brand_season_assets`, edited by SeasonKitEditor underneath this.
  */
 
 /** Slot resolution needs a real 6-digit hex; the picker cannot express anything else. */
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
-export default function SeasonEditor({ season }: { season: BrandSeason }) {
+export default function SeasonEditor({
+  season,
+  tokens,
+}: {
+  season: BrandSeason;
+  tokens: CanonToken[];
+}) {
   const updateSeason = useUpdateSeason();
   const chopAssets = useAssets("chop_glyph");
   const logoAssets = useAssets("logo");
@@ -32,7 +45,9 @@ export default function SeasonEditor({ season }: { season: BrandSeason }) {
     background_hex: season.background_hex,
     chop_glyph_asset_id: season.chop_glyph_asset_id,
     season_logo_asset_id: season.season_logo_asset_id,
+    palette: (season.palette ?? {}) as SeasonPalette,
     cultural_lean: season.cultural_lean ?? "",
+    voice_note: season.voice_note ?? "",
     starts_at: season.starts_at?.slice(0, 10) ?? "",
     ends_at: season.ends_at?.slice(0, 10) ?? "",
   });
@@ -94,6 +109,32 @@ export default function SeasonEditor({ season }: { season: BrandSeason }) {
         </div>
       </div>
 
+      {/* Palette — roles that SELECT from the canon. A season never redefines. */}
+      <div className="flex flex-col gap-3">
+        <p className="text-2xs text-faint uppercase tracking-wide">Palette roles</p>
+
+        {SEASON_PALETTE_ROLES.map((role) => (
+          <PaletteRolePicker
+            key={role}
+            role={role}
+            tokens={tokens}
+            value={draft.palette[role] ?? null}
+            onSelect={(key) =>
+              set({
+                palette: { ...draft.palette, [role]: key ?? undefined },
+              })
+            }
+          />
+        ))}
+
+        <p className="text-2xs text-faint">
+          Roles point at a color the canon declares, never a hex — so a canon change
+          propagates, and a season cannot quietly invent a fourth brand color. The ground
+          above is the exception: it is the season&rsquo;s own. If the color you want is not
+          in this list, the canon is what should change.
+        </p>
+      </div>
+
       {/* Editorial — read by people, not by the renderer. */}
       <div className="flex flex-col gap-3">
         <p className="text-2xs text-faint uppercase tracking-wide">Editorial</p>
@@ -106,6 +147,20 @@ export default function SeasonEditor({ season }: { season: BrandSeason }) {
             placeholder="The direction this season pulls — quoted into every artist brief."
             onChange={(e) => set({ cultural_lean: e.target.value })}
           />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted">Voice note</span>
+          <textarea
+            className="inp-sm min-h-16"
+            value={draft.voice_note}
+            placeholder="How this season sounds — one or two sentences."
+            onChange={(e) => set({ voice_note: e.target.value })}
+          />
+          <span className="text-2xs text-faint">
+            An inflection of the canon&rsquo;s voice, not a replacement. If it reads like a
+            different brand talking, it is wrong.
+          </span>
         </label>
 
         <div className="flex flex-wrap items-end gap-2">
@@ -164,9 +219,13 @@ export default function SeasonEditor({ season }: { season: BrandSeason }) {
             background_hex: draft.background_hex,
             chop_glyph_asset_id: draft.chop_glyph_asset_id,
             season_logo_asset_id: draft.season_logo_asset_id,
+            // Validated against the LIVE canon server-side: the picker can only
+            // express a canon key, and the route refuses anything else.
+            palette: draft.palette,
             // Empty is absent, not an empty string — the readers of these
             // fields all test for null.
             cultural_lean: draft.cultural_lean.trim() || null,
+            voice_note: draft.voice_note.trim() || null,
             starts_at: draft.starts_at || null,
             ends_at: draft.ends_at || null,
           })
@@ -174,6 +233,67 @@ export default function SeasonEditor({ season }: { season: BrandSeason }) {
       >
         {updateSeason.isPending ? "Saving…" : "Save season"}
       </button>
+    </div>
+  );
+}
+
+/**
+ * A palette role, chosen from what the canon declares and nothing else.
+ *
+ * Deliberately a list rather than a colour input. The season stores a token KEY,
+ * so a canon change propagates; a hex field here would let a season invent a
+ * brand colour, which is the one thing a season may never do. The season ground
+ * keeps its colour input above, because that value genuinely is the season's own.
+ *
+ * A key the canon no longer declares is named rather than silently swallowed —
+ * the select falls back to "none", so saving clears it, which is a deliberate
+ * act by whoever has just read the line underneath.
+ */
+function PaletteRolePicker({
+  role,
+  tokens,
+  value,
+  onSelect,
+}: {
+  role: SeasonPaletteRole;
+  tokens: CanonToken[];
+  value: string | null;
+  onSelect: (key: string | null) => void;
+}) {
+  const token = tokens.find((t) => t.key === value);
+  const stale = Boolean(value && !token);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="flex items-center gap-2">
+        <span className="text-xs text-muted w-28 shrink-0 capitalize">{role}</span>
+        <span
+          className={`h-8 w-8 shrink-0 rounded border ${
+            token ? "border-line-strong" : "border-dashed border-line-strong bg-surface-mid"
+          }`}
+          // The canon's colour, shown as itself — the same exception the board
+          // swatches take.
+          style={token ? { backgroundColor: token.hex } : undefined}
+        />
+        <select
+          className="inp-sm w-56"
+          value={token ? token.key : ""}
+          aria-label={`${role} color`}
+          onChange={(e) => onSelect(e.target.value || null)}
+        >
+          <option value="">— none —</option>
+          {tokens.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.name} · {t.key}
+            </option>
+          ))}
+        </select>
+      </label>
+      {stale && (
+        <span className="text-2xs text-danger">
+          “{value}” is no longer a color the canon declares. Pick one, or save to clear it.
+        </span>
+      )}
     </div>
   );
 }

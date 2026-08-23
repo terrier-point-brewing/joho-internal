@@ -8,8 +8,9 @@ import Banner from "@/app/components/ui/Banner";
 import TabBar from "@/app/components/TabBar";
 import type { Tone } from "@/app/components/ui/tone";
 import type { BrandTemplate, TemplateMedium } from "@/lib/brand/templates";
-import { canActivateSeason, seasonGaps, type BrandSeason } from "@/lib/brand/seasons";
-import SeasonEditor from "./SeasonEditor";
+import type { CanonToken } from "@/lib/brand/seasons";
+import { useAssets } from "../assets/useAssets";
+import SeasonBoard from "./SeasonBoard";
 import {
   useActivateSeason,
   useCreateSeason,
@@ -27,12 +28,6 @@ const TEMPLATE_TONE: Record<BrandTemplate["status"], Tone> = {
   archived: "neutral",
 };
 
-const SEASON_TONE: Record<BrandSeason["status"], Tone> = {
-  active: "success",
-  draft: "accent",
-  archived: "neutral",
-};
-
 /**
  * Templates and Seasons — the authoring surface for the render pipeline.
  *
@@ -40,12 +35,20 @@ const SEASON_TONE: Record<BrandSeason["status"], Tone> = {
  * renditions, and the season every `motif` slot resolves against. Slot editing
  * itself is next; a template is created here and its slots are what the render
  * phase fills in.
+ *
+ * `tokens` is the canon's palette, read server-side in page.tsx and passed down.
+ * A season's palette roles may only name a colour the canon declares, and this
+ * is the list of what it declares — no route of its own, because the page that
+ * renders this component already resolves the canon on the server.
  */
-export default function TemplatesView() {
+export default function TemplatesView({ tokens }: { tokens: CanonToken[] }) {
   const [tab, setTab] = useState<"templates" | "seasons">("templates");
 
   const { data: templates = [], isLoading, error } = useTemplates();
   const { data: seasons = [] } = useSeasons();
+  // Titles and alt text for every asset the board shows a thumbnail of. One
+  // fetch for the whole tab; the image bytes come from the per-asset proxy.
+  const { data: assets = [] } = useAssets();
   const createTemplate = useCreateTemplate();
   const templateAction = useTemplateAction();
   const createSeason = useCreateSeason();
@@ -59,6 +62,11 @@ export default function TemplatesView() {
   const [openSeason, setOpenSeason] = useState<string | null>(null);
 
   const activeSeason = seasons.find((s) => s.status === "active") ?? null;
+  // The season in force reads first. Which one it is should be obvious before
+  // anything is read, and position is the cheapest half of saying so.
+  const orderedSeasons = [...seasons].sort(
+    (a, b) => Number(b.status === "active") - Number(a.status === "active"),
+  );
   const actionError = templateAction.error ?? createTemplate.error ?? activateSeason.error;
 
   return (
@@ -224,52 +232,18 @@ export default function TemplatesView() {
             </p>
           )}
 
-          <div className="flex flex-col gap-2">
-            {seasons.map((s) => (
-              <Card key={s.id}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="text-sm text-primary font-medium hover:text-accent"
-                    aria-expanded={openSeason === s.id}
-                    onClick={() => setOpenSeason(openSeason === s.id ? null : s.id)}
-                  >
-                    {openSeason === s.id ? "▾" : "▸"} {s.name}
-                  </button>
-                  <Badge tone={SEASON_TONE[s.status]}>{s.status}</Badge>
-                  {s.background_hex && (
-                    <span className="flex items-center gap-1 text-2xs text-muted">
-                      <span
-                        className="inline-block w-3 h-3 rounded-sm border border-line"
-                        style={{ backgroundColor: s.background_hex }}
-                      />
-                      {s.background_hex}
-                    </span>
-                  )}
-                  {!s.chop_glyph_asset_id && (
-                    <span className="text-2xs text-faint">no chop glyph</span>
-                  )}
-                  {s.status !== "active" && (
-                    // Disabled rather than hidden, with the reason in the
-                    // tooltip: a missing button reads as "you cannot do this
-                    // here", a disabled one reads as "not yet, and here is why".
-                    <button
-                      type="button"
-                      className="btn-primary btn-xxs ml-auto"
-                      disabled={activateSeason.isPending || !canActivateSeason(s)}
-                      title={
-                        canActivateSeason(s)
-                          ? undefined
-                          : `Needs ${seasonGaps(s).blocking.join(" and ")} first.`
-                      }
-                      onClick={() => activateSeason.mutate(s.id)}
-                    >
-                      Make active
-                    </button>
-                  )}
-                </div>
-                {openSeason === s.id && <SeasonEditor season={s} />}
-              </Card>
+          <div className="flex flex-col gap-3">
+            {orderedSeasons.map((s) => (
+              <SeasonBoard
+                key={s.id}
+                season={s}
+                tokens={tokens}
+                assets={assets}
+                open={openSeason === s.id}
+                onToggle={() => setOpenSeason(openSeason === s.id ? null : s.id)}
+                onActivate={() => activateSeason.mutate(s.id)}
+                activating={activateSeason.isPending}
+              />
             ))}
           </div>
         </>
