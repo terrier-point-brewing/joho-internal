@@ -192,3 +192,89 @@ export function flowAffectsPl(key: string | null | undefined): boolean {
 export function flowTypesInGroup(group: FlowGroup): FlowTypeDef[] {
   return FLOW_TYPES.filter((f) => f.group === group);
 }
+
+// ── The settings picker's own vocabulary ─────────────────────────────────────
+//
+// The Counterparties screen asks "what is this money?" once, and its answer list
+// is ALMOST the flow types — but not exactly, in two ways, and both matter
+// enough that the list is built here rather than filtered ad hoc at the call
+// site.
+//
+//   * `unclassified` is not offered. On a row it means "nobody has said yet";
+//     as a standing RULE it would mean "always leave this for review", which is
+//     the same as having no rule. The picker's empty option says that instead.
+//
+//   * `out_of_books` is offered but is NOT a flow type. It replaces the old
+//     "In the books" toggle — a second control that had drifted to one user and
+//     said, in a different vocabulary, what the flow list already says six ways.
+//     It writes `bank_ledger_gl_rules.included = false`, never
+//     `bank_ledger.flow_type`, and `isFlowType()` answers false for it so it
+//     cannot be stored on a row by any path that checks.
+
+/** The pseudo-answer that hides a counterparty's lines rather than classifying them. */
+export const OUT_OF_BOOKS = "out_of_books";
+
+/** The picker's group headings, in display order. */
+export const TREATMENT_GROUPS = [
+  "Counts on the P&L",
+  "Moves the balance sheet",
+  "Already recorded elsewhere",
+  "Not a business transaction",
+  "Hide entirely",
+] as const;
+
+export type TreatmentGroup = typeof TREATMENT_GROUPS[number];
+
+export interface TreatmentOption {
+  /** A FlowType, or OUT_OF_BOOKS. Never `unclassified` — the picker's empty option covers that. */
+  value: string;
+  group: TreatmentGroup;
+  label: string;
+  effect: string;
+  /** Whether picking this makes the "account comes from" question relevant. */
+  needsAccount: boolean;
+}
+
+const OUT_OF_BOOKS_OPTION: TreatmentOption = {
+  value: OUT_OF_BOOKS,
+  group: "Hide entirely",
+  label: "Out of the books",
+  effect: "Hidden from every report and from the bank ledger grid. For lines that are not the business's at all.",
+  needsAccount: false,
+};
+
+export const TREATMENT_OPTIONS: TreatmentOption[] = [
+  ...FLOW_TYPES
+    .filter((f) => f.key !== "unclassified")
+    .map(({ key, group, label, effect, needsAccount }) => ({
+      value: key as string,
+      // Safe because every non-`unclassified` flow group is also a treatment
+      // group; the registry test asserts it rather than trusting it.
+      group: group as TreatmentGroup,
+      label,
+      effect,
+      needsAccount,
+    })),
+  OUT_OF_BOOKS_OPTION,
+];
+
+const TREATMENT_BY_VALUE = new Map(TREATMENT_OPTIONS.map((t) => [t.value, t]));
+
+export function getTreatment(value: string | null | undefined): TreatmentOption | null {
+  return value ? TREATMENT_BY_VALUE.get(value) ?? null : null;
+}
+
+/** The options in one group, for rendering an `<optgroup>`. */
+export function treatmentsInGroup(group: TreatmentGroup): TreatmentOption[] {
+  return TREATMENT_OPTIONS.filter((t) => t.group === group);
+}
+
+/**
+ * Whether this answer makes the "account comes from" question relevant.
+ *
+ * An unrecognised value, and the empty "leave for review" answer, both say NO —
+ * an account is only ever asked for once somebody has said what the money is.
+ */
+export function treatmentNeedsAccount(value: string | null | undefined): boolean {
+  return getTreatment(value)?.needsAccount === true;
+}

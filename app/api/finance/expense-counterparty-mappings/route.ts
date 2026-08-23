@@ -141,28 +141,47 @@ export async function PATCH(req: NextRequest) {
   // "unclassified": a rule whose conclusion is "somebody should look at this" is
   // indistinguishable from having no rule, and storing one would mean the grid
   // showed a row as auto-classified while still asking for a decision.
+  //
+  // `out_of_books` is refused for a different reason: it is an answer the
+  // settings picker offers, but it is not a flow type. It belongs in
+  // bank_ledger_gl_rules, and the panel routes it there. Reaching this line with
+  // it means a client conflated the two, and storing it would put a value on
+  // bank_ledger.flow_type that no reader has a branch for.
   if (body.flow_type !== undefined && body.flow_type !== null) {
     if (!isFlowType(body.flow_type) || body.flow_type === "unclassified") {
       return NextResponse.json({ error: `Unknown flow type '${body.flow_type}'.` }, { status: 400 });
     }
   }
 
+  let patchRoutingReset = false;
+
   const supabase = createSupabaseAdminClient();
 
-  // A counterparty something else already accounts for cannot be assigned here.
-  // The panel renders these read-only, so reaching this is either a stale tab or
-  // a direct call; both want the same answer rather than a silent write that the
-  // next page load visibly discards.
+  // A counterparty something else already accounts for cannot have its ACCOUNT
+  // assigned here — but its flow type is a different question and stays open.
+  //
+  // This guard used to reject every field. A claim states who owns the account
+  // ("GL 1040's Square method pays into this bank account"); it says nothing
+  // about what the money IS. Blocking the flow too left Square's four Chase
+  // payouts with no way to be marked as the already-recorded deposits they are,
+  // which is the same conflation the settings screen carried and the reason it
+  // was rebuilt around two separate questions.
+  //
+  // Routing is still refused: that IS the account question, and a claim has
+  // already answered it.
   const label = body.counterparty_label ?? counterpartyKey;
-  const claims = await resolveCounterpartyClaims(supabase, [
-    { source, counterparty_key: counterpartyKey, counterparty_label: label },
-  ]);
-  const claimed = claims.get(claimKey({ source, counterparty_key: counterpartyKey }));
-  if (claimed) {
-    return NextResponse.json(
-      { error: `${label} is already accounted for — ${claimed.badge}. Change it where it is set up.` },
-      { status: 409 },
-    );
+  const touchesAccount = "chart_of_accounts_id" in body || body.routing !== undefined;
+  if (touchesAccount) {
+    const claims = await resolveCounterpartyClaims(supabase, [
+      { source, counterparty_key: counterpartyKey, counterparty_label: label },
+    ]);
+    const claimed = claims.get(claimKey({ source, counterparty_key: counterpartyKey }));
+    if (claimed) {
+      return NextResponse.json(
+        { error: `${label}'s account is already set by ${claimed.badge.replace(/^Handled by /, "")}. Change it where it is set up — its flow type can still be set here.` },
+        { status: 409 },
+      );
+    }
   }
 
   // Identified by (feed, counterparty) rather than by row id, because the row
@@ -175,6 +194,17 @@ export async function PATCH(req: NextRequest) {
   // update are kept apart.
   const isAccountUpdate = "chart_of_accounts_id" in body;
   const isFlowUpdate = "flow_type" in body;
+
+  // Setting a flow that uses no account resets routing to the default.
+  //
+  // Routing answers "where does the account come from", so on a counterparty
+  // whose money never touches an account it is answering a question nobody
+  // asked. Left behind, it goes on rendering "Split by GL account" next to a
+  // transfer — and, worse, resolveExpenseMapping would still honour it and leave
+  // an expense row deliberately unmapped for a payroll match that never comes.
+  if (isFlowUpdate && body.flow_type !== null && !flowNeedsAccount(body.flow_type)) {
+    patchRoutingReset = true;
+  }
   const patch: Record<string, unknown> = {
     source,
     counterparty_key: counterpartyKey,
@@ -185,6 +215,7 @@ export async function PATCH(req: NextRequest) {
     patch.auto_matched = false;
   }
   if (body.routing) patch.routing = body.routing;
+  if (patchRoutingReset) patch.routing = SINGLE_ACCOUNT;
   if (isFlowUpdate) {
     patch.flow_type = body.flow_type ?? null;
     // A flow that cannot hold an account drops the rule's account with it, for
