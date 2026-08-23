@@ -19,7 +19,7 @@
  * `catalog`); a subtab needing finer gating than its parent domain -> sub-leaf
  * (`finance.tax.filing`).
  *
- * Thirty-two leaves across eight families. Interior nodes are grantable too:
+ * Thirty-three leaves across eight families. Interior nodes are grantable too:
  * `finance.tax` is a real key, and a bare `finance` grant rolls down into all
  * of `finance.tax.*` by dot-prefix. A SIBLING leaf grant confers nothing on its
  * section — `finance.tax:operate` does not resolve `finance.access` — which is
@@ -79,17 +79,14 @@ export const SCOPES = {
   // approves and exports one, which is the human gate nothing may skip.
   "brand.outputs": { label: "Outputs", section: "brand" },
 
-  // Marketing. One further leaf is DESIGNED AND DELIBERATELY DEFERRED, named
-  // here so the next chip does not re-litigate it:
-  //
-  //   * `marketing.calendar` — the entry calendar and the rows on it. Arrives
-  //     with the chip that adds the entry routes.
-  //
-  // It is absent rather than pre-registered because
-  // scripts/check-permissions.mjs fails on a scope no capability covers AND on
-  // a capability nothing references, so a scope landing ahead of its caller
-  // would break the build on the day it shipped.
+  // Marketing. Complete as of the entry-routes chip — nothing here is deferred
+  // any more.
   "marketing.access": { label: "Access", section: "marketing" },
+  // The entry calendar and the rows on it. `read` sees the month; `operate`
+  // writes an entry, its media order and its deliveries. It stops there: what
+  // goes on the calendar is a different authority from putting it on the
+  // internet, which is `marketing.publish`.
+  "marketing.calendar": { label: "Calendar", section: "marketing" },
   // Connected channel logins — the leaf that will hold tokens, which is why it
   // is its own scope rather than a facet of the calendar.
   "marketing.accounts": { label: "Accounts", section: "marketing" },

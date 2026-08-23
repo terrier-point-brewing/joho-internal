@@ -22,10 +22,10 @@ import type { Level } from "../levels";
  * what's committed below.
  *
  * The route-less capabilities (layout-only / UI-only) are marked `// no
- * route` below: brewingCalendarAdmin, brandGuideRead, the five admission
- * leaves, and marketingAccountsManage. Their coordinate has no independent
- * route-derived source, so it is taken from lib/auth/capabilities.ts and
- * pinned here deliberately.
+ * route` below: brewingCalendarAdmin, brandGuideRead and the five admission
+ * leaves. Their coordinate has no independent route-derived source, so it is
+ * taken from lib/auth/capabilities.ts and pinned here deliberately.
+ * (marketingAccountsManage was one of them until the accounts routes landed.)
  */
 const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   // Admission leaves — read, always, and never anything else. A `.access` key
@@ -107,10 +107,17 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   financeTransactionsRead: { scope: "finance.transactions", level: "read" },
   financeTransactionsManage: { scope: "finance.transactions", level: "manage" },
 
-  // Marketing. Both route-less today — the section is a layout gate and two
-  // screens; its API routes arrive with later chips.
+  // Marketing.
   marketingAccess: { scope: "marketing.access", level: "read" }, // no route
-  marketingAccountsManage: { scope: "marketing.accounts", level: "manage" }, // no route
+  // Backs the three /api/marketing/accounts routes (connect, callback,
+  // disconnect). `manage` because that surface exists to hold credentials.
+  marketingAccountsManage: { scope: "marketing.accounts", level: "manage" },
+  // Back GET and POST /api/marketing/entries and POST /api/marketing/media.
+  // The read/operate split is what keeps "can see the month" apart from "can
+  // change what is on it"; neither is `marketing.publish`, which is the
+  // separate authority for putting a post on the internet.
+  marketingCalendarRead: { scope: "marketing.calendar", level: "read" },
+  marketingCalendarEdit: { scope: "marketing.calendar", level: "operate" },
   // Backs POST /api/marketing/deliveries/[id]/retry. `operate` is the whole
   // point of the coordinate: publishing what a person already approved is the
   // day job, and pinning it here is what stops a later edit quietly widening
