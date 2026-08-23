@@ -6,8 +6,8 @@
  * `bank_ledger`. Reused by the on-demand route, the daily cron, and the
  * webhook re-sync.
  */
-import { getRampTransactions, getRampBills, getRampBankTransactions, getRampBankAccounts, getRampTransfers, getRampStatements, normalizeCounterparty, billInWindow } from "@/lib/ramp";
-import { rampTxnToExpenseRecord, rampBillToExpenseRecords, syncExpenseRecords, refreshBillSettlement } from "./rampExpenses";
+import { getRampTransactions, getRampBills, getRampBankTransactions, getRampBankAccounts, getRampTransfers, getRampStatements, getRampReimbursements, normalizeCounterparty, billInWindow } from "@/lib/ramp";
+import { rampTxnToExpenseRecord, rampBillToExpenseRecords, rampReimbursementToExpenseRecord, syncExpenseRecords, refreshBillSettlement } from "./rampExpenses";
 import { partitionBankLines, syncBankLedger, buildBillTotals, selectPrunableExpenseIds, setAsideReason, type PruneCandidate, type FlowType } from "./bankLedger";
 import { classifyTransfers, transferToLedgerRecord } from "./transferLedger";
 import { matchAllPendingPeriods } from "./payrollMatching";
@@ -33,9 +33,9 @@ export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdmi
   // bill-vs-bank matching below, so nothing about which rows exist or how bank
   // lines classify changes; the full set is used solely to refresh the
   // settlement state of bills already stored.
-  const [txns, allBills, bankLines, bankAccounts, transfers, statements] = await Promise.all([
+  const [txns, allBills, bankLines, bankAccounts, transfers, statements, reimbursements] = await Promise.all([
     getRampTransactions(from, to), getRampBills(), getRampBankTransactions(from, to), getRampBankAccounts(),
-    getRampTransfers(from, to), getRampStatements(),
+    getRampTransfers(from, to), getRampStatements(), getRampReimbursements(from, to),
   ]);
   const bills = allBills.filter((b) => billInWindow(b, from, to));
   const ownAccounts = new Set(bankAccounts.map((a) => normalizeCounterparty(a.name)));
@@ -57,7 +57,17 @@ export async function syncAllRamp(supabase: ReturnType<typeof createSupabaseAdmi
   const transferRecords = classifyTransfers(transfers, statements)
     .map(({ transfer, flow_type }) => transferToLedgerRecord(transfer, flow_type));
 
-  const records = [...txns.map(rampTxnToExpenseRecord), ...bills.flatMap(rampBillToExpenseRecords), ...expenseRecords];
+  // Reimbursement CLAIMS join the expense records, and the Chase payout that
+  // settles them is a bank line the Plaid feed owns -- see
+  // rampReimbursementToExpenseRecord for why the claim is the expense and the
+  // payout is not, and for the double count that follows if the payout is left
+  // classified as an expense of its own.
+  const records = [
+    ...txns.map(rampTxnToExpenseRecord),
+    ...bills.flatMap(rampBillToExpenseRecords),
+    ...reimbursements.map(rampReimbursementToExpenseRecord),
+    ...expenseRecords,
+  ];
   const expenses = await syncExpenseRecords(supabase, records);
   const bank = await syncBankLedger(supabase, [...ledgerRecords, ...transferRecords]);
   // After the upsert, not before: a line that moved from expenses to the ledger

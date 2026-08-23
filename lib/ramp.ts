@@ -80,6 +80,50 @@ export interface RampBillLineItem {
   accounting_field_selections: unknown[];     // GL coding lives here (per line)
 }
 
+/**
+ * An out-of-pocket claim: an employee spent their own money and Ramp paid them
+ * back.
+ *
+ * Ramp has always exposed these -- the OAuth scope at the top of this file has
+ * requested `reimbursements:read` since the integration was written -- but
+ * nothing read them until the Chase feed made their absence visible. Without the
+ * claim, the payout debit is the only trace of the spend anywhere in the books,
+ * so it has to be coded as the expense itself rather than as the settlement it
+ * actually is.
+ */
+export interface RampReimbursement {
+  id:              string;
+  /** USD dollars, positive. The adapter negates it — money leaving is an outflow. */
+  amount:          number;
+  currency_code:   string;
+  /** What the employee bought from ("Wake ABC"), not the employee. */
+  merchant:        string | null;
+  user_full_name:  string | null;
+  memo:            string | null;
+  /** AWAITING_PAYMENT | REIMBURSED | … */
+  state:           string;
+  /** BUSINESS_TO_USER for an ordinary claim; USER_TO_BUSINESS is a repayment. */
+  direction:       string;
+  transaction_date: string | null;
+  accounting_date:  string | null;
+  /**
+   * When Ramp actually paid it, or null while the claim is still owed — the same
+   * open/settled distinction a bill carries, and read the same way.
+   */
+  payment_processed_at: string | null;
+  /**
+   * Ramp's id for the PAYOUT, not for the claim, and the link to the bank: Chase
+   * prints it verbatim in the ACH descriptor's `CO ENTRY DESCR` field. Several
+   * claims share one payment_id when Ramp batches them into a single transfer —
+   * the $704.85 Chase debit of 2026-06-23 settles a $540 claim and a $164.85 one.
+   */
+  payment_id:      string | null;
+  sync_status:     string | null;
+  /** GL coding, at the claim level and per line. Read by extractGlAccount. */
+  accounting_field_selections: unknown[];
+  line_items:      { accounting_field_selections: unknown[] }[];
+}
+
 export interface RampBill {
   id:              string;
   amount:          number;   // USD dollars, bill total
@@ -277,6 +321,66 @@ export async function getRampBills(from?: string, to?: string): Promise<RampBill
         })),
       };
       if (billInWindow(bill, from, to)) results.push(bill);
+    }
+    url = data.page?.next ?? null;
+  }
+  return results;
+}
+
+/**
+ * Pull out-of-pocket reimbursement claims.
+ *
+ * Windowed client-side on `accounting_date` for the same reason getRampBills is:
+ * the volume is a handful of records, and the list endpoint's own date filtering
+ * is not worth trusting for something this small.
+ *
+ * USER_TO_BUSINESS records are dropped. Those are an employee paying the
+ * business back — a refund of a claim rather than a claim — and booking one as
+ * an expense would post a negative spend against whatever the original was coded
+ * to. Rare enough, and different enough, to be its own feature rather than a
+ * sign flip smuggled in here.
+ */
+export async function getRampReimbursements(from?: string, to?: string): Promise<RampReimbursement[]> {
+  const token = await getRampToken();
+  const results: RampReimbursement[] = [];
+
+  let url: string | null = `${RAMP_BASE}/reimbursements?page_size=100`;
+  while (url) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    if (data.error_v2) throw new Error(`Ramp reimbursements: ${data.error_v2.message}`);
+
+    for (const r of data.data ?? []) {
+      if (r.direction && r.direction !== "BUSINESS_TO_USER") continue;
+      const day = typeof r.accounting_date === "string" ? r.accounting_date.slice(0, 10)
+                : typeof r.transaction_date === "string" ? r.transaction_date.slice(0, 10)
+                : null;
+      if (from && day && day < from) continue;
+      if (to   && day && day > to)   continue;
+      results.push({
+        id:                   r.id,
+        // `amount` is already dollars on this endpoint, unlike the minor-unit
+        // objects elsewhere in this file. payee_amount carries the familiar
+        // minor-unit shape and is the fallback, so a missing `amount` cannot
+        // quietly become a zero-dollar expense.
+        amount:               typeof r.amount === "number" ? r.amount : parseAmount(r.payee_amount),
+        currency_code:        r.currency ?? r.payee_amount?.currency_code ?? "USD",
+        merchant:             r.merchant ?? null,
+        user_full_name:       r.user_full_name ?? null,
+        memo:                 r.memo ?? null,
+        state:                r.state ?? "",
+        direction:            r.direction ?? "BUSINESS_TO_USER",
+        transaction_date:     r.transaction_date ?? null,
+        accounting_date:      day,
+        payment_processed_at: r.payment_processed_at ?? null,
+        payment_id:           r.payment_id ?? null,
+        sync_status:          r.sync_status ?? null,
+        accounting_field_selections: r.accounting_field_selections ?? [],
+        line_items: (r.line_items ?? []).map((li: Record<string, unknown>) => ({
+          accounting_field_selections: (li.accounting_field_selections as unknown[]) ?? [],
+        })),
+      });
     }
     url = data.page?.next ?? null;
   }

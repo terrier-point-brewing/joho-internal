@@ -42,13 +42,22 @@ export function verifyRampSignature(params: {
  * `transactions.*` events (`transactions.authorized`, `transactions.cleared` —
  * which also fires for refunds/reversals — `transactions.declined`, etc.); bill
  * spend arrives as `bill.*` events (`bill.created`, `bill.paid`, etc.); bank
- * activity arrives as `banking.*` events (e.g. `banking.transaction.created`) —
- * all three now trigger a re-sync. Other resources (reimbursements, users) are
- * acknowledged but skip the sync.
+ * activity arrives as `banking.*` events (e.g. `banking.transaction.created`);
+ * out-of-pocket claims arrive as `reimbursements.*` — all four trigger a
+ * re-sync. Other resources (users) are acknowledged but skip the sync.
+ *
+ * `reimbursements.*` was on the skip list until the claims themselves were
+ * imported: with nothing reading them, waking the sync for one would have been
+ * pure cost. Now a claim IS an expense row, and one that arrives late enough is
+ * the difference between a month closing right and closing short.
  *
  * NOT reconcilable: `webhooks.verification` (the endpoint-verification handshake)
  * and `tests.test_event` — the route handles those separately.
  */
 export function isReconcilableRampEvent(type: unknown): boolean {
-  return typeof type === "string" && (type.startsWith("transactions.") || type.startsWith("bill.") || type.startsWith("banking."));
+  return typeof type === "string"
+    && (type.startsWith("transactions.")
+      || type.startsWith("bill.")
+      || type.startsWith("banking.")
+      || type.startsWith("reimbursements."));
 }

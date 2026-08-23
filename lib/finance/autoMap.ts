@@ -123,15 +123,23 @@ export function resolveBankBackfill(
     const rowFlow = row.flow_type ?? "unclassified";
     const setsFlow = rule.flow_type !== null && rowFlow === "unclassified";
     const flow = setsFlow ? rule.flow_type! : rowFlow;
-    // An account is worth setting unless the row's settled flow rules one out.
-    // An UNCLASSIFIED row still takes one: nothing counts it yet, and an account
-    // chosen ahead of the flow is the arrangement that predates flow-carrying
-    // rules -- the grid surfaces it as an account waiting on a decision rather
-    // than discarding what somebody configured.
-    const accountAllowed = flow === "unclassified" || flowNeedsAccount(flow);
+    // An account is set only when the row's resulting flow actually uses one.
+    //
+    // An UNCLASSIFIED row therefore gets NOTHING, which is a deliberate reversal
+    // of the first cut of this. Letting an account land on a row whose flow is
+    // still unanswered produced the one state the grid has to draw a warning
+    // for: an account nobody can see a picker for, on a row that counts for
+    // nothing, waiting on a decision that may never make it relevant. Writing
+    // the very state the UI calls a problem is not a convenience.
+    //
+    // Nothing is lost by waiting. The rule still holds the account, and the
+    // moment the flow is answered -- by a person or by the rule growing a
+    // flow_type -- the next pass fills it in. And the rule's account goes on
+    // coding `expenses` rows either way: that path is resolveExpenseMapping and
+    // has never consulted a flow type.
     const setsAccount = rule.chart_of_accounts_id !== null
       && row.chart_of_accounts_id === null
-      && accountAllowed;
+      && flowNeedsAccount(flow);
     if (!setsFlow && !setsAccount) continue;
 
     const update: BankRowUpdate = {
