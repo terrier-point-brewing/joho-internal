@@ -121,6 +121,17 @@ export const CAP = {
    * meaningful read-only face of "here are the tokens".
    */
   marketingAccountsManage: { scope: "marketing.accounts", level: "manage" },
+  /** Reading the calendar — the month, an entry, its media and its deliveries. */
+  marketingCalendarRead: { scope: "marketing.calendar", level: "read" },
+  /**
+   * Writing an entry, its ordered media and (when a person posts now) its
+   * deliveries. `operate` rather than `manage`: putting something on the
+   * calendar is the day job. Note this is deliberately NOT the authority that
+   * publishes — the worker's human-retry path is `marketing.publish`, and
+   * "post now" is the one place the two meet, which is why that path is a
+   * person pressing a button and never a default.
+   */
+  marketingCalendarEdit: { scope: "marketing.calendar", level: "operate" },
   /**
    * Putting a delivery out through a channel, and putting a failed one back on
    * the queue. `operate` rather than `manage`: publishing what a person already

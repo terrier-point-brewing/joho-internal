@@ -38,13 +38,97 @@ export interface MarketingTables {
   [table: string]: Row[];
 }
 
-type Op = "select" | "update";
+type Op = "select" | "update" | "insert";
+
+/**
+ * The column defaults the real tables declare.
+ *
+ * An insert here has to land the same row Postgres would, or a test proves
+ * something about a row shape that could never exist: a delivery with no
+ * `attempt_count` is not a delivery, and code that reads one would look fine
+ * against a fixture that omitted it and break against the database.
+ *
+ * Triggers are still absent (see the header), so nothing derives an entry's
+ * status here. That is the one difference a caller must hold in mind.
+ */
+const INSERT_DEFAULTS: Record<string, Row> = {
+  marketing_calendar_entries: {
+    ends_at: null,
+    caption: null,
+    details: {},
+    status: "draft",
+    origin: "manual",
+    tags: null,
+    created_by: null,
+  },
+  marketing_media: {
+    width: null,
+    height: null,
+    duration_s: null,
+    bytes: null,
+    tags: null,
+    created_by: null,
+  },
+  marketing_entry_media: {},
+  marketing_deliveries: {
+    account_id: null,
+    scheduled_at: null,
+    status: "pending",
+    external_ids: {},
+    error: null,
+    attempt_count: 0,
+    published_at: null,
+  },
+  marketing_connected_accounts: {
+    external_id: null,
+    external_parent_id: null,
+    handle: null,
+    credentials: {},
+    token_expires_at: null,
+    scopes: null,
+    status: "connected",
+    last_error: null,
+    last_verified_at: null,
+    created_by: null,
+  },
+};
 
 interface Db {
   tables: MarketingTables;
   tick: () => Promise<void>;
   /** Every statement executed, in order. Useful for asserting a claim was one statement. */
   statements: string[];
+}
+
+/**
+ * The plain column names in a PostgREST select list, ignoring any embed.
+ *
+ * Projection is modelled rather than waved through because one of the things
+ * this fixture is used to prove is that a column NEVER leaves the server —
+ * `marketing_connected_accounts.credentials`. A fake that returned whole rows
+ * regardless of the select list would make that assertion vacuous: the test
+ * would pass by accident on code that leaked.
+ */
+function projectionOf(columns: string): string[] | null {
+  if (columns.trim() === "*") return null;
+  const names: string[] = [];
+  let depth = 0;
+  let token = "";
+  for (const ch of columns) {
+    if (ch === "(") depth += 1;
+    else if (ch === ")") depth -= 1;
+    if (ch === "," && depth === 0) {
+      names.push(token);
+      token = "";
+    } else {
+      token += ch;
+    }
+  }
+  names.push(token);
+  return names
+    .map((n) => n.trim())
+    .filter((n) => n && !n.includes("("))
+    .map((n) => (n.includes(":") ? n.slice(0, n.indexOf(":")) : n));
 }
 
 class Query implements PromiseLike<{ data: Row[] | null; error: { message: string } | null }> {
@@ -59,11 +143,35 @@ class Query implements PromiseLike<{ data: Row[] | null; error: { message: strin
     private db: Db,
     private table: string,
     private op: Op,
-    private patch: Row | null,
+    private patch: Row | Row[] | null,
   ) {}
 
   eq(col: string, val: unknown): this {
     this.filters.push((r) => r[col] === val);
+    return this;
+  }
+
+  /** `col >= val`. Null is never `>=` anything, as in SQL. */
+  gte(col: string, val: unknown): this {
+    this.filters.push((r) => {
+      const v = r[col];
+      return v !== null && v !== undefined && (v as string) >= (val as string);
+    });
+    return this;
+  }
+
+  /** `col < val`. The half-open window's exclusive end. */
+  lt(col: string, val: unknown): this {
+    this.filters.push((r) => {
+      const v = r[col];
+      return v !== null && v !== undefined && (v as string) < (val as string);
+    });
+    return this;
+  }
+
+  in(col: string, values: unknown[]): this {
+    const set = new Set(values);
+    this.filters.push((r) => set.has(r[col]));
     return this;
   }
 
@@ -109,37 +217,62 @@ class Query implements PromiseLike<{ data: Row[] | null; error: { message: strin
     if (!table) throw new Error(`marketingDb: no table "${this.table}"`);
     this.db.statements.push(`${this.op} ${this.table}`);
 
+    if (this.op === "insert") {
+      const incoming = (Array.isArray(this.patch) ? this.patch : [this.patch ?? {}]).map((r) => ({
+        id: crypto.randomUUID(),
+        ...INSERT_DEFAULTS[this.table],
+        ...r,
+      }));
+      table.push(...incoming);
+      return { data: this.returning ? incoming.map((r) => this.project(r)) : null, error: null };
+    }
+
     let rows = table.filter((r) => this.filters.every((f) => f(r)));
 
     if (this.op === "update") {
       for (const r of rows) Object.assign(r, this.patch);
       // A snapshot, so a later mutation cannot retroactively change what this
       // statement returned.
-      return { data: this.returning ? rows.map((r) => ({ ...r })) : null, error: null };
+      return { data: this.returning ? rows.map((r) => this.project(r)) : null, error: null };
     }
 
     if (this.orderBy) {
       const { col, asc } = this.orderBy;
+      // Numbers and strings both, because `position` is an integer and
+      // `starts_at` is a timestamp — and a numeric subtraction on two ISO
+      // strings yields NaN, which leaves the array in whatever order it
+      // arrived in. That is the exact bug an ordering assertion exists to
+      // catch, so the fixture must not commit it itself.
       rows = [...rows].sort((a, b) => {
-        const x = a[col] as number;
-        const y = b[col] as number;
-        return asc ? x - y : y - x;
+        const x = a[col] as number | string;
+        const y = b[col] as number | string;
+        const cmp = x === y ? 0 : x < y ? -1 : 1;
+        return asc ? cmp : -cmp;
       });
     }
     if (this.limitTo !== null) rows = rows.slice(0, this.limitTo);
 
-    // The one embed the worker uses: entry media joined to the media itself.
+    // The one embed marketing uses: entry media joined to the media itself.
+    // The join row's own columns come along, because a reader loading several
+    // entries at once groups by `entry_id`.
     if (this.columns.includes("media:marketing_media(")) {
       return {
         data: rows.map((r) => ({
-          position: r.position,
+          ...this.project(r),
           media: this.db.tables.marketing_media.find((m) => m.id === r.media_id) ?? null,
         })),
         error: null,
       };
     }
 
-    return { data: rows.map((r) => ({ ...r })), error: null };
+    return { data: rows.map((r) => this.project(r)), error: null };
+  }
+
+  /** A copy of the row carrying only the columns this statement selected. */
+  private project(row: Row): Row {
+    const keep = projectionOf(this.columns);
+    if (keep === null) return { ...row };
+    return Object.fromEntries(keep.filter((k) => k in row).map((k) => [k, row[k]]));
   }
 }
 
@@ -149,6 +282,7 @@ export interface MarketingTestDb {
     from(table: string): {
       select(columns?: string): Query;
       update(patch: Row): Query;
+      insert(rows: Row | Row[]): Query;
     };
   };
   tables: MarketingTables;
@@ -183,6 +317,7 @@ export function createMarketingTestDb(
         return {
           select: (columns = "*") => new Query(db, table, "select", null).select(columns),
           update: (patch: Row) => new Query(db, table, "update", patch),
+          insert: (rows: Row | Row[]) => new Query(db, table, "insert", rows),
         };
       },
     },
