@@ -34,9 +34,18 @@ Permissions to request: `instagram_basic`, `instagram_content_publish`,
 `pages_read_engagement`. Facebook posting later adds `pages_manage_posts` — do not
 request it now.
 
-**No App Review.** The app stays in Development mode with the Instagram account holding
-a Tester role, which is all Standard Access needs when the only account published to is
-our own. Switching the app to Live is what would trigger review; do not.
+**No App Review.** The app stays in Development mode, which is all Standard Access
+needs when the only account published to is our own. Switching the app to Live is what
+would trigger review; do not.
+
+In Development mode a Meta app can only authenticate people who hold a **role on the
+app** — Administrator, Developer or Tester — configured at App Dashboard → **App Roles
+→ Roles**. Two things are easy to confuse here and neither is what we need: the **Test
+Users** tab beside it creates synthetic Facebook accounts, which cannot own the real
+Instagram account; and the **Instagram Tester** role belongs to the Instagram-Login
+path, not this one. On the Facebook-Login path, access flows through a Facebook user
+who holds an app role **and** admins the linked Page — so if the app is created by the
+account that already admins the brewery's Page, there is nothing further to configure.
 
 ## 3. What this module owns
 
@@ -98,8 +107,8 @@ folder. Comment management. Anything that switches the Meta app to Live mode.
 
 1. **Instagram account → Professional → Business.** Not Creator: Meta's docs say either works, but Creator is widely reported to fail on publishing, and the switch is free.
 2. **A Facebook Page for the brewery**, if one does not exist, **linked to that Instagram account.** This is the Facebook-Login path's price, and what makes the Facebook module cheap later.
-3. **A Meta app**, left in **Development mode**.
-4. **The Instagram account added as a Tester** on that app, with the invite accepted from Instagram.
+3. **A Meta app**, left in **Development mode**. Create it while signed in as the Facebook account that admins the Page — the creator becomes Administrator automatically, which is the app role Development mode requires.
+4. **Only if someone else will run the connect flow**: add that person at App Dashboard → App Roles → Roles. Not the Test Users tab (synthetic accounts, useless here), and not an Instagram Tester invite (that is the Instagram-Login path). They must also admin the Page.
 5. **Credentials into the environment, never into chat** — `META_APP_ID`, `META_APP_SECRET`, and `MARKETING_OAUTH_STATE_SECRET` (any random 32-byte hex), in Vercel and in `.env.local`.
 6. **Page Publishing Authorization**, if the Page asks for it.
 
