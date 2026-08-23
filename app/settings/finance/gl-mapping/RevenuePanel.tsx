@@ -210,6 +210,81 @@ function VariationMappingRow({
   );
 }
 
+/**
+ * A standing GL default recorded when a scope was bulk-mapped. The catalog sync
+ * applies it to variations it has never seen, so an item Square adds tomorrow
+ * inherits the decision already made for its category instead of arriving
+ * unresolved. Server-side counterpart: lib/finance/glDefaultRules.ts.
+ */
+interface GlDefaultRule {
+  scope: "parent" | "category" | "item";
+  scope_key: string | null;
+  chart_of_accounts_id: string | null;
+  chart_of_accounts_id_pos: string | null;
+  chart_of_accounts_id_invoice: string | null;
+  excluded: boolean | null;
+}
+
+function shortAccount(accounts: CoAAccount[], id: string | null): string | null {
+  if (!id) return null;
+  const a = accounts.find((x) => x.id === id);
+  if (!a) return null;
+  return a.account_number ? `${a.account_number}` : a.account_name;
+}
+
+/**
+ * Shows that this scope auto-applies to new variations, and is the only way to
+ * revoke it. Removing the rule leaves every mapping it has already made in
+ * place — those are real codings a person asked for.
+ */
+function AutoRuleChip({
+  rule,
+  accounts,
+  onRemove,
+}: {
+  rule: GlDefaultRule;
+  accounts: CoAAccount[];
+  onRemove: () => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const parts: string[] = [];
+  const dflt = shortAccount(accounts, rule.chart_of_accounts_id);
+  if (dflt) parts.push(dflt);
+  const pos = shortAccount(accounts, rule.chart_of_accounts_id_pos);
+  if (pos) parts.push(`POS ${pos}`);
+  const inv = shortAccount(accounts, rule.chart_of_accounts_id_invoice);
+  if (inv) parts.push(`INV ${inv}`);
+  if (rule.excluded) parts.push("excluded");
+  if (parts.length === 0) return null;
+
+  const label = `auto → ${parts.join(" · ")}`;
+
+  return (
+    <>
+      <span
+        title={`New Square variations in this group are automatically set to ${parts.join(", ")}. Click to stop.`}
+        className="text-2xs shrink-0 px-1 rounded border border-info-border/60 bg-info-surface/50 text-info cursor-pointer"
+        onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
+      >
+        {label} ✕
+      </span>
+      {confirming && (
+        <ConfirmDialog
+          title="Stop auto-mapping new items?"
+          message="New Square variations in this group will arrive unmapped again. Everything already mapped keeps its account — this only removes the standing rule."
+          confirmLabel="Remove rule"
+          tone="danger"
+          busy={busy}
+          onConfirm={async () => { setBusy(true); await onRemove(); setBusy(false); setConfirming(false); }}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+    </>
+  );
+}
+
 function BulkMapper({
   unmappedCount,
   accounts,
@@ -417,6 +492,7 @@ function BulkExcluder({
 export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
   const [accounts, setAccounts] = useState<CoAAccount[]>([]);
   const [variations, setVariations] = useState<VariationRow[]>([]);
+  const [rules, setRules] = useState<GlDefaultRule[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [syncing, setSyncing]   = useState(false);
@@ -426,13 +502,15 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
 
   const loadAll = useCallback(async () => {
     try {
-      const [coaRes, mappingsRes] = await Promise.all([
+      const [coaRes, mappingsRes, rulesRes] = await Promise.all([
         fetch("/api/finance/chart-of-accounts"),
         fetch("/api/finance/account-mappings"),
+        fetch("/api/finance/account-mappings/rules"),
       ]);
-      const [coa, maps] = await Promise.all([coaRes.json(), mappingsRes.json()]);
+      const [coa, maps, ruleRows] = await Promise.all([coaRes.json(), mappingsRes.json(), rulesRes.json()]);
       setAccounts(Array.isArray(coa) ? coa : []);
       setVariations(Array.isArray(maps) ? maps : []);
+      setRules(Array.isArray(ruleRows) ? ruleRows : []);
     } catch {
       setError("Failed to load data.");
     } finally {
@@ -462,6 +540,41 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
     } finally {
       setSyncing(false);
     }
+  }
+
+  function ruleFor(scope: GlDefaultRule["scope"], key: string | null): GlDefaultRule | undefined {
+    return rules.find((r) => r.scope === scope && r.scope_key === key);
+  }
+
+  /**
+   * Mirror what the bulk route records server-side, so the chip appears the
+   * moment a bulk map is applied rather than after the next reload.
+   */
+  function noteRule(scope: GlDefaultRule["scope"], key: string | null, fields: Partial<GlDefaultRule>) {
+    setRules((rs) => {
+      const i = rs.findIndex((r) => r.scope === scope && r.scope_key === key);
+      if (i === -1) {
+        return [...rs, {
+          scope, scope_key: key,
+          chart_of_accounts_id: null, chart_of_accounts_id_pos: null,
+          chart_of_accounts_id_invoice: null, excluded: null,
+          ...fields,
+        }];
+      }
+      const next = [...rs];
+      next[i] = { ...next[i], ...fields };
+      return next;
+    });
+  }
+
+  async function handleRemoveRule(scope: GlDefaultRule["scope"], key: string | null) {
+    const res = await fetch("/api/finance/account-mappings/rules", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope, scope_key: key }),
+    });
+    if (!res.ok) return;
+    setRules((rs) => rs.filter((r) => !(r.scope === scope && r.scope_key === key)));
   }
 
   function applyToVariations(
@@ -494,6 +607,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
       body: JSON.stringify({ category_id: categoryId, chart_of_accounts_id: accountId, overwrite }),
     });
     if (!res.ok) return;
+    noteRule("category", categoryId, { chart_of_accounts_id: accountId });
     applyToVariations(
       (v) => categoryId === null ? !v.square_catalog_items?.category_id : v.square_catalog_items?.category_id === categoryId,
       accountId, overwrite
@@ -508,6 +622,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
       body: JSON.stringify({ parent_group_id: parentGroupId, chart_of_accounts_id: accountId, overwrite }),
     });
     if (!res.ok) return;
+    noteRule("parent", parentGroupId, { chart_of_accounts_id: accountId });
     applyToVariations((v) => {
       const item = v.square_catalog_items;
       if (!item) return false;
@@ -524,6 +639,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
       body: JSON.stringify({ catalog_item_id: catalogItemId, chart_of_accounts_id: accountId, overwrite }),
     });
     if (!res.ok) return;
+    noteRule("item", catalogItemId, { chart_of_accounts_id: accountId });
     applyToVariations(
       (v) => v.square_catalog_items?.id === catalogItemId,
       accountId, overwrite
@@ -550,6 +666,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
       body: JSON.stringify({ parent_group_id: parentGroupId, excluded: true, overwrite }),
     });
     if (!res.ok) return;
+    noteRule("parent", parentGroupId, { excluded: true });
     applyExcludedToVariations((v) => {
       const item = v.square_catalog_items;
       if (!item) return false;
@@ -564,6 +681,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
       body: JSON.stringify({ category_id: categoryId, excluded: true, overwrite }),
     });
     if (!res.ok) return;
+    noteRule("category", categoryId, { excluded: true });
     applyExcludedToVariations(
       (v) => categoryId === null ? !v.square_catalog_items?.category_id : v.square_catalog_items?.category_id === categoryId,
       overwrite
@@ -577,6 +695,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
       body: JSON.stringify({ catalog_item_id: catalogItemId, excluded: true, overwrite }),
     });
     if (!res.ok) return;
+    noteRule("item", catalogItemId, { excluded: true });
     applyExcludedToVariations((v) => v.square_catalog_items?.id === catalogItemId, overwrite);
   }
 
@@ -611,6 +730,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
       body: JSON.stringify({ parent_group_id: parentGroupId, [field]: accountId, overwrite }),
     });
     if (!res.ok) return;
+    noteRule("parent", parentGroupId, { [field]: accountId });
     applySourceToVariations((v) => {
       const item = v.square_catalog_items;
       if (!item) return false;
@@ -631,6 +751,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
       body: JSON.stringify({ category_id: categoryId, [field]: accountId, overwrite }),
     });
     if (!res.ok) return;
+    noteRule("category", categoryId, { [field]: accountId });
     applySourceToVariations(
       (v) => categoryId === null ? !v.square_catalog_items?.category_id : v.square_catalog_items?.category_id === categoryId,
       field, accountId, overwrite
@@ -650,6 +771,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
       body: JSON.stringify({ catalog_item_id: catalogItemId, [field]: accountId, overwrite }),
     });
     if (!res.ok) return;
+    noteRule("item", catalogItemId, { [field]: accountId });
     applySourceToVariations(
       (v) => v.square_catalog_items?.id === catalogItemId,
       field, accountId, overwrite
@@ -831,6 +953,9 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
                         )}
                       </button>
                       <div className="flex items-center gap-2 shrink-0">
+                        {(() => { const r = ruleFor("parent", parent.parent_id); return r ? (
+                          <AutoRuleChip rule={r} accounts={accounts} onRemove={() => handleRemoveRule("parent", parent.parent_id)} />
+                        ) : null; })()}
                         <BulkMapper
                           unmappedCount={parentTotal - parentMapped}
                           accounts={accounts}
@@ -884,6 +1009,9 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
                                   )}
                                 </button>
                                 <div className="flex items-center gap-2 shrink-0">
+                                  {(() => { const r = ruleFor("category", cat.category_id); return r ? (
+                                    <AutoRuleChip rule={r} accounts={accounts} onRemove={() => handleRemoveRule("category", cat.category_id)} />
+                                  ) : null; })()}
                                   <BulkMapper
                                     unmappedCount={catTotal - catMapped}
                                     accounts={accounts}
@@ -940,6 +1068,9 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
                                 </button>
                                 {catalogItemId && (
                                   <div className="flex items-center gap-2 shrink-0">
+                                    {(() => { const r = ruleFor("item", catalogItemId); return r ? (
+                                      <AutoRuleChip rule={r} accounts={accounts} onRemove={() => handleRemoveRule("item", catalogItemId)} />
+                                    ) : null; })()}
                                     <BulkMapper
                                       unmappedCount={item.variations.length - itemMapped}
                                       accounts={accounts}

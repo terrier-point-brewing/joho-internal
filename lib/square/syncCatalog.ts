@@ -29,6 +29,13 @@ export interface CatalogSyncResult {
   variationsInserted: number;
   /** Variations already mirrored. Their derived volume is left alone. */
   variationsUpdated: number;
+  /**
+   * Square ids of the variations this run saw for the first time. The standing
+   * GL default rules are applied to exactly these — see
+   * lib/finance/glDefaultRules.ts. Callers own that step; the mirror sync knows
+   * nothing about the chart of accounts.
+   */
+  insertedVariationIds: string[];
   itemsMarkedDeleted: number;
   variationsMarkedDeleted: number;
   /** Set when the deletion pass was deliberately skipped; see `markDeleted`. */
@@ -276,6 +283,7 @@ export async function syncSquareCatalog(
     variations: upsertedVariations.length,
     variationsInserted: insertRows.length,
     variationsUpdated: updateRows.length,
+    insertedVariationIds: insertRows.map((r) => r.square_variation_id),
     itemsMarkedDeleted: 0,
     variationsMarkedDeleted: 0,
     volumeMismatches,
