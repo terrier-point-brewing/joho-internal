@@ -156,7 +156,15 @@ describe("instagram plugin identity", () => {
   });
 
   it("asks for the three permissions the app was configured with, and no more", () => {
-    expect(INSTAGRAM_SCOPES).toEqual(["instagram_basic", "instagram_content_publish", "pages_read_engagement"]);
+    expect(INSTAGRAM_SCOPES).toEqual([
+      "instagram_basic",
+      "instagram_content_publish",
+      "pages_read_engagement",
+      // Without this, GET /me/accounts answers with an empty list and connect
+      // fails at the Page lookup. Configuring it on the Meta app is not enough:
+      // the dialog only requests what this list names.
+      "pages_show_list",
+    ]);
   });
 });
 
@@ -171,7 +179,9 @@ describe("instagram connect — the dialog", () => {
     expect(url.searchParams.get("client_id")).toBe("app-123");
     expect(url.searchParams.get("redirect_uri")).toBe(INSTAGRAM_REDIRECT_URI);
     expect(url.searchParams.get("state")).toBe("v1.aGk.123.abc.sig");
-    expect(url.searchParams.get("scope")).toBe("instagram_basic,instagram_content_publish,pages_read_engagement");
+    expect(url.searchParams.get("scope")).toBe(
+      "instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list",
+    );
     expect(url.searchParams.get("response_type")).toBe("code");
   });
 

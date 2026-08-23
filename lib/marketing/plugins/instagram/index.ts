@@ -12,8 +12,8 @@
  * Instagram account being a Business account linked to a Page, which it is.
  * `docs/marketing/modules/01-instagram.md` has the whole argument.
  *
- * Three permissions and no more: `instagram_basic`, `instagram_content_publish`,
- * `pages_read_engagement`. Nothing here asks for a fourth, requests App Review,
+ * Four permissions and no more: `instagram_basic`, `instagram_content_publish`,
+ * `pages_read_engagement`, `pages_show_list`. Nothing here requests App Review,
  * or touches the ads use cases the same Meta app runs the brewery's real spend
  * through.
  *
@@ -103,15 +103,32 @@ export const INSTAGRAM_CHANNEL = "instagram";
 export const INSTAGRAM_PROVIDER = "meta";
 
 /**
- * The three permissions, in the order they were configured on the app.
+ * The four permissions, in the order they were configured on the app.
  *
+ * `pages_show_list` is here because the callback resolves the Page — and the
+ * Instagram account behind it — through `GET /me/accounts`, which Meta gates on
+ * exactly this permission. `pages_read_engagement` covers reading a Page's
+ * content and confers nothing about ENUMERATING the Pages a person manages, so
+ * without this the endpoint answers with an empty list and connect fails at the
+ * Page lookup with nothing wrong anywhere else. That is what happened on the
+ * first live attempt.
+ *
+ * Configuring a permission on the Meta app is only half of it: the dialog
+ * requests what this list names. A permission configured on the app but absent
+ * here is never granted; one named here but not configured on the app is
+ * silently dropped from the dialog. Both halves, or neither — and the failure
+ * looks identical from the outside either way.
+ *
+ * `pages_show_list` is Standard Access: no App Review, and nothing near the ads
+ * use cases this same app runs the brewery's real spend through.
  * `pages_manage_posts` belongs to the Facebook module and is not requested here.
- * Nothing is added to this list without the corresponding permission being
- * added to the Meta app's Instagram use case first — an unconfigured scope in
- * the dialog is silently dropped, which surfaces later as a confusing failure
- * somewhere else entirely.
  */
-export const INSTAGRAM_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_read_engagement"];
+export const INSTAGRAM_SCOPES = [
+  "instagram_basic",
+  "instagram_content_publish",
+  "pages_read_engagement",
+  "pages_show_list",
+];
 
 /**
  * The redirect URI, as a constant rather than as something derived.
