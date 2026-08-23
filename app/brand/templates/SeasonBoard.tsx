@@ -1,18 +1,17 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
 import type { Tone } from "@/app/components/ui/tone";
 import { assetFileUrl, type BrandAsset } from "@/lib/brand/assets";
 import {
-  canActivateSeason,
+  activationRefusal,
   kitByRole,
   kitGapSentence,
   kitGaps,
   resolveSeasonPalette,
-  seasonGaps,
   type CanonToken,
   type SeasonAssetRole,
   type SeasonKit,
@@ -70,13 +69,21 @@ export default function SeasonBoard({
   assets: BrandAsset[];
   open: boolean;
   onToggle: () => void;
-  onActivate: () => void;
+  onActivate: (overrideReason?: string) => void;
   activating: boolean;
 }) {
   const isActive = season.status === "active";
   const palette = resolveSeasonPalette(season.palette, tokens);
-  const gapSentence = kitGapSentence(season.name, kitGaps(season, season.kit));
+  // One call, one rule. The sentence under the title, the refusal on the button
+  // and the server's own gate are all this list — see kitGaps.
+  const gaps = kitGaps(season, season.kit);
+  const gapSentence = kitGapSentence(season.name, gaps);
   const dateWindow = [season.starts_at, season.ends_at].filter(Boolean).join(" → ");
+
+  // The override is a deliberate act, so it takes a step of its own: the button
+  // opens the refusal, and only a typed reason gets past it.
+  const [overriding, setOverriding] = useState(false);
+  const [reason, setReason] = useState("");
 
   return (
     // The active season is the one in force, and which one that is should never
@@ -101,19 +108,16 @@ export default function SeasonBoard({
         {dateWindow && <span className="text-2xs text-muted font-mono">{dateWindow}</span>}
         <div className="ml-auto flex flex-wrap gap-2">
           {!isActive && (
-            // Disabled rather than hidden, with the reason in the tooltip: a
-            // missing button reads as "you cannot do this here", a disabled one
-            // reads as "not yet, and here is why".
+            // Enabled even when the kit is short, because there IS a way
+            // through: the click opens the refusal and the reason field rather
+            // than doing nothing. A disabled button would teach the rule by
+            // withholding the action, and a gate with no visible escape gets
+            // worked around somewhere nobody is looking.
             <button
               type="button"
               className="btn-primary"
-              disabled={activating || !canActivateSeason(season)}
-              title={
-                canActivateSeason(season)
-                  ? undefined
-                  : `Needs ${seasonGaps(season).blocking.join(" and ")} first.`
-              }
-              onClick={onActivate}
+              disabled={activating || overriding}
+              onClick={() => (gaps.length > 0 ? setOverriding(true) : onActivate())}
             >
               Make active
             </button>
@@ -136,6 +140,57 @@ export default function SeasonBoard({
         <Banner tone="accent" className="mt-3">
           {gapSentence}
         </Banner>
+      )}
+
+      {/* The override, after the fact. A season put into force unfinished says
+          so on its own board, next to the list of what it was short of — that
+          is the entire value of recording a reason rather than hiding the
+          check behind a flag. */}
+      {season.activation_override_reason && (
+        <Banner tone="accent" className="mt-3">
+          Put into force before it was finished — “{season.activation_override_reason}”
+        </Banner>
+      )}
+
+      {/* The refusal, before the fact. Named in full, from the same list, with
+          the only way past it directly underneath. */}
+      {overriding && !isActive && (
+        <div className="mt-3 flex flex-col gap-2 rounded-md border border-line-strong bg-surface-mid p-3">
+          <p className="text-sm text-body max-w-prose">{activationRefusal(season.name, gaps)}</p>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted">Reason</span>
+            <input
+              className="inp-sm"
+              value={reason}
+              placeholder="Why this has to go out before the kit is finished"
+              aria-label="Override reason"
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {/* Disabled without a reason, because there is no override without
+                one — the route and the column's CHECK both say the same. */}
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={activating || !reason.trim()}
+              onClick={() => onActivate(reason.trim())}
+            >
+              Put into force anyway
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={activating}
+              onClick={() => {
+                setOverriding(false);
+                setReason("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">

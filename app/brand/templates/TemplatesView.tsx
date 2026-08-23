@@ -57,6 +57,10 @@ export default function TemplatesView({ tokens }: { tokens: CanonToken[] }) {
   const [name, setName] = useState("");
   const [medium, setMedium] = useState<TemplateMedium>("label");
   const [seasonName, setSeasonName] = useState("");
+  // "" is a blank season; anything else is the season to start from. Half of a
+  // season is continuity, so the default is to carry it — starting from nothing
+  // is the deliberate choice, not the other way round.
+  const [cloneFrom, setCloneFrom] = useState<string | null>(null);
   // One season open at a time: two colour pickers and two glyph grids side by
   // side is a wall, and the fields are only meaningful one season at a time.
   const [openSeason, setOpenSeason] = useState<string | null>(null);
@@ -67,7 +71,13 @@ export default function TemplatesView({ tokens }: { tokens: CanonToken[] }) {
   const orderedSeasons = [...seasons].sort(
     (a, b) => Number(b.status === "active") - Number(a.status === "active"),
   );
-  const actionError = templateAction.error ?? createTemplate.error ?? activateSeason.error;
+  const actionError =
+    templateAction.error ?? createTemplate.error ?? activateSeason.error ?? createSeason.error;
+
+  // Where a new season starts from, defaulting to the one in force (or failing
+  // that the most recent). `orderedSeasons` already reads active-first, then
+  // newest, which is the same order "start from the last season" means.
+  const startingPoint = cloneFrom ?? orderedSeasons[0]?.id ?? "";
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -202,26 +212,53 @@ export default function TemplatesView({ tokens }: { tokens: CanonToken[] }) {
         <>
           <Card>
             <form
-              className="flex flex-wrap items-end gap-2"
+              className="flex flex-col gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!seasonName.trim()) return;
                 createSeason.mutate(
-                  { name: seasonName.trim() },
+                  {
+                    name: seasonName.trim(),
+                    ...(startingPoint ? { clone_from: startingPoint } : {}),
+                  },
                   { onSuccess: () => setSeasonName("") },
                 );
               }}
             >
-              <input
-                className="inp-sm flex-1 min-w-48"
-                value={seasonName}
-                onChange={(e) => setSeasonName(e.target.value)}
-                placeholder="Season name — e.g. Season 1"
-                aria-label="Season name"
-              />
-              <button type="submit" className="btn-primary" disabled={createSeason.isPending}>
-                Add season
-              </button>
+              <div className="flex flex-wrap items-end gap-2">
+                <input
+                  className="inp-sm flex-1 min-w-48"
+                  value={seasonName}
+                  onChange={(e) => setSeasonName(e.target.value)}
+                  placeholder="Season name — e.g. Season 2"
+                  aria-label="Season name"
+                />
+                {/* Starting from the last season is the ritual, so it is the
+                    default. Re-picking half a season by hand every quarter is
+                    how a brand drifts. */}
+                <select
+                  className="inp-sm w-56"
+                  value={startingPoint}
+                  aria-label="Start from"
+                  onChange={(e) => setCloneFrom(e.target.value)}
+                >
+                  <option value="">Start from nothing</option>
+                  {orderedSeasons.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      Start from {s.name}
+                      {s.status === "active" ? " (in force)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <button type="submit" className="btn-primary" disabled={createSeason.isPending}>
+                  Add season
+                </button>
+              </div>
+              <p className="text-2xs text-faint max-w-prose">
+                {startingPoint
+                  ? "Carries the palette roles, voice note, cultural lean, examples and textures. Clears the ground, chop glyph, season logo, motifs and dates — the things that actually rotate. The new season starts as a draft either way."
+                  : "A blank draft: nothing carried over."}
+              </p>
             </form>
           </Card>
 
@@ -241,7 +278,9 @@ export default function TemplatesView({ tokens }: { tokens: CanonToken[] }) {
                 assets={assets}
                 open={openSeason === s.id}
                 onToggle={() => setOpenSeason(openSeason === s.id ? null : s.id)}
-                onActivate={() => activateSeason.mutate(s.id)}
+                onActivate={(override_reason) =>
+                  activateSeason.mutate({ id: s.id, override_reason })
+                }
                 activating={activateSeason.isPending}
               />
             ))}

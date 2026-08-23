@@ -16,6 +16,7 @@ import {
   canonTokenChoices,
   normalizeSeasonPalette,
   updateSeason,
+  type SeasonAssetClient,
   type SupabaseLikeClient,
 } from "@/lib/brand/seasons";
 
@@ -31,10 +32,21 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   const { id } = await context.params;
   try {
     const body = (await req.json().catch(() => ({}))) as { action?: string; [k: string]: unknown };
-    const supabase = createSupabaseAdminClient() as unknown as SupabaseLikeClient;
+    const admin = createSupabaseAdminClient();
+    const supabase = admin as unknown as SupabaseLikeClient;
 
     if (body.action === "activate") {
-      await activateSeason(supabase, id);
+      // The gate reads the season AND its kit rows, because completeness is
+      // `kitGaps` — the same function the board's "not furnished yet" sentence
+      // comes from, not a route-local rule that could drift away from it.
+      //
+      // `override_reason` is the only way past a refusal, and it is stored on
+      // the season rather than being a flag: a gate with no escape gets worked
+      // around invisibly, and a recorded reason is at least visible. A blank
+      // one is not a reason and the gate treats it as absent.
+      await activateSeason(supabase, admin as unknown as SeasonAssetClient, id, {
+        overrideReason: typeof body.override_reason === "string" ? body.override_reason : null,
+      });
     } else {
       const { action: _action, ...patch } = body;
 
