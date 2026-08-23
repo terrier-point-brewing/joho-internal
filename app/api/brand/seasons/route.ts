@@ -10,7 +10,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
-import { createSeason, listSeasons, type SupabaseLikeClient } from "@/lib/brand/seasons";
+import {
+  createSeason,
+  listSeasonKits,
+  listSeasons,
+  type SeasonAssetClient,
+  type SupabaseLikeClient,
+} from "@/lib/brand/seasons";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +28,21 @@ export async function GET() {
   }
 
   try {
-    const supabase = createSupabaseAdminClient() as unknown as SupabaseLikeClient;
-    return NextResponse.json(await listSeasons(supabase));
+    const admin = createSupabaseAdminClient();
+
+    // Each season carries its own kit rows. `brand_season_assets` is
+    // service-role-only with RLS on and zero policies — the posture every other
+    // brand_* table has — so this route is the only way to read it, and the
+    // board is a per-season panel, so the kit belongs in the season's payload
+    // rather than behind a second round trip per panel.
+    const [seasons, kits] = await Promise.all([
+      listSeasons(admin as unknown as SupabaseLikeClient),
+      listSeasonKits(admin as unknown as SeasonAssetClient),
+    ]);
+
+    return NextResponse.json(
+      seasons.map((season) => ({ ...season, kit: kits.get(season.id) ?? [] })),
+    );
   } catch (err) {
     return apiError(err);
   }

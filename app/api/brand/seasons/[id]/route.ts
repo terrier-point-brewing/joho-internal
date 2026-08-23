@@ -10,7 +10,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
-import { activateSeason, updateSeason, type SupabaseLikeClient } from "@/lib/brand/seasons";
+import { getCanon } from "@/lib/brand/getCanon";
+import {
+  activateSeason,
+  canonTokenChoices,
+  normalizeSeasonPalette,
+  updateSeason,
+  type SupabaseLikeClient,
+} from "@/lib/brand/seasons";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +37,17 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       await activateSeason(supabase, id);
     } else {
       const { action: _action, ...patch } = body;
+
+      // A season SELECTS from the canon and never redefines it. The column's
+      // CHECK constrains the palette's shape and deliberately not its
+      // vocabulary — which token keys are legal is whatever the canon currently
+      // declares — so the vocabulary is enforced here, against the live canon.
+      // The editor only ever offers canon keys; this is what makes that a rule
+      // rather than a convention, since the route forwards an arbitrary body.
+      if ("palette" in patch) {
+        patch.palette = normalizeSeasonPalette(patch.palette, canonTokenChoices(await getCanon()));
+      }
+
       await updateSeason(supabase, id, patch as never);
     }
     return NextResponse.json({ ok: true });
