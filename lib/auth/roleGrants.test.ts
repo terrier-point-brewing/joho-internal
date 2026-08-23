@@ -4,7 +4,7 @@ import { CAP } from "./capabilities";
 import { effectiveLevel } from "./resolve";
 import { SCOPES, ROOT, type ScopeKey, type Section } from "./scopes";
 
-const SECTIONS: Section[] = ["taproom", "production", "finance", "payroll", "catalog", "brand", "org"];
+const SECTIONS: Section[] = ["taproom", "production", "finance", "payroll", "catalog", "brand", "marketing", "org"];
 
 function isValidKey(key: string): boolean {
   return key === ROOT || key in SCOPES || (SECTIONS as string[]).includes(key);
@@ -19,9 +19,9 @@ describe("ROLE_BUNDLES", () => {
     }
   });
 
-  it("grants admin on all 29 scopes for the admin role", () => {
+  it("grants admin on all 31 scopes for the admin role", () => {
     const scopeKeys = Object.keys(SCOPES) as ScopeKey[];
-    expect(scopeKeys.length).toBe(29);
+    expect(scopeKeys.length).toBe(31);
     for (const scope of scopeKeys) {
       expect(effectiveLevel(ROLE_BUNDLES.admin, scope)).toBe("admin");
     }
@@ -41,7 +41,15 @@ describe("ROLE_BUNDLES", () => {
     for (const role of ["viewer", "brewer", "manager"] as const) {
       expect(effectiveLevel(ROLE_BUNDLES[role], "finance.access")).toBeNull();
       expect(effectiveLevel(ROLE_BUNDLES[role], "brand.access")).toBeNull();
+      // Marketing shipped with no bundle row at all. Admin reaches it through
+      // its ROOT grant; opening it to anyone else is a grant edit in
+      // Settings → Environment → Users, not a deploy. If this starts failing,
+      // ROLE_BUNDLES was edited — and it must not be, because the live matrix
+      // is role_permission_grants and the constant is only its seed.
+      expect(effectiveLevel(ROLE_BUNDLES[role], "marketing.access")).toBeNull();
+      expect(effectiveLevel(ROLE_BUNDLES[role], "marketing.accounts")).toBeNull();
     }
+    expect(effectiveLevel(ROLE_BUNDLES.admin, "marketing.access")).toBe("admin");
     expect(effectiveLevel(ROLE_BUNDLES.viewer, "production.access")).toBeNull();
   });
 
