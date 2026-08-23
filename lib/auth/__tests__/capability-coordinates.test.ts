@@ -22,9 +22,10 @@ import type { Level } from "../levels";
  * what's committed below.
  *
  * The route-less capabilities (layout-only / UI-only) are marked `// no
- * route` below: brewingCalendarAdmin, brandGuideRead, and the four admission
- * leaves. Their coordinate has no independent route-derived source, so it is
- * taken from lib/auth/capabilities.ts and pinned here deliberately.
+ * route` below: brewingCalendarAdmin, brandGuideRead, the five admission
+ * leaves, and marketingAccountsManage. Their coordinate has no independent
+ * route-derived source, so it is taken from lib/auth/capabilities.ts and
+ * pinned here deliberately.
  */
 const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   // Admission leaves — read, always, and never anything else. A `.access` key
@@ -105,6 +106,11 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   financeStatementsRead: { scope: "finance.statements", level: "read" },
   financeTransactionsRead: { scope: "finance.transactions", level: "read" },
   financeTransactionsManage: { scope: "finance.transactions", level: "manage" },
+
+  // Marketing. Both route-less today — the section is a layout gate and two
+  // screens; its API routes arrive with later chips.
+  marketingAccess: { scope: "marketing.access", level: "read" }, // no route
+  marketingAccountsManage: { scope: "marketing.accounts", level: "manage" }, // no route
 };
 
 describe("CAP coordinates are pinned", () => {

@@ -12,6 +12,11 @@ import { FINANCE_NAV } from "@/app/finance/nav-config";
 import { TAPROOM_NAV } from "@/app/taproom/nav-config";
 import { PRODUCTION_NAV } from "@/app/production/nav-config";
 import { BRAND_TABS } from "@/app/brand/nav-config";
+// The single allowlisted crossing of the marketing boundary
+// (scripts/check-marketing-boundary.mjs). Every section's sidebar block imports
+// that section's nav config, and without this one the sidebar cannot render
+// Marketing at all.
+import { MARKETING_TABS } from "@/app/marketing/nav-config";
 import { SETTINGS_GROUPS } from "@/app/settings/nav-config";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -44,6 +49,13 @@ const FinanceIcon = () => (
 const BrandIcon = () => (
   <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
     <path d="M7 1.5l1.7 3.4 3.8.55-2.75 2.68.65 3.77L7 10.13 3.85 11.9l.65-3.77L1.75 5.45l3.8-.55L7 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+  </svg>
+);
+// A month grid — the calendar is what the whole section is organised around.
+const MarketingIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
+    <rect x="1.5" y="2.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+    <path d="M1.5 5.5h11M4.5 1.5v2M9.5 1.5v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
   </svg>
 );
 const SettingsIcon = () => (
@@ -92,6 +104,7 @@ export default function NavBar() {
   const isTaproom    = pathname === "/taproom" || pathname.startsWith("/taproom/");
   const isFinance    = pathname === "/finance"    || pathname.startsWith("/finance/");
   const isBrand      = pathname === "/brand"      || pathname.startsWith("/brand/");
+  const isMarketing  = pathname === "/marketing"  || pathname.startsWith("/marketing/");
   const isSettings   = pathname.startsWith("/settings");
 
   // Derived permissions — only evaluated after loading is done. Reuses the
@@ -100,6 +113,7 @@ export default function NavBar() {
   const canAccessProduction = can(CAP.productionAccess);
   const canAccessBrand      = can(CAP.brandAccess);
   const canAccessFinance    = can(CAP.financeAccess);
+  const canAccessMarketing  = can(CAP.marketingAccess);
 
   const subtabCls = (active: boolean) =>
     `px-2 py-1.5 rounded text-xs font-medium transition-colors ${
@@ -209,6 +223,29 @@ export default function NavBar() {
                   </>
                 )}
 
+                {/* Marketing — the calendar + the channels it publishes through */}
+                {canAccessMarketing && (
+                  <>
+                    <Link
+                      href="/marketing/calendar"
+                      className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
+                        isMarketing ? "bg-surface-mid text-primary" : "text-secondary hover:text-strong hover:bg-surface-mid/50"
+                      }`}
+                    >
+                      Marketing
+                    </Link>
+                    {isMarketing && (
+                      <div className="mt-1 ml-2 flex flex-col gap-0.5 border-l border-line pl-2">
+                        {MARKETING_TABS.filter((e) => navEntryVisible(e, can)).map(({ href, label }) => (
+                          <Link key={href} href={href} className={subtabCls(pathname === href || pathname.startsWith(href + "/"))}>
+                            {label}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
                 {canAccessFinance && (
                   <>
                     <Link
@@ -283,6 +320,12 @@ export default function NavBar() {
                 <BrandIcon />
               </Link>
             )}
+            {!loading && canAccessMarketing && (
+              <Link href="/marketing/calendar" title="Marketing"
+                className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isMarketing ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
+                <MarketingIcon />
+              </Link>
+            )}
             {!loading && canAccessFinance && (
               <Link href="/finance/financials" title="Finance"
                 className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isFinance ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
@@ -350,6 +393,11 @@ export default function NavBar() {
         {!loading && canAccessBrand && (
           <MobileNavItem href="/brand/guide" active={isBrand} label="Brand">
             <BrandIcon />
+          </MobileNavItem>
+        )}
+        {!loading && canAccessMarketing && (
+          <MobileNavItem href="/marketing/calendar" active={isMarketing} label="Marketing">
+            <MarketingIcon />
           </MobileNavItem>
         )}
         {!loading && canAccessFinance && (

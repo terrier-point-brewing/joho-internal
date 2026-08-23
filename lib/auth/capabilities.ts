@@ -24,6 +24,8 @@ export const CAP = {
   productionAccess: { scope: "production.access", level: "read" },
   financeAccess: { scope: "finance.access", level: "read" },
   brandAccess: { scope: "brand.access", level: "read" },
+  // marketingAccess is the fifth admission key; it lives with the rest of the
+  // Marketing block below so that section reads as one unit.
 
   brewingOperate: { scope: "production.brewing", level: "operate" },
   brewingRead: { scope: "production.brewing", level: "read" },
@@ -109,6 +111,16 @@ export const CAP = {
   brandOutputsOperate: { scope: "brand.outputs", level: "operate" },
   /** Approve and export — the human gate an agent draft must pass through. */
   brandOutputsManage: { scope: "brand.outputs", level: "manage" },
+
+  // ── Marketing ────────────────────────────────────────────────────────────
+  /** Section admission. Read-gated in app/marketing/layout.tsx and nowhere else. */
+  marketingAccess: { scope: "marketing.access", level: "read" },
+  /**
+   * Connecting, viewing and disconnecting a channel login. `manage` from the
+   * start: the Accounts screen exists to hold credentials, and there is no
+   * meaningful read-only face of "here are the tokens".
+   */
+  marketingAccountsManage: { scope: "marketing.accounts", level: "manage" },
 
   financeStatementsRead: { scope: "finance.statements", level: "read" },
   financeTransactionsRead: { scope: "finance.transactions", level: "read" },
