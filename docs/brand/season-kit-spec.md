@@ -135,20 +135,43 @@ Two rules that come with it:
 - **Marketing never writes through a port.** Pulling season creative onto the calendar is a deliberate human act that copies into `marketing_media`, never a silent reference that changes under a post that already went out.
 - **The kit informs and offers; it never blocks.** Compose may prefill and suggest from the active season. It may not refuse a post for being off-season — a brewery posts about a burst pipe too.
 
-## 7. Definition of done
+## 7. Built for the ritual, not just for today
+
+Will fills seasons in now, a few times a year. He may hire someone to run it
+quarterly later. That distinction turns out to change **nothing structural** —
+no schema difference, barely any board difference — so the cheap version is
+built now rather than retrofitted.
+
+Three additions, two of which earn their place even if nobody is ever hired:
+
+**Start from the last season.** Clone the active or most recent season into a
+new draft, carrying the palette roles, voice note and examples, and clearing
+what actually rotates — ground, chop glyph, season logo, motifs, dates. Half of
+a season is continuity, and re-picking it by hand every quarter is how it drifts.
+
+**A completeness check before a season may go active.** A kit is complete when
+it has a ground, a chop glyph, at least one motif, at least one example, and a
+voice note. Anything short of that lists what is missing, in a sentence, and
+activation is refused until it is filled or the check is explicitly overridden
+with a reason recorded on the season.
+
+This is the item that would have prevented the current state. "Season 1" has
+been active with every field empty for as long as it has existed, and nothing
+anywhere said so. A person new to the job would have no way to know what
+finished looks like — and evidently neither did the system.
+
+**A narrower grant.** A hired seasonal designer gets `brand.templates` and
+nothing else. The permission model already does this with no code change; it is
+recorded here only so nobody later invents a "seasons" scope for it.
+
+## 8. Definition of done
 
 - `brand_season_assets` exists, with RLS via `apply_grant_policies` on `brand.templates`, and `motif_set`'s contents migrated into it.
 - `palette` and `voice_note` on `brand_seasons`; palette roles resolve to canon token keys and are validated against the canon rather than free text.
 - The Seasons board renders a complete kit, marks the active season unmistakably, and names what is missing on an incomplete one.
 - Motifs and examples can be added, ordered, re-roled and removed.
-- **"Season 1" is either filled in or archived.** An empty active season is the current state and it should not survive this work.
+- **"Season 1" is either filled in or archived.** An empty active season is the current state and it should not survive this work — and after the completeness gate ships, it could not recur.
+- Cloning a season produces a draft carrying continuity and cleared of what rotates, and the clone is never active on creation.
+- The completeness gate refuses activation of an incomplete kit, names every missing piece in a sentence, and records a reason when overridden.
 - No canon change, no new brand colour, no label-path change. If the kit appears to need one, stop and report.
 - `npm run verify`, `check:permissions --strict`, `check:migrations --strict`, `build` all green; browser verification with screenshots, since this repo has no UI test setup.
-
-## 8. Open question for Will
-
-**Who fills a season in, and how often?** If it is you, a handful of times a
-year, the board above is right. If it is meant to be a repeatable operational
-ritual — a new season every quarter, maybe by someone else — then it wants a
-"start a season from the last one" path, and that changes the design. I have
-assumed the former.
