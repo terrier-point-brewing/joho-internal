@@ -25,6 +25,14 @@ import {
 
 const asClient = (db: { client: unknown }) => db.client as unknown as SupabaseClient;
 
+/**
+ * Retry publishes inline, so the tests about the QUEUEING rule pass a worker
+ * that does nothing. They are about which row moves and what survives on it;
+ * letting the real worker run would publish the row out from under the
+ * assertion and test two things at once.
+ */
+const noPublish = { runWorker: async () => {} };
+
 const CHANNEL = "t-retry";
 // Rejects the first real attempt, then succeeds — the shape the retry path is
 // tested against. An idempotent hit is not an attempt, so it never reaches this.
@@ -62,7 +70,7 @@ describe("retrying a failed delivery", () => {
       }),
     );
 
-    const returned = await retryDelivery(asClient(db), "del-0");
+    const returned = await retryDelivery(asClient(db), "del-0", noPublish);
 
     expect(returned.status).toBe("scheduled");
     const row = db.tables.marketing_deliveries[0];
@@ -84,7 +92,7 @@ describe("retrying a failed delivery", () => {
     );
     const db = createMarketingTestDb(s);
 
-    await retryDelivery(asClient(db), "del-0");
+    await retryDelivery(asClient(db), "del-0", noPublish);
 
     // Re-sending the one that worked would post it twice; the other failure is
     // its own decision for a person to make.
@@ -98,7 +106,7 @@ describe("retrying a failed delivery", () => {
   it("refuses anything that is not failed, with a sentence and a 409", async () => {
     for (const status of ["pending", "scheduled", "publishing", "published", "skipped"]) {
       const db = createMarketingTestDb(seed({ status }));
-      await expect(retryDelivery(asClient(db), "del-0")).rejects.toMatchObject({
+      await expect(retryDelivery(asClient(db), "del-0", noPublish)).rejects.toMatchObject({
         status: 409,
         message: `Only a delivery that failed can be retried, and this one is ${status}.`,
       });
@@ -108,20 +116,51 @@ describe("retrying a failed delivery", () => {
 
   it("answers 404 for a delivery that does not exist", async () => {
     const db = createMarketingTestDb(seed({ status: "failed" }));
-    await expect(retryDelivery(asClient(db), "nope")).rejects.toBeInstanceOf(DeliveryRetryError);
-    await expect(retryDelivery(asClient(db), "nope")).rejects.toMatchObject({ status: 404 });
+    await expect(retryDelivery(asClient(db), "nope", noPublish)).rejects.toBeInstanceOf(DeliveryRetryError);
+    await expect(retryDelivery(asClient(db), "nope", noPublish)).rejects.toMatchObject({ status: 404 });
   });
 
   it("lets only one of two simultaneous presses through", async () => {
     const db = createMarketingTestDb(seed({ status: "failed" }));
 
     const outcomes = await Promise.allSettled([
-      retryDelivery(asClient(db), "del-0"),
-      retryDelivery(asClient(db), "del-0"),
+      retryDelivery(asClient(db), "del-0", noPublish),
+      retryDelivery(asClient(db), "del-0", noPublish),
     ]);
 
     expect(outcomes.filter((o) => o.status === "fulfilled")).toHaveLength(1);
     expect(outcomes.filter((o) => o.status === "rejected")).toHaveLength(1);
+  });
+});
+
+describe("retry publishes inline", () => {
+  it("runs the worker itself, because the sweep is a day away", async () => {
+    // The scheduled sweep runs ONCE A DAY (Vercel Hobby refuses anything
+    // faster), so a retry that only re-queued would leave the screen saying
+    // "Queued" for up to twenty-four hours. Pressing Retry is a request to
+    // publish, exactly as Post now is.
+    const db = createMarketingTestDb(seed({ status: "failed" }));
+    const runWorker = vi.fn(async () => {});
+
+    await retryDelivery(asClient(db), "del-0", { runWorker });
+
+    expect(runWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("still succeeds when the inline publish throws, leaving the row for the sweep", async () => {
+    // Best-effort, like the Post-now path: the row is already committed as
+    // scheduled and the claim is safe to re-run, so a throw costs promptness
+    // and nothing else. Reporting a failed retry for a delivery that IS back
+    // on the queue would be a lie.
+    const db = createMarketingTestDb(seed({ status: "failed" }));
+    const runWorker = vi.fn(async () => {
+      throw new Error("the sweep exploded");
+    });
+
+    const returned = await retryDelivery(asClient(db), "del-0", { runWorker });
+
+    expect(returned.status).toBe("scheduled");
+    expect(db.tables.marketing_deliveries[0].status).toBe("scheduled");
   });
 });
 
@@ -143,10 +182,14 @@ describe("retry, then the worker, on a delivery that already published", () => {
     plugin.setOutcome("succeed");
     const attemptsBefore = plugin.publishAttempts();
 
+    // Retry publishes inline — no separate worker run is needed, and this is
+    // the path a person actually takes when they press the button.
     await retryDelivery(asClient(db), "del-0");
-    const result = await runMarketingDeliveries(asClient(db));
 
-    expect(result).toEqual({ claimed: 1, published: 1, failed: 0, skipped: 0 });
+    // Running the sweep afterwards must find nothing left and change nothing:
+    // the inline publish already finished the job.
+    const sweep = await runMarketingDeliveries(asClient(db));
+    expect(sweep).toEqual({ claimed: 0, published: 0, failed: 0, skipped: 0 });
 
     // THE ASSERTION THIS FILE EXISTS FOR: the provider was not contacted.
     expect(plugin.publishAttempts()).toBe(attemptsBefore);
@@ -170,10 +213,9 @@ describe("retry, then the worker, on a delivery that already published", () => {
     const first = await runMarketingDeliveries(asClient(db));
     expect(first.failed).toBe(1);
 
+    // The inline publish is the second go; nothing waits for a sweep.
     await retryDelivery(asClient(db), "del-0");
-    const second = await runMarketingDeliveries(asClient(db));
 
-    expect(second.published).toBe(1);
     expect(plugin.publishAttempts()).toBe(2);
     expect(db.tables.marketing_deliveries[0].status).toBe("published");
   });
