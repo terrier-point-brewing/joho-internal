@@ -131,6 +131,16 @@ Migrations are applied through the **Supabase MCP** (`apply_migration` for DDL,
 `execute_sql` for reads/data), never `supabase db push`. Project ref
 `drlsazatrcrdwaihjmex`; see the repo `CLAUDE.md` for tool-loading.
 
+**A migration's filename version is not the version prod records.** `apply_migration`
+stamps `supabase_migrations.schema_migrations` with its own wall-clock timestamp, so
+the two sets have drifted apart wholesale — prod holds 231 rows, none with the
+`202610xx` versions this repo's newest files carry, and the repo's filename dates run
+months ahead of real time. Consequences worth holding: `check:migrations` guards
+uniqueness among **filenames** and says nothing about what is applied; the recorded
+version is the only evidence a migration ran; and you cannot infer either set from the
+other. Verify application by querying the objects themselves, never by reading a
+filename.
+
 RLS convention — do not hand-write the policy pair:
 
 ```sql
