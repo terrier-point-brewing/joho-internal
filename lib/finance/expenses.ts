@@ -9,8 +9,15 @@ import { codesFromRuleAccount } from "./counterpartyHandlers";
 /** Known spend sources. Extend the union (and the DB check) to add another. */
 export type ExpenseSource = "ramp" | "square" | "manual";
 
-/** Which Ramp resource an expense row originated from. */
-export type RampObject = "card" | "bill" | "bank";
+/**
+ * Which Ramp resource an expense row originated from.
+ *
+ * `reimbursement` is an out-of-pocket claim an employee filed. It is a peer of
+ * `bill`, not of `bank`: both are incurred on one date and settled on another,
+ * and the bank debit that settles either is a separate movement that must not be
+ * booked as the expense a second time.
+ */
+export type RampObject = "card" | "bill" | "bank" | "reimbursement";
 
 export interface CoaAccountRef {
   id:             string;

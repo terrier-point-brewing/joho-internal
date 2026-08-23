@@ -56,9 +56,17 @@ describe("isReconcilableRampEvent", () => {
     expect(isReconcilableRampEvent("webhooks.verification")).toBe(false);
     expect(isReconcilableRampEvent("tests.test_event")).toBe(false);
     expect(isReconcilableRampEvent("bills.paid")).toBe(false);
-    expect(isReconcilableRampEvent("reimbursements.ready_for_review")).toBe(false);
+    expect(isReconcilableRampEvent("users.created")).toBe(false);
     expect(isReconcilableRampEvent(undefined)).toBe(false);
     expect(isReconcilableRampEvent(42)).toBe(false);
+  });
+
+  // Reimbursements were skipped while nothing read them — waking a sync for an
+  // event with no consumer is pure cost. Now a claim IS an expense row, and one
+  // that arrives late is the difference between a month closing right and short.
+  it("treats reimbursement events as reconcilable", () => {
+    expect(isReconcilableRampEvent("reimbursements.ready_for_review")).toBe(true);
+    expect(isReconcilableRampEvent("reimbursements.paid")).toBe(true);
   });
 
   it("treats bill events as reconcilable", () => {

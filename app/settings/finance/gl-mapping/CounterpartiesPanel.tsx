@@ -45,7 +45,7 @@ import type { Tone } from "@/app/components/ui/tone";
 import MappingFrame from "./MappingFrame";
 import { useMappingData } from "./useMappingData";
 import { useBankFeedRules } from "./useBankFeedRules";
-import { feedName } from "./bankFeeds";
+import { feedName, feedClassifiesOwnLines } from "./bankFeeds";
 import {
   SELECTABLE_HANDLERS,
   getCounterpartyHandler,
@@ -272,16 +272,24 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
       footer={
         <>
           Mapping a counterparty here codes every uncoded bank-line expense from it (e.g. Gusto
-          payroll, Erie insurance). Setting its <strong>Flow</strong> says what kind of movement
-          its bank lines are, so they classify themselves instead of waiting for someone to decide
-          the same thing again every month — leave it on &ldquo;leave for review&rdquo; when the
-          answer genuinely differs line by line. A flow that is not income or expense needs no
-          account, so the Chart of Accounts column disappears for it. Rows are seeded automatically
-          the first time that counterparty appears in a sync. Switching one out of the books leaves its transactions imported and
-          visible but keeps them off every report — use that for transfers between accounts the
-          business already owns, which are neither income nor expense. A counterparty marked
-          &ldquo;set elsewhere&rdquo; is already accounted for by a balance sheet calculation, so there is
-          nothing to map here — follow its Manage link to see where it is set up.
+          payroll, Erie insurance). Rows are seeded automatically the first time that counterparty
+          appears in a sync.
+          {" "}
+          <strong>Flow</strong> and <strong>Chart of Accounts</strong> answer different questions.
+          Flow says what KIND of movement the bank lines are, so they classify themselves instead
+          of waiting for someone to decide the same thing every month; leave it on &ldquo;leave for
+          review&rdquo; when the answer genuinely differs line by line. Only an expense or an income
+          flow needs an account, so the Chart of Accounts column disappears for the others — and a
+          counterparty whose account is <em>set elsewhere</em> still needs a flow, because being
+          handled by a payroll split or a balance sheet calculation says nothing about whether the
+          money counts.
+          {" "}
+          A feed marked <em>classified on sync</em> tells us what each movement is at import time,
+          so there is nothing left for a rule to classify.
+          {" "}
+          Switching a counterparty out of the books leaves its transactions imported and visible but
+          keeps them off every report — use that for transfers between accounts the business already
+          owns, which are neither income nor expense.
         </>
       }
     >
@@ -351,11 +359,23 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
                 <span className="text-2xs text-faint" title="This counterparty is out of the books, so its lines are never counted">
                   excluded
                 </span>
-              ) : handled ? (
-                <span className="text-2xs text-faint" title="Whatever handles this counterparty decides how its lines are treated">
-                  set elsewhere
+              ) : feedClassifiesOwnLines(rule.source) ? (
+                // Not a disabled dropdown, and not a blank cell either. This
+                // feed's importer classifies every line as it arrives, so a rule
+                // here can never fire — see feedClassifiesOwnLines. A control
+                // that records a decision and then does nothing with it is the
+                // worst of the three, and an empty cell would read as a gap
+                // somebody forgot to fill.
+                <span className="text-2xs text-faint" title={`${feedName(rule.source)} says what each movement is, so its lines are classified as they import. A rule here would have nothing left to classify.`}>
+                  classified on sync
                 </span>
               ) : (
+                // Deliberately NOT gated on `handled`. Routing and claims answer
+                // "which ACCOUNT codes this counterparty" — a different question
+                // from "what kind of movement is it". Square is the case that
+                // proved it: GL 1040's sweep calculation owns its account, which
+                // left its four Chase payouts with no way to be marked as
+                // already-recorded deposits, and they sat unclassified for it.
                 <div className="flex flex-col gap-1 min-w-[200px]">
                   <select
                     className="inp-sm w-full"

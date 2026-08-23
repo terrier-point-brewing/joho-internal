@@ -8,7 +8,7 @@
  * IO (Supabase reads/writes) lives here.
  */
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { RampTransaction, RampBill } from "@/lib/ramp";
+import type { RampTransaction, RampBill, RampReimbursement } from "@/lib/ramp";
 import { extractGlAccount } from "@/lib/ramp";
 import { chunk } from "@/lib/utils/chunk";
 import {
@@ -141,6 +141,73 @@ export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
   });
 }
 
+/**
+ * Shape an out-of-pocket claim into an ExpenseRecord.
+ *
+ * ── Why the claim is the expense, and the bank debit is not ──────────────────
+ * An employee buys something with their own money; Ramp later pays them back in
+ * a single ACH debit that may cover several claims. Two events, one expense —
+ * and the expense is the claim, on the date it was incurred, coded to whatever
+ * was bought. The payout is a settlement, exactly like paying a bill.
+ *
+ * Before this existed the payout was the only record, so it had to be booked as
+ * the expense itself. That is wrong twice over: it dates the spend to the day
+ * the employee happened to get paid, and it forces one GL account onto a batch
+ * that may contain several unrelated purchases. The $704.85 debit of 2026-06-23
+ * is the case in point — it settles a $540 claim and a $164.85 one.
+ *
+ * ── Beware the double count ──────────────────────────────────────────────────
+ * Importing these makes the Chase payout debit a SETTLEMENT. If it is still
+ * classified as an operating expense, the same money is now counted twice. The
+ * "Ramp Reimbursement" counterparty rule is what closes that, and the migration
+ * that adds this sets it — see the note there. Ramp's own bank feed has never
+ * carried these payouts, so only the Chase feed is affected.
+ *
+ * ── Merchant, not employee ───────────────────────────────────────────────────
+ * `merchant_name` is where the money went ("Wake ABC"), because that is what the
+ * expense is FOR and what a GL rule would key on. The employee is recorded as
+ * the card holder, which is the nearest true thing the schema has: they are the
+ * person who made the purchase.
+ */
+export function rampReimbursementToExpenseRecord(r: RampReimbursement): ExpenseRecord {
+  // The claim carries GL coding at its own level and per line; the extractor
+  // already prefers whichever it finds first, and a claim with several lines is
+  // rare enough that splitting it per line — as a bill is split — would be
+  // machinery with nothing to run on. If that changes, split it the same way.
+  const gl = extractGlAccount({
+    accounting_field_selections: r.accounting_field_selections,
+    line_items: r.line_items,
+  });
+
+  return {
+    source:                SOURCE,
+    ramp_object:           "reimbursement",
+    source_transaction_id: r.id,
+    amount_cents:          -dollarsToCents(r.amount),   // outflow negative
+    currency_code:         r.currency_code || "USD",
+    memo:                  r.memo || null,
+    merchant_name:         r.merchant || null,
+    merchant_category:     null,
+    sk_category_name:      null,
+    state:                 normalizeState(r.state),
+    card_holder_name:      r.user_full_name || null,
+    department_name:       null,
+    transaction_time:      r.transaction_date || null,
+    accounting_date:       r.accounting_date,
+    // Same open/settled distinction a bill carries, and written on every sync
+    // including as null: a claim still awaiting payment is money the business
+    // owes, and one that gets paid has to stop being owed.
+    settled_at:            r.payment_processed_at || null,
+    external_account_id:   gl?.id ?? null,
+    external_account_name: gl?.name ?? null,
+    external_account_code: gl?.external_id ?? null,
+    counterparty_key:      null,
+    counterparty_label:    null,
+    qb_sync_status:        r.sync_status,
+    qb_synced_at:          null,
+    qb_remote_id:          null,
+  };
+}
 
 /**
  * The `expenses` columns of an ExpenseRecord. The account's name and code are

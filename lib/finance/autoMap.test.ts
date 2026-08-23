@@ -7,12 +7,38 @@ const account = (id: string): CounterpartyRule => ({ chart_of_accounts_id: id, f
 describe("resolveBankBackfill", () => {
   const rules = new Map<string, CounterpartyRule>([[counterpartyRuleKey("ramp", "gusto"), account("coa-payroll")]]);
 
+  /**
+   * A row whose flow is already settled and does use an account — the ordinary
+   * Ramp case, since that importer classifies every line as it arrives. Tests
+   * about an account-only rule have to use one of these: an unclassified row
+   * deliberately takes no account at all (see below).
+   */
+  const expenseRow = (over: Record<string, unknown> = {}) => ({
+    id: "r1", source: "ramp", counterparty_key: "gusto", mapping_source: "unmapped",
+    chart_of_accounts_id: null, flow_type: "operating_expense", ...over,
+  });
+
   it("maps an unmapped row whose counterparty has a rule", () => {
-    const out = resolveBankBackfill(
-      [{ id: "r1", source: "ramp", counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null }],
-      rules,
-    );
-    expect(out).toEqual([{ id: "r1", chart_of_accounts_id: "coa-payroll" }]);
+    expect(resolveBankBackfill([expenseRow()], rules)).toEqual([{ id: "r1", chart_of_accounts_id: "coa-payroll" }]);
+  });
+
+  // The account waits for the flow rather than landing on a row nothing counts.
+  // Writing it early produced the one state the grid has to draw a warning for:
+  // an account with no visible picker, on a row contributing to nothing.
+  it("gives an UNCLASSIFIED row nothing at all, account included", () => {
+    expect(resolveBankBackfill([expenseRow({ flow_type: "unclassified" })], rules)).toEqual([]);
+    expect(resolveBankBackfill([expenseRow({ flow_type: null })], rules)).toEqual([]);
+  });
+
+  it("fills the account as soon as the flow is answered", () => {
+    expect(resolveBankBackfill([expenseRow({ flow_type: "other_income" })], rules))
+      .toEqual([{ id: "r1", chart_of_accounts_id: "coa-payroll" }]);
+  });
+
+  it("never gives a settlement or a transfer an account", () => {
+    for (const flow of ["card_settlement", "bill_settlement", "deposit", "internal_transfer"]) {
+      expect(resolveBankBackfill([expenseRow({ flow_type: flow })], rules)).toEqual([]);
+    }
   });
 
   it("never overwrites a manual pin", () => {
@@ -65,8 +91,8 @@ describe("resolveBankBackfill", () => {
     ]);
     const out = resolveBankBackfill(
       [
-        { id: "r1", source: "ramp",  counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null },
-        { id: "r2", source: "plaid", counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null },
+        { id: "r1", source: "ramp",  counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null, flow_type: "operating_expense" },
+        { id: "r2", source: "plaid", counterparty_key: "gusto", mapping_source: "unmapped", chart_of_accounts_id: null, flow_type: "operating_expense" },
       ],
       both,
     );
@@ -130,10 +156,11 @@ describe("resolveBankBackfill", () => {
       expect(resolveBankBackfill([row({ mapping_source: "manual" })], flowRules)).toEqual([]);
     });
 
-    // A rule with no flow behaves exactly as it did before this column existed.
+    // A rule with no flow never classifies; it only ever fills an account, and
+    // only on a row whose own flow already uses one.
     it("an account-only rule leaves the flow alone", () => {
       const out = resolveBankBackfill(
-        [row({ counterparty_name: "Gusto", source: "ramp", counterparty_key: "gusto" })],
+        [row({ counterparty_name: "Gusto", source: "ramp", counterparty_key: "gusto", flow_type: "operating_expense" })],
         rules,
       );
       expect(out).toEqual([{ id: "r1", chart_of_accounts_id: "coa-payroll" }]);
