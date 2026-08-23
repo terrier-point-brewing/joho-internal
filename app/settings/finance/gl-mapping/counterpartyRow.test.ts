@@ -10,7 +10,7 @@ function rule(over: Partial<RowFacts> = {}): RowFacts {
     counterparty_key: "erie insurance",
     flow_type: null,
     handledElsewhere: false,
-    hasExpenses: true,
+    codesToAnAccount: true,
     ...over,
   };
 }
@@ -58,7 +58,7 @@ describe("step 2 — is the account asked for?", () => {
   // A Ramp counterparty's `expenses` rows are operating expenses by
   // construction, so its account is live even though step 1 never appeared.
   // This is the case a single merged dropdown could not serve.
-  it("is asked on a self-classifying feed when there is spend to code", () => {
+  it("is asked on a self-classifying feed when something there uses an account", () => {
     const s = counterpartyRowState(rule({ source: "ramp", counterparty_key: "dukeenergy" }), NO_RULES);
     expect(s.asksAccountSource).toBe(true);
     expect(s.bucket).toBe("needs-account");
@@ -69,9 +69,22 @@ describe("step 2 — is the account asked for?", () => {
   // of the Chase → Ramp wallet funding — has no expense row and never will.
   // Asking it for an account is asking a question with no answer; it went
   // unnoticed only because a counterparty exclusion used to hide the row.
-  it("is not asked on a self-classifying feed with no spend to code", () => {
+  // Ramp's `Interest` has no expense row at all — its money stays in
+  // bank_ledger as other_income and codes to 7010. Deciding this on "has
+  // expenses" alone hid a live P&L account behind "nothing to code", so the
+  // server answers both routes and this asserts the ledger one carries.
+  it("is asked when only a bank line uses the account", () => {
     const s = counterpartyRowState(
-      rule({ source: "ramp", counterparty_key: "tpb operating funds (···· 4077)", hasExpenses: false }),
+      rule({ source: "ramp", counterparty_key: "interest", flow_type: null, codesToAnAccount: true }),
+      NO_RULES,
+    );
+    expect(s.asksAccountSource).toBe(true);
+    expect(s.bucket).toBe("needs-account");
+  });
+
+  it("is not asked on a self-classifying feed when nothing does", () => {
+    const s = counterpartyRowState(
+      rule({ source: "ramp", counterparty_key: "tpb operating funds (···· 4077)", codesToAnAccount: false }),
       NO_RULES,
     );
     expect(s.asksAccountSource).toBe(false);

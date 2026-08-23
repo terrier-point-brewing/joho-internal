@@ -100,8 +100,8 @@ interface RuleRow {
   routing: string;
   /** What kind of movement this counterparty's bank lines are. Null = no opinion. */
   flow_type: string | null;
-  /** Whether this counterparty has any `expenses` rows — what its account codes on a self-classifying feed. */
-  has_expenses: boolean;
+  /** Whether any of this counterparty's money lands somewhere that uses an account. */
+  codes_to_an_account: boolean;
   claim: Claim | null;
 }
 
@@ -266,7 +266,7 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
   );
   const stateOf = (r: RuleRow) =>
     counterpartyRowState(
-      { ...r, handledElsewhere: effectiveHandler(r) !== null, hasExpenses: r.has_expenses },
+      { ...r, handledElsewhere: effectiveHandler(r) !== null, codesToAnAccount: r.codes_to_an_account },
       inclusion,
     );
 
