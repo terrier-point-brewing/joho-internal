@@ -11,6 +11,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import {
+  cloneSeason,
   createSeason,
   listSeasonKits,
   listSeasons,
@@ -61,7 +62,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
 
-    const supabase = createSupabaseAdminClient() as unknown as SupabaseLikeClient;
+    const admin = createSupabaseAdminClient();
+    const supabase = admin as unknown as SupabaseLikeClient;
+
+    // `clone_from` starts the new season from an existing one instead of from
+    // nothing: it carries the palette roles, voice note, cultural lean and
+    // examples, and clears the ground, glyph, logo, motifs and dates. Half of a
+    // season is continuity, and re-picking it by hand every quarter is how a
+    // brand drifts. A clone is a draft like any other new season — the
+    // completeness gate is what decides whether it may ever go into force.
+    if (typeof body.clone_from === "string" && body.clone_from.trim()) {
+      const clone = await cloneSeason(
+        supabase,
+        admin as unknown as SeasonAssetClient,
+        body.clone_from.trim(),
+        String(body.name),
+      );
+      return NextResponse.json(clone, { status: 201 });
+    }
+
     const season = await createSeason(supabase, {
       name: String(body.name),
       background_hex: (body.background_hex as string) ?? null,
@@ -72,6 +91,11 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(season, { status: 201 });
   } catch (err) {
+    // "There is no season to start from." is the caller's to fix; storage
+    // failures are ours. Same convention as the season PATCH route.
+    if (err instanceof Error && !/^Failed/.test(err.message)) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     return apiError(err);
   }
 }

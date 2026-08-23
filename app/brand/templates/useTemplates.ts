@@ -56,10 +56,17 @@ export function useSeasons() {
   });
 }
 
+/**
+ * A new season, blank or started from an existing one.
+ *
+ * `clone_from` is the same call rather than a route of its own: cloning is how
+ * a season is normally created, not a separate kind of act, and one creation
+ * path is one place for the rule that a new season is always a draft.
+ */
 export function useCreateSeason() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; background_hex?: string }) =>
+    mutationFn: (body: { name: string; clone_from?: string }) =>
       send("/api/brand/seasons", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: SEASONS }),
   });
@@ -142,13 +149,20 @@ export function useRemoveSeasonAsset() {
   });
 }
 
+/**
+ * Put a season into force.
+ *
+ * `override_reason` is the only way past the completeness gate, and it is
+ * recorded on the season — the server refuses an incomplete kit without one and
+ * names every missing piece, so the caller never has to know the rule.
+ */
 export function useActivateSeason() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
+    mutationFn: ({ id, override_reason }: { id: string; override_reason?: string }) =>
       send(`/api/brand/seasons/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ action: "activate" }),
+        body: JSON.stringify({ action: "activate", override_reason }),
       }),
     // Activating changes what every motif slot resolves to, so templates are
     // invalidated alongside seasons.

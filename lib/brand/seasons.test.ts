@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   activateSeason,
+  activationRefusal,
   addSeasonAsset,
-  canActivateSeason,
   canonTokenChoices,
+  cloneSeason,
   createSeason,
   getActiveSeason,
   kitByRole,
@@ -12,13 +13,13 @@ import {
   listSeasonAssets,
   listSeasonKits,
   listSeasons,
+  motifResolutionGaps,
   moveSeasonAsset,
   normalizeSeasonPalette,
   removeSeasonAsset,
   reorderKit,
   resolveSeasonPalette,
   seasonContext,
-  seasonGaps,
   setSeasonAssetNote,
   setSeasonAssetRole,
   updateSeason,
@@ -118,6 +119,7 @@ describe("seasonContext", () => {
         season_logo_asset_id: "a2", cultural_lean: null, motif_set: [],
         palette: { ink: "indigo" }, voice_note: null,
         starts_at: null, ends_at: null, status: "active",
+        activation_override_reason: null,
       }),
     ).toEqual({ backgroundHex: "#26355d", chopGlyphAssetId: "a1", seasonLogoAssetId: "a2" });
   });
@@ -137,28 +139,33 @@ describe("createSeason", () => {
   });
 });
 
-describe("seasonGaps", () => {
+describe("motifResolutionGaps", () => {
   // The chop glyph is the one thing a motif slot cannot fall back on: the canon
   // fixes everything about the chop except which glyph it draws.
-  it("blocks on a missing chop glyph", () => {
-    expect(seasonGaps({ chop_glyph_asset_id: null, background_hex: "#26355d" })).toEqual({
-      blocking: ["a chop glyph"],
-      warnings: [],
+  it("calls a missing chop glyph unresolvable", () => {
+    expect(motifResolutionGaps({ chop_glyph_asset_id: null, background_hex: "#26355d" })).toEqual({
+      unresolvable: ["a chop glyph"],
+      degraded: [],
     });
   });
 
   // A template can simply not declare a background motif slot — menu and
-  // apparel templates don't — so this is a gap, not a blocker.
-  it("only warns on a missing background", () => {
-    expect(seasonGaps({ chop_glyph_asset_id: "a1", background_hex: null })).toEqual({
-      blocking: [],
-      warnings: ["background color"],
+  // apparel templates don't — so this degrades rather than breaks everything.
+  it("calls a missing background degraded", () => {
+    expect(motifResolutionGaps({ chop_glyph_asset_id: "a1", background_hex: null })).toEqual({
+      unresolvable: [],
+      degraded: ["background color"],
     });
   });
 
-  it("canActivateSeason follows the blocking list, not the warnings", () => {
-    expect(canActivateSeason({ chop_glyph_asset_id: "a1", background_hex: null })).toBe(true);
-    expect(canActivateSeason({ chop_glyph_asset_id: null, background_hex: "#26355d" })).toBe(false);
+  // The guard against the two lists becoming two opinions: this one may only
+  // ever be a SUBSET of the completeness rule, never a second verdict about it.
+  it("never names anything kitGaps does not", () => {
+    const empty = { background_hex: null, chop_glyph_asset_id: null, voice_note: null };
+    const complete = kitGaps(empty, []);
+    for (const phrase of motifResolutionGaps(empty).unresolvable) {
+      expect(complete).toContain(phrase);
+    }
   });
 });
 
@@ -174,18 +181,52 @@ describe("updateSeason", () => {
     expect(c.rows.find((r) => r.id === "s1")!.status).toBe("draft");
     expect(c.rows.find((r) => r.id === "s1")!.background_hex).toBe("#26355d");
   });
+
+  // The override reason is the RECORD of an activation, not a field about the
+  // season. Editing it on its own would allow both halves of the lie: claiming
+  // an override that never happened, and erasing one that did.
+  it("ignores an activation override reason in the patch", async () => {
+    const c = client([
+      { id: "s1", name: "Season 1", status: "active", activation_override_reason: "the real one" },
+    ]);
+    await updateSeason(c as unknown as SupabaseLikeClient, "s1", {
+      activation_override_reason: "something else",
+      voice_note: "Warmer.",
+    } as never);
+    expect(c.rows.find((r) => r.id === "s1")!.activation_override_reason).toBe("the real one");
+    expect(c.rows.find((r) => r.id === "s1")!.voice_note).toBe("Warmer.");
+  });
 });
+
+/**
+ * A season with nothing missing, and the kit rows that finish it.
+ *
+ * Every activation test that is not ABOUT the gate uses these, because the gate
+ * is `kitGaps` — the same rule the board reads — so a season that would not
+ * pass the board's "not furnished yet" test cannot go into force either.
+ */
+const complete = (id: string, name: string, status: BrandSeason["status"] = "draft") => ({
+  id,
+  name,
+  status,
+  background_hex: "#26355d",
+  chop_glyph_asset_id: `${id}-glyph`,
+  voice_note: "Warmer, slower, less certain.",
+});
+
+const completeKit = (id: string) => [
+  { season_id: id, asset_id: `${id}-m`, role: "motif" as const, position: 0 },
+  { season_id: id, asset_id: `${id}-e`, role: "example" as const, position: 0 },
+];
 
 describe("activateSeason", () => {
   // Activating is the moment every motif slot in the system changes what it
   // resolves to, so it must be one deliberate swap with exactly one winner.
   it("archives the outgoing season before activating the new one", async () => {
-    const c = client([
-      { id: "s1", name: "Season 1", status: "active", chop_glyph_asset_id: "a1" },
-      { id: "s2", name: "Season 2", status: "draft", chop_glyph_asset_id: "a2" },
-    ]);
+    const c = client([complete("s1", "Season 1", "active"), complete("s2", "Season 2")]);
+    const k = kitClient([...completeKit("s1"), ...completeKit("s2")]);
 
-    await activateSeason(c as unknown as SupabaseLikeClient, "s2");
+    await activateSeason(c as unknown as SupabaseLikeClient, k, "s2");
 
     expect(c.rows.find((r) => r.id === "s1")!.status).toBe("archived");
     expect(c.rows.find((r) => r.id === "s2")!.status).toBe("active");
@@ -194,50 +235,224 @@ describe("activateSeason", () => {
   // The fake enforces the partial unique index, so an activate-then-archive
   // ordering fails here instead of quietly leaving two active seasons.
   it("never leaves two seasons active", async () => {
-    const c = client([
-      { id: "s1", name: "Season 1", status: "active", chop_glyph_asset_id: "a1" },
-      { id: "s2", name: "Season 2", status: "draft", chop_glyph_asset_id: "a2" },
-    ]);
-    await activateSeason(c as unknown as SupabaseLikeClient, "s2");
+    const c = client([complete("s1", "Season 1", "active"), complete("s2", "Season 2")]);
+    const k = kitClient([...completeKit("s1"), ...completeKit("s2")]);
+    await activateSeason(c as unknown as SupabaseLikeClient, k, "s2");
     expect(c.rows.filter((r) => r.status === "active")).toHaveLength(1);
+  });
+
+  // Two activations in quick succession: the rotation still names exactly one
+  // season, and the index is never momentarily violated in between.
+  it("holds one active season across two activations back to back", async () => {
+    const c = client([
+      complete("s1", "Season 1", "active"),
+      complete("s2", "Season 2"),
+      complete("s3", "Season 3"),
+    ]);
+    const k = kitClient([...completeKit("s1"), ...completeKit("s2"), ...completeKit("s3")]);
+
+    await activateSeason(c as unknown as SupabaseLikeClient, k, "s2");
+    await activateSeason(c as unknown as SupabaseLikeClient, k, "s3");
+
+    expect(c.rows.filter((r) => r.status === "active").map((r) => r.id)).toEqual(["s3"]);
+    expect(c.rows.find((r) => r.id === "s1")!.status).toBe("archived");
+    expect(c.rows.find((r) => r.id === "s2")!.status).toBe("archived");
   });
 
   it("is a no-op-safe re-activation of the season already in force", async () => {
-    const c = client([
-      { id: "s1", name: "Season 1", status: "active", chop_glyph_asset_id: "a1" },
-    ]);
-    await activateSeason(c as unknown as SupabaseLikeClient, "s1");
+    const c = client([complete("s1", "Season 1", "active")]);
+    await activateSeason(c as unknown as SupabaseLikeClient, kitClient(completeKit("s1")), "s1");
     expect(c.rows.filter((r) => r.status === "active")).toHaveLength(1);
   });
 
-  it("refuses a season with no chop glyph, naming what it needs", async () => {
+  // THE GATE. Not a rule of its own: `kitGaps`, the same list the board's "not
+  // furnished yet" sentence is built from, asked at the moment it matters.
+  it("refuses an unfurnished season, naming every missing piece at once", async () => {
     const c = client([{ id: "s2", name: "Season 2", status: "draft" }]);
     await expect(
-      activateSeason(c as unknown as SupabaseLikeClient, "s2"),
-    ).rejects.toThrow(/chop glyph/);
+      activateSeason(c as unknown as SupabaseLikeClient, kitClient(), "s2"),
+    ).rejects.toThrow(
+      /still needs a ground color, a chop glyph, a motif, an example and a voice note/,
+    );
+  });
+
+  it("refuses on any single missing piece — here the example", async () => {
+    const c = client([complete("s2", "Season 2")]);
+    const k = kitClient([{ season_id: "s2", asset_id: "m", role: "motif", position: 0 }]);
+    await expect(
+      activateSeason(c as unknown as SupabaseLikeClient, k, "s2"),
+    ).rejects.toThrow(/still needs an example/);
   });
 
   // The refusal has to come before the archive, or a rejected activation takes
   // the working season down with it.
   it("leaves the outgoing season in force when it refuses", async () => {
-    const c = client([
-      { id: "s1", name: "Season 1", status: "active", chop_glyph_asset_id: "a1" },
-      { id: "s2", name: "Season 2", status: "draft" },
-    ]);
-    await expect(activateSeason(c as unknown as SupabaseLikeClient, "s2")).rejects.toThrow();
+    const c = client([complete("s1", "Season 1", "active"), { id: "s2", name: "S2", status: "draft" }]);
+    const k = kitClient(completeKit("s1"));
+    await expect(activateSeason(c as unknown as SupabaseLikeClient, k, "s2")).rejects.toThrow();
     expect(c.rows.find((r) => r.id === "s1")!.status).toBe("active");
   });
 
-  it("activates without a background, which is only a warning", async () => {
-    const c = client([
-      { id: "s1", name: "Season 1", status: "draft", chop_glyph_asset_id: "a1" },
-    ]);
-    await activateSeason(c as unknown as SupabaseLikeClient, "s1");
-    expect(c.rows.find((r) => r.id === "s1")!.status).toBe("active");
+  // NO REASON, NO OVERRIDE — and blank is not a reason.
+  it("refuses an unfurnished season handed a whitespace-only reason", async () => {
+    const c = client([complete("s2", "Season 2")]);
+    await expect(
+      activateSeason(c as unknown as SupabaseLikeClient, kitClient(), "s2", {
+        overrideReason: "   ",
+      }),
+    ).rejects.toThrow(/still needs/);
+  });
+
+  it("lets a reason through, and records it on the season", async () => {
+    const c = client([complete("s2", "Season 2")]);
+    await activateSeason(c as unknown as SupabaseLikeClient, kitClient(), "s2", {
+      overrideReason: "Cans ship Friday; art lands next week.",
+    });
+    const row = c.rows.find((r) => r.id === "s2")!;
+    expect(row.status).toBe("active");
+    expect(row.activation_override_reason).toBe("Cans ship Friday; art lands next week.");
+  });
+
+  // A complete season is not an override, whatever the caller sent — and a
+  // stale reason would have the board claim a season went out unfinished.
+  it("records nothing when the kit is complete, even if a reason is offered", async () => {
+    const c = client([{ ...complete("s2", "Season 2"), activation_override_reason: "stale" }]);
+    await activateSeason(c as unknown as SupabaseLikeClient, kitClient(completeKit("s2")), "s2", {
+      overrideReason: "not needed",
+    });
+    expect(c.rows.find((r) => r.id === "s2")!.activation_override_reason).toBeNull();
   });
 
   it("throws on a missing season", async () => {
-    await expect(activateSeason(client() as unknown as SupabaseLikeClient, "nope")).rejects.toThrow();
+    await expect(
+      activateSeason(client() as unknown as SupabaseLikeClient, kitClient(), "nope"),
+    ).rejects.toThrow();
+  });
+});
+
+describe("activationRefusal", () => {
+  it("names every missing piece in one sentence, and says how to get past it", () => {
+    expect(activationRefusal("Season 2", ["a motif", "a voice note"])).toBe(
+      "Season 2 cannot go into force yet — it still needs a motif and a voice note. Put it in force unfinished only with a reason, which goes on the record.",
+    );
+  });
+
+  it("is null when there is nothing to refuse", () => {
+    expect(activationRefusal("Season 2", [])).toBeNull();
+  });
+});
+
+describe("cloneSeason", () => {
+  const source = () =>
+    client([
+      {
+        id: "s1",
+        name: "Season 1",
+        status: "active",
+        background_hex: "#26355d",
+        chop_glyph_asset_id: "glyph-1",
+        season_logo_asset_id: "logo-1",
+        palette: { ink: "indigo", accent: "seal-red" },
+        voice_note: "Warmer, slower, less certain.",
+        cultural_lean: "Coastal, late summer.",
+        starts_at: "2026-06-01",
+        ends_at: "2026-08-31",
+        activation_override_reason: "shipped early once",
+      },
+    ]);
+
+  const sourceKit = () =>
+    kitClient([
+      { season_id: "s1", asset_id: "m1", role: "motif", position: 0, note: "the chop family" },
+      { season_id: "s1", asset_id: "e1", role: "example", position: 1, note: "hero shot" },
+      { season_id: "s1", asset_id: "e2", role: "example", position: 0 },
+      { season_id: "s1", asset_id: "t1", role: "texture", position: 0 },
+    ]);
+
+  it("carries continuity: palette, voice, lean", async () => {
+    const c = source();
+    const clone = await cloneSeason(c as unknown as SupabaseLikeClient, sourceKit(), "s1", "Season 2");
+    expect(clone.palette).toEqual({ ink: "indigo", accent: "seal-red" });
+    expect(clone.voice_note).toBe("Warmer, slower, less certain.");
+    expect(clone.cultural_lean).toBe("Coastal, late summer.");
+  });
+
+  it("clears what rotates: ground, glyph, logo, dates", async () => {
+    const clone = await cloneSeason(
+      source() as unknown as SupabaseLikeClient,
+      sourceKit(),
+      "s1",
+      "Season 2",
+    );
+    expect(clone.background_hex).toBeNull();
+    expect(clone.chop_glyph_asset_id).toBeNull();
+    expect(clone.season_logo_asset_id).toBeNull();
+    expect(clone.starts_at).toBeNull();
+    expect(clone.ends_at).toBeNull();
+  });
+
+  // A clone is never active on creation, no matter what it was cloned from —
+  // and it has never been activated, so it carries no reason about how it was.
+  it("is a draft with no override reason, cloned from the season in force", async () => {
+    const clone = await cloneSeason(
+      source() as unknown as SupabaseLikeClient,
+      sourceKit(),
+      "s1",
+      "Season 2",
+    );
+    expect(clone.status).toBe("draft");
+    expect(clone.activation_override_reason).toBeNull();
+  });
+
+  it("carries examples and textures, and leaves the motifs behind", async () => {
+    const k = sourceKit();
+    const clone = await cloneSeason(source() as unknown as SupabaseLikeClient, k, "s1", "Season 2");
+    const carried = k.rows.filter((r) => r.season_id === clone.id);
+    expect(carried.map((r) => r.role).sort()).toEqual(["example", "example", "texture"]);
+    expect(carried.some((r) => r.role === "motif")).toBe(false);
+  });
+
+  it("carries each example's note, in the order the source left them", async () => {
+    const k = sourceKit();
+    const clone = await cloneSeason(source() as unknown as SupabaseLikeClient, k, "s1", "Season 2");
+    expect(
+      kitByRole(k.rows.filter((r) => r.season_id === clone.id), "example").map((r) => [
+        r.asset_id,
+        r.note,
+      ]),
+    ).toEqual([
+      ["e2", null],
+      ["e1", "hero shot"],
+    ]);
+  });
+
+  // The clone is furnished enough to be judged by the same rule as anything
+  // else: it is short exactly the things that were cleared.
+  it("produces a draft the gate refuses, naming what was cleared", async () => {
+    const c = source();
+    const k = sourceKit();
+    const clone = await cloneSeason(c as unknown as SupabaseLikeClient, k, "s1", "Season 2");
+    await expect(
+      activateSeason(c as unknown as SupabaseLikeClient, k, clone.id),
+    ).rejects.toThrow(/still needs a ground color, a chop glyph and a motif/);
+  });
+
+  it("cloning twice does not collide", async () => {
+    const c = source();
+    const k = sourceKit();
+    const a = await cloneSeason(c as unknown as SupabaseLikeClient, k, "s1", "Season 2");
+    const b = await cloneSeason(c as unknown as SupabaseLikeClient, k, "s1", "Season 3");
+    expect(a.id).not.toBe(b.id);
+    expect(k.rows.filter((r) => r.season_id === a.id)).toHaveLength(3);
+    expect(k.rows.filter((r) => r.season_id === b.id)).toHaveLength(3);
+    // Two drafts, and the season in force is still the one that was in force.
+    expect(c.rows.filter((r) => r.status === "active").map((r) => r.id)).toEqual(["s1"]);
+  });
+
+  it("refuses to start from a season that is not there", async () => {
+    await expect(
+      cloneSeason(client() as unknown as SupabaseLikeClient, kitClient(), "nope", "Season 2"),
+    ).rejects.toThrow(/no season to start from/);
   });
 });
 
@@ -370,6 +585,20 @@ describe("kitGaps", () => {
 
   it("is empty for a furnished season", () => {
     expect(kitGaps(furnished, [{ role: "motif" }, { role: "example" }])).toEqual([]);
+  });
+
+  // Each piece on its own, because this list is now the ACTIVATION GATE and a
+  // piece it forgets is a season that goes into force half-built. One case per
+  // element of the rule, so removing any one of them fails a named test.
+  const bothRows = [{ role: "motif" as const }, { role: "example" as const }];
+  it.each([
+    ["a ground color", { ...furnished, background_hex: null }, bothRows],
+    ["a chop glyph", { ...furnished, chop_glyph_asset_id: null }, bothRows],
+    ["a voice note", { ...furnished, voice_note: null }, bothRows],
+    ["a motif", furnished, [{ role: "example" as const }]],
+    ["an example", furnished, [{ role: "motif" as const }]],
+  ])("names %s when that is the only thing missing", (gap, season, rows) => {
+    expect(kitGaps(season, rows)).toEqual([gap]);
   });
 
   // A texture is not part of a complete kit, and a season full of them is still

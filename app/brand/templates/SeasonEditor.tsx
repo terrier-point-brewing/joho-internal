@@ -4,7 +4,7 @@ import { useState } from "react";
 import Banner from "@/app/components/ui/Banner";
 import { assetFileUrl, type BrandAsset } from "@/lib/brand/assets";
 import {
-  seasonGaps,
+  motifResolutionGaps,
   SEASON_PALETTE_ROLES,
   type BrandSeason,
   type CanonToken,
@@ -54,7 +54,9 @@ export default function SeasonEditor({
 
   const set = (patch: Partial<typeof draft>) => setDraft((d) => ({ ...d, ...patch }));
 
-  const gaps = seasonGaps(draft);
+  // What a motif SLOT cannot resolve — a different question from whether the
+  // kit is finished, which is `kitGaps` and is the board's and the gate's.
+  const render = motifResolutionGaps(draft);
   // A window that ends before it starts would sort the season into the wrong
   // place and read as a typo nobody catches until the rotation is wrong.
   const badWindow = Boolean(draft.starts_at && draft.ends_at && draft.ends_at < draft.starts_at);
@@ -190,21 +192,22 @@ export default function SeasonEditor({
         <Banner tone="danger">{(updateSeason.error as Error).message}</Banner>
       )}
 
-      {/* The same gap list the activate gate uses, so the editor and the button
-          can never disagree about what is missing. */}
-      {gaps.blocking.length > 0 && (
+      {/* What a RENDER cannot resolve, which is not the same as what the kit is
+          short of. The board says the second, in one sentence, from `kitGaps`;
+          this says the first, and deliberately never claims an activation
+          verdict of its own — one completeness rule, one place. It is worth
+          saying about the season already in force above all: "Season 1" is
+          active with no glyph, and only this line says what that costs. */}
+      {render.unresolvable.length > 0 && (
         <Banner tone="danger">
           {season.status === "active"
-            ? // A season already in force can still be missing one — the gate is
-              // new and predates the rows it now judges. Saying "cannot be
-              // activated" about the live season would just read as wrong.
-              `This season is active but is missing ${gaps.blocking.join(" and ")} — every motif chop slot will fail validation until it has one.`
-            : `This season cannot be activated until it has ${gaps.blocking.join(" and ")}.`}
+            ? `This season is in force but has no ${render.unresolvable.join(" or ")} — every motif chop slot fails validation against it until it does.`
+            : `Without ${render.unresolvable.join(" or ")}, every motif chop slot will fail validation against this season.`}
         </Banner>
       )}
-      {gaps.blocking.length === 0 && gaps.warnings.length > 0 && (
+      {render.unresolvable.length === 0 && render.degraded.length > 0 && (
         <Banner tone="info">
-          No {gaps.warnings.join(" or ")} set — templates with a background motif slot will fail
+          No {render.degraded.join(" or ")} set — templates with a background motif slot will fail
           validation against this season.
         </Banner>
       )}

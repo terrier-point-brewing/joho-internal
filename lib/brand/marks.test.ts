@@ -24,6 +24,7 @@ const season = (over: Partial<BrandSeason> & { id: string; name: string }): Bran
   starts_at: null,
   ends_at: null,
   status: "active",
+  activation_override_reason: null,
   ...over,
 });
 

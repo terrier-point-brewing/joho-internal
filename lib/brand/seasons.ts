@@ -63,6 +63,16 @@ export interface BrandSeason {
   starts_at: string | null;
   ends_at: string | null;
   status: "draft" | "active" | "archived";
+  /**
+   * Why this season was put into force with an incomplete kit, or null if it
+   * was not — which covers both "never overridden" and "activated clean".
+   *
+   * Written only by `activateSeason`, and cleared by it on a complete
+   * activation, so the value always describes the activation currently in
+   * effect. Never set by a migration: "Season 1" predates the gate and is
+   * grandfathered, not overridden.
+   */
+  activation_override_reason: string | null;
 }
 
 /** A season plus its asset rows — what the board renders from. */
@@ -185,51 +195,57 @@ export async function createSeason(
 }
 
 /**
- * Field edits only. `status` is deliberately not patchable: activation archives
- * the outgoing season and is gated on seasonGaps(), so a plain field patch that
- * could set status:"active" would be a way around that gate — and the PATCH
- * route forwards an arbitrary body here.
+ * Field edits only.
+ *
+ * Two columns are deliberately not patchable, and both are stripped HERE rather
+ * than in the route, because the route forwards an arbitrary body and a second
+ * field-patch route added later would bypass a check that lived up there
+ * (`project_field_patch_routes_bypass_gated_actions`):
+ *
+ * - `status`, because activation archives the outgoing season and is gated on
+ *   kitGaps(), so a patch that could set status:"active" would be a way round
+ *   the gate.
+ * - `activation_override_reason`, because it is the RECORD of an activation,
+ *   not a field about the season. Letting it be edited on its own would allow
+ *   both halves of the lie: a season claiming an override it never took, and an
+ *   overridden season quietly erasing why.
  */
 export async function updateSeason(
   client: SupabaseLikeClient,
   id: string,
-  patch: Partial<Omit<BrandSeason, "id" | "status">>,
+  patch: Partial<Omit<BrandSeason, "id" | "status" | "activation_override_reason">>,
 ): Promise<void> {
   const fields = { ...(patch as Partial<BrandSeason>) };
   delete fields.status;
+  delete fields.activation_override_reason;
   const { error } = await client.from(TABLE).update(fields).eq("id", id);
   if (error) throw new Error("Failed to update season");
 }
 
 /**
- * What a season still owes before it can go into force.
+ * What a `motif` slot cannot resolve against this season.
  *
- * A `motif: chop-glyph` slot has nowhere to fall back to — the canon fixes the
- * chop's position, footprint and color and leaves only the glyph to the season,
- * so a season without one cannot resolve the slot at all. Blocking is right
- * because activating is destructive: it archives the outgoing season, so a
- * season activated half-built takes the working one down with it.
+ * NOT the activation gate — that is `kitGaps`, and there is exactly one of it.
+ * This answers a narrower, different question: given this season, which motif
+ * slots would fail validation right now? A `motif: chop-glyph` slot has nowhere
+ * to fall back to, because the canon fixes the chop's position, footprint and
+ * colour and leaves only the glyph to the season. A `motif: background` slot is
+ * the same kind of failure, but plenty of templates (menu, apparel) simply do
+ * not declare one, so it degrades rather than breaks everything.
  *
- * Background is a gap but not a blocker — a template can decline to declare a
- * `motif: background` slot, and plenty (menu, apparel) do.
+ * It exists for the season editor's hint, which is worth saying about the
+ * season ALREADY in force: "Season 1" is active with no glyph, so every chop
+ * slot in the system fails against it today, and only this sentence says so.
+ * Its lists are a subset of `kitGaps`, never a second opinion about it.
  */
-export function seasonGaps(season: Pick<BrandSeason, "chop_glyph_asset_id" | "background_hex">): {
-  blocking: string[];
-  warnings: string[];
-} {
-  // Phrased as noun phrases that read after "needs …" and after "no … set",
-  // so the gate message and the editor's hint can share one list.
-  return {
-    blocking: season.chop_glyph_asset_id ? [] : ["a chop glyph"],
-    warnings: season.background_hex ? [] : ["background color"],
-  };
-}
-
-/** True when this season could be activated without breaking a motif slot. */
-export function canActivateSeason(
+export function motifResolutionGaps(
   season: Pick<BrandSeason, "chop_glyph_asset_id" | "background_hex">,
-): boolean {
-  return seasonGaps(season).blocking.length === 0;
+): { unresolvable: string[]; degraded: string[] } {
+  // Phrased as noun phrases that read after "needs …" and after "no … set".
+  return {
+    unresolvable: season.chop_glyph_asset_id ? [] : ["a chop glyph"],
+    degraded: season.background_hex ? [] : ["background color"],
+  };
 }
 
 /**
@@ -241,19 +257,37 @@ export function canActivateSeason(
  *
  * This is the moment every `motif` slot in the system changes what it resolves
  * to, which is why it is one deliberate action rather than a status dropdown —
- * and why it is gated on seasonGaps() the way publishTemplate is gated on
- * validateTemplateShape.
+ * and why it is gated the way publishTemplate is gated on validateTemplateShape.
+ *
+ * THE GATE IS `kitGaps`, the same function the board's "not furnished yet"
+ * sentence is drawn from. Completeness asked at activation time and
+ * completeness asked while looking at the board are the same question at two
+ * moments; a second copy of the rule would drift, and the drift would be
+ * invisible until someone activated a season they should not have.
+ *
+ * The kit rows come from a second client because `brand_season_assets` has a
+ * composite key and no `id` — the same two casts of one admin client the routes
+ * already make.
  */
-export async function activateSeason(client: SupabaseLikeClient, id: string): Promise<void> {
+export async function activateSeason(
+  client: SupabaseLikeClient,
+  assetClient: SeasonAssetClient,
+  id: string,
+  options: { overrideReason?: string | null } = {},
+): Promise<void> {
   const { data: targets } = await client.from(TABLE).select("*").eq("id", id).limit(1);
   const target = targets?.[0];
   if (!target) throw new Error("Season not found");
 
+  const gaps = kitGaps(target, await listSeasonAssets(assetClient, id));
+  // Blank is not a reason. NO REASON, NO OVERRIDE — the column's CHECK says the
+  // same thing, so a caller that skips this cannot get a blank one in either.
+  const reason = options.overrideReason?.trim() || null;
+
   // Checked before the outgoing season is archived, so a refused activation
   // leaves the rotation exactly as it was.
-  const { blocking } = seasonGaps(target);
-  if (blocking.length > 0) {
-    throw new Error(`Cannot activate "${target.name}": it still needs ${blocking.join(" and ")}.`);
+  if (gaps.length > 0 && !reason) {
+    throw new Error(activationRefusal(target.name, gaps) as string);
   }
 
   const { data: live } = await client.from(TABLE).select("*").eq("status", "active").limit(1);
@@ -263,8 +297,94 @@ export async function activateSeason(client: SupabaseLikeClient, id: string): Pr
     await client.from(TABLE).update({ status: "archived" }).eq("id", current.id);
   }
 
-  const { error } = await client.from(TABLE).update({ status: "active" }).eq("id", target.id);
+  const { error } = await client
+    .from(TABLE)
+    .update({
+      status: "active",
+      // A complete season is not an override, whatever the caller sent — and a
+      // stale reason left behind by an earlier one would have the board claim
+      // a season went out unfinished when it did not.
+      activation_override_reason: gaps.length > 0 ? reason : null,
+    })
+    .eq("id", target.id);
   if (error) throw new Error("Failed to activate season");
+}
+
+/**
+ * Why an activation was refused, in one sentence a person can act on.
+ *
+ * Names every missing piece rather than the first — a refusal you have to earn
+ * one field at a time teaches nothing about what finished looks like, which is
+ * the whole reason this gate exists. Null when there is nothing to refuse.
+ */
+export function activationRefusal(name: string, gaps: string[]): string | null {
+  if (gaps.length === 0) return null;
+  return `${name} cannot go into force yet — it still needs ${joinPhrases(gaps)}. Put it in force unfinished only with a reason, which goes on the record.`;
+}
+
+/**
+ * Start a new season from an existing one.
+ *
+ * Half of a season is continuity, and re-picking it by hand every quarter is
+ * how a brand drifts. So the clone CARRIES what continues — the palette roles,
+ * the voice note, the cultural lean, the examples — and CLEARS what actually
+ * rotates: the ground, the chop glyph, the season logo, the motifs and the
+ * dates. That split is the whole point of the feature.
+ *
+ * Textures carry. The spec enumerates motifs as rotating and examples as
+ * continuity and does not name textures either way; a texture is a material
+ * substrate rather than a seasonal vocabulary, so it sits on the continuity
+ * side. It is one click to remove if a season disagrees.
+ *
+ * A clone is NEVER active on creation, whatever it was cloned from, and never
+ * carries an override reason: it has not been activated, so there is nothing to
+ * record about how it was.
+ */
+export async function cloneSeason(
+  client: SupabaseLikeClient,
+  assetClient: SeasonAssetClient,
+  sourceId: string,
+  name: string,
+): Promise<BrandSeason> {
+  const { data: found } = await client.from(TABLE).select("*").eq("id", sourceId).limit(1);
+  const source = found?.[0];
+  if (!source) throw new Error("There is no season to start from.");
+
+  const { data, error } = await client
+    .from(TABLE)
+    .insert({
+      name,
+      // Carried — continuity.
+      palette: source.palette ?? {},
+      voice_note: source.voice_note ?? null,
+      cultural_lean: source.cultural_lean ?? null,
+      // Cleared — what rotates.
+      background_hex: null,
+      chop_glyph_asset_id: null,
+      season_logo_asset_id: null,
+      starts_at: null,
+      ends_at: null,
+      status: "draft",
+      activation_override_reason: null,
+    })
+    .select()
+    .single();
+  if (error || !data) throw new Error("Failed to clone season");
+
+  // In position order, so the carried rows land in the order they were left in.
+  // `addSeasonAsset` re-derives each position rather than copying it: the source
+  // may have gaps in its numbering, and a dense 0..n is what a reorder expects.
+  for (const row of await listSeasonAssets(assetClient, sourceId)) {
+    if (row.role === "motif") continue;
+    await addSeasonAsset(assetClient, {
+      season_id: data.id,
+      asset_id: row.asset_id,
+      role: row.role,
+      note: row.note,
+    });
+  }
+
+  return data;
 }
 
 // ─── The palette: roles that select from the canon, never redefine it ────────
@@ -382,10 +502,14 @@ export function kitByRole(
  * What a season is still missing before it counts as furnished.
  *
  * The list the spec names: a ground, a chop glyph, at least one motif, at least
- * one example, a voice note. This chip only DISPLAYS it — activation is still
- * gated on `seasonGaps`, which is about what a render can resolve. The two lists
- * answer different questions and are deliberately separate: a season can be
- * renderable and still be unfurnished, which is exactly what "Season 1" is.
+ * one example, a voice note.
+ *
+ * THE ONE HOME OF THE COMPLETENESS RULE. The board's "not furnished yet"
+ * sentence, the editor's hint, the "Make active" button and `activateSeason`'s
+ * refusal all call this and none of them re-implements it. They are the same
+ * question — is this kit finished? — asked at different moments, and a second
+ * copy would drift silently until the day someone activated a season they
+ * should not have. If completeness ever needs to change, it changes here.
  *
  * Phrased as noun phrases that read after "still needs …".
  */
