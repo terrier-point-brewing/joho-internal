@@ -318,6 +318,19 @@ export function createInstagramChannelPlugin(options: InstagramChannelOptions = 
         url.searchParams.set("state", state);
         url.searchParams.set("scope", INSTAGRAM_SCOPES.join(","));
         url.searchParams.set("response_type", "code");
+        // Force the dialog to ask again.
+        //
+        // Without this, Facebook short-circuits an account that has already
+        // authorised the app: it skips the dialog entirely and hands back a
+        // code carrying the permissions granted the FIRST time. Add a scope
+        // later — as pages_show_list was — and every subsequent connect
+        // silently returns the old, narrower grant. The failure surfaces far
+        // from its cause, as an empty /me/accounts, which reads exactly like
+        // "this person does not administer the Page".
+        //
+        // `rerequest` also covers the case where someone unticks a permission
+        // in the dialog: without it, asking again is a no-op.
+        url.searchParams.set("auth_type", "rerequest");
         return url.toString();
       },
 
