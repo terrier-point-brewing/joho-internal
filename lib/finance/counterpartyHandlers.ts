@@ -54,7 +54,15 @@ export type CounterpartyGlEffect = "account" | "elsewhere";
 export interface CounterpartyHandler {
   /** Stored in expense_counterparty_mappings.routing. A published contract: renaming one silently re-routes every counterparty already using it. */
   key: string;
-  /** The dropdown option. Selectable handlers only — a claimed one never reaches a menu. */
+  /**
+   * The dropdown option, phrased as an answer to "where does the account come
+   * from?" — which is the question this field has always answered. It used to be
+   * labelled as if it answered "what kind of counterparty is this", which put it
+   * in direct competition with the flow type and left an operator choosing
+   * between two overlapping vocabularies.
+   *
+   * Selectable handlers only — a claimed one never reaches a menu.
+   */
   label: string;
   /**
    * Shown in place of the chart-of-accounts picker.
@@ -80,7 +88,7 @@ export const BALANCE_SHEET = "balance_sheet";
 export const COUNTERPARTY_HANDLERS: CounterpartyHandler[] = [
   {
     key: SINGLE_ACCOUNT,
-    label: "Single account",
+    label: "Chosen here",
     badge: "",
     manageHref: "",
     glEffect: "account",
@@ -88,7 +96,7 @@ export const COUNTERPARTY_HANDLERS: CounterpartyHandler[] = [
   },
   {
     key: "payroll_split",
-    label: "Payroll split",
+    label: "Split by payroll department",
     badge: "Split by GL account — matched per pay period",
     manageHref: "/settings/payroll/departments",
     glEffect: "elsewhere",
@@ -96,7 +104,7 @@ export const COUNTERPARTY_HANDLERS: CounterpartyHandler[] = [
   },
   {
     key: BALANCE_SHEET,
-    label: "Balance sheet calculation",
+    label: "A balance sheet calculation",
     // Replaced per row by the claim, which names the account. Kept non-empty so
     // a stored-but-unclaimed row (a method deleted after the fact) still renders
     // a sentence rather than an empty cell.

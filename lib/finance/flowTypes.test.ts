@@ -7,6 +7,12 @@ import {
   isFlowType,
   flowNeedsAccount,
   flowAffectsPl,
+  OUT_OF_BOOKS,
+  TREATMENT_GROUPS,
+  TREATMENT_OPTIONS,
+  treatmentsInGroup,
+  getTreatment,
+  treatmentNeedsAccount,
 } from "./flowTypes";
 import { affectsPlForFlowType } from "./bankLedger";
 
@@ -69,5 +75,53 @@ describe("flow type registry", () => {
     expect(flowNeedsAccount("nonsense")).toBe(false);
     expect(flowAffectsPl("nonsense")).toBe(false);
     expect(flowNeedsAccount(null)).toBe(false);
+  });
+});
+
+describe("the settings picker's vocabulary", () => {
+  it("offers every flow except unclassified, plus out-of-books", () => {
+    expect(TREATMENT_OPTIONS.map((t) => t.value).sort()).toEqual(
+      [...FLOW_TYPES.map((f) => f.key).filter((k) => k !== "unclassified"), OUT_OF_BOOKS].sort(),
+    );
+  });
+
+  // A rule whose conclusion is "somebody should look at this" is the same as
+  // having no rule; the picker's empty option says that instead.
+  it("never offers unclassified as a standing rule", () => {
+    expect(getTreatment("unclassified")).toBeNull();
+    expect(treatmentNeedsAccount("unclassified")).toBe(false);
+  });
+
+  // The load-bearing guard: out_of_books is an answer the picker offers but NOT
+  // a flow type. It belongs in bank_ledger_gl_rules, and anything that checks
+  // before storing on bank_ledger.flow_type has to reject it.
+  it("out-of-books is offered but can never be stored as a flow", () => {
+    expect(getTreatment(OUT_OF_BOOKS)).not.toBeNull();
+    expect(isFlowType(OUT_OF_BOOKS)).toBe(false);
+    expect(getFlowType(OUT_OF_BOOKS)).toBeNull();
+    expect(flowNeedsAccount(OUT_OF_BOOKS)).toBe(false);
+    expect(flowAffectsPl(OUT_OF_BOOKS)).toBe(false);
+  });
+
+  it("every option belongs to a declared group, and every group has options", () => {
+    for (const t of TREATMENT_OPTIONS) expect(TREATMENT_GROUPS).toContain(t.group);
+    for (const g of TREATMENT_GROUPS) expect(treatmentsInGroup(g).length).toBeGreaterThan(0);
+  });
+
+  // The panel renders step 2 and 3 from this alone, so it must agree with the
+  // flow registry for every value that exists in both.
+  it("agrees with the flow registry on whether an account is used", () => {
+    for (const f of FLOW_TYPES) {
+      if (f.key === "unclassified") continue;
+      expect(treatmentNeedsAccount(f.key)).toBe(f.needsAccount);
+    }
+  });
+
+  // "Leave for review" and an unknown value both mean the account question is
+  // not asked yet — never that it is asked with nothing to show.
+  it("no answer, and an unknown answer, both ask for no account", () => {
+    expect(treatmentNeedsAccount("")).toBe(false);
+    expect(treatmentNeedsAccount(null)).toBe(false);
+    expect(treatmentNeedsAccount("nonsense")).toBe(false);
   });
 });

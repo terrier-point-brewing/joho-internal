@@ -141,11 +141,19 @@ export async function PATCH(req: NextRequest) {
   // "unclassified": a rule whose conclusion is "somebody should look at this" is
   // indistinguishable from having no rule, and storing one would mean the grid
   // showed a row as auto-classified while still asking for a decision.
+  //
+  // `out_of_books` is refused for a different reason: it is an answer the
+  // settings picker offers, but it is not a flow type. It belongs in
+  // bank_ledger_gl_rules, and the panel routes it there. Reaching this line with
+  // it means a client conflated the two, and storing it would put a value on
+  // bank_ledger.flow_type that no reader has a branch for.
   if (body.flow_type !== undefined && body.flow_type !== null) {
     if (!isFlowType(body.flow_type) || body.flow_type === "unclassified") {
       return NextResponse.json({ error: `Unknown flow type '${body.flow_type}'.` }, { status: 400 });
     }
   }
+
+  let patchRoutingReset = false;
 
   const supabase = createSupabaseAdminClient();
 
@@ -175,6 +183,17 @@ export async function PATCH(req: NextRequest) {
   // update are kept apart.
   const isAccountUpdate = "chart_of_accounts_id" in body;
   const isFlowUpdate = "flow_type" in body;
+
+  // Setting a flow that uses no account resets routing to the default.
+  //
+  // Routing answers "where does the account come from", so on a counterparty
+  // whose money never touches an account it is answering a question nobody
+  // asked. Left behind, it goes on rendering "Split by GL account" next to a
+  // transfer — and, worse, resolveExpenseMapping would still honour it and leave
+  // an expense row deliberately unmapped for a payroll match that never comes.
+  if (isFlowUpdate && body.flow_type !== null && !flowNeedsAccount(body.flow_type)) {
+    patchRoutingReset = true;
+  }
   const patch: Record<string, unknown> = {
     source,
     counterparty_key: counterpartyKey,
@@ -185,6 +204,7 @@ export async function PATCH(req: NextRequest) {
     patch.auto_matched = false;
   }
   if (body.routing) patch.routing = body.routing;
+  if (patchRoutingReset) patch.routing = SINGLE_ACCOUNT;
   if (isFlowUpdate) {
     patch.flow_type = body.flow_type ?? null;
     // A flow that cannot hold an account drops the rule's account with it, for
