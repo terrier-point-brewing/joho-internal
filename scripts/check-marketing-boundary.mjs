@@ -24,7 +24,7 @@
 // If you are here because this script blocked you: the fix is almost never to
 // widen the allowlist. It is a port.
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join, relative, sep, dirname, normalize } from "node:path";
 
 const ROOT = process.cwd();
 const STRICT = process.argv.includes("--strict");
@@ -92,6 +92,20 @@ function importsOf(text) {
 const underAny = (path, dirs) => dirs.some((d) => path === d || path.startsWith(d + sep));
 const matchesAlias = (spec, alias) => spec === alias || spec.startsWith(alias + "/");
 
+/**
+ * Where a relative specifier actually lands, as a repo-relative path.
+ *
+ * Both rules below would otherwise see only `@/` aliases, and a relative
+ * import crosses the same seam while looking like a local one:
+ * `../../lib/finance/x` from app/marketing/ is the identical dependency as
+ * `@/lib/finance/x`, spelled differently. Returns null for a package
+ * specifier, which is never a boundary question.
+ */
+function resolveRelative(fromFile, spec) {
+  if (!spec.startsWith(".")) return null;
+  return normalize(join(dirname(fromFile), spec));
+}
+
 const files = [join(ROOT, "app"), join(ROOT, "lib")]
   .flatMap((d) => walk(d))
   .map((f) => ({ path: relative(ROOT, f), text: readFileSync(f, "utf8") }));
@@ -104,7 +118,13 @@ for (const { path, text } of files) {
   for (const { spec, line } of importsOf(text)) {
     if (isMarketing) {
       // ── Rule 2: marketing imports the host narrowly ───────────────────────
-      if (!spec.startsWith("@/")) continue; // package or relative path
+      const resolved = resolveRelative(path, spec);
+      // A relative path that stays inside marketing is just a local import.
+      if (resolved !== null && underAny(resolved, MARKETING_DIRS)) continue;
+      // A relative path that does NOT stay inside marketing has escaped the
+      // seam, so it falls through to the violation below alongside the alias
+      // case. Anything else non-aliased is a package.
+      if (resolved === null && !spec.startsWith("@/")) continue;
       if (HOST_ALLOWED.some((a) => matchesAlias(spec, a))) continue;
       violations.push({
         file: path,
@@ -116,7 +136,11 @@ for (const { path, text } of files) {
       });
     } else {
       // ── Rule 1: nothing outside marketing imports marketing ───────────────
-      if (!MARKETING_ALIASES.some((a) => matchesAlias(spec, a))) continue;
+      const resolved = resolveRelative(path, spec);
+      const reachesIn = resolved !== null
+        ? underAny(resolved, MARKETING_DIRS)
+        : MARKETING_ALIASES.some((a) => matchesAlias(spec, a));
+      if (!reachesIn) continue;
       if (path === NAVBAR_EXCEPTION.file && spec === NAVBAR_EXCEPTION.spec) continue;
       violations.push({
         file: path,
