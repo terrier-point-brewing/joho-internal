@@ -24,11 +24,12 @@ export interface RowFacts {
   /** Whether something else already accounts for this counterparty. */
   handledElsewhere: boolean;
   /**
-   * Whether this counterparty has any `expenses` rows to code. Only consulted on
-   * a self-classifying feed, where no flow question is put to the operator — see
-   * the note on asksAccountSource.
+   * Whether any of this counterparty's money lands somewhere that uses an
+   * account — a live `expenses` row, or a bank line whose own flow needs one.
+   * Only consulted on a self-classifying feed, where no flow question is put to
+   * the operator. See the note on asksAccountSource.
    */
-  hasExpenses: boolean;
+  codesToAnAccount: boolean;
 }
 
 /** The standing include/exclude rules, as the panel already holds them. */
@@ -66,21 +67,23 @@ export function counterpartyRowState(rule: RowFacts, inclusion: InclusionState):
   // which table is an implementation fact and was never the operator's problem.
   const treatment = excluded ? OUT_OF_BOOKS : (rule.flow_type ?? "");
 
-  // On a self-classifying feed the account question stands on whether there is
-  // any SPEND to code.
+  // On a self-classifying feed the account question stands on whether any of
+  // this counterparty's money actually lands somewhere that uses an account.
   //
-  // Ramp diverts its operating-expense bank lines into `expenses` and leaves the
-  // rest in `bank_ledger`, so a Ramp counterparty is one of two kinds. One whose
-  // money is spend (Duke Energy, Erie) has expense rows and needs an account.
-  // One whose money is only ever a transfer or a settlement — TPB OPERATING
-  // FUNDS, the receiving end of the Chase -> Ramp wallet funding — has none and
-  // never will, and asking it for an account is asking a question with no answer.
+  // Ramp classifies each line at import and splits them two ways: an operating
+  // expense is diverted into `expenses`, everything else stays in `bank_ledger`.
+  // So a Ramp counterparty needs an account if it has a live expense row (Duke
+  // Energy, Erie) OR a bank line whose own flow uses one (`Interest`, which
+  // classifies as other_income and codes to 7010). It needs none when its money
+  // is only ever a transfer or a settlement — TPB OPERATING FUNDS, the receiving
+  // end of the Chase -> Ramp wallet funding.
   //
-  // This used to be a flat `selfClassifying`, which asked everything on the feed.
-  // It went unnoticed because the one counterparty it was wrong for was hidden
-  // behind a counterparty exclusion at the time.
+  // This was a flat `selfClassifying` first, which asked EVERY row on the feed,
+  // including the one that can never answer. Narrowing it to "has expenses"
+  // then went too far the other way and hid `Interest`'s live P&L account behind
+  // "nothing to code". The server answers both halves; see codes_to_an_account.
   const asksAccountSource = !feedOff && !excluded
-    && (selfClassifying ? rule.hasExpenses : treatmentNeedsAccount(treatment));
+    && (selfClassifying ? rule.codesToAnAccount : treatmentNeedsAccount(treatment));
 
   // An unanswered step 1 outranks a claim, and the order is the point.
   //
