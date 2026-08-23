@@ -221,20 +221,20 @@ on conflict (season_id, asset_id, role) do nothing;
 -- every other brand_* table sits service-role-only with RLS on and zero
 -- policies (20261003090003 lists them). This one carries policies
 -- deliberately, per docs/brand/season-kit-spec.md §8 — the kit is authored by
--- grant holders, and a scope-gated read is the posture the spec asks for.
--- It is therefore the first brand_* table with an `authenticated` read surface;
--- that is intended, not an oversight, and it is narrow: a season's asset
--- membership carries no secret, and the assets themselves stay behind the
--- private `brand-assets` bucket (20260903).
+-- RLS: service-role only, with NO policies, matching every other brand_* table.
 --
--- Who this actually lets in, verified against prod rather than assumed:
--- `effective_grant_level` unions user_permission_grants with the caller's ROLE
--- bundle from role_permission_grants (20261002090000 added the second arm), so
--- admin resolves through its ROOT row and a role with no brand bundle — brewer,
--- say — resolves to nothing and sees zero rows. Read and write are separate
--- predicates, so `brand.templates: read` selects and still cannot insert.
+-- An earlier draft of this migration called apply_grant_policies() here, which
+-- would have made this the first brand_* table with an `authenticated` read
+-- surface. brand_assets, brand_seasons, brand_templates, brand_outputs,
+-- brand_releases, brand_canon_versions and brand_labels all carry RLS with zero
+-- policies — the posture 20261003090003 set deliberately — and a CHILD table
+-- readable over the Data API while its own parent is not would be incoherent.
+--
+-- Nothing needs the surface either: /api/brand/seasons reads through
+-- createSupabaseAdminClient() behind requirePermission(CAP.brandTemplatesRead),
+-- exactly as every other brand route does, and service_role bypasses RLS. The
+-- gate on this data is the route's, and it already exists.
 alter table public.brand_season_assets enable row level security;
-select public.apply_grant_policies('brand_season_assets', 'brand.templates');
 
 -- ─── Rollback ───────────────────────────────────────────────────────────────
 -- Executed once inside a rolled-back transaction to prove it is complete and
