@@ -53,6 +53,7 @@
  */
 import { syncTransactions, isSyncMutationError, transactionAmountToCents, type PlaidTransaction } from "@/lib/plaid";
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { specificCounterpartyFromDescriptor, originatorCounterpartyFromDescriptor } from "@/lib/finance/bankDescriptor";
 import { listConnections, getConnectionWithSecrets, recordSyncResult, type ConnectionWithSecrets } from "./connections";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -139,12 +140,29 @@ export interface LedgerRow {
  * frequently null on transfers, which are not merchant activity at all. Either
  * is fed to the sweep matcher; neither is relied on alone, since the descriptor
  * fields carry the ACH originator id that the exact match actually keys on.
+ *
+ * ── Why the descriptor is read at all, and why some of it wins ───────────────
+ * Plaid names a counterparty on a minority of this account's lines — 9 of 48
+ * when this was written — because its enrichment recognises consumer-facing
+ * merchants and little else. A row with no name has no `counterparty_key`, so no
+ * counterparty rule can ever match it, so it is hand-coded every month forever.
+ * The ACH descriptor names the originator in a field; bankDescriptor.ts reads it.
+ *
+ * The SPECIFIC patterns run BEFORE Plaid's enrichment because they encode a
+ * distinction Plaid does not make: Ramp wallet funding, Ramp card settlement and
+ * a Ramp employee reimbursement share one ACH company id and would otherwise
+ * collapse into one "Ramp" counterparty carrying three incompatible flows. The
+ * generic originator field runs last, where the feed said nothing at all.
  */
 export function counterpartyNameOf(txn: PlaidTransaction): string | null {
+  const descriptor = txn.original_description ?? txn.name ?? null;
+  const specific = specificCounterpartyFromDescriptor(descriptor);
+  if (specific) return specific;
   const enriched = txn.counterparties?.find((c) => typeof c?.name === "string" && c.name.trim().length > 0);
   if (enriched?.name) return enriched.name.trim();
   const merchant = txn.merchant_name?.trim();
-  return merchant && merchant.length > 0 ? merchant : null;
+  if (merchant && merchant.length > 0) return merchant;
+  return originatorCounterpartyFromDescriptor(descriptor);
 }
 
 /**

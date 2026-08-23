@@ -143,11 +143,32 @@ describe("counterpartyNameOf", () => {
     expect(counterpartyNameOf(txn({ merchant_name: "Square" }))).toBe("Square");
   });
 
-  it("is null rather than blank when neither is present", () => {
+  it("is null rather than blank when nothing names a counterparty at all", () => {
     // A blank string would satisfy the sweep matcher's "is there a counterparty"
     // check and then match nothing, which reads as a considered negative.
-    expect(counterpartyNameOf(txn())).toBeNull();
-    expect(counterpartyNameOf(txn({ counterparties: [{ name: "  " }], merchant_name: "" }))).toBeNull();
+    //
+    // The descriptor has to name nobody either, now that it is read: a cheque is
+    // the real-world case, and it is deliberately unmatched.
+    const cheque = { name: "CHECK # 1002", original_description: "CHECK # 1002" };
+    expect(counterpartyNameOf(txn(cheque))).toBeNull();
+    expect(counterpartyNameOf(txn({ ...cheque, counterparties: [{ name: "  " }], merchant_name: "" }))).toBeNull();
+  });
+
+  // Plaid names a counterparty on a minority of this account's lines. The ACH
+  // originator field is read as a last resort so the rest can still match a rule.
+  it("reads the ACH originator field when the feed named nobody", () => {
+    expect(counterpartyNameOf(txn({ counterparties: [], merchant_name: undefined }))).toBe("Square Inc");
+  });
+
+  // Ramp's wallet funding, card settlement and employee reimbursements share one
+  // ACH company id. Letting an enrichment collapse them would give all three
+  // whichever rule was written first.
+  it("a specific descriptor pattern beats the feed's own name", () => {
+    const wallet = "ORIG CO NAME:RAMP ORIG ID:9186939000 DESC DATE: CO ENTRY DESCR:DEPOSIT SEC:CCD "
+      + "IND NAME:TPB OPERATING FUNDS RAMP WALLET DEPOSIT TRN: 2248035895TC";
+    expect(counterpartyNameOf(txn({
+      name: wallet, original_description: wallet, counterparties: [{ name: "Ramp" }],
+    }))).toBe("Ramp Wallet");
   });
 });
 

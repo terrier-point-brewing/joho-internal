@@ -21,9 +21,14 @@ import QbSyncBadge, { qbSyncFilterValue, QB_SYNC_FILTER_OPTIONS } from "../compo
 import { normalizeQbSyncStatus } from "@/lib/finance/qbSyncStatus";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
-
-const FLOW_TYPES = ["interest_income", "internal_transfer", "bill_settlement", "card_settlement", "deposit", "unclassified"] as const;
-type FlowType = typeof FLOW_TYPES[number];
+import {
+  FLOW_GROUPS,
+  FLOW_TYPES,
+  flowTypesInGroup,
+  getFlowType,
+  flowNeedsAccount,
+  type FlowType,
+} from "@/lib/finance/flowTypes";
 
 interface BankRow {
   id: string; amount_cents: number; description: string | null; counterparty_name: string | null;
@@ -39,8 +44,7 @@ interface BankRow {
 // (see SummaryStatBar's needsReview stat and MappingStatusPill's partial state).
 function flowTone(f: FlowType): "success" | "accent" | "neutral" {
   if (f === "unclassified") return "accent";
-  if (f === "interest_income") return "success";
-  return "neutral";
+  return getFlowType(f)?.affectsPl ? "success" : "neutral";
 }
 function fmtDate(s: string | null) {
   if (!s) return "—";
@@ -67,11 +71,101 @@ const BANK_CONTROLS: ControlsConfig<BankRow> = {
     default: { key: "date", dir: "desc" },
   },
 };
-// No dedicated flow-type label map exists in this file; the row Badge already
-// displays flow_type via the same underscore-to-space transform — reuse it.
-const FLOW_OPTIONS = FLOW_TYPES.map((f) => ({ value: f, label: f.replace(/_/g, " ") }));
+const FLOW_OPTIONS = FLOW_TYPES.map((f) => ({ value: f.key, label: f.label }));
 
 const PAGE_SIZE = 50;
+
+
+/**
+ * One row's flow type, and the account that follows from it.
+ *
+ * ── Always a select, never a badge ───────────────────────────────────────────
+ * This used to render the dropdown only while the row was `unclassified` and a
+ * read-only Badge afterwards, which made every classification a ONE-WAY door: a
+ * mis-pick could not be undone anywhere in the app. There is nothing dangerous
+ * about changing a flow -- the API rewrites affects_pl and the account to match
+ * -- so the control stays live.
+ *
+ * ── The consequence line ─────────────────────────────────────────────────────
+ * The complaint this cell was rebuilt to answer is "I don't know what happens
+ * when I pick one of these". So the chosen flow's `effect` sentence is rendered
+ * underneath it, and the optgroup headings say the same thing a level up. Both
+ * come from lib/finance/flowTypes.ts, which is also what the readers consult,
+ * so the sentence cannot describe behaviour the code does not have.
+ *
+ * ── Why the account picker comes and goes ────────────────────────────────────
+ * Four of the eight flows never use an account. Showing a picker for them
+ * invites an operator to spend a decision on a field that is about to be
+ * discarded, and the old grid did exactly that for every row.
+ *
+ * The one exception is a row that is still `unclassified` and ALREADY carries an
+ * account -- a state only a hand-coded row from before this screen existed can
+ * be in. Its account is shown read-only rather than hidden, because silently
+ * concealing a stored value that still feeds the balance sheet is worse than
+ * showing a state that should not exist.
+ */
+function FlowCell({ row, accounts, saving, onPatch, onToggleAccept }: {
+  row: BankRow;
+  accounts: CoARef[];
+  saving: boolean;
+  onPatch: (patch: { flow_type?: FlowType; chart_of_accounts_id?: string | null }) => void;
+  onToggleAccept: () => Promise<void>;
+}) {
+  const def = getFlowType(row.flow_type);
+  const needsAccount = flowNeedsAccount(row.flow_type);
+  const orphanedAccount = !needsAccount && row.chart_of_accounts_id !== null;
+
+  return (
+    <div className="flex flex-col gap-1 min-w-[220px]">
+      <div className="flex items-center gap-1.5">
+        <select
+          className="inp-sm w-full"
+          value={row.flow_type}
+          onChange={(e) => onPatch({ flow_type: e.target.value as FlowType })}
+        >
+          {/* A stored value this build does not know: shown rather than silently
+              re-reading as whatever happens to sort first, which would look like
+              the row had been quietly reclassified. */}
+          {!def && <option value={row.flow_type}>{row.flow_type} (unknown)</option>}
+          {FLOW_GROUPS.map((group) => (
+            <optgroup key={group} label={group}>
+              {flowTypesInGroup(group).map((f) => (
+                <option key={f.key} value={f.key}>{f.label}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        {row.mapping_source === "rule" && (
+          <span className="text-2xs text-info shrink-0" title="Set by a counterparty rule">auto</span>
+        )}
+        <SaveHint saving={saving} />
+      </div>
+
+      {def && <p className="text-2xs text-faint leading-snug">{def.effect}</p>}
+
+      {needsAccount && (
+        <AccountSelect
+          value={row.chart_of_accounts_id}
+          onChange={(coaId) => onPatch({ chart_of_accounts_id: coaId })}
+          accounts={accounts}
+          placeholder="— GL account —"
+          shortLabel
+          className="w-full"
+        />
+      )}
+
+      {orphanedAccount && (
+        <p className="text-2xs text-accent leading-snug">
+          An account is still set on this row. Pick a flow above that uses one, or it will be cleared.
+        </p>
+      )}
+
+      {row.flow_type === "unclassified" && (
+        <AcceptUnmappedButton accepted={row.unmapped_accepted} onToggle={onToggleAccept} />
+      )}
+    </div>
+  );
+}
 
 export default function BankLedgerPage() {
   const [{ from, to }, setRange] = useState(() => defaultYearRange());
@@ -172,25 +266,13 @@ export default function BankLedgerPage() {
                 <td className="px-4 py-2 text-body">{r.counterparty_name ?? "—"}</td>
                 <td className="px-4 py-2 text-secondary">{r.description ?? "—"}</td>
                 <td className="px-4 py-2">
-                  {r.flow_type === "unclassified" ? (
-                    <div className="flex flex-col gap-1 min-w-[180px]">
-                      <select className="inp-sm" value={r.flow_type} onChange={(e) => patchRow(r.id, { flow_type: e.target.value as FlowType })}>
-                        {FLOW_TYPES.map((f) => <option key={f} value={f}>{f}</option>)}
-                      </select>
-                      <div className="flex items-center gap-1.5">
-                        <AccountSelect
-                          value={r.chart_of_accounts_id}
-                          onChange={(coaId) => patchRow(r.id, { chart_of_accounts_id: coaId })}
-                          accounts={accounts}
-                          placeholder="— GL account —"
-                          shortLabel
-                          className="w-full"
-                        />
-                        <SaveHint saving={savingId === r.id} />
-                      </div>
-                      <AcceptUnmappedButton accepted={r.unmapped_accepted} onToggle={() => handleToggleAccept(r.id, !r.unmapped_accepted)} />
-                    </div>
-                  ) : <Badge tone={flowTone(r.flow_type)}>{r.flow_type.replace(/_/g, " ")}</Badge>}
+                  <FlowCell
+                    row={r}
+                    accounts={accounts}
+                    saving={savingId === r.id}
+                    onPatch={(patch) => patchRow(r.id, patch)}
+                    onToggleAccept={() => handleToggleAccept(r.id, !r.unmapped_accepted)}
+                  />
                 </td>
                 <td className="px-4 py-2 text-2xs text-faint">{r.affects_pl ? "yes" : "—"}</td>
                 <td className="px-4 py-2"><QbSyncBadge status={r.qb_sync_status} rampObject="bank" /></td>
@@ -198,7 +280,7 @@ export default function BankLedgerPage() {
               </tr>
             ))}
           </LedgerTable>
-          <p className="py-3 text-2xs text-faint">Bank lines are classified on sync. Settlements and internal transfers are excluded from P&amp;L to avoid double-counting card and bill records. Recode an <span className="text-accent">unclassified</span> line above.</p>
+          <p className="py-3 text-2xs text-faint">The flow type decides what happens to a line, and the sentence under each one says which. Only <span className="text-accent">operating expense</span> and <span className="text-accent">income</span> reach the P&amp;L; settlements and transfers are deliberately left out so the card, bill and sale records they pay off are not counted twice. Any line can be recoded at any time. To stop answering the same question every month, give the counterparty a standing flow under Settings → Finance → GL Mapping → Counterparties.</p>
         </div>
         <Pagination page={safePage} totalPages={totalPages} total={visible.length} unit="bank lines" onPageChange={setPage} />
         </>
