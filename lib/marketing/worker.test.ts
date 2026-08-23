@@ -288,17 +288,19 @@ describe("validation", () => {
 
 describe("a channel nothing is registered under", () => {
   it("fails the delivery with a sentence rather than throwing out of the batch", async () => {
-    // Production ships with an EMPTY registry, so this is the ordinary state
-    // and not a "should never happen".
+    // A delivery can outlive the plugin that wrote it — a channel folder is
+    // removed, or a row is seeded by hand — so this is a readable failure and
+    // not a "should never happen". `tiktok` is a channel nothing registers;
+    // using a real key here would test that channel's `validate` instead.
     const seed = seedDue(2, "t-succeed");
-    seed.marketing_deliveries![0].channel = "instagram";
+    seed.marketing_deliveries![0].channel = "tiktok";
     const db = createMarketingTestDb(seed);
 
     const result = await runMarketingDeliveries(asClient(db));
 
     expect(result).toEqual({ claimed: 2, published: 1, failed: 1, skipped: 0 });
     expect(db.tables.marketing_deliveries[0].status).toBe("failed");
-    expect(String(db.tables.marketing_deliveries[0].error)).toContain("instagram");
+    expect(String(db.tables.marketing_deliveries[0].error)).toContain("tiktok");
   });
 });
 

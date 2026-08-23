@@ -6,14 +6,18 @@
  * what exists. None of them names a channel in its own source, which is what
  * makes adding one later a folder and a line rather than a survey.
  *
- * **Production ships with this registry empty.** The fake is the only plugin
- * that exists today and it is registered only outside production, so a
- * production build lists zero channels. That is not an edge case to be guarded
- * against with a "should never happen" — it is the state the chassis actually
- * ships in until a real channel lands, and every consumer is expected to render
- * it plainly: no channels connected, nothing to pick.
+ * **Production shipped with this registry empty until Instagram landed**, and
+ * every consumer still has to render an empty registry plainly — no channels
+ * connected, nothing to pick. That is not an edge case to be guarded against
+ * with a "should never happen": it is the state a fresh environment is in, and
+ * it is what a build with no channel folders would list.
+ *
+ * A registered channel is not a connected one. Instagram appears here whether or
+ * not anybody has ever finished its OAuth flow; what a person can actually post
+ * through is decided by `marketing_connected_accounts`, not by this map.
  */
 import { createFakeChannelPlugin } from "./fake";
+import { createInstagramChannelPlugin } from "./instagram";
 import type { ChannelPlugin } from "./types";
 
 const channels = new Map<string, ChannelPlugin>();
@@ -40,10 +44,17 @@ export function getChannel(channel: string): ChannelPlugin | undefined {
   return channels.get(channel);
 }
 
-/** Every registered plugin, in registration order. Empty in production. */
+/** Every registered plugin, in registration order. */
 export function listChannels(): ChannelPlugin[] {
   return [...channels.values()];
 }
+
+// ── The real channels ──────────────────────────────────────────────────────
+// One line per channel, which is the whole claim the chassis was built on.
+// Instagram is the first, and adding it required no edit to the worker, the
+// routes, the UI, the types or the boundary — only this line and the folder
+// beside it.
+registerChannel(createInstagramChannelPlugin());
 
 // ── The fake, outside production only ──────────────────────────────────────
 // Gated here, at the point of registration, rather than inside the fake: the
