@@ -16,6 +16,8 @@
 // depleteColdStorageInventory already drains oldest-row-first, so a slice handed
 // to the writer is drawn from exactly the lots this planner counted.
 
+import { CAN_FORMATS, familyKey, type FamilyPackagingRow } from "./canIdentityFamily";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbClient = { from: (table: string) => any };
 
@@ -110,9 +112,14 @@ export async function fetchGroupDraw(
  * short and higher tiers have to be cracked open.
  *
  * Same principle as the draw: oldest stock first. A variation with lots sorts by
- * its oldest lot; one with nothing on hand sorts last (there is nothing of its
- * age to reason about) but stays a candidate, because the tier being cracked
- * open lives in a DIFFERENT variation of the same family and may well be there.
+ * its oldest lot; one with nothing sorts last but stays a candidate.
+ *
+ * The lots handed in MUST span each member's whole can-identity family, not just
+ * the tier the button sells — see fetchGroupFamilyAges. By the time this is
+ * called, pass 1 has drained every member's own tier to nothing and
+ * depleteColdStorageInventory has deleted the emptied rows, so ranking on those
+ * would leave every member ageless and fall through to the id tiebreak. That
+ * would crack a case packaged this week while one from May sat behind it.
  * Exported for unit testing.
  */
 export function orderGroupByAge(lots: DrawLot[], variationIds: string[]): string[] {
@@ -133,22 +140,96 @@ export function orderGroupByAge(lots: DrawLot[], variationIds: string[]): string
   });
 }
 
-/** Lots for a group, for callers that need the ordering as well as the draw. */
-export async function fetchGroupLots(
+/**
+ * One synthetic lot per group member, carrying the age of the oldest stock
+ * anywhere in that member's can-identity family — every tier of it, not just the
+ * tier the shared button sells.
+ *
+ * This is what pass 2 ranks on. Pass 2 only runs once the group's own tier is
+ * exhausted, so the stock that decides which member to crack open is sitting in
+ * a HIGHER tier: a case, or a pack. Reading the member tier there tells you
+ * nothing — every member is empty by definition.
+ *
+ * `quantityOnHand` is the family's total and is not used for allocation; only
+ * the timestamp matters to orderGroupByAge. A member whose whole family is empty
+ * is simply absent, which sorts it last while leaving it a candidate.
+ */
+export async function fetchGroupFamilyAges(
   db: DbClient,
   { recipeId, variationIds }: { recipeId: string; variationIds: string[] },
 ): Promise<DrawLot[]> {
   if (variationIds.length === 0) return [];
-  const { data, error } = await db
+
+  const { data: members, error: memberErr } = await db
+    .from("packaging_variations")
+    .select("id, format, container_id, lid_id, label_id, partner_id, total_volume_fl_oz")
+    .in("id", variationIds);
+  if (memberErr) throw new Error(memberErr.message);
+  const memberRows = (members ?? []) as FamilyPackagingRow[];
+  if (memberRows.length === 0) return [];
+
+  // Candidates by the indexed column, then the full null-safe identity in JS —
+  // the same two-step applyBreakDown uses to resolve a family.
+  const { data: siblings, error: siblingErr } = await db
+    .from("packaging_variations")
+    .select("id, format, container_id, lid_id, label_id, partner_id, total_volume_fl_oz")
+    .in("container_id", [...new Set(memberRows.map((m) => m.container_id))]);
+  if (siblingErr) throw new Error(siblingErr.message);
+  const siblingRows = ((siblings ?? []) as FamilyPackagingRow[]).filter((v) => CAN_FORMATS.has(v.format));
+
+  const familyByMember = new Map<string, string[]>();
+  const allFamilyIds = new Set<string>();
+  for (const m of memberRows) {
+    const key = familyKey(m);
+    const ids = siblingRows.filter((v) => familyKey(v) === key).map((v) => v.id);
+    familyByMember.set(m.id, ids.length > 0 ? ids : [m.id]);
+    for (const id of familyByMember.get(m.id)!) allFamilyIds.add(id);
+  }
+
+  const { data: lots, error: lotErr } = await db
     .from("cold_storage_inventory")
     .select("variation_id, quantity_on_hand, created_at")
     .eq("recipe_id", recipeId)
-    .in("variation_id", variationIds)
-    .order("created_at", { ascending: true });
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as { variation_id: string; quantity_on_hand: number | string; created_at: string }[]).map((r) => ({
-    variationId: r.variation_id,
-    quantityOnHand: Number(r.quantity_on_hand),
-    createdAt: r.created_at,
-  }));
+    .in("variation_id", [...allFamilyIds]);
+  if (lotErr) throw new Error(lotErr.message);
+
+  return summariseFamilyAges(
+    familyByMember,
+    ((lots ?? []) as { variation_id: string; quantity_on_hand: number | string; created_at: string }[]).map((r) => ({
+      variationId: r.variation_id,
+      quantityOnHand: Number(r.quantity_on_hand),
+      createdAt: r.created_at,
+    })),
+  );
+}
+
+/**
+ * Fold each member's family lots into the one synthetic lot orderGroupByAge
+ * ranks on. Pure. Exported for unit testing.
+ */
+export function summariseFamilyAges(
+  familyByMember: ReadonlyMap<string, string[]>,
+  lots: DrawLot[],
+): DrawLot[] {
+  const byVariation = new Map<string, DrawLot[]>();
+  for (const lot of lots) {
+    if (!(Number(lot.quantityOnHand) > 0)) continue; // an emptied row is not stock
+    const list = byVariation.get(lot.variationId);
+    if (list) list.push(lot);
+    else byVariation.set(lot.variationId, [lot]);
+  }
+
+  const out: DrawLot[] = [];
+  for (const [memberId, familyIds] of familyByMember) {
+    let oldest: string | null = null;
+    let total = 0;
+    for (const id of familyIds) {
+      for (const lot of byVariation.get(id) ?? []) {
+        total += lot.quantityOnHand;
+        if (oldest === null || lot.createdAt.localeCompare(oldest) < 0) oldest = lot.createdAt;
+      }
+    }
+    if (oldest !== null) out.push({ variationId: memberId, quantityOnHand: total, createdAt: oldest });
+  }
+  return out;
 }

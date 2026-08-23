@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { planGroupDraw, orderGroupByAge, type DrawLot } from "./coldStorageGroupDraw";
+import { planGroupDraw, orderGroupByAge, summariseFamilyAges, type DrawLot } from "./coldStorageGroupDraw";
 
 const lot = (variationId: string, quantityOnHand: number, createdAt: string): DrawLot => ({
   variationId,
@@ -104,5 +104,58 @@ describe("orderGroupByAge", () => {
 
   it("is stable when two members have nothing to sort on", () => {
     expect(orderGroupByAge([], ["b", "a"])).toEqual(["a", "b"]);
+  });
+});
+
+// The ranking pass 2 actually uses. It runs only AFTER pass 1 has emptied every
+// member's own tier, so the age that decides which member to crack open lives in
+// a higher tier — a case or a pack — of that member's identity family. Ranking on
+// the member tier alone leaves everyone ageless and silently falls through to the
+// id tiebreak, which is how a case packaged this week gets opened while one from
+// May sits behind it.
+describe("summariseFamilyAges", () => {
+  const families = new Map([
+    ["printed-loose", ["printed-loose", "printed-4pack", "printed-case"]],
+    ["labeled-loose", ["labeled-loose", "labeled-4pack", "labeled-case"]],
+  ]);
+
+  it("ages a member by the oldest stock anywhere in its family, not just its own tier", () => {
+    const summary = summariseFamilyAges(families, [
+      lot("printed-case", 2, "2026-05-01T00:00:00Z"),
+      lot("labeled-case", 2, "2026-08-20T00:00:00Z"),
+    ]);
+    expect(orderGroupByAge(summary, ["labeled-loose", "printed-loose"])).toEqual([
+      "printed-loose",
+      "labeled-loose",
+    ]);
+  });
+
+  it("totals the family's stock across every tier", () => {
+    const summary = summariseFamilyAges(families, [
+      lot("printed-4pack", 3, "2026-06-01T00:00:00Z"),
+      lot("printed-case", 2, "2026-05-01T00:00:00Z"),
+    ]);
+    expect(summary).toEqual([
+      { variationId: "printed-loose", quantityOnHand: 5, createdAt: "2026-05-01T00:00:00Z" },
+    ]);
+  });
+
+  // depleteColdStorageInventory deletes rows at ~0, but a zeroed row that has not
+  // been swept must not lend its date to a member that has nothing to crack.
+  it("ignores emptied lots when dating a family", () => {
+    const summary = summariseFamilyAges(families, [
+      lot("printed-case", 0, "2026-05-01T00:00:00Z"),
+      lot("labeled-case", 1, "2026-08-20T00:00:00Z"),
+    ]);
+    expect(summary.map((s) => s.variationId)).toEqual(["labeled-loose"]);
+    // printed has nothing anywhere, so it is still tried — just last.
+    expect(orderGroupByAge(summary, ["printed-loose", "labeled-loose"])).toEqual([
+      "labeled-loose",
+      "printed-loose",
+    ]);
+  });
+
+  it("omits a member whose whole family is empty", () => {
+    expect(summariseFamilyAges(families, [])).toEqual([]);
   });
 });

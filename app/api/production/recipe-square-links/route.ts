@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
           partnerId: incoming.partner_id ?? null,
           totalVolumeFlOz: incoming.total_volume_fl_oz ?? null,
         },
-      ]);
+      ], [item_name, variation_name].filter(Boolean).join(" · ") || null);
       if (!check.ok) return NextResponse.json({ error: check.reason }, { status: 400 });
 
       await declareFungible(supabase, { recipeId: recipe_id, squareVariationId: square_variation_id });

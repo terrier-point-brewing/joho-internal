@@ -1,6 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { getAvailableColdStorageQuantity } from "@/lib/production/coldStorageDepletion";
-import { fetchGroupDraw, fetchGroupLots, orderGroupByAge } from "@/lib/production/coldStorageGroupDraw";
+import { fetchGroupDraw, fetchGroupFamilyAges, orderGroupByAge } from "@/lib/production/coldStorageGroupDraw";
 import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
 import { writePhantomExport, type PhantomOrigin } from "@/lib/production/writePhantomExport";
 import { applyBreakDown, type AppliedBreak } from "@/lib/production/applyBreakDown";
@@ -121,10 +121,10 @@ export async function recordTaproomConsumption(
  *   1. Draw what is already on hand across the group, oldest lot first. This is
  *      the ordinary case and it never breaks anything open.
  *   2. Only once the group's on-hand is exhausted, crack higher tiers — trying
- *      members in the order of their oldest stock, so the oldest cases go first
- *      too. Nothing older than what pass 1 took can appear here, so a member's
- *      freshly-cracked units are drawn immediately rather than re-sorted against
- *      the group.
+ *      members in the order of the oldest stock anywhere in their can-identity
+ *      family, so the oldest CASES go first too. Nothing older than what pass 1
+ *      took can appear here, so a member's freshly-cracked units are drawn
+ *      immediately rather than re-sorted against the group.
  *
  * Whatever survives both passes is a real shortfall and becomes a phantom
  * export, exactly as in the single-variation path — cold storage is never driven
@@ -182,9 +182,13 @@ async function recordAcrossGroup(
   }
 
   // ── Pass 2: crack higher tiers, oldest member first ────────────────────────
+  //
+  // Ranked on each member's whole can-identity family, NOT on the tier the
+  // button sells — pass 1 just emptied that tier for every member, so ranking on
+  // it would tell us nothing and quietly fall through to an id tiebreak.
   if (remaining > EPS) {
-    const lots = await fetchGroupLots(supabase, { recipeId, variationIds: group });
-    for (const memberId of orderGroupByAge(lots, group)) {
+    const familyAges = await fetchGroupFamilyAges(supabase, { recipeId, variationIds: group });
+    for (const memberId of orderGroupByAge(familyAges, group)) {
       if (remaining <= EPS) break;
       const bd = await applyBreakDown(supabase, {
         recipeId,
