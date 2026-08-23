@@ -106,7 +106,11 @@ const createEntryBody = z.strictObject({
   tags: z.array(z.string()).optional(),
   /** ORDERED. Position 0 is the first slide. */
   mediaIds: z.array(z.uuid()).optional(),
-  /** Channel keys, resolved through the registry. Only meaningful with postNow. */
+  /**
+   * Channel keys, resolved through the registry. With `postNow` they become
+   * `scheduled` deliveries the worker picks up; without it they become
+   * `pending` ones, which is how a draft remembers where it is going.
+   */
   channels: z.array(z.string().min(1)).optional(),
   postNow: z.boolean().optional(),
 });
@@ -154,16 +158,13 @@ export function parseCreateEntry(raw: unknown): CreateEntryInput {
   if (input.postNow && channels.length === 0) {
     throw new MarketingRequestError("Posting now needs at least one channel to post to.");
   }
-  // Deliveries are created ONLY by posting now, and this is not pedantry: the
-  // moment a delivery exists the trigger derives the entry's status from it, so
-  // a draft carrying a pending delivery would immediately stop reading as a
-  // draft. Channels chosen for a draft are the compose screen's business until
-  // the person actually says go.
-  if (!input.postNow && channels.length > 0) {
-    throw new MarketingRequestError(
-      "Channels are only used when posting now. Save the entry as a draft without them, or post it now.",
-    );
-  }
+  // Channels on a draft used to be refused here, because the moment a delivery
+  // existed the trigger derived the entry's status from it and the draft
+  // stopped reading as a draft. The trigger now derives NOTHING from an
+  // all-pending set (20261024090000_marketing_pending_is_not_scheduled.sql), so
+  // the refusal is gone and a draft's channels are kept where they belong: as
+  // `pending` deliveries. There is nowhere else that choice could live, and
+  // dropping it on save is how a person's compose screen quietly lies to them.
   if (input.mediaIds && new Set(input.mediaIds).size !== input.mediaIds.length) {
     throw new MarketingRequestError("The same piece of media is listed twice; an entry uses each one once.");
   }
@@ -382,14 +383,16 @@ export async function createEntry(
   }
 
   const accountByChannel = new Map<string, string>();
-  if (postNow) {
-    for (const channel of channels) {
-      // Through the registry, always. No route and no lib function in marketing
-      // names a channel in its own source.
-      if (!getChannel(channel)) {
-        throw new MarketingRequestError(`There is no channel called "${channel}".`, 404);
-      }
+  for (const channel of channels) {
+    // Through the registry, always — and for a draft as much as for a publish.
+    // No route and no lib function in marketing names a channel in its own
+    // source, and a draft pointing at a channel that does not exist is a
+    // promise nothing can keep.
+    if (!getChannel(channel)) {
+      throw new MarketingRequestError(`There is no channel called "${channel}".`, 404);
     }
+  }
+  if (postNow) {
     const { data, error } = await client
       .from(ACCOUNTS)
       .select(CREDENTIAL_FREE_ACCOUNT_COLUMNS)
@@ -446,20 +449,30 @@ export async function createEntry(
     failOn(error, "could not attach the entry's media");
   }
 
-  // ── 4. The deliveries, only when posting now ─────────────────────────────
-  if (postNow) {
+  // ── 4. The deliveries ────────────────────────────────────────────────────
+  // Two shapes, one row per channel either way:
+  //
+  //   * posting now → `scheduled`, with the account to publish through and a
+  //     scheduled_at of now. The worker claims these.
+  //   * a draft     → `pending`, with no account and no scheduled_at. The
+  //     worker's claim never sees them, and the trigger derives nothing from a
+  //     set that is entirely pending, so the entry stays the draft it is. This
+  //     is the ONLY record of which channels a person picked.
+  if (channels.length > 0) {
     const { error } = await client.from(DELIVERIES).insert(
       channels.map((channel) => ({
         entry_id: entryId,
-        account_id: accountByChannel.get(channel)!,
+        account_id: postNow ? accountByChannel.get(channel)! : null,
         channel,
         // now(), not a future time. Scheduling is not reachable from here.
-        scheduled_at: now.toISOString(),
-        status: "scheduled",
+        scheduled_at: postNow ? now.toISOString() : null,
+        status: postNow ? "scheduled" : "pending",
       })),
     );
     failOn(error, "could not queue the entry for publishing");
+  }
 
+  if (postNow) {
     // ── 5. Publish inline, best effort ─────────────────────────────────────
     // The cron sweep runs DAILY, so waiting for it would mean "post now" posts
     // tomorrow. This inline run is what makes the button honest.

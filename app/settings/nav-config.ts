@@ -46,6 +46,10 @@ export const SETTINGS_GROUPS: SettingsNavEntry[] = [
   // sub-leaf sees the group with just its Filing subtab.
   { href: "/settings/tax", label: "Tax", requires: CAP.taxFilingManage },
   { href: "/settings/production", label: "Production", requires: CAP.productionSettingsManage },
+  // One screen — the channel logins the publisher posts through — so the group
+  // has no sub-nav. It gates on the same capability the three account routes
+  // enforce, so the group never leads anywhere its holder cannot open.
+  { href: "/settings/marketing", label: "Marketing", requires: CAP.marketingAccountsManage },
   { href: "/settings/catalog", label: "Catalog", requires: CAP.catalogRead },
 ];
 
