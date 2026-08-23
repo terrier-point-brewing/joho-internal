@@ -22,7 +22,7 @@ vi.mock("./coldStorageDepletion", () => ({
 vi.mock("./applyBreakDown", () => ({ applyBreakDown: vi.fn() }));
 vi.mock("./coldStorageGroupDraw", () => ({
   fetchGroupDraw: vi.fn(),
-  fetchGroupLots: vi.fn(),
+  fetchGroupFamilyAges: vi.fn(),
   orderGroupByAge: vi.fn(),
 }));
 
@@ -31,14 +31,14 @@ import { writeColdStorageShipment } from "./shipmentWriter";
 import { writePhantomExport } from "./writePhantomExport";
 import { getAvailableColdStorageQuantity } from "./coldStorageDepletion";
 import { applyBreakDown } from "./applyBreakDown";
-import { fetchGroupDraw, fetchGroupLots, orderGroupByAge } from "./coldStorageGroupDraw";
+import { fetchGroupDraw, fetchGroupFamilyAges, orderGroupByAge } from "./coldStorageGroupDraw";
 
 const writeMock = vi.mocked(writeColdStorageShipment);
 const phantomMock = vi.mocked(writePhantomExport);
 const availableMock = vi.mocked(getAvailableColdStorageQuantity);
 const applyBreakDownMock = vi.mocked(applyBreakDown);
 const groupDrawMock = vi.mocked(fetchGroupDraw);
-const groupLotsMock = vi.mocked(fetchGroupLots);
+const familyAgesMock = vi.mocked(fetchGroupFamilyAges);
 const orderGroupMock = vi.mocked(orderGroupByAge);
 
 const supabase = {} as unknown as SupabaseClient;
@@ -69,7 +69,7 @@ beforeEach(() => {
     shipmentId: "ship-1",
     exportTransactionId: "tx-phantom",
   });
-  groupLotsMock.mockResolvedValue([]);
+  familyAgesMock.mockResolvedValue([]);
   orderGroupMock.mockImplementation((_lots, ids) => [...ids]);
 });
 

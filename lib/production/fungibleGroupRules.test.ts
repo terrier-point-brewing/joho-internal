@@ -76,6 +76,24 @@ describe("checkFungibleGroup", () => {
     if (!result.ok) expect(result.reason).toContain("all kegs or all cans");
   });
 
+  // The commonest way to hit this is picking "Regular" when you meant
+  // "Regular - 16oz 4-Pack". Listing three packagings without naming what they
+  // were being attached to leaves nothing to act on.
+  it("names the Square item it refused, so the wrong sibling is obvious", () => {
+    const result = checkFungibleGroup(
+      [
+        member({ totalVolumeFlOz: 16, variationName: "Printed Can" }),
+        member({ variationId: "v2", totalVolumeFlOz: 64, variationName: "Printed Can 4-Pack" }),
+      ],
+      "Epic Hazy IPA (Cans) · Regular",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("Epic Hazy IPA (Cans) · Regular");
+      expect(result.reason).toContain("pick that Square item instead");
+    }
+  });
+
   it("has nothing to check below two members", () => {
     expect(checkFungibleGroup([member()])).toEqual({ ok: true });
     expect(checkFungibleGroup([])).toEqual({ ok: true });

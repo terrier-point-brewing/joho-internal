@@ -41,12 +41,18 @@ export type FungibleCheck = { ok: true } | { ok: false; reason: string };
  * 3. SAME CONTAINER CLASS. A keg and a can behind one button is the volume
  *    problem again, in its most obvious form.
  */
-export function checkFungibleGroup(members: FungibleCandidate[]): FungibleCheck {
+export function checkFungibleGroup(members: FungibleCandidate[], squareLabel?: string | null): FungibleCheck {
   if (members.length < 2) return { ok: true };
+
+  // Name the button in every refusal. The commonest way to land here is picking
+  // the wrong sibling — "Regular" instead of "Regular - 16oz 4-Pack" — and a
+  // message that lists three packagings without saying what they were being
+  // attached to gives the reader nothing to correct.
+  const on = squareLabel ? ` on "${squareLabel}"` : "";
 
   const packagings = new Set(members.map((m) => m.packaging));
   if (packagings.size > 1) {
-    return { ok: false, reason: "A shared Square item must be all kegs or all cans, not a mix." };
+    return { ok: false, reason: `A shared Square item${on} must be all kegs or all cans, not a mix.` };
   }
 
   const owners = new Set(members.map((m) => m.partnerId ?? "house"));
@@ -55,20 +61,23 @@ export function checkFungibleGroup(members: FungibleCandidate[]): FungibleCheck 
     return {
       ok: false,
       reason:
-        "A shared Square item must be all house packaging or all the same partner's — " +
+        `A shared Square item${on} must be all house packaging or all the same partner's — ` +
         `a taproom sale must never be able to draw down a partner's stock. Got: ${named}.`,
     };
   }
 
   const volumes = new Set(members.map((m) => (m.totalVolumeFlOz == null ? "unknown" : String(m.totalVolumeFlOz))));
   if (volumes.has("unknown")) {
-    return { ok: false, reason: "Every packaging behind a shared Square item needs a coded volume." };
+    return { ok: false, reason: `Every packaging behind a shared Square item${on} needs a coded volume.` };
   }
   if (volumes.size > 1) {
     const named = members.map((m) => `${m.variationName} (${m.totalVolumeFlOz} fl oz)`).join(", ");
     return {
       ok: false,
-      reason: `Every packaging behind a shared Square item must hold the same volume — one sale is one amount of beer. Got: ${named}.`,
+      reason:
+        `Every packaging behind a shared Square item${on} must hold the same volume — ` +
+        `one sale is one amount of beer. Got: ${named}. ` +
+        "If you meant a different pack size, pick that Square item instead.",
     };
   }
 
