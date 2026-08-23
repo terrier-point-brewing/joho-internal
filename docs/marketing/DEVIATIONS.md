@@ -49,7 +49,7 @@ it. The two items marked ⚠ still need a person before a real channel is connec
 
 | # | Spec | Built | Why |
 |---|---|---|---|
-| 16 | a four-rung status ladder | **five rungs** — an all-`pending` set derives nothing | Added by PR #486 after chip 2 shipped. Without it, saving a draft with its channels chosen flipped the entry out of `draft` the moment the delivery rows appeared, and the API had to refuse channels on anything but an immediate publish. |
+| 16 | a four-rung status ladder | **five rungs** — an all-`pending` set derives nothing, and a *derived* status falls back to `approved` when there is nothing left to derive from | Added by PR #486 after chip 2 shipped. Without it, saving a draft with its channels chosen flipped the entry out of `draft` the moment the delivery rows appeared, and the API had to refuse channels on anything but an immediate publish. |
 | 17 | — | a draft's `pending` deliveries carry **no `account_id`** | The channel choice has nowhere else to live, but a draft is not addressed to a login yet. Deliberate (`lib/marketing/entries.ts`). Consequence worth holding: whatever future path promotes `pending` → `scheduled` **must** fill `account_id`, or the worker will `skip` the delivery reporting a disconnected login. |
 | 18 | metrics collected | `marketing_metrics` exists and **nothing writes it** | The collector is a later chip. Every counter is nullable so that "not fetched" and "the provider says zero" stay distinguishable. |
 
@@ -69,3 +69,23 @@ it. The two items marked ⚠ still need a person before a real channel is connec
 | 23 | multi-media picker | one file at a time, then explicit ↑/↓ reordering | Order is meaningful and the API preserves exactly what is sent, so the ordering affordance matters more than a multi-select. Adding two images is two adds. |
 | 24 | "a published delivery links out to the post" | an external id that **is** a URL renders as a link; anything else renders as an identifier | `PublishResult` is a bag of ids and no plugin declares how its provider addresses a post. A per-channel URL template would put channel-specific knowledge in the chassis, which is the one thing the registry exists to prevent. |
 | 25 | — ⚠ | production registers **zero channels** | The fake is gated on `NODE_ENV !== "production"`. Every consumer renders the empty registry as an ordinary first-run state, not an error. This is the state the chassis ships in until a real plugin lands. |
+
+---
+
+## Found by the integrated gate, and fixed
+
+Chip 7 re-ran every chip's gate against one tree and returned one red result: an entry
+whose only delivery ended up `skipped` was left reading `in_progress` permanently. The
+"derive nothing" rung is only safe while the status it declines to overwrite is one a
+person set; once the trigger had moved the entry to a derived value, declining to derive
+froze it there. Reproduced twice, once through the real worker.
+
+Fixed in `20261026090000_marketing_unfreeze_derived_status.sql`: an entry on a derived
+status falls back to `approved`, one on `draft`/`approved` is untouched. Eleven ladder
+cases re-verified live afterwards, including that a draft is never caught by the
+fallback.
+
+That migration also corrects a case chip 2's own gate recorded as passing — deleting the
+last delivery from a published entry left it reading `done`, when the rung's stated
+intent was always to return the entry to the status a person last chose. A gate can
+record the behaviour it observed and still be asserting the wrong thing.
