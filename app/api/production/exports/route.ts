@@ -9,7 +9,7 @@ export async function GET() {
   const { data: txs, error } = await supabase
     .from("export_transactions")
     .select(`
-      id, shipment_id, recipe_id, channel, recipient_id, recipient_name, variant_label,
+      id, shipment_id, recipe_id, channel, recipient_id, recipient_name, variation_id, variant_label,
       quantity, volume_bbl, total_excise_tax_usd, status, invoice_id, allocation_id,
       packaging_item_id, packaging_format, source_ref, notes,
       is_phantom, alert_acknowledged_at,
@@ -17,7 +17,8 @@ export async function GET() {
       brew_batches(id, beer_name, batch_number),
       recipes(beer_name),
       invoices!invoice_id(invoice_number),
-      packaging_items!packaging_item_id(type, volume_fl_oz, name)
+      packaging_items!packaging_item_id(type, volume_fl_oz, name),
+      packaging_variations!variation_id(name)
     `)
     .order("created_at", { ascending: false });
 
@@ -43,8 +44,18 @@ export async function GET() {
       ? (recRaw[0] as { beer_name: string } | undefined)
       : (recRaw as { beer_name: string } | null);
 
+    // The variation's CURRENT name. variant_label is what it was called on the
+    // day, kept for history — showing it is how a rename made the Shipments tab
+    // disagree with Link Styles to Square for months.
+    const pvRaw = tx.packaging_variations as unknown;
+    const pv = Array.isArray(pvRaw)
+      ? (pvRaw[0] as { name: string } | undefined)
+      : (pvRaw as { name: string } | null);
+
     return {
       ...tx,
+      variant_label: pv?.name ?? tx.variant_label,
+      shipped_variant_label: tx.variant_label,
       invoice_number: inv?.invoice_number ?? null,
       packaging_item_type: pi?.type ?? null,
       packaging_item_volume_fl_oz: pi?.volume_fl_oz ?? null,
@@ -52,6 +63,7 @@ export async function GET() {
       recipe_beer_name: rec?.beer_name ?? null,
       invoices: undefined,
       packaging_items: undefined,
+      packaging_variations: undefined,
       recipes: undefined,
     };
   });

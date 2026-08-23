@@ -343,6 +343,10 @@ export function useInvoicePreview(transactionIds: string[], billAsChannel?: stri
     queryKey: ["production", "invoice-preview", transactionIds, billAsChannel ?? null] as const,
     queryFn: () => fetchJson<InvoicePreviewResult>(`/api/production/export/invoice-preview?ids=${transactionIds.join(",")}${billAsChannel ? `&billAs=${encodeURIComponent(billAsChannel)}` : ""}`),
     enabled: transactionIds.length > 0,
+    // A preview failure is a message the operator must act on (an unmapped fee,
+    // an unresolvable variation), not a blip worth retrying. Retrying just held
+    // the modal on "Loading line items…" for seconds before saying anything.
+    retry: false,
   });
 }
 
