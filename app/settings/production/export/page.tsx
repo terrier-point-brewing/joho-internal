@@ -10,7 +10,9 @@ export default function ProductionExportSettingsPage() {
         title="Export Settings"
         description="Package formats and per-partner overrides for distribution exports."
       />
-      <div className="pt-4 pb-4 sm:pb-8 max-w-3xl">
+      {/* No max-width here: the mappings grid is a partner-by-service matrix and
+          grows a column per partner. The narrow sections cap themselves. */}
+      <div className="pt-4 pb-4 sm:pb-8">
         <ExportSettingsPanel />
       </div>
     </div>
