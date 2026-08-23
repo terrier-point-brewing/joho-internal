@@ -3,10 +3,11 @@
  *
  * The job: `channel → plugin`, so nothing else in marketing names a channel.
  *
- * The trap: the fake is registered only outside production, which means the
- * registry a production build sees is EMPTY. Every consumer has to survive that,
- * so both branches are tested here rather than only the one the test runner
- * happens to be in.
+ * The trap: what a build actually sees depends on where it is running. The fake
+ * is registered only outside production; Instagram, the first real channel, is
+ * registered everywhere. Both are asserted here rather than only the one the
+ * test runner happens to be in, because a consumer that assumed the wrong set
+ * would only find out in production.
  *
  * Each case re-imports the module under `vi.resetModules()`, because a registry
  * is a module-level map by nature: a test that registered a channel must not
@@ -15,6 +16,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { createFakeChannelPlugin, FAKE_CHANNEL } from "./fake";
+import { INSTAGRAM_CHANNEL } from "./instagram";
 
 type Registry = typeof import("./registry");
 
@@ -38,7 +40,7 @@ describe("marketing channel registry", () => {
     registerChannel(plugin);
 
     expect(getChannel("north")).toBe(plugin);
-    expect(listChannels()).toEqual([plugin]);
+    expect(listChannels()).toContain(plugin);
   });
 
   it("lists plugins in registration order", async () => {
@@ -49,7 +51,8 @@ describe("marketing channel registry", () => {
     registerChannel(first);
     registerChannel(second);
 
-    expect(listChannels().map((p) => p.channel)).toEqual(["one", "two"]);
+    // Instagram is registered by the module itself and therefore comes first.
+    expect(listChannels().map((p) => p.channel)).toEqual([INSTAGRAM_CHANNEL, "one", "two"]);
   });
 
   it("throws rather than silently replacing a channel registered twice", async () => {
@@ -61,36 +64,45 @@ describe("marketing channel registry", () => {
     );
   });
 
+  it("refuses to let a second plugin take a registered channel's key", async () => {
+    const { registerChannel } = await freshRegistry("production");
+
+    // The key Instagram holds is the one Meta's redirect URI is registered
+    // against, so a module that quietly took it would break the connect flow.
+    expect(() => registerChannel(createFakeChannelPlugin({ channel: INSTAGRAM_CHANNEL }))).toThrow(/already registered/);
+  });
+
   it("answers undefined for a channel nobody registered", async () => {
     const { getChannel } = await freshRegistry("production");
 
-    expect(getChannel("instagram")).toBeUndefined();
+    expect(getChannel("tiktok")).toBeUndefined();
   });
 
-  it("registers the fake outside production", async () => {
+  it("registers Instagram in production", async () => {
+    const { getChannel, listChannels } = await freshRegistry("production");
+
+    expect(listChannels().map((p) => p.channel)).toEqual([INSTAGRAM_CHANNEL]);
+    expect(getChannel(INSTAGRAM_CHANNEL)?.provider).toBe("meta");
+    expect(getChannel(FAKE_CHANNEL)).toBeUndefined();
+  });
+
+  it("registers the fake alongside Instagram outside production", async () => {
     const { getChannel, listChannels } = await freshRegistry("development");
 
-    expect(listChannels().map((p) => p.channel)).toEqual([FAKE_CHANNEL]);
+    expect(listChannels().map((p) => p.channel)).toEqual([INSTAGRAM_CHANNEL, FAKE_CHANNEL]);
     expect(getChannel(FAKE_CHANNEL)?.provider).toBe("fake");
   });
 
   it("registers the fake under the test environment too", async () => {
     const { listChannels } = await freshRegistry("test");
 
-    expect(listChannels().map((p) => p.channel)).toEqual([FAKE_CHANNEL]);
-  });
-
-  it("registers nothing in production — the empty registry every consumer must render", async () => {
-    const { getChannel, listChannels } = await freshRegistry("production");
-
-    expect(listChannels()).toEqual([]);
-    expect(getChannel(FAKE_CHANNEL)).toBeUndefined();
+    expect(listChannels().map((p) => p.channel)).toEqual([INSTAGRAM_CHANNEL, FAKE_CHANNEL]);
   });
 
   it("still accepts a real registration in production — only the fake is gated, not the mechanism", async () => {
     const { registerChannel, listChannels } = await freshRegistry("production");
-    registerChannel(createFakeChannelPlugin({ channel: "instagram", provider: "meta" }));
+    registerChannel(createFakeChannelPlugin({ channel: "facebook", provider: "meta" }));
 
-    expect(listChannels().map((p) => p.channel)).toEqual(["instagram"]);
+    expect(listChannels().map((p) => p.channel)).toEqual([INSTAGRAM_CHANNEL, "facebook"]);
   });
 });
