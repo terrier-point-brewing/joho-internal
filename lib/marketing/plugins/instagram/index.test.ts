@@ -182,6 +182,9 @@ describe("instagram connect — the dialog", () => {
     expect(url.searchParams.get("scope")).toBe(
       "instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list",
     );
+    // Without this, an account that already authorised the app is handed back
+    // its ORIGINAL grant and any scope added since is silently missing.
+    expect(url.searchParams.get("auth_type")).toBe("rerequest");
     expect(url.searchParams.get("response_type")).toBe("code");
   });
 
