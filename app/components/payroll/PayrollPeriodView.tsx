@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePayrollPeriod } from "@/lib/hooks/usePayrollPeriod";
+import { usePayrollPeriod, usePriorPeriodTotals } from "@/lib/hooks/usePayrollPeriod";
 import { fmtCents, fmtUsd } from "@/lib/utils/formatting";
 import { PayrollEntryRow } from "./PayrollEntryRow";
 import { GustoSummaryPanel } from "./GustoSummaryPanel";
@@ -38,6 +38,7 @@ interface Props {
 
 export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
   const { data: preview, isLoading, error } = usePayrollPeriod(periodId);
+  const { data: prior } = usePriorPeriodTotals(periodId);
   const qc = useQueryClient();
   const [locking, setLocking] = useState(false);
   const [showLockConfirm, setShowLockConfirm] = useState(false);
@@ -98,6 +99,23 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
   // derives from the locked snapshot.
   const taproomBasisCents = totBase + totPTips + totBonus;
   const viewHrlyRate = totHours > 0 ? viewComp / totHours / 100 : null;
+
+  // Week-over-week: the prior period's LOCKED snapshot vs. this period's
+  // effective totals. Cash tips compare like-for-like with the active basis
+  // toggle, so the Total row is the same definition on both lines.
+  const priorTotals = prior?.totals ?? null;
+  const priorCTips = priorTotals
+    ? (cashView === "actual" ? priorTotals.cashTipsCents : priorTotals.reportedCashTipsCents)
+    : 0;
+  const priorComp = priorTotals
+    ? priorTotals.basePayCents + priorTotals.paycheckTipsCents + priorCTips + priorTotals.bonusCents
+    : 0;
+  const priorHrlyRate = priorTotals && priorTotals.hours > 0 ? priorComp / priorTotals.hours / 100 : null;
+  const pct = (now: number, before: number) => (before === 0 ? null : ((now - before) / Math.abs(before)) * 100);
+  const compPct = priorTotals ? pct(viewComp, priorComp) : null;
+  // 15% on total comp is the "look at this" threshold — big enough to clear
+  // normal shift-count noise, small enough to catch a missed or doubled shift.
+  const bigSwing = compPct != null && Math.abs(compPct) >= 15;
   const empName = (id: string) => {
     const e = empById.get(id);
     return e ? `${e.first_name} ${e.last_name}` : `${id.slice(0, 8)}…`;
@@ -236,6 +254,20 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
             </div>
           )}
 
+          {/* Week-over-week context line: says why there's no comparison row,
+              or flags a swing worth a second look. */}
+          {prior && !priorTotals && (
+            <p className="text-faint text-xs mb-3">
+              {prior.basis === "none"
+                ? "No prior pay period to compare against."
+                : `Prior period (${prior.priorPeriod?.start_date} – ${prior.priorPeriod?.end_date}) isn't locked yet — no snapshot to compare against.`}
+            </p>
+          )}
+          {bigSwing && compPct != null && (
+            <div className="mb-3 rounded border border-accent-border bg-accent-muted/30 px-3 py-2 text-xs text-secondary">
+              Total comp is {compPct > 0 ? "up" : "down"} {Math.abs(compPct).toFixed(1)}% vs. the prior period.
+            </div>
+          )}
           {/* Bartender table */}
           <table className="w-full text-sm">
             <thead>
@@ -293,11 +325,67 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
                   </td>
                   {editable && overrideMode && <td />}
                 </tr>
+                {/* Week-over-week comparison — prior period's locked snapshot */}
+                {priorTotals && prior?.priorPeriod && (
+                  <>
+                    <tr className="border-t border-line text-xs">
+                      <td className="py-1.5 px-3 text-faint">
+                        Prior ({prior.priorPeriod.start_date} – {prior.priorPeriod.end_date})
+                      </td>
+                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{priorTotals.hours.toFixed(1)}h</td>
+                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorTotals.basePayCents)}</td>
+                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorTotals.bonusCents)}</td>
+                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorCTips)}</td>
+                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorTotals.paycheckTipsCents)}</td>
+                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorComp)}</td>
+                      <td className="text-right py-1.5 px-3 text-faint font-mono">
+                        {priorHrlyRate != null ? `${fmtUsd(priorHrlyRate)}/hr` : "—"}
+                      </td>
+                      {editable && overrideMode && <td />}
+                    </tr>
+                    <tr className="text-xs">
+                      <td className="py-1.5 px-3 text-faint">Change</td>
+                      <td className="text-right py-1.5 px-3 font-mono text-secondary">
+                        {totHours - priorTotals.hours === 0
+                          ? "—"
+                          : `${totHours > priorTotals.hours ? "+" : "-"}${Math.abs(totHours - priorTotals.hours).toFixed(1)}h`}
+                      </td>
+                      <DeltaCents diff={totBase - priorTotals.basePayCents} />
+                      <DeltaCents diff={totBonus - priorTotals.bonusCents} />
+                      <DeltaCents diff={viewCTips - priorCTips} />
+                      <DeltaCents diff={totPTips - priorTotals.paycheckTipsCents} />
+                      <td className={`text-right py-1.5 px-3 font-mono font-medium ${bigSwing ? "text-accent" : "text-body"}`}>
+                        {viewComp - priorComp === 0
+                          ? "—"
+                          : `${viewComp > priorComp ? "+" : "-"}${fmtCents(Math.abs(viewComp - priorComp))}`}
+                        {compPct != null && (
+                          <span className="text-faint"> ({compPct > 0 ? "+" : "-"}{Math.abs(compPct).toFixed(1)}%)</span>
+                        )}
+                      </td>
+                      <td className="text-right py-1.5 px-3 font-mono text-faint">
+                        {viewHrlyRate != null && priorHrlyRate != null
+                          ? `${viewHrlyRate > priorHrlyRate ? "+" : "-"}${fmtUsd(Math.abs(viewHrlyRate - priorHrlyRate))}/hr`
+                          : "—"}
+                      </td>
+                      {editable && overrideMode && <td />}
+                    </tr>
+                  </>
+                )}
               </tfoot>
             )}
           </table>
         </>
       )}
     </div>
+  );
+}
+
+/** Signed money delta, monospaced and column-aligned with the totals row. */
+function DeltaCents({ diff, colSpanClass = "" }: { diff: number; colSpanClass?: string }) {
+  const zero = diff === 0;
+  return (
+    <td className={`text-right py-1.5 px-3 font-mono text-xs ${zero ? "text-faint" : "text-secondary"} ${colSpanClass}`}>
+      {zero ? "—" : `${diff > 0 ? "+" : "-"}${fmtCents(Math.abs(diff))}`}
+    </td>
   );
 }
