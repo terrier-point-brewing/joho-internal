@@ -1,0 +1,14 @@
+---
+name: project_b038_duplicate_canning
+description: "2026-07-16 B-038 Pumpkin Ale duplicate canning — remove erroneous 192x 4-pack, keep 32x case"
+metadata: 
+  node_type: memory
+  type: project
+  originSessionId: d05554b4-d4a7-4a79-b7b4-0ce5dcbf3ddf
+---
+
+2026-07-16: **B-038** (Pumpkin Ale, batch `22a9408a`, recipe `b075096b`, status `conditioning`) had the same 768-can Fortnight Pumpkin canning recorded **twice**: transfer `9107de2c` = 192× "Fortnight Pumpkin Ale - 16oz Labeled Can 4-Pack" (`a2908cf9`, 3.0968 BBL, 2026-07-15) **[erroneous dup — REMOVE]** and transfer `f3dc679f` = 32× "Fortnight Pumpkin Ale - 16oz Labeled Can Case" (`47db4245`, 3.0968 BBL, 2026-07-17) **[KEEP]**. 192×4 = 32×24 = 768 cans, same volume — cases were physically packed as 4-packs inside. A 3rd canning, `002f3a61` = 30× "CBC Pumpkin Reaper Ale Case" (`a8a14b00`, different beer/label/partner), is unrelated — left untouched.
+
+Removal was clean: 192 never shipped/allocated-by-SKU/broken/exported (cold storage intact, no breaks, no export_transactions; batch_allocations are %-channel splits not per-transfer). Fix = migration `20260717_fix_b038_duplicate_canning.sql` (guarded/idempotent): reverse packaging (+768 cans `8921dfe9`, +768 lids `fe7d0cea`, +768 Pumpkin labels `a03e321d`, +192 4-pack paktech `e5c18bd1`); delete cold_storage row (192); revert planned canning schedule entry `95f675a7` (created 2026-06-27, the 4-pack stamped its actuals — clear actual_start/end); delete transfer `9107de2c` (packaging_stock_adjustments cascade-delete via ON DELETE CASCADE FK; 3.0968 BBL returns to source tank via derived ledger). **APPLIED by user 2026-07-16 & verified green** (verify_b038.mjs: transfer/adjustments/cold-storage row gone; remaining cold storage = 32 Fortnight case + 30 CBC Pumpkin Reaper; schedule 95f675a7 reverted to planned; packaging restored 16oz→4107, lid→12325, Pumpkin label→-768, 4-pack→1850). First run rolled back silently due to the NO ACTION FK bug below; v2 fixed it. Sibling to [[project_b027_miscan_fix]].
+
+Schema facts learned (⚠️ corrected): `packaging_stock_adjustments.batch_transfer_id` FK = **ON DELETE NO ACTION** — deleting a batch_transfers row REQUIRES deleting its packaging_stock_adjustments rows first or the delete FK-violates and the whole tx rolls back (this bit v1 of the migration — user reported "192 not removed" because the tx rolled back silently). It is `brew_inventory_adjustments.batch_transfer_id` that is ON DELETE CASCADE (and that table isn't even PostgREST-exposed / effectively unused). `cold_storage_inventory.source_transfer_id` + `export_transactions.source_transfer_id` = ON DELETE SET NULL. `batch_schedule_entries` has NO FK to batch_transfers (canning entry↔transfer link is heuristic: stage+volume+updated_at). `batch_allocations` = percentage channel splits per batch (no source_transfer_id/quantity/variation cols).
