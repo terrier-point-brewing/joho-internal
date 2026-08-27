@@ -3,6 +3,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { affectsPlForFlowType, type FlowType } from "@/lib/finance/bankLedger";
 import { isFlowType, flowNeedsAccount } from "@/lib/finance/flowTypes";
+import { flowAllowsSplit } from "@/lib/finance/bankLedgerSplits";
 import { loadBankLedgerInclusion, INCLUSION_COLUMNS, type InclusionFacts } from "@/lib/finance/bankLedgerInclusion";
 
 export const dynamic = "force-dynamic";
@@ -39,14 +40,41 @@ export async function GET(req: NextRequest) {
   // Cast because the select is interpolated: PostgREST cannot type-check a
   // non-literal column list, the same reason INCLUSION_COLUMNS is typed `string`.
   const fetched = (data ?? []) as unknown as (InclusionFacts & Record<string, unknown>)[];
+  const visible = fetched.filter((row) => inclusion.allows(row));
+
+  // The GL allocation of every split line in the window, fetched once.
+  //
+  // Sent with the grid rather than lazily per row: a split row's account cell
+  // must show the allocation instead of an account picker the moment it renders,
+  // and a per-row fetch would leave every split line briefly claiming to be
+  // coded to nothing. There are a handful of these in a year.
+  const splitsByParent = new Map<string, { chart_of_accounts_id: string; amount_cents: number; memo: string | null }[]>();
+  if (visible.length > 0) {
+    const { data: splitRows, error: splitErr } = await supabase
+      .from("bank_ledger_gl_splits")
+      .select("bank_ledger_id, chart_of_accounts_id, amount_cents, memo")
+      .in("bank_ledger_id", visible.map((row) => row.id as string))
+      .order("created_at", { ascending: true });
+    if (splitErr) return NextResponse.json({ error: splitErr.message }, { status: 500 });
+    for (const s of splitRows ?? []) {
+      const key = s.bank_ledger_id as string;
+      const list = splitsByParent.get(key) ?? [];
+      list.push({
+        chart_of_accounts_id: s.chart_of_accounts_id as string,
+        amount_cents:         s.amount_cents as number,
+        memo:                 (s.memo as string | null) ?? null,
+      });
+      splitsByParent.set(key, list);
+    }
+  }
+
   return NextResponse.json(
-    fetched
-      .filter((row) => inclusion.allows(row))
-      .map((row) => {
-        const payload = { ...row };
-        for (const column of ["source", "counterparty_key", "include_in_gl"]) delete payload[column];
-        return payload;
-      }),
+    visible.map((row) => {
+      const payload = { ...row };
+      for (const column of ["source", "counterparty_key", "include_in_gl"]) delete payload[column];
+      payload.gl_splits = splitsByParent.get(row.id as string) ?? [];
+      return payload;
+    }),
   );
 }
 
@@ -88,7 +116,47 @@ export async function PATCH(req: NextRequest) {
   }
 
   const supabase = createSupabaseAdminClient();
+
+  // A row leaving `balance_sheet_movement` loses its GL allocation with it.
+  //
+  // Same reasoning as the account clear above, one table across: only that flow
+  // can carry a split (lib/finance/bankLedgerSplits.ts), and an allocation left
+  // behind on a row someone moved to "internal transfer" would go on funding
+  // four asset accounts through sumBankSplits with nothing on screen admitting
+  // it was still there. Hiding the editor is not enough, for exactly the reason
+  // hiding the account picker was not.
+  //
+  // Deleted BEFORE the update: if the delete fails the row keeps the flow its
+  // splits belong to, which is recoverable. The reverse order can leave an
+  // allocation orphaned under a flow that must not have one.
+  const dropsSplits = Boolean(body.flow_type) && !flowAllowsSplit(body.flow_type);
+  if (dropsSplits) {
+    const { error: splitErr } = await supabase
+      .from("bank_ledger_gl_splits").delete().eq("bank_ledger_id", body.id);
+    if (splitErr) return NextResponse.json({ error: splitErr.message }, { status: 500 });
+  } else if ("chart_of_accounts_id" in patch) {
+    // Pinning ONE account on a row whose coding is an allocation is two answers
+    // to one question, and the quiet resolutions are both bad: the account wins
+    // and four asset balances silently change, or the allocation wins and the
+    // operator's click did nothing. Refused instead, naming the way out. The
+    // grid does not offer the picker on a split row, so this is a client that
+    // has not caught up -- which is exactly what an edge check is for.
+    const { data: existing, error: exErr } = await supabase
+      .from("bank_ledger_gl_splits").select("id").eq("bank_ledger_id", body.id).limit(1);
+    if (exErr) return NextResponse.json({ error: exErr.message }, { status: 500 });
+    if ((existing ?? []).length > 0) {
+      return NextResponse.json(
+        { error: "This line is split across accounts. Clear the split before coding it to one account." },
+        { status: 409 },
+      );
+    }
+  }
+
   const { data, error } = await supabase.from("bank_ledger").update(patch).eq("id", body.id).select("id, flow_type, affects_pl, chart_of_accounts_id, mapping_source, unmapped_accepted").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
+  // The grid replaces its row from this response, so a reclassification that
+  // discarded an allocation has to say so -- otherwise the cell goes on
+  // rendering split lines that no longer exist until the next reload. Every
+  // other patch leaves the field off and the grid keeps what it has.
+  return NextResponse.json(dropsSplits ? { ...data, gl_splits: [] } : data);
 }

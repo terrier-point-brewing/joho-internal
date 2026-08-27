@@ -1,6 +1,8 @@
 // The general-purpose provider: sums sign-normalized amounts from
 // pos_line_items, invoice_line_items, expenses and bank_ledger rows
-// DIRECTLY tagged to a balance-sheet account's chart_of_accounts_id (no
+// DIRECTLY tagged to a balance-sheet account's chart_of_accounts_id -- plus the
+// two split tables, where a single expense or bank line was divided across
+// several accounts and the allocation IS the tagging (no
 // catalog-prefill fallback -- that's a P&L-page convenience, not a posted
 // GL fact), dated on or before periodEnd. Reuses normalizeSignedCents (the
 // exact function the consolidated-financials aggregation path uses) so this
@@ -205,17 +207,90 @@ async function sumRefunds(supabase: SupabaseClient, coaId: string, periodEnd: st
  * allows() accepts every row it returns, so the figure is unchanged.
  */
 async function sumBank(supabase: SupabaseClient, coaId: string, periodEnd: string, section: string, inclusion: BankLedgerInclusion): Promise<{ sum: number; count: number }> {
-  const rows = await fetchAllRows<{ amount_cents: number | null } & InclusionFacts>(() =>
+  const rows = await fetchAllRows<{ id: string; amount_cents: number | null } & InclusionFacts>(() =>
     inclusion.applyTo(
       supabase
         .from("bank_ledger")
-        .select(`amount_cents, ${INCLUSION_COLUMNS}`)
+        .select(`id, amount_cents, ${INCLUSION_COLUMNS}`)
         .eq("chart_of_accounts_id", coaId)
         .lte("transaction_date", periodEnd)
         .order("id", { ascending: true }),
     ),
   );
   const counted = rows.filter((r) => inclusion.allows(r));
+  if (counted.length === 0) return { sum: 0, count: 0 };
+
+  // PRECEDENCE: when a bank line has split lines, they REPLACE its own account
+  // rather than adding to it -- the same rule sumExpenses applies to a split
+  // expense, and the reason is the same: counting both double-counts real money.
+  //
+  // The split route clears `chart_of_accounts_id` on the parent, so today this
+  // filter has nothing to remove and is belt to that braces. It is here anyway
+  // because the invariant belongs to the READER: a row that acquires both an
+  // account and an allocation -- by a hand-written repair, a restored backup, a
+  // future writer -- must be counted once, and which half wins must not depend
+  // on who wrote the row.
+  const splitParents = await fetchAllRows<{ bank_ledger_id: string }>(() =>
+    supabase
+      .from("bank_ledger_gl_splits")
+      .select("bank_ledger_id")
+      .in("bank_ledger_id", counted.map((r) => r.id))
+      .order("id", { ascending: true }),
+  );
+  const hasSplits = new Set(splitParents.map((r) => r.bank_ledger_id));
+  const own = counted.filter((r) => !hasSplits.has(r.id));
+
+  const sum = own.reduce((s, r) => s + normalizeSignedCents(r.amount_cents ?? 0, section, "bank"), 0);
+  return { sum, count: own.length };
+}
+
+/**
+ * bank_ledger_gl_splits — one bank line divided across several balance-sheet
+ * accounts, which is the only way a single wire that bought four classes of
+ * asset can be recorded as four classes of asset.
+ *
+ * THIS IS NOT AN OPTIONAL EXTRA SOURCE, for the reason sumExpenseSplits says
+ * about its own table: when a line is split, the real GL assignment lives on the
+ * split rows and the parent's account is cleared, so an account funded only by
+ * an allocation reads $0 without this.
+ *
+ * ── Why the parents are re-fetched instead of joined ─────────────────────────
+ * The date bound and the operator's inclusion rules are both properties of the
+ * PARENT, and only some of that is expressible in PostgREST. `inclusion.applyTo`
+ * builds predicates over bank_ledger's own columns and `allows()` finishes the
+ * job in TS over a counterparty name -- neither can be aimed at an embedded
+ * resource. So the allocation rows name their parents, the parents are put
+ * through the very same gate `sumBank` uses, and a split whose parent that gate
+ * rejects contributes nothing. Splitting a line cannot smuggle it past a feed
+ * that is switched off.
+ *
+ * Each line is sign-normalized exactly as the parent would be (`"bank"`), which
+ * is what makes an allocation of a $400,625 outflow read as $400,625 of assets
+ * rather than as negative cash.
+ */
+async function sumBankSplits(supabase: SupabaseClient, coaId: string, periodEnd: string, section: string, inclusion: BankLedgerInclusion): Promise<{ sum: number; count: number }> {
+  const splits = await fetchAllRows<{ bank_ledger_id: string; amount_cents: number | null }>(() =>
+    supabase
+      .from("bank_ledger_gl_splits")
+      .select("bank_ledger_id, amount_cents")
+      .eq("chart_of_accounts_id", coaId)
+      .order("id", { ascending: true }),
+  );
+  if (splits.length === 0) return { sum: 0, count: 0 };
+
+  const parents = await fetchAllRows<{ id: string } & InclusionFacts>(() =>
+    inclusion.applyTo(
+      supabase
+        .from("bank_ledger")
+        .select(`id, ${INCLUSION_COLUMNS}`)
+        .in("id", [...new Set(splits.map((s) => s.bank_ledger_id))])
+        .lte("transaction_date", periodEnd)
+        .order("id", { ascending: true }),
+    ),
+  );
+  const eligible = new Set(parents.filter((p) => inclusion.allows(p)).map((p) => p.id));
+
+  const counted = splits.filter((s) => eligible.has(s.bank_ledger_id));
   const sum = counted.reduce((s, r) => s + normalizeSignedCents(r.amount_cents ?? 0, section, "bank"), 0);
   return { sum, count: counted.length };
 }
@@ -263,21 +338,24 @@ export const transactionPostings: BalanceProvider = {
 
     const inclusion = await loadBankLedgerInclusion(supabase);
 
-    const [pos, invoiceLines, expenses, splits, bank, refunds, manual] = await Promise.all([
+    const [pos, invoiceLines, expenses, splits, bank, bankSplits, refunds, manual] = await Promise.all([
       sumPos(supabase, coaId, periodEnd, section),
       sumInvoiceLines(supabase, coaId, periodEnd, section),
       sumExpenses(supabase, coaId, periodEnd, section),
       sumExpenseSplits(supabase, coaId, periodEnd, section),
       sumBank(supabase, coaId, periodEnd, section, inclusion),
+      sumBankSplits(supabase, coaId, periodEnd, section, inclusion),
       sumRefunds(supabase, coaId, periodEnd, section),
       sumManualFlowEntries(supabase, coaId, periodEnd),
     ]);
 
     const totalRows =
-      pos.count + invoiceLines.count + expenses.count + splits.count + bank.count + refunds.count + manual.count;
+      pos.count + invoiceLines.count + expenses.count + splits.count
+      + bank.count + bankSplits.count + refunds.count + manual.count;
     if (totalRows === 0) return null;
 
-    return pos.sum + invoiceLines.sum + expenses.sum + splits.sum + bank.sum + refunds.sum + manual.sum;
+    return pos.sum + invoiceLines.sum + expenses.sum + splits.sum
+      + bank.sum + bankSplits.sum + refunds.sum + manual.sum;
   },
 };
 

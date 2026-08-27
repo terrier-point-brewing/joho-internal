@@ -41,7 +41,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncPlaidTransactions } from "@/lib/finance/balances/plaidTransactionSync";
-import { backfillBankLedgerCounterparties } from "@/lib/finance/autoMap";
+import { autoMapBankLedger, backfillBankLedgerCounterparties } from "@/lib/finance/autoMap";
 
 export async function runBankTransactionsSync(supabase: SupabaseClient) {
   // Reported rather than thrown, matching balance-capture: one bank failing is
@@ -69,5 +69,38 @@ export async function runBankTransactionsSync(supabase: SupabaseClient) {
   } catch (e) {
     console.error("[bank-transactions-sync] counterparty backfill failed", e);
   }
-  return { ...result, counterparties_named: named };
+
+  // Then apply the standing counterparty rules to what just arrived.
+  //
+  // The importer writes `unclassified` on every new row on purpose -- it will
+  // not guess what a movement IS -- and until now the rules only ran when
+  // somebody SAVED one. So a rule set in Settings answered the history in front
+  // of it and nothing after: the next payout from a counterparty already ruled
+  // on landed unclassified and waited for a human to re-save a rule that had not
+  // changed. The 2026-08-25 Ramp reimbursement debit is the case in point --
+  // "Ramp Reimbursement -> bill payment" had been standing for two days, and its
+  // five older siblings carried it, while the new one sat unclassified.
+  //
+  // A rule is a standing answer, so the moment to apply it is the moment a line
+  // it answers arrives. Fill-nulls-only and per column (resolveBankBackfill), so
+  // it cannot overwrite a manual pin or an answer a person already gave.
+  //
+  // Three years, matching the feed opt-in cascade in the bank-ledger-rules
+  // route: a first sync after a bank is connected walks up to two years of
+  // history, and this run may be the one that imported it.
+  //
+  // Swallowed per year, for the same reason the naming pass above is: a
+  // convenience over rows that are already safely imported must not fail a sync.
+  let mapped = 0;
+  const thisYear = new Date().getFullYear();
+  for (const y of [thisYear, thisYear - 1, thisYear - 2]) {
+    try {
+      const r = await autoMapBankLedger(supabase as never, { from: `${y}-01-01`, to: `${y}-12-31` });
+      mapped += r.mapped;
+    } catch (e) {
+      console.error("[bank-transactions-sync] counterparty rule pass failed", { year: y, error: e });
+    }
+  }
+
+  return { ...result, counterparties_named: named, rules_applied: mapped };
 }

@@ -91,6 +91,52 @@ describe("rampReimbursementToExpenseRecord", () => {
     expect(rampReimbursementToExpenseRecord(claim()).external_account_id).toBeNull();
   });
 
+  // An uncoded claim's only route to the chart of accounts is its merchant: the
+  // key seeds a rule row on the Counterparties screen, and one standing answer
+  // there codes every future claim at that merchant.
+  describe("the counterparty key on an uncoded claim", () => {
+    it("keys an uncoded claim by its merchant, normalized", () => {
+      const rec = rampReimbursementToExpenseRecord(claim({ merchant: "Food Lion" }));
+      expect(rec.counterparty_key).toBe("food lion");
+      expect(rec.counterparty_label).toBe("Food Lion");
+    });
+
+    // Casing and spacing vary run to run; the rule is looked up by the key, so
+    // two spellings of one merchant must not become two rules.
+    it("collapses a merchant's spellings onto one key", () => {
+      const a = rampReimbursementToExpenseRecord(claim({ merchant: "FOOD  LION" }));
+      const b = rampReimbursementToExpenseRecord(claim({ merchant: "Food Lion" }));
+      expect(a.counterparty_key).toBe(b.counterparty_key);
+    });
+
+    // Not an optimisation: external_account_id already outranks a counterparty
+    // rule, so keying a coded claim changes no coding — it would only put a
+    // one-off merchant on a screen that lists decisions still owed.
+    it("does not key a claim Ramp already coded", () => {
+      const rec = rampReimbursementToExpenseRecord(claim({
+        merchant: "Undercover Band",
+        line_items: [{
+          accounting_field_selections: [{
+            id: "gl-1", category_info: { type: "GL_ACCOUNT" }, name: "Entertainment", external_code: "6320",
+          }],
+        }],
+      }));
+      expect(rec.external_account_id).toBe("gl-1");
+      expect(rec.counterparty_key).toBeNull();
+      expect(rec.counterparty_label).toBeNull();
+    });
+
+    // A claim naming nobody has nothing to key on. Null is the correct answer:
+    // an empty-string key would be a rule row every nameless claim shared.
+    it("leaves a claim with no merchant unkeyed", () => {
+      for (const merchant of [null, ""]) {
+        const rec = rampReimbursementToExpenseRecord(claim({ merchant }));
+        expect(rec.counterparty_key).toBeNull();
+        expect(rec.counterparty_label).toBeNull();
+      }
+    });
+  });
+
   // `expenses.state` is upper-case-only (expenses_state_upper_check); a lower
   // case value once dropped every bank row off the cash-flow statement.
   it("upper-cases the state, and treats Ramp's empty sentinel as null", () => {
