@@ -31,8 +31,10 @@ function fakeClient(opts: {
   /** Records every filter call, so a test can assert a filter is actually applied. */
   calls?: string[];
   refundRows?: { amount_cents: number | null }[];
-  /** Partial rows; the inclusion columns default to what an ordinary Ramp row carries. */
+  /** Partial rows; the inclusion columns default to what an ordinary Ramp row carries. Each is given an id "b0", "b1", … for the split fixtures below to point at. */
   bankRows?: ({ amount_cents: number | null } & Partial<{ source: string; counterparty_key: string | null; counterparty_name: string | null; include_in_gl: boolean }>)[];
+  /** bank_ledger_gl_splits rows. Serves BOTH queries against that table — sumBank's precedence probe reads only bank_ledger_id, sumBankSplits reads the amount too. */
+  bankSplitRows?: { bank_ledger_id: string; amount_cents: number | null }[];
   /** manual_entries rows of kind "flow" — a movement somebody typed. */
   manualRows?: { id: string; start_date: string | null; end_date: string | null; amount_cents: number | null }[];
   /** Rows of bank_ledger_gl_rules — the operator's standing decisions. Empty is the production state. */
@@ -86,11 +88,17 @@ function fakeClient(opts: {
       if (table === "bank_ledger") {
         // The DB gives every row a source and an include_in_gl (default true);
         // fixtures say so only when the test is about one of them.
+        //
+        // Both bank_ledger queries are served the same rows: sumBank's own
+        // fetch, and sumBankSplits' re-check of the PARENTS its allocation rows
+        // name. That is faithful — the second is the first's inclusion gate
+        // applied to a narrower id list, and this fake ignores .in() anyway.
         return paginated(
-          (opts.bankRows ?? []).map((r) => ({ source: "ramp", counterparty_key: null, counterparty_name: null, include_in_gl: true, ...r })),
+          (opts.bankRows ?? []).map((r, i) => ({ id: `b${i}`, source: "ramp", counterparty_key: null, counterparty_name: null, include_in_gl: true, ...r })),
           table,
         );
       }
+      if (table === "bank_ledger_gl_splits") return paginated(opts.bankSplitRows ?? [], table);
       if (table === "bank_ledger_gl_rules") {
         const chain: Record<string, unknown> = { select: async () => ({ data: opts.glRules ?? [], error: null }) };
         return chain;
@@ -383,5 +391,66 @@ describe("transactionPostings — manual entries", () => {
     const supabase = fakeClient({ coa: ASSET_COA });
 
     expect(await transactionPostings.compute(assetCtx(supabase, "2026-07-31"))).toBeNull();
+  });
+});
+
+/**
+ * One bank line divided across several balance-sheet accounts.
+ *
+ * The transaction these exist for is the 2026-04-21 acquisition wire: $400,625
+ * leaves the operating account once and arrives as four classes of asset. The
+ * allocation is the coding, so it must post — and the parent must not post
+ * again beside it.
+ */
+describe("transactionPostings — bank-ledger splits", () => {
+  const ASSET_COA: CoaRow = {
+    id: "coa-1520",
+    parent_id: null,
+    account_name: "Brewery Machinery & Equipment",
+    account_number: "1520",
+    account_type: "Fixed Assets",
+    statement_section: null,
+  };
+
+  it("posts the allocation and not the line it came from", async () => {
+    const supabase = fakeClient({
+      coa: ASSET_COA,
+      // The wire, an outflow, which this fake hands to sumBank as if it were
+      // coded to 1520 — the state the split route in fact clears. If the
+      // precedence filter were missing, this row would post $400,625 of its own
+      // on top of the allocation below.
+      bankRows: [{ amount_cents: -400_625_00 }],
+      bankSplitRows: [{ bank_ledger_id: "b0", amount_cents: -300_000_00 }],
+    });
+
+    // Fixed assets is a balance-sheet section, so the cash-direction sign flips:
+    // money out buys an asset. $300,000 of machinery, and nothing from the parent.
+    expect(await transactionPostings.compute(ctx(supabase, "coa-1520"))).toBe(300_000_00);
+  });
+
+  it("does not let a split smuggle a line past a feed that is switched off", async () => {
+    // Plaid rows are imported excluded, and the operator has made no rule. The
+    // allocation's parent therefore fails the same gate sumBank applies to it,
+    // and an allocation whose parent nobody counts contributes nothing.
+    const supabase = fakeClient({
+      coa: ASSET_COA,
+      bankRows: [{ amount_cents: -400_625_00, source: "plaid", include_in_gl: false }],
+      bankSplitRows: [{ bank_ledger_id: "b0", amount_cents: -300_000_00 }],
+    });
+
+    expect(await transactionPostings.compute(ctx(supabase, "coa-1520"))).toBeNull();
+  });
+
+  it("counts every slice landing on the same account", async () => {
+    const supabase = fakeClient({
+      coa: ASSET_COA,
+      bankRows: [{ amount_cents: -400_625_00 }],
+      bankSplitRows: [
+        { bank_ledger_id: "b0", amount_cents: -300_000_00 },
+        { bank_ledger_id: "b0", amount_cents: -25_000_00 },
+      ],
+    });
+
+    expect(await transactionPostings.compute(ctx(supabase, "coa-1520"))).toBe(325_000_00);
   });
 });

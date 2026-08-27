@@ -9,7 +9,7 @@
  */
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { RampTransaction, RampBill, RampReimbursement } from "@/lib/ramp";
-import { extractGlAccount } from "@/lib/ramp";
+import { extractGlAccount, normalizeCounterparty } from "@/lib/ramp";
 import { chunk } from "@/lib/utils/chunk";
 import {
   dollarsToCents,
@@ -201,8 +201,34 @@ export function rampReimbursementToExpenseRecord(r: RampReimbursement): ExpenseR
     external_account_id:   gl?.id ?? null,
     external_account_name: gl?.name ?? null,
     external_account_code: gl?.external_id ?? null,
-    counterparty_key:      null,
-    counterparty_label:    null,
+    // An UNCODED claim is keyed by its merchant, so the standing answer lives
+    // where every other standing answer lives.
+    //
+    // A card swipe reaches the chart of accounts through the category the
+    // employee picked in Ramp; a claim filed from a phone in a car park
+    // routinely has no category at all -- six of the first seven had none -- and
+    // then nothing in this system can code it but a person, one row at a time,
+    // forever. The merchant is the one fact such a claim always carries, and
+    // `merchant_name` is already where the money WENT rather than who fronted
+    // it, which is exactly what a GL rule keys on. So the claim gets a
+    // counterparty key, the sync below seeds a rule row from it, and "Food Lion
+    // -> taproom supplies", answered once in Settings, codes every future ice
+    // run without anybody opening Ramp.
+    //
+    // ── Only when the claim is uncoded, and that is not an optimisation ──────
+    // `external_account_id` already outranks a counterparty rule in
+    // resolveExpenseMapping, so keying a coded claim would change no coding.
+    // What it would change is the Counterparties screen: every one-off merchant
+    // anyone has ever been reimbursed for would land there as a permanent row
+    // asking for an account it does not need. That screen is a list of decisions
+    // still owed, and a claim Ramp already coded is not one of them.
+    //
+    // A claim that arrives uncoded and is categorised in Ramp later loses its
+    // key on the next sync and leaves its rule row behind. Harmless: with no
+    // live expense row pointing at it, `codes_to_an_account` is false and the
+    // row asks for nothing.
+    counterparty_key:      gl?.id ? null : (normalizeCounterparty(r.merchant) || null),
+    counterparty_label:    gl?.id ? null : (r.merchant || null),
     qb_sync_status:        r.sync_status,
     qb_synced_at:          null,
     qb_remote_id:          null,

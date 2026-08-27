@@ -193,6 +193,17 @@ export function flowTypesInGroup(group: FlowGroup): FlowTypeDef[] {
   return FLOW_TYPES.filter((f) => f.group === group);
 }
 
+/**
+ * The one flow whose rows may be divided across several accounts.
+ *
+ * Named because three places have to agree on it — the editor's render
+ * condition, the split API's guard, and the reclassification rule that discards
+ * a split when a row leaves this flow — and a string literal repeated three
+ * times is three places to get it wrong. Why this flow and no other is argued in
+ * lib/finance/bankLedgerSplits.ts.
+ */
+export const BALANCE_SHEET_MOVEMENT = "balance_sheet_movement" satisfies FlowType;
+
 // ── The settings picker's own vocabulary ─────────────────────────────────────
 //
 // The Counterparties screen asks "what is this money?" once, and its answer list
