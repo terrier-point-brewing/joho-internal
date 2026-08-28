@@ -20,8 +20,8 @@ function formatShipmentWarning(w: ShipmentWarning): string {
   switch (w.type) {
     case "guarantee_coverage":
       return `Dips into deposit-reserved beer — after this shipment only ${w.onHandAfterBbl.toFixed(2)} BBL would remain on a batch that still owes ${w.reservedBbl.toFixed(2)} BBL to contract deposits.`;
-    case "under_production":
-      return `A batch has produced ${w.producedBbl.toFixed(2)} of ${w.guaranteedBbl.toFixed(2)} BBL guaranteed to contract deposits — final yield may fall short.`;
+    case "reserve_shortfall":
+      return `A complete batch holds only ${w.onHandBbl.toFixed(2)} BBL but still owes ${w.owedBbl.toFixed(2)} BBL to contract deposits — that beer shipped elsewhere.`;
     case "over_booked":
       return `Shipped ${w.overBbl.toFixed(2)} BBL beyond this customer's booked deposit for this recipe.`;
   }

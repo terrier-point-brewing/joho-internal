@@ -113,17 +113,26 @@ export async function loadShipReserveContext(
       const exported = exportedByKey[`${a.batch_id}:${a.channel}:${partnerId}`] ?? 0;
       const booked = channel === "contract_brewing" ? (a.commitments?.volume_bbl ?? 0) : null;
       const bookedRemainingBbl = channel === "contract_brewing" ? Math.max(0, (booked ?? 0) - exported) : null;
-      return { allocationId: a.id, batchId: a.batch_id, channel, bookedRemainingBbl, _createdAt: a.brew_batches.created_at };
+      // What the batch has actually made for this allocation, less what already
+      // shipped. Caps the credit alongside booked so a batch that finished below
+      // its booked estimate (shrinkage) cannot keep absorbing other batches' beer.
+      const realizable = (Number(a.percentage) / 100) * (producedByBatch[a.batch_id] ?? 0);
+      const realizableRemainingBbl = channel === "contract_brewing" ? Math.max(0, realizable - exported) : null;
+      return { allocationId: a.id, batchId: a.batch_id, channel, bookedRemainingBbl, realizableRemainingBbl, _createdAt: a.brew_batches.created_at };
     })
-    // Drop fully-shipped contract allocations; keep all soft (uncapped absorbers).
-    .filter((c) => (c.channel === "contract_brewing" ? (c.bookedRemainingBbl ?? 0) > 0.0001 : true))
+    // Drop contract allocations with nothing left to credit — on either cap.
+    .filter((c) =>
+      c.channel === "contract_brewing"
+        ? (c.bookedRemainingBbl ?? 0) > 0.0001 && (c.realizableRemainingBbl ?? 0) > 0.0001
+        : true
+    )
     .sort((x, y) => {
       const cx = x.channel === "contract_brewing" ? 0 : 1;
       const cy = y.channel === "contract_brewing" ? 0 : 1;
       if (cx !== cy) return cx - cy;
       return new Date(x._createdAt).getTime() - new Date(y._createdAt).getTime();
     })
-    .map(({ allocationId, batchId, channel, bookedRemainingBbl }) => ({ allocationId, batchId, channel, bookedRemainingBbl }));
+    .map(({ allocationId, batchId, channel, bookedRemainingBbl, realizableRemainingBbl }) => ({ allocationId, batchId, channel, bookedRemainingBbl, realizableRemainingBbl }));
 
   return { candidates, batches };
 }
