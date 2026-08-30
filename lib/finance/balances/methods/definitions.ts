@@ -16,6 +16,7 @@
 import { registerMethod, CLOSE_DUE_DAYS_KEY } from "./registry";
 import type { BalanceMethod } from "./registry";
 import { INVENTORY_POOL_KEY } from "../providers/inventoryOnHand";
+import { COGS_OFFSET_KEY } from "@/lib/finance/inventoryRelief";
 import type { CoaAccountRef } from "../../financials/types";
 
 const isReceivable = (coa: CoaAccountRef) => coa.statementSection === "ar";
@@ -25,6 +26,7 @@ const isCurrentLiability = (coa: CoaAccountRef) => coa.statementSection === "oth
 const isBank = (coa: CoaAccountRef) => coa.statementSection === "bank";
 const isCreditCard = (coa: CoaAccountRef) => coa.statementSection === "credit_card";
 const isOtherCurrentAsset = (coa: CoaAccountRef) => coa.statementSection === "other_current_assets";
+const isFixedAsset = (coa: CoaAccountRef) => coa.statementSection === "fixed_assets";
 
 /**
  * The postings step, reused by three composite methods. Its label and
@@ -411,6 +413,22 @@ const inventoryOnHand: BalanceMethod = {
         { value: "finishedGoods", label: "Finished goods (packaged beer in cold storage)" },
       ],
     },
+    {
+      // OPTIONAL, and the default is the pre-existing behaviour: a balance-
+      // sheet figure and nothing on the P&L. Naming an account here is what
+      // turns the standard periodic treatment on for this shelf -- purchases
+      // keep coding exactly where they always have, and the month's CHANGE in
+      // this account's value lands on the named COGS account as a derived row
+      // (lib/finance/inventoryRelief.ts). The first month a value exists
+      // relieves the whole of it: the one-time catch-up for every purchase
+      // expensed before inventory tracking began.
+      kind: "account",
+      key: COGS_OFFSET_KEY,
+      sections: ["cogs"],
+      optional: true,
+      label: "Cost account the monthly change posts against",
+      help: "Purchases for this shelf are expensed the day they are coded, so without this the P&L counts them twice over their life: once when bought, and again implicitly when the shelf empties. Name the cost-of-goods account they are coded to, and each month's change in this account's value is credited or charged there automatically \u2014 inventory bought but not yet used comes OFF cost, inventory used up goes back ON. Leave it blank to keep the balance-sheet figure only.",
+    },
   ],
   steps: [
     {
@@ -425,6 +443,47 @@ const inventoryOnHand: BalanceMethod = {
       "Direct adjustments",
       "Anything coded straight to this account rather than arriving through the production records — a write-down, or an opening figure booked by hand. Usually nothing, but it would be silently lost without this step.",
       "net",
+    ),
+  ],
+};
+
+/**
+ * GL 1590 Accumulated Depreciation — computed from the depreciation schedules
+ * rather than typed at month end.
+ *
+ * ── No setup fields, on purpose ──────────────────────────────────────────────
+ * Which accounts depreciate, over what life, and where the charge lands are
+ * standing RULES with their own table and screen (Settings → Finance →
+ * Depreciation) — the same shape as counterparty rules, and for the same
+ * reason: they are a LIST, and setup fields are scalars. Selecting this method
+ * says only "this account is where schedules accumulate"; the schedules
+ * themselves say everything else.
+ *
+ * ── Life changes are prospective, never restating ────────────────────────────
+ * A revised useful life applies from the month of the change forward, with the
+ * remaining book value spread over the remaining new life (ASC 250's change-in-
+ * estimate treatment). Months already reported keep the old charge. There is
+ * deliberately no "recompute history" mode — that is error-correction
+ * territory, and a convenience button for it would rewrite closed months
+ * silently.
+ */
+const accumulatedDepreciationMethod: BalanceMethod = {
+  key: "accumulatedDepreciation",
+  label: "Accumulated depreciation",
+  kind: "calculation",
+  summary: "Depreciates each scheduled asset account straight-line from the month its additions were coded, and accumulates the charges here.",
+  appliesTo: isFixedAsset,
+  steps: [
+    {
+      providerKey: "accumulatedDepreciation",
+      label: "Depreciation accrued to date",
+      description:
+        "Every month's additions to each scheduled asset account, depreciated straight-line over that account's useful life from the month they were coded, summed through this month end. The schedules — which accounts depreciate, over how long, expensed where — live under Settings → Finance → Depreciation. A life changed there applies from the change forward, spreading the remaining book value over the remaining new life; months already reported are never restated. The matching expense appears on the P&L automatically, so nothing is entered by hand each month.",
+      source: "Depreciation schedules over the asset accounts' own postings",
+      direction: "net",
+    },
+    correctionsStep(
+      "Adjustments entered by hand under Finance > Transactions > Manual Entries — accumulated depreciation brought over from before this system tracked it, or a disposal's write-back. These sit alongside the computed figure, never inside it.",
     ),
   ],
 };
@@ -706,6 +765,7 @@ export const BUILT_IN_METHODS: BalanceMethod[] = [
   accountsPayable,
   retainedEarnings,
   inventoryOnHand,
+  accumulatedDepreciationMethod,
   rampAccountBalance,
   rampCardBalance,
   squareStoredBalance,

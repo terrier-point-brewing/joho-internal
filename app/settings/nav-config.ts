@@ -87,6 +87,11 @@ export const FINANCE_SETTINGS_NAV: SettingsNavEntry[] = [
   // order an operator thinks in rather than in reverse across four screens.
   // Adding a fourth integration adds no entry here.
   { href: "/settings/finance/balance-sheet-accounts", label: "Balance Sheet Accounts" },
+  // Sits after Balance Sheet Accounts because a schedule is the same kind of
+  // thing as a balance method — a standing rule the statements compute from —
+  // scoped to the one calculation with a LIST of accounts behind it, which the
+  // method setup panel's scalar fields cannot hold.
+  { href: "/settings/finance/depreciation", label: "Depreciation" },
   { href: "/settings/finance/backfill", label: "Backfill" },
 ];
 
