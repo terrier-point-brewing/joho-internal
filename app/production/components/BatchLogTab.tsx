@@ -1941,8 +1941,12 @@ function TransferLog({ transfers, batchVol }: { transfers: BatchTransfer[]; batc
                   const toEq   = t.to_tank   ? EQ[t.to_tank.type   as keyof typeof EQ] : null;
                   const byEmail = t.created_by_profile?.email;
                   const byLabel = byEmail ? byEmail.split("@")[0] : "—";
+                  // An in-keg conversion leaves no second batch to point at, so
+                  // the beer it produced only shows up here — without it, a run
+                  // that turned Carolina Mule into Transfusion Lager reads as an
+                  // ordinary kegging of Carolina Mule.
                   const outputLabel = t.quantity && t.packaging_variations?.name
-                    ? `${t.quantity}× ${t.packaging_variations.name}`
+                    ? `${t.quantity}× ${t.packaging_variations.name}${t.packaged_as ? ` — ${t.packaged_as.beer_name}` : ""}`
                     : null;
                   return (
                     <tr key={t.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>

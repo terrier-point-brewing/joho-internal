@@ -15,7 +15,7 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
 import RecipeVariationPicker from "./RecipeVariationPicker";
 import ProductCodeInput from "./ProductCodeInput";
-import { splitBillAgainstBase } from "@/lib/production/recipeLineage";
+import { baseMapOf, lineageAncestors, lineageDescendants, splitBillAgainstBase } from "@/lib/production/recipeLineage";
 import type { ControlsConfig } from "@/lib/table/types";
 
 interface BrewStepTemplateData {
@@ -185,11 +185,11 @@ export default function RecipesTab() {
       abv: r.abv != null ? String(r.abv) : "",
       ibu: r.ibu != null ? String(r.ibu) : "",
       partner_id: r.partner_id ?? "",
-      // Cloning declares the lineage the clone was made for. Cloning a recipe
-      // that is itself derived produces a SIBLING, not a chain — Grapefruit
-      // Pilsner cloned off Orange Pilsner is another Pace Yourself derivative —
-      // which is also the only shape the flat-lineage trigger accepts.
-      base_recipe_id: r.base_recipe_id ?? r.id,
+      // Cloning declares the lineage the clone was made for: the new recipe is
+      // the one it was cloned from, plus whatever gets added on the next screen.
+      // Chains are fine — Transfusion Lager cloned off Carolina Mule is based on
+      // Carolina Mule, which is itself based on Pace Yourself Pilsner.
+      base_recipe_id: r.id,
       expected_yield_bbl: r.expected_yield_bbl != null ? String(r.expected_yield_bbl) : "",
       days_brewhouse: r.days_brewhouse != null ? String(r.days_brewhouse) : "",
       days_fermenter: r.days_fermenter != null ? String(r.days_fermenter) : "",
@@ -336,9 +336,9 @@ export default function RecipesTab() {
     document.getElementById(`recipe-${deepLinkedId}`)?.scrollIntoView({ block: "center" });
   }, [deepLinkedRendered, deepLinkedId]);
 
-  // How many recipes name each one as their base. A recipe with derivatives
-  // cannot itself become derived (the DB trigger keeps lineage one level deep),
-  // and it is also what makes deleting it consequential.
+  // How many recipes name each one as their base — what makes deleting it
+  // consequential. A recipe with derivatives may still be derived itself; that
+  // is exactly the Pilsner → Mule → Transfusion chain.
   const derivedCountById = useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of recipes) {
@@ -352,16 +352,23 @@ export default function RecipesTab() {
     [recipes],
   );
 
-  /** Recipes that may serve as a base: originals only, never the recipe itself. */
-  const baseOptions = useMemo(
-    () => recipes
-      .filter((r) => r.id !== editingId && !r.base_recipe_id)
-      .sort((a, b) => a.beer_name.localeCompare(b.beer_name)),
-    [recipes, editingId],
-  );
+  const baseById = useMemo(() => baseMapOf(recipes), [recipes]);
 
-  /** True while editing a recipe that other recipes are already based on. */
-  const editingIsABase = Boolean(editingId && (derivedCountById.get(editingId) ?? 0) > 0);
+  /**
+   * Recipes that may serve as a base: anything that does not already convert
+   * from this one.
+   *
+   * Chains are legal now, so a derived recipe is a perfectly good base — Carolina
+   * Mule is Pace Yourself Pilsner plus ginger and lime, and Transfusion Lager is
+   * Carolina Mule plus grape juice. What stays excluded is the recipe itself and
+   * everything downstream of it, because either would close a loop.
+   */
+  const baseOptions = useMemo(() => {
+    const downstream = editingId ? lineageDescendants(editingId, baseById) : new Set<string>();
+    return recipes
+      .filter((r) => r.id !== editingId && !downstream.has(r.id))
+      .sort((a, b) => a.beer_name.localeCompare(b.beer_name));
+  }, [recipes, editingId, baseById]);
 
   /**
    * Sever a recipe's link to its base, leaving a standalone original behind.
@@ -918,26 +925,39 @@ export default function RecipesTab() {
               <select
                 className="inp"
                 value={form.base_recipe_id}
-                disabled={editingIsABase}
                 onChange={(e) => setForm((f) => ({ ...f, base_recipe_id: e.target.value }))}
               >
                 <option value="">— none (an original) —</option>
                 {baseOptions.map((r) => (
-                  <option key={r.id} value={r.id}>{r.beer_name}</option>
+                  <option key={r.id} value={r.id}>
+                    {r.beer_name}
+                    {r.base_recipe_id ? ` (from ${recipeById.get(r.base_recipe_id)?.beer_name ?? "another recipe"})` : ""}
+                  </option>
                 ))}
               </select>
-              {editingIsABase ? (
-                <p className="text-xs text-faint mt-1">
-                  Other recipes are based on this one, so it cannot itself be derived. Break those
-                  links first.
-                </p>
-              ) : form.base_recipe_id ? (
-                <p className="text-xs text-muted mt-1">
-                  Enter the <span className="text-secondary">complete</span> bill below — everything
-                  that goes into the beer. A conversion charges only what this recipe adds on top of{" "}
-                  {recipeById.get(form.base_recipe_id)?.beer_name ?? "its base"}; brewing it from
-                  scratch still charges all of it.
-                </p>
+              {form.base_recipe_id ? (
+                <>
+                  <p className="text-xs text-muted mt-1">
+                    Enter the <span className="text-secondary">complete</span> bill below — everything
+                    that goes into the beer. A conversion charges only what this recipe adds on top of{" "}
+                    {recipeById.get(form.base_recipe_id)?.beer_name ?? "its base"}; brewing it from
+                    scratch still charges all of it.
+                  </p>
+                  {/* A chain is normal, and worth spelling out: the beer can be
+                    * drawn off any batch in it, and what gets charged is the
+                    * difference from whichever one it actually came out of. */}
+                  {lineageAncestors(form.base_recipe_id, baseById).length > 0 && (
+                    <p className="text-xs text-faint mt-1">
+                      Chain:{" "}
+                      {[form.base_recipe_id, ...lineageAncestors(form.base_recipe_id, baseById)]
+                        .map((id) => recipeById.get(id)?.beer_name ?? "?")
+                        .reverse()
+                        .join(" → ")}{" "}
+                      → this recipe. Converting from any of them works; each charges the difference
+                      from that one.
+                    </p>
+                  )}
+                </>
               ) : null}
             </Field>
 

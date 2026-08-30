@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import type { BrewBatch, Recipe } from "../../types";
 import type { ScheduleEntry } from "../../hooks/queries";
 import { STAGE_LABELS } from "./constants";
+import { baseMapOf, lineageDescendants } from "@/lib/production/recipeLineage";
 
 export function ConvertPanel({
   batchId,
@@ -41,13 +42,16 @@ export function ConvertPanel({
     b.status !== "complete"
   );
 
-  // A target whose recipe names this batch's beer as its base is one whose
-  // additions can be reserved and charged — the difference between the two
-  // bills. Everything else stays selectable and simply warns: converting into
-  // an unrelated beer is a real thing to do, it just cannot be costed.
-  const derivedRecipeIds = new Set(
-    recipes.filter(r => r.base_recipe_id != null && r.base_recipe_id === sourceRecipeId).map(r => r.id),
-  );
+  // A target whose recipe converts from this batch's beer — at any depth — is
+  // one whose additions can be reserved and charged: the difference between the
+  // two bills. Depth does not matter because the subtraction is always against
+  // the beer actually in the tank, so drawing Transfusion Lager straight off a
+  // Pace Yourself Pilsner batch charges ginger, lime AND grape juice. Everything
+  // else stays selectable and simply warns: converting into an unrelated beer is
+  // a real thing to do, it just cannot be costed.
+  const derivedRecipeIds = sourceRecipeId
+    ? lineageDescendants(sourceRecipeId, baseMapOf(recipes))
+    : new Set<string>();
   const linkedBatches   = candidateBatches.filter(b => b.recipe_id != null && derivedRecipeIds.has(b.recipe_id));
   const unlinkedBatches = candidateBatches.filter(b => !(b.recipe_id != null && derivedRecipeIds.has(b.recipe_id)));
 

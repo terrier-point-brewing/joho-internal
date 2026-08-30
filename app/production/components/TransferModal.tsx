@@ -9,6 +9,7 @@ import { fmtBbl2 as fmtBbl } from "@/lib/utils/formatting";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import type { ScheduleEntry } from "../hooks/queries";
 import { format, parseISO } from "date-fns";
+import { baseMapOf, lineageDescendants } from "@/lib/production/recipeLineage";
 
 // Allowed destinations by source equipment type. Fermenters and brite tanks
 // are interchangeable for the fermenting→conditioning move (many breweries
@@ -96,6 +97,35 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     return true;
   });
 
+  // ── Conversion lineage ──────────────────────────────────────────────────────
+  // A recipe that converts from this batch's beer — directly or further down a
+  // chain — is one a conversion can cost correctly: the difference between the
+  // two bills is what goes in the tank. Depth costs nothing, because the
+  // subtraction is always against the beer physically being drawn off. Anything
+  // unrelated converts fine, but charges nothing, because there is no way to
+  // tell which of its lines this batch already paid for. Linked options are
+  // surfaced first; unlinked ones warn rather than disappear, since blends and
+  // one-off experiments are real.
+  const derivedRecipeIds = batch.recipe_id
+    ? lineageDescendants(batch.recipe_id, baseMapOf(recipes))
+    : new Set<string>();
+
+  // ── In-keg conversion ───────────────────────────────────────────────────────
+  // Not every conversion gets a tank. The ginger and lime can go in as the brite
+  // empties into kegs, so what leaves is Pace Yourself Pilsner and what is capped
+  // is Carolina Mule — with no vessel, and no batch, in between. Naming the beer
+  // here makes the run produce it: the kegs land under that recipe, and its
+  // addition is charged against this batch. Empty means the run packages this
+  // batch's own beer, which is what almost every run does.
+  const [packagedAsRecipeId, setPackagedAsRecipeId] = useState("");
+  const inKegOptions = recipes
+    .filter((r) => derivedRecipeIds.has(r.id))
+    .sort((a, b) => a.beer_name.localeCompare(b.beer_name));
+  // Everything about the packaging form follows the beer being produced, not the
+  // beer in the tank: the variations offered, the cold-storage rows, the gate the
+  // server applies. They are the same thing whenever no conversion is declared.
+  const packagingRecipeId = packagedAsRecipeId || batch.recipe_id;
+
   interface PackagingLine { variation_id: string; quantity: string }
 
   // Generic variations (no partner_id) are available to every recipe without
@@ -103,7 +133,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   // Canning has no such fallback: every can variation must be explicitly
   // declared for the recipe via recipe_packaging_variations.
   const linkedVariations = recipePackagingVariations
-    .filter((rv) => rv.recipe_id === batch.recipe_id)
+    .filter((rv) => rv.recipe_id === packagingRecipeId)
     .map((rv) => rv.packaging_variations)
     .filter((v): v is PackagingVariation => v != null && v.is_active);
   const genericVariations = allPackagingVariations.filter((v) => v.partner_id == null && v.is_active);
@@ -148,16 +178,6 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const [newBeerName, setNewBeerName] = useState(initialConvert?.beerName ?? "");
   const [newRecipeId, setNewRecipeId] = useState("");
 
-  // ── Conversion lineage ──────────────────────────────────────────────────────
-  // A recipe that names this batch's beer as its base is one a conversion can
-  // cost correctly: the difference between the two bills is what goes in the
-  // tank. Anything else converts fine, but charges nothing, because there is no
-  // way to tell which of its lines this batch already paid for. Linked options
-  // are surfaced first; unlinked ones warn rather than disappear, since blends
-  // and one-off experiments are real.
-  const derivedRecipeIds = new Set(
-    recipes.filter((r) => r.base_recipe_id != null && r.base_recipe_id === batch.recipe_id).map((r) => r.id),
-  );
   const linkedRecipes   = recipes.filter((r) => derivedRecipeIds.has(r.id));
   const unlinkedRecipes = recipes.filter((r) => !derivedRecipeIds.has(r.id));
 
@@ -340,6 +360,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           transfer_type,
           notes:         notes || null,
           packaging_lines,
+          ...(packagedAsRecipeId ? { packaged_as_recipe_id: packagedAsRecipeId } : {}),
           ...(transfer_type === "canning" ? { packaging_loss_pct: lossPctNum } : {}),
         }),
       });
@@ -578,6 +599,36 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         )}
 
         {/* ── Packaging detail (kegging or canning) ── */}
+        {isPackagingForm && inKegOptions.length > 0 && (
+          <div>
+            <label className="text-xs text-secondary block mb-1">Packaging as</label>
+            <select
+              className="inp"
+              value={packagedAsRecipeId}
+              onChange={(e) => {
+                setPackagedAsRecipeId(e.target.value);
+                // A different beer declares a different set of variations, so
+                // nothing already picked can be assumed to still be valid.
+                setPackagingLines([{ variation_id: "", quantity: "" }]);
+              }}
+            >
+              <option value="">{batch.beer_name} — no conversion</option>
+              {inKegOptions.map((r) => (
+                <option key={r.id} value={r.id}>{r.beer_name} — converted in the {showKegDetail ? "keg" : "can"}</option>
+              ))}
+            </select>
+            {packagedAsRecipeId && (
+              <p className="text-xs text-muted mt-1">
+                This run produces{" "}
+                <span className="text-secondary">{recipes.find((r) => r.id === packagedAsRecipeId)?.beer_name}</span>.
+                The {showKegDetail ? "kegs" : "cans"} go to cold storage under that beer, and what it
+                adds over {batch.beer_name} is deducted from ingredient stock. {batch.beer_name} keeps
+                the batch.
+              </p>
+            )}
+          </div>
+        )}
+
         {isPackagingForm && (
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -587,7 +638,9 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             </div>
             {(showKegDetail ? kegVariations : canVariations).length === 0 && (
               <p className="text-xs text-faint">
-                No packaging variations declared for this recipe — add one in Recipes → Packaging Variations.
+                No packaging variations declared for{" "}
+                {packagedAsRecipeId ? recipes.find((r) => r.id === packagedAsRecipeId)?.beer_name : "this recipe"}
+                {" "}— add one in Recipes → Packaging Variations.
               </p>
             )}
             <div className="space-y-2">

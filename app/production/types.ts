@@ -123,6 +123,9 @@ export interface BatchTransfer {
   from_tank?: { id: string; name: string; type: EquipmentType } | null;
   to_tank?:   { id: string; name: string; type: EquipmentType } | null;
   to_batch?:  { id: string; beer_name: string; batch_number: string | null } | null;
+  /** In-keg/in-can conversion: the beer this packaging run actually produced. */
+  packaged_as_recipe_id?: string | null;
+  packaged_as?: { beer_name: string } | null;
   created_by_profile?: { email: string } | null;
 }
 
