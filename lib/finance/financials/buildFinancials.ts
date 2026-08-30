@@ -17,6 +17,7 @@ import { fetchFinancialsSources } from "./fetchSources";
 import { aggregateRows } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
 import { injectManualNetSales } from "./manualNetSales";
+import { injectDepreciationRows, injectInventoryReliefRows } from "./derivedStatementRows";
 import { HREFS, coaAccountRefsOf } from "./statementCommon";
 import { buildBalanceSheetFinancials } from "./buildBalanceSheetFinancials";
 import type { FinancialsResponse, StatementKind } from "./types";
@@ -43,6 +44,16 @@ async function buildFlowFinancials(statement: "pl" | "cash_flow", year: number):
   });
 
   rows = injectManualNetSales(rows, src.manualNetSalesEntries, months, src.coa);
+
+  // Depreciation and inventory relief: derived, and NON-CASH, so the fetch
+  // layer supplies them for the P&L alone (empty on cash_flow — the cash-flow
+  // statement counts the purchases themselves, and injecting either there
+  // would misstate operating cash by the adjustment). Retained earnings
+  // (balances/providers/retainedEarnings.ts) adds the same two figures
+  // cumulatively, through the same modules, so equity absorbs exactly what
+  // these rows recognize. `?? []` because older fixtures predate the fields.
+  rows = injectDepreciationRows(rows, src.depreciationStates ?? [], months, src.coa);
+  rows = injectInventoryReliefRows(rows, src.inventoryValueSeries ?? [], months, src.coa);
 
   // operatingCashCents only makes sense for the cash_flow statement (net
   // income computed over the already cash-filtered rows == direct-method

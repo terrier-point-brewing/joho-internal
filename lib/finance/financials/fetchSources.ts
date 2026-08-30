@@ -11,6 +11,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { fetchDepreciationState, type ScheduleState } from "@/lib/finance/depreciation/state";
+import { fetchInventoryValueSeries, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
 import { fetchAllRows, PAGE_SIZE } from "@/lib/supabase/paginate";
 import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
 import { applyExpenseStatementFilters } from "./expenseFilters";
@@ -51,6 +53,15 @@ export interface FinancialsSourcesResult {
   /** The trailing (up to) 12 real calendar months, ascending "YYYY-MM". */
   months: string[];
   exciseCoverage: { shipmentsMissingExcise: number };
+  /**
+   * The two DERIVED P&L inputs — depreciation schedules with their additions,
+   * and the inventory value series behind the relief rows. Fetched for the
+   * "pl" statement only and empty otherwise: both are non-cash, so the
+   * cash-flow statement must never see them, and fetching what a statement
+   * cannot use is a query for nothing. Injection happens in buildFinancials.
+   */
+  depreciationStates: ScheduleState[];
+  inventoryValueSeries: InventoryValueSeries[];
 }
 
 const VOLUME_CATEGORIES = new Set(["distribution_keg", "distribution_can"]);
@@ -645,6 +656,16 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     fetchManualNetSalesEntries(supabase),
   ]);
 
+  // Depreciation and inventory relief inputs, P&L only — see the result type.
+  // The live month uses the runtime clock the same way trailingMonths does.
+  const liveMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const [depreciationStates, inventoryValueSeries] = statement === "pl"
+    ? await Promise.all([
+        fetchDepreciationState(supabase, coa),
+        fetchInventoryValueSeries(supabase, months, liveMonth),
+      ])
+    : [[], []];
+
   return {
     coa,
     pos,
@@ -655,5 +676,7 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     months,
     exciseCoverage,
     manualNetSalesEntries,
+    depreciationStates,
+    inventoryValueSeries,
   };
 }

@@ -74,6 +74,9 @@ import {
 import type { DateRange } from "@/lib/finance/financials/fetchSources";
 import { aggregateRows } from "@/lib/finance/financials/aggregateRows";
 import { buildKpis } from "@/lib/finance/financials/summaries";
+import { cumulativeDepreciationThrough } from "@/lib/finance/financials/derivedStatementRows";
+import { fetchDepreciationState } from "@/lib/finance/depreciation/state";
+import { cumulativeInventoryReliefThrough } from "@/lib/finance/inventoryRelief";
 import { PAGE_CONCURRENCY } from "@/lib/supabase/paginate";
 import { registerProvider } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
@@ -177,7 +180,24 @@ export const retainedEarnings: BalanceProvider = {
     // (summaries.ts's sumSectionByMonth), so adding its months up is the P&L's
     // own net income over the whole range -- no second formula to drift from.
     const netIncomeByMonth = buildKpis(rows, months).netIncomeCents;
-    const netIncomeCents = months.reduce((total, month) => total + (netIncomeByMonth[month] ?? 0), 0);
+    let netIncomeCents = months.reduce((total, month) => total + (netIncomeByMonth[month] ?? 0), 0);
+
+    // The P&L statement's two DERIVED rows (buildFinancials.ts, statement
+    // "pl"): depreciation and inventory relief. They come from the same shared
+    // modules the statement injects from, so equity absorbs to the cent what
+    // those rows recognize -- leaving them out would widen the balancing
+    // difference by every month's depreciation and the whole inventory value,
+    // which is the exact shape of the manual-net-sales gap documented above.
+    // (That gap itself remains untouched, for that comment's own reasons.)
+    const throughMonth = periodEnd.slice(0, 7);
+    const now = new Date();
+    const liveMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    const [depreciationStates, inventoryCents] = await Promise.all([
+      fetchDepreciationState(supabase, coa),
+      cumulativeInventoryReliefThrough(supabase, throughMonth, liveMonth),
+    ]);
+    netIncomeCents += cumulativeDepreciationThrough(depreciationStates, throughMonth);
+    netIncomeCents += inventoryCents;
 
     // Equity is credit-normal; the internal convention stores liabilities
     // and equity NEGATIVE (normalizeSign.ts's NEGATIVE_SECTIONS), so a
