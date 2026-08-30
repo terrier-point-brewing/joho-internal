@@ -128,6 +128,9 @@ export const queryKeys = {
     all:           () => ["taproom"] as const,
     salesPulse:    (start: string, end: string) => ["taproom", "sales-pulse", start, end] as const,
     salesPulseDay: (date: string) => ["taproom", "sales-pulse-day", date] as const,
+    // Line-level detail behind the category breakdown. Keyed on the same range
+    // the table is showing, so the drill always matches the totals above it.
+    salesPulseLines: (start: string, end: string) => ["taproom", "sales-pulse-lines", start, end] as const,
     targets:       () => ["taproom", "targets"] as const,
     tapConfig:     () => ["taproom", "tap-config"] as const,
     tapSwaps:      () => ["taproom", "tap-swaps"] as const,

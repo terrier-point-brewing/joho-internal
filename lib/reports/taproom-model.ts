@@ -1,5 +1,9 @@
-import type { CatalogItem, Order } from "@/types/square";
-import type { TaproomModelResult, TaproomCategoryTotals } from "@/types/reports";
+import type { CatalogItem, Order, OrderLineItem } from "@/types/square";
+import type {
+  TaproomModelResult,
+  TaproomCategoryTotals,
+  TaproomLineContribution,
+} from "@/types/reports";
 import type { SquareRefund } from "@/lib/square/refunds";
 import { TAPROOM_MODEL_CATEGORIES, type TaproomCategoryId } from "@/lib/constants/categories";
 import { detectCocktailSales, buildNonComboCocktailVariationIds } from "./cocktails";
@@ -44,10 +48,35 @@ function initByCategory(): Record<string, TaproomCategoryTotals> {
   return r;
 }
 
+// Where a contribution came from. Required — not optional — on both funnels
+// below, so a category total can never be moved without also saying which line
+// moved it. That is what keeps the Sales Pulse drill-down honest as new
+// categories and detection rules get added.
+interface LineContext {
+  orderId: string;
+  lineUid: string;
+  occurredAt: string;
+  itemName: string;
+  variationName: string;
+  quantity: number;
+  discountNames: string[];
+  prorated?: boolean;
+}
+
+// Names of the order-level discounts applied to a line. `applied_discounts`
+// only carries uids; the human-readable name lives on `order.discounts`.
+function discountNamesFor(order: Order, line: OrderLineItem): string[] {
+  return (line.applied_discounts ?? [])
+    .map((ad) => (order.discounts ?? []).find((d) => d.uid === ad.discount_uid)?.name ?? "")
+    .filter(Boolean);
+}
+
 function addToCategory(
   byCategory: Record<string, TaproomCategoryTotals>,
+  contributions: TaproomLineContribution[],
   catId: TaproomCategoryId,
-  gross: number, discounts: number, tax: number
+  gross: number, discounts: number, tax: number,
+  ctx: LineContext
 ) {
   const t = byCategory[catId];
   if (!t) return;
@@ -55,6 +84,23 @@ function addToCategory(
   t.discountsCents   += discounts;
   t.taxCents         += tax;
   t.netSalesCents    = t.grossSalesCents - t.discountsCents - t.returnsCents;
+
+  contributions.push({
+    categoryId: catId,
+    orderId: ctx.orderId,
+    lineUid: ctx.lineUid,
+    occurredAt: ctx.occurredAt,
+    itemName: ctx.itemName,
+    variationName: ctx.variationName,
+    quantity: ctx.quantity,
+    grossSalesCents: gross,
+    discountsCents: discounts,
+    returnsCents: 0,
+    taxCents: tax,
+    discountNames: ctx.discountNames,
+    kind: "sale",
+    prorated: ctx.prorated ?? false,
+  });
 }
 
 export function buildTaproomModelReport(
@@ -63,6 +109,7 @@ export function buildTaproomModelReport(
   refunds: SquareRefund[]
 ): TaproomModelResult {
   const byCategory = initByCategory();
+  const contributions: TaproomLineContribution[] = [];
   let totalTipsCents = 0;
 
   // ── 1. Cocktails (combo + non-combo) ────────────────────────────────────
@@ -72,7 +119,21 @@ export function buildTaproomModelReport(
   const { sales: cocktailSales, comboClaimedKeys } = detectCocktailSales(orders, items);
 
   for (const cs of cocktailSales) {
-    addToCategory(byCategory, "COCKTAILS", cs.grossSalesCents, cs.discountsCents, cs.taxCents);
+    addToCategory(
+      byCategory, contributions, "COCKTAILS",
+      cs.grossSalesCents, cs.discountsCents, cs.taxCents,
+      {
+        orderId: cs.orderId,
+        // A combo is one sale assembled from N component lines; join their uids
+        // so the drill row still points back at every line it covers.
+        lineUid: cs.rawLineItems.map((li) => li.uid).join("+"),
+        occurredAt: cs.rawOrder.created_at ?? cs.orderClosedAt,
+        itemName: cs.itemName,
+        variationName: cs.variationName,
+        quantity: cs.quantity,
+        discountNames: cs.rawLineItems.flatMap((li) => discountNamesFor(cs.rawOrder, li)),
+      }
+    );
   }
 
   // ── 2. Kegs (sales only — transfers excluded) ───────────────────────────
@@ -85,7 +146,19 @@ export function buildTaproomModelReport(
 
   for (const ks of kegSales) {
     if (ks.isTransfer) continue; // exclude transfers from sales totals
-    addToCategory(byCategory, "KEGS", ks.grossSalesCents, ks.discountsCents, ks.taxCents);
+    addToCategory(
+      byCategory, contributions, "KEGS",
+      ks.grossSalesCents, ks.discountsCents, ks.taxCents,
+      {
+        orderId: ks.orderId,
+        lineUid: ks.rawLineItem.uid,
+        occurredAt: ks.rawOrder.created_at ?? ks.orderClosedAt,
+        itemName: ks.beerName,
+        variationName: ks.kegSize,
+        quantity: ks.quantity,
+        discountNames: ks.discountNames,
+      }
+    );
   }
 
   // ── 3. All other line items ──────────────────────────────────────────────
@@ -117,7 +190,18 @@ export function buildTaproomModelReport(
       const gross     = line.gross_sales_money?.amount     ?? 0;
       const discounts = line.total_discount_money?.amount  ?? 0;
       const tax       = line.total_tax_money?.amount       ?? 0;
-      addToCategory(byCategory, modelCatId, gross, discounts, tax);
+      addToCategory(
+        byCategory, contributions, modelCatId, gross, discounts, tax,
+        {
+          orderId: order.id,
+          lineUid: line.uid,
+          occurredAt: order.created_at ?? order.closed_at ?? "",
+          itemName: line.name,
+          variationName: line.variation_name ?? "",
+          quantity: Number(line.quantity ?? "1") || 0,
+          discountNames: discountNamesFor(order, line),
+        }
+      );
     }
   }
 
@@ -138,11 +222,28 @@ export function buildTaproomModelReport(
     return varIdToCategoryId.get(varId);
   };
 
-  const addReturn = (catId: TaproomCategoryId, cents: number) => {
+  const addReturn = (catId: TaproomCategoryId, cents: number, ctx: LineContext) => {
     const t = byCategory[catId];
     if (!t) return;
     t.returnsCents  += cents;
     t.netSalesCents  = t.grossSalesCents - t.discountsCents - t.returnsCents;
+
+    contributions.push({
+      categoryId: catId,
+      orderId: ctx.orderId,
+      lineUid: ctx.lineUid,
+      occurredAt: ctx.occurredAt,
+      itemName: ctx.itemName,
+      variationName: ctx.variationName,
+      quantity: ctx.quantity,
+      grossSalesCents: 0,
+      discountsCents: 0,
+      returnsCents: cents,
+      taxCents: 0,
+      discountNames: ctx.discountNames,
+      kind: "return",
+      prorated: ctx.prorated ?? false,
+    });
   };
 
   // A refund's `order_id` points at the *return order* Square creates for it —
@@ -183,7 +284,15 @@ export function buildTaproomModelReport(
         // excluded: `returnsCents` is compared against ex-tax gross.
         const gross    = rli.gross_return_money?.amount   ?? 0;
         const discount = rli.total_discount_money?.amount ?? 0;
-        addReturn(catId, gross - discount);
+        addReturn(catId, gross - discount, {
+          orderId: rli.sourceOrderId || order.id,
+          lineUid: rli.source_line_item_uid ?? rli.uid,
+          occurredAt: order.created_at ?? order.closed_at ?? "",
+          itemName: rli.name,
+          variationName: rli.variation_name ?? "",
+          quantity: Number(rli.quantity ?? "1") || 0,
+          discountNames: [],
+        });
       }
       continue;
     }
@@ -220,9 +329,20 @@ export function buildTaproomModelReport(
       const modelCatId = categoryForLine(order.id, line.uid, varId);
       if (!modelCatId) continue;
 
-      addReturn(modelCatId, Math.round((lineAmt / orderTotal) * refundAmt));
+      addReturn(modelCatId, Math.round((lineAmt / orderTotal) * refundAmt), {
+        orderId: order.id,
+        lineUid: line.uid,
+        occurredAt: order.created_at ?? order.closed_at ?? "",
+        itemName: line.name,
+        variationName: line.variation_name ?? "",
+        quantity: Number(line.quantity ?? "1") || 0,
+        discountNames: discountNamesFor(order, line),
+        // Share of a refund that carried no per-line detail — see the note on
+        // TaproomLineContribution.prorated.
+        prorated: true,
+      });
     }
   }
 
-  return { byCategory, totalTipsCents };
+  return { byCategory, totalTipsCents, contributions };
 }

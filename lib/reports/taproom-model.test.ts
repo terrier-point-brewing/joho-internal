@@ -280,3 +280,87 @@ describe("buildTaproomModelReport — returns via return orders", () => {
     expect(byCategory.MERCHANDISE.returnsCents).toBe(3000);
   });
 });
+
+// The Sales Pulse category drill-down renders these rows underneath the totals
+// they explain. If they ever stop summing to the total, the UI shows a figure
+// that its own detail contradicts — so this reconciliation is the invariant the
+// feature rests on, not a nice-to-have.
+describe("buildTaproomModelReport — contributions reconcile to totals", () => {
+  const items = [
+    makeItem({ id: "d1", name: "Citra Haze", categoryId: DRAFT_CAT, variations: [{ id: "draftv", name: "Pint" }] }),
+    makeItem({ id: "m1", name: "Tee Shirt", categoryId: MERCH_CAT, variations: [{ id: "merchv", name: "L" }] }),
+    makeItem({ id: "k1", name: "Pale Ale (Keg)", categoryId: KEGS_CAT, variations: [{ id: "half", name: "1/2 Keg" }] }),
+    makeItem({ id: "c1", name: "Old Fashioned", categoryId: COCKTAIL_CAT, variations: [{ id: "ofv", name: "Single" }] }),
+  ];
+
+  function expectTie(result: ReturnType<typeof buildTaproomModelReport>) {
+    for (const [catId, totals] of Object.entries(result.byCategory)) {
+      const rows = result.contributions.filter((c) => c.categoryId === catId);
+      const sum = (pick: (c: (typeof rows)[number]) => number) => rows.reduce((s, c) => s + pick(c), 0);
+
+      expect(sum((c) => c.grossSalesCents), `${catId} gross`).toBe(totals.grossSalesCents);
+      expect(sum((c) => c.discountsCents),  `${catId} discounts`).toBe(totals.discountsCents);
+      expect(sum((c) => c.returnsCents),    `${catId} returns`).toBe(totals.returnsCents);
+      expect(sum((c) => c.taxCents),        `${catId} tax`).toBe(totals.taxCents);
+    }
+  }
+
+  it("ties for plain line items, kegs and cocktails together", () => {
+    const kegSale = order("k-o1", [
+      line({ uid: "k", catalog_object_id: "half", name: "Pale Ale (Keg)", variation_name: "1/2 Keg", gross_sales_money: { amount: 14900, currency: "USD" } }),
+    ]);
+    const mixed = order("o1", [
+      line({ uid: "a", catalog_object_id: "draftv", gross_sales_money: { amount: 700, currency: "USD" }, total_tax_money: { amount: 50, currency: "USD" } }),
+      line({ uid: "b", catalog_object_id: "merchv", gross_sales_money: { amount: 3000, currency: "USD" }, total_discount_money: { amount: 300, currency: "USD" } }),
+      line({ uid: "c", catalog_object_id: "ofv", gross_sales_money: { amount: 1200, currency: "USD" } }),
+    ]);
+    expectTie(buildTaproomModelReport([kegSale, mixed], items, []));
+  });
+
+  it("ties when returns come back through a return order", () => {
+    const sale = order("sale1", [
+      line({ uid: "a", catalog_object_id: "draftv", gross_sales_money: { amount: 700, currency: "USD" } }),
+      line({ uid: "b", catalog_object_id: "merchv", gross_sales_money: { amount: 3000, currency: "USD" } }),
+    ]);
+    const ro = order("ro1", [], {
+      returns: [{
+        uid: "ret", source_order_id: "sale1",
+        return_line_items: [
+          { uid: "r1", source_line_item_uid: "b", catalog_object_id: "merchv", quantity: "1", name: "Tee Shirt", gross_return_money: { amount: 3000, currency: "USD" } },
+        ],
+      }],
+    });
+    expectTie(buildTaproomModelReport([sale, ro], items, [refund("ro1", 3225)]));
+  });
+
+  it("ties when a refund is pro-rated, and flags those rows as estimates", () => {
+    // Refund points straight at the sale order — no per-line detail to read.
+    const sale = order("o1", [
+      line({ uid: "a", catalog_object_id: "draftv", gross_sales_money: { amount: 1000, currency: "USD" } }),
+      line({ uid: "b", catalog_object_id: "merchv", gross_sales_money: { amount: 1000, currency: "USD" } }),
+    ]);
+    const result = buildTaproomModelReport([sale], items, [refund("o1", 400)]);
+    expectTie(result);
+
+    const returnRows = result.contributions.filter((c) => c.kind === "return");
+    expect(returnRows.length).toBe(2);
+    expect(returnRows.every((c) => c.prorated)).toBe(true);
+  });
+
+  it("carries the discount name so a drill-down can say which discount applied", () => {
+    const discounted = order("o1", [
+      line({
+        uid: "a", catalog_object_id: "draftv", name: "Citra Haze", variation_name: "Pint",
+        gross_sales_money: { amount: 700, currency: "USD" },
+        total_discount_money: { amount: 200, currency: "USD" },
+        applied_discounts: [{ uid: "ad1", discount_uid: "d1" }],
+      }),
+    ], { discounts: [{ uid: "d1", name: "Industry Night", scope: "LINE_ITEM" }] });
+
+    const { contributions } = buildTaproomModelReport([discounted], items, []);
+    const row = contributions.find((c) => c.categoryId === "DRAFT_BEER");
+    expect(row?.discountNames).toEqual(["Industry Night"]);
+    expect(row?.discountsCents).toBe(200);
+    expect(row?.itemName).toBe("Citra Haze");
+  });
+});

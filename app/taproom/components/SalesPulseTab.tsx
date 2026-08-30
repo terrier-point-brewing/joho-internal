@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys, SALES_REPORT_STALE_TIME } from "@/lib/query-keys";
@@ -11,6 +11,7 @@ import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
 import { todayLocalDate, mondayOf, addDaysStr } from "@/lib/utils/datetime";
 import { buildSalesWeekView, weekLabel, DAY_LABELS } from "@/lib/reports/salesPulseWeek";
 import ToggleChip from "@/app/components/ui/ToggleChip";
+import type { TaproomLineContribution } from "@/types/reports";
 
 const SalesPulseChart = dynamic(() => import("./SalesPulseChart"), {
   ssr: false,
@@ -80,6 +81,170 @@ function pctChange(current: number, prior: number): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// Category drill-down
+// ---------------------------------------------------------------------------
+
+// Which figure the reader clicked. The drill shows only that column, because a
+// list filtered to "lines with a discount" cannot also foot to the category's
+// gross — showing both would put two numbers on screen that disagree.
+type DrillColumn = "gross" | "discounts" | "returns" | "net" | "tax";
+
+const DRILL_LABELS: Record<DrillColumn, string> = {
+  gross:     "Gross Sales",
+  discounts: "Discounts",
+  returns:   "Returns",
+  net:       "Net Sales",
+  tax:       "Tax",
+};
+
+// Most rows rendered before the list is truncated. The footer total still
+// covers every line, and the header says how many are not on screen.
+const DRILL_ROW_LIMIT = 250;
+
+function drillValue(col: DrillColumn, c: TaproomLineContribution): number {
+  switch (col) {
+    case "gross":     return c.grossSalesCents;
+    case "discounts": return c.discountsCents;
+    case "returns":   return c.returnsCents;
+    case "tax":       return c.taxCents;
+    case "net":       return c.grossSalesCents - c.discountsCents - c.returnsCents;
+  }
+}
+
+// The category figure the drill has to foot to.
+function drillExpectedCents(cat: CategoryData, col: DrillColumn): number {
+  switch (col) {
+    case "gross":     return cat.gross_sales_cents;
+    case "discounts": return cat.discounts_cents;
+    case "returns":   return cat.returns_cents;
+    case "tax":       return cat.tax_cents;
+    case "net":       return cat.net_sales_cents;
+  }
+}
+
+function formatLineTime(iso: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+// The line items that produced one cell of the category table. Their sum is
+// shown in the footer and is the same figure as the cell that opened it — see
+// TaproomLineContribution for why that holds by construction.
+function CategoryDrill({
+  lines, column, expectedCents, loading,
+}: {
+  lines: TaproomLineContribution[];
+  column: DrillColumn;
+  expectedCents: number;
+  loading: boolean;
+}) {
+  const rows = lines
+    .filter((c) => drillValue(column, c) !== 0)
+    .sort((a, b) => Math.abs(drillValue(column, b)) - Math.abs(drillValue(column, a)));
+
+  // The total covers every row; only the rendering is capped. A busy week can
+  // put a couple of thousand lines behind one figure, and painting them all
+  // stalls the page for a list nobody reads to the end.
+  const total = rows.reduce((s, c) => s + drillValue(column, c), 0);
+  const shown = rows.slice(0, DRILL_ROW_LIMIT);
+  // Only in the discounts drill: elsewhere the column is mostly em-dashes,
+  // since the biggest gross/net lines are usually the undiscounted ones.
+  const showDiscountNames = column === "discounts";
+  const anyProrated = shown.some((c) => c.prorated);
+
+  if (loading) {
+    return <div className="px-4 py-3 text-xs text-faint">Loading transactions…</div>;
+  }
+
+  if (rows.length === 0) {
+    return <div className="px-4 py-3 text-xs text-faint italic">No transactions behind this figure.</div>;
+  }
+
+  return (
+    <div className="bg-canvas border-y border-line/60 px-4 py-3">
+      <div className="text-2xs text-faint uppercase tracking-wider mb-2">
+        {DRILL_LABELS[column]} — {rows.length} {rows.length === 1 ? "line" : "lines"}
+        {rows.length > shown.length && (
+          <span className="normal-case tracking-normal text-muted">
+            {" "}· showing the largest {shown.length}; the total below covers all {rows.length}
+          </span>
+        )}
+      </div>
+
+      {/* Capped height: the drill opens inside the category table, so an
+          uncapped list pushes every category below it off the screen. */}
+      <div className="overflow-auto max-h-80">
+        <table className="w-full text-xs min-w-[520px]">
+          <thead>
+            <tr className="text-2xs text-faint uppercase tracking-wider border-b border-line/60">
+              <th className="text-left py-1.5 font-medium">When</th>
+              <th className="text-left py-1.5 px-3 font-medium">Item</th>
+              <th className="text-right py-1.5 px-3 font-medium">Qty</th>
+              {showDiscountNames && <th className="text-left py-1.5 px-3 font-medium">Discount</th>}
+              <th className="text-left py-1.5 px-3 font-medium">Order</th>
+              <th className="text-right py-1.5 pl-3 font-medium">{DRILL_LABELS[column]}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((c) => (
+              <tr key={`${c.orderId}:${c.lineUid}:${c.kind}`} className="border-b border-line/30">
+                <td className="py-1.5 text-muted whitespace-nowrap">{formatLineTime(c.occurredAt)}</td>
+                <td className="py-1.5 px-3 text-body">
+                  {c.itemName}
+                  {c.variationName && <span className="text-faint ml-1.5">{c.variationName}</span>}
+                  {c.kind === "return" && (
+                    <span className="ml-2 text-2xs text-danger/70 uppercase tracking-wider">return</span>
+                  )}
+                  {c.prorated && (
+                    <span className="ml-2 text-2xs text-muted italic">est.</span>
+                  )}
+                </td>
+                <td className="py-1.5 px-3 text-right font-mono text-muted tabular-nums">{c.quantity}</td>
+                {showDiscountNames && (
+                  <td className="py-1.5 px-3 text-muted">
+                    {c.discountNames.length > 0 ? c.discountNames.join(", ") : <span className="text-disabled">—</span>}
+                  </td>
+                )}
+                <td className="py-1.5 px-3 font-mono text-accent">{c.orderId.slice(-8)}</td>
+                <td className="py-1.5 pl-3 text-right font-mono text-strong tabular-nums">
+                  {formatCurrencyCents(drillValue(column, c), 2)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Outside the scroll box on purpose — this is the figure that has to
+          match the cell above, so it must never be scrolled out of view. */}
+      <div className="flex items-center justify-between border-t border-line-strong pt-2 mt-1 text-xs font-semibold text-strong">
+        <span>Total</span>
+        <span className="font-mono tabular-nums">{formatCurrencyCents(total, 2)}</span>
+      </div>
+
+      {anyProrated && (
+        <div className="mt-2 text-2xs text-muted italic">
+          &ldquo;est.&rdquo; — Square sent this refund without per-line detail, so it was split across the
+          order by value. No receipt shows that exact amount.
+        </div>
+      )}
+
+      {/* The drill is emitted by the same code that produced the total, so this
+          should never fire. If it ever does, the totals are the thing to trust
+          and something upstream stopped reporting where its money came from. */}
+      {total !== expectedCents && (
+        <div className="mt-2 text-2xs text-danger">
+          These lines total {formatCurrencyCents(total, 2)} but the category shows{" "}
+          {formatCurrencyCents(expectedCents, 2)}. Report this — the breakdown is incomplete.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // KPI card
 // ---------------------------------------------------------------------------
 
@@ -134,6 +299,25 @@ export default function SalesPulseTab() {
   const [weekStart,      setWeekStart]      = useState<string>(() => mondayOf(todayLocalDate(timezone)));
   const [chartMetric,    setChartMetric]    = useState<KpiMetric>("net_sales");
   const [catDayFilter,   setCatDayFilter]   = useState<number | null>(null); // null = whole week; 0=Mon…6=Sun
+  // Which category cell is drilled open. Cleared whenever the range changes, so
+  // an open drill can never be showing a different period than the table.
+  const [drill, setDrill] = useState<{ categoryId: string; column: DrillColumn } | null>(null);
+
+  function changeWeek(delta: number) {
+    setDrill(null);
+    setWeekStart((w) => addDaysStr(w, delta));
+  }
+
+  function changeDayFilter(index: number | null) {
+    setDrill(null);
+    setCatDayFilter(index);
+  }
+
+  function toggleDrill(categoryId: string, column: DrillColumn) {
+    setDrill((d) =>
+      d && d.categoryId === categoryId && d.column === column ? null : { categoryId, column }
+    );
+  }
 
   const { curStart, priorStart, priorEnd, effectiveEnd, isCurrentWeek, dayPills } =
     buildSalesWeekView(weekStart, todayStr);
@@ -164,6 +348,27 @@ export default function SalesPulseTab() {
     staleTime: SALES_REPORT_STALE_TIME,
     enabled: dayDate !== null && !dayIsFuture,
   });
+
+  // Line-level detail behind the category table. Fetched against exactly the
+  // range the table is showing, and only once a drill is actually open — the
+  // route costs a full Square round-trip. One fetch covers every category, so
+  // opening a second one is instant.
+  const catStart = catDayFilter !== null ? (dayDate ?? "") : curStart;
+  const catEnd   = catDayFilter !== null ? (dayDate ?? "") : effectiveEnd;
+  const { data: lineData = null, isLoading: linesLoading } = useQuery({
+    queryKey: queryKeys.taproom.salesPulseLines(catStart, catEnd),
+    queryFn: async (): Promise<{ lines: TaproomLineContribution[] } | null> => {
+      const res = await fetch(`/api/sales-pulse/lines?start=${catStart}&end=${catEnd}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    staleTime: SALES_REPORT_STALE_TIME,
+    enabled: drill !== null && catStart !== "" && !dayIsFuture,
+  });
+
+  const drillLines = drill
+    ? (lineData?.lines ?? []).filter((c) => c.categoryId === drill.categoryId)
+    : [];
 
   // ---------------------------------------------------------------------------
   // Chart data — align both weeks on Mon–Sun index
@@ -208,7 +413,7 @@ export default function SalesPulseTab() {
       {/* Week selector */}
       <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         <button
-          onClick={() => setWeekStart((w) => addDaysStr(w, -7))}
+          onClick={() => changeWeek(-7)}
           className="btn-secondary"
         >
           ‹ Prev
@@ -219,7 +424,7 @@ export default function SalesPulseTab() {
           ) : weekLabel(weekStart)}
         </div>
         <button
-          onClick={() => setWeekStart((w) => addDaysStr(w, 7))}
+          onClick={() => changeWeek(7)}
           disabled={isCurrentWeek}
           className="btn-secondary"
         >
@@ -294,14 +499,14 @@ export default function SalesPulseTab() {
         {/* Day-of-week filter */}
         <div className="flex items-center gap-1.5 mb-4 overflow-x-auto scrollbar-none pb-0.5">
           <span className="text-xs text-faint mr-1">Day</span>
-          <ToggleChip active={catDayFilter === null} onClick={() => setCatDayFilter(null)} className="shrink-0">
+          <ToggleChip active={catDayFilter === null} onClick={() => changeDayFilter(null)} className="shrink-0">
             All
           </ToggleChip>
           {dayPills.map(({ label, index, isFuture }) => (
             <ToggleChip
               key={index}
               active={catDayFilter === index}
-              onClick={() => !isFuture && setCatDayFilter(index)}
+              onClick={() => !isFuture && changeDayFilter(index)}
               className={`shrink-0 ${isFuture ? "opacity-25 pointer-events-none" : ""}`}
             >
               {label}
@@ -331,6 +536,7 @@ export default function SalesPulseTab() {
             <table className="w-full text-sm min-w-[540px]">
               <thead>
                 <tr className="text-xs text-muted uppercase border-b border-line">
+                  <th className="text-left py-2 font-medium w-5" />
                   <th className="text-left py-2 font-medium">Category</th>
                   <th className="text-right py-2 px-3 font-medium">Gross Sales</th>
                   <th className="text-right py-2 px-3 font-medium">Discounts</th>
@@ -343,39 +549,69 @@ export default function SalesPulseTab() {
                 {sortedCategories.map((cat) => {
                   const dim = cat.excluded ? "text-faint" : "text-strong";
                   const mono = `font-mono ${dim}`;
-                  return (
-                    <tr
-                      key={cat.id}
-                      className={`border-b ${cat.excluded ? "border-line/30" : "border-line/60"}`}
+                  const open = drill?.categoryId === cat.id;
+
+                  // Every populated figure opens the lines behind it. An empty
+                  // cell has nothing to show, so it stays inert rather than
+                  // offering a click that opens an empty panel.
+                  const cell = (column: DrillColumn, cents: number, content: React.ReactNode, cls: string) => (
+                    <td
+                      className={`py-2.5 text-right ${cls} ${
+                        cents > 0
+                          ? `cursor-pointer hover:bg-surface-mid/40 ${drill?.categoryId === cat.id && drill.column === column ? "bg-surface-mid/60" : ""}`
+                          : ""
+                      }`}
+                      onClick={cents > 0 ? () => toggleDrill(cat.id, column) : undefined}
                     >
-                      <td className={`py-2.5 font-medium ${dim}`}>
-                        {cat.label}
-                        {cat.excluded && (
-                          <span className="ml-2 text-xs font-normal text-disabled italic">excl.</span>
-                        )}
-                      </td>
-                      <td className={`py-2.5 px-3 text-right ${mono}`}>
-                        {cat.gross_sales_cents > 0 ? formatCurrency(cat.gross_sales_cents) : <span className="text-disabled">—</span>}
-                      </td>
-                      <td className={`py-2.5 px-3 text-right ${mono}`}>
-                        {cat.discounts_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.discounts_cents)})</span> : <span className="text-disabled">—</span>}
-                      </td>
-                      <td className={`py-2.5 px-3 text-right ${mono}`}>
-                        {cat.returns_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.returns_cents)})</span> : <span className="text-disabled">—</span>}
-                      </td>
-                      <td className={`py-2.5 px-3 text-right font-mono font-medium ${cat.excluded ? "text-faint" : "text-primary"}`}>
-                        {cat.net_sales_cents > 0 ? formatCurrency(cat.net_sales_cents) : <span className="text-disabled">—</span>}
-                      </td>
-                      <td className={`py-2.5 pl-3 text-right ${mono}`}>
-                        {cat.tax_cents > 0 ? formatCurrency(cat.tax_cents) : <span className="text-disabled">—</span>}
-                      </td>
-                    </tr>
+                      {content}
+                    </td>
+                  );
+
+                  return (
+                    <Fragment key={cat.id}>
+                      <tr className={`border-b ${cat.excluded ? "border-line/30" : "border-line/60"}`}>
+                        <td
+                          className="py-2.5 w-5 text-faint text-2xs cursor-pointer"
+                          onClick={() => toggleDrill(cat.id, "net")}
+                        >
+                          {open ? "▾" : "▸"}
+                        </td>
+                        <td
+                          className={`py-2.5 font-medium ${dim} cursor-pointer hover:text-primary`}
+                          onClick={() => toggleDrill(cat.id, "net")}
+                        >
+                          {cat.label}
+                          {cat.excluded && (
+                            <span className="ml-2 text-xs font-normal text-disabled italic">excl.</span>
+                          )}
+                        </td>
+                        {cell("gross", cat.gross_sales_cents, cat.gross_sales_cents > 0 ? formatCurrency(cat.gross_sales_cents) : <span className="text-disabled">—</span>, `px-3 ${mono}`)}
+                        {cell("discounts", cat.discounts_cents, cat.discounts_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.discounts_cents)})</span> : <span className="text-disabled">—</span>, `px-3 ${mono}`)}
+                        {cell("returns", cat.returns_cents, cat.returns_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.returns_cents)})</span> : <span className="text-disabled">—</span>, `px-3 ${mono}`)}
+                        {cell("net", cat.net_sales_cents, cat.net_sales_cents > 0 ? formatCurrency(cat.net_sales_cents) : <span className="text-disabled">—</span>, `px-3 font-mono font-medium ${cat.excluded ? "text-faint" : "text-primary"}`)}
+                        {cell("tax", cat.tax_cents, cat.tax_cents > 0 ? formatCurrency(cat.tax_cents) : <span className="text-disabled">—</span>, `pl-3 ${mono}`)}
+                      </tr>
+
+                      {open && drill && (
+                        <tr>
+                          <td colSpan={7} className="p-0">
+                            <CategoryDrill
+                              lines={drillLines}
+                              column={drill.column}
+                              expectedCents={drillExpectedCents(cat, drill.column)}
+                              loading={linesLoading}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
               {catNetTotal > 0 && (
                 <tfoot>
                   <tr className="border-t border-line-strong text-strong font-semibold">
+                    <td className="py-2" />
                     <td className="py-2">Total (included)</td>
                     <td className="py-2 px-3 text-right font-mono">{formatCurrency(catGrossTotal)}</td>
                     <td className="py-2 px-3 text-right font-mono text-danger/70">
