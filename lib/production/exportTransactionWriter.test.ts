@@ -143,6 +143,9 @@ describe("writeExportTransaction", () => {
         // Defaults to 0 — kegs carry no canning loss, and callers that don't
         // pass one must not silently inflate a Packaging Materials charge.
         packaging_loss_pct: 0,
+        // Defaults to false: a row is ad-hoc only when the ad-hoc ship route
+        // says so, never because its allocation happens to be missing.
+        is_ad_hoc: false,
       },
     ]);
     expect(inserted.export_transaction_taxes).toEqual([

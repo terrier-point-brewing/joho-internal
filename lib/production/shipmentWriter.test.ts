@@ -127,6 +127,30 @@ describe("writeColdStorageShipment", () => {
     });
   });
 
+  it("leaves is_ad_hoc off by default — a missing allocation is not the same claim", async () => {
+    // Taproom consumption, over-deliveries and revision reversals all ship with
+    // a null allocation. Only the ad-hoc route may set the tag.
+    depleteMock.mockResolvedValue([{ batchId: "b1", depletedQty: 10 }]);
+    writeTxMock.mockResolvedValue("tx-1");
+
+    await writeColdStorageShipment(fakeSupabase(), baseParams);
+
+    expect(writeTxMock.mock.calls[0][1]).toMatchObject({ allocationId: null, isAdHoc: false });
+  });
+
+  it("stamps every uncredited row of an ad-hoc shipment", async () => {
+    depleteMock.mockResolvedValue([
+      { batchId: "b1", depletedQty: 4 },
+      { batchId: "b2", depletedQty: 6 },
+    ]);
+    writeTxMock.mockResolvedValueOnce("tx-a").mockResolvedValueOnce("tx-b");
+
+    await writeColdStorageShipment(fakeSupabase(), { ...baseParams, adHoc: true });
+
+    expect(writeTxMock.mock.calls[0][1]).toMatchObject({ isAdHoc: true });
+    expect(writeTxMock.mock.calls[1][1]).toMatchObject({ isAdHoc: true });
+  });
+
   it("writes one tx per lot with per-row quantities and completes each batch (multi-lot)", async () => {
     depleteMock.mockResolvedValue([
       { batchId: "b1", depletedQty: 4 },

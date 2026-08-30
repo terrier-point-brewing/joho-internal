@@ -89,6 +89,14 @@ export interface InvoicePreviewResult {
    * that don't charge materials.
    */
   materialBreakdowns: Record<string, MaterialLineBreakdown>;
+  /**
+   * True when any selected shipment was raised ad-hoc — sent with no commitment
+   * behind it, and so never charged an ingredient deposit up front. Display
+   * only: it prompts the operator toward the deposit button rather than adding
+   * anything, because whether the partner owes one is still a judgment about
+   * their agreement, not a fact about the row.
+   */
+  adHoc: boolean;
 }
 
 /** A Packaging Materials line's derivation, plus the recipe it belongs to. */
@@ -118,6 +126,8 @@ interface ExportTxRow {
   variant_label: string;
   /** Canning loss % inherited from the run that filled these cans; 0 for kegs. */
   packaging_loss_pct: number | null;
+  /** Shipped ad-hoc from the Export Bay, with no commitment behind it. */
+  is_ad_hoc: boolean | null;
 }
 
 /**
@@ -445,7 +455,7 @@ export async function computeMaterialBreakdownsForTransactions(
   if (transactionIds.length === 0) return [];
   const { data: txs, error } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc")
     .in("id", transactionIds);
   if (error || !txs?.length) return [];
 
@@ -546,7 +556,7 @@ export async function buildInvoicePreview(
   // ── 1. Load transactions + validate same-customer, invoice_required ───────
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc")
     .in("id", transactionIds);
   if (txErr) throw new Error(txErr.message);
   if (!txs || txs.length !== transactionIds.length) {
@@ -769,5 +779,6 @@ export async function buildInvoicePreview(
     defaultDiscountCatalogId,
     warnings,
     materialBreakdowns,
+    adHoc: rows.some((r) => r.is_ad_hoc === true),
   };
 }
