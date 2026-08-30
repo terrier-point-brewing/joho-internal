@@ -8,6 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { Recipe, RecipeBrewActivityTemplate, INGREDIENT_CATEGORIES, IngredientCategory, leadTimeDays, RecipePackagingVariation } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { EQ } from "../equipmentMeta";
+import { CATEGORY_BADGE_CLASS } from "../lib/categoryColors";
 import { useRecipesQuery, useIngredientsQuery, useContractPartnersQuery, productionKeys, fetchJson, usePackagingVariationsQuery, useRecipePackagingVariationsQuery } from "../hooks/queries";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -504,12 +505,12 @@ export default function RecipesTab() {
                       {/* Lineage reads on the collapsed row: which beer this one is
                         * converted from, or how many others convert from it. */}
                       {baseRecipe && (
-                        <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
+                        <span className={`text-xs px-2 py-0.5 rounded border ${CATEGORY_BADGE_CLASS.purple}`}>
                           Based on {baseRecipe.beer_name}
                         </span>
                       )}
                       {derivedCount > 0 && (
-                        <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
+                        <span className={`text-xs px-2 py-0.5 rounded border ${CATEGORY_BADGE_CLASS.teal}`}>
                           {derivedCount} variant{derivedCount !== 1 ? "s" : ""}
                         </span>
                       )}
