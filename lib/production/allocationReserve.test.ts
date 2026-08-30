@@ -84,16 +84,30 @@ describe("batchReserve", () => {
     expect(r.reservedForContractBbl).toBeCloseTo(9);  // 0.75×16 − 3
     expect(r.onHandBbl).toBeCloseTo(12);              // 16 − 4
     expect(r.freeToShipBbl).toBeCloseTo(3);           // 12 − 9
-    expect(r.underCovered).toBe(false);               // produced 16 ≥ booked 15
+    expect(r.underCovered).toBe(false);               // on-hand 12 ≥ reserve 9
   });
 
-  it("underCovered when a COMPLETE batch's produced fell short of the guaranteed total", () => {
+  it("underCovered when a COMPLETE batch can no longer cover what it still owes", () => {
     const b = batch({
       producedBbl: 12,
+      totalExportedBbl: 11, // most of it went elsewhere
       status: "complete",
-      allocations: [alloc({ channel: "contract_brewing", percentage: 75, bookedBbl: 15 })],
+      allocations: [alloc({ channel: "contract_brewing", percentage: 75, bookedBbl: 15, exportedBbl: 2 })],
     });
-    expect(batchReserve(b).underCovered).toBe(true); // complete, 12 < 15
+    // owes 0.75×12 − 2 = 7, holds 12 − 11 = 1
+    expect(batchReserve(b).underCovered).toBe(true);
+  });
+
+  it("NOT underCovered when a complete batch merely yielded below its booked estimate", () => {
+    // Shrinkage is borne pro-rata by the partner: delivering their share of the
+    // ACTUAL produced fully settles the deposit, even though 12 < booked 15.
+    const b = batch({
+      producedBbl: 12,
+      totalExportedBbl: 9,
+      status: "complete",
+      allocations: [alloc({ channel: "contract_brewing", percentage: 75, bookedBbl: 15, exportedBbl: 9 })],
+    });
+    expect(batchReserve(b).underCovered).toBe(false);
   });
 
   it("NOT underCovered before the batch is complete (production still climbing)", () => {
@@ -295,24 +309,25 @@ describe("planShipment", () => {
     expect(plan.warnings).toHaveLength(0);
   });
 
-  it("under-produced COMPLETE batch warns under_production", () => {
+  it("COMPLETE batch that can't cover its remaining reserve warns reserve_shortfall", () => {
     const b = batch({
       batchId: "b1",
       producedBbl: 12,
+      totalExportedBbl: 11,
       status: "complete",
-      allocations: [alloc({ id: "A", channel: "contract_brewing", percentage: 75, bookedBbl: 15, exportedBbl: 0 })],
+      allocations: [alloc({ id: "A", channel: "contract_brewing", percentage: 75, bookedBbl: 15, exportedBbl: 2 })],
     });
     const plan = planShipment({
       requestedBbl: 1,
-      candidates: [{ allocationId: "A", batchId: "b1", channel: "contract_brewing", bookedRemainingBbl: 15 }],
+      candidates: [{ allocationId: "A", batchId: "b1", channel: "contract_brewing", bookedRemainingBbl: 13 }],
       perBatchDrawBbl: [{ batchId: "b1", drawBbl: 1 }],
       batches: [b],
     });
-    const w = plan.warnings.find((x) => x.type === "under_production")!;
-    expect(w).toMatchObject({ batchId: "b1", producedBbl: 12, guaranteedBbl: 15 });
+    const w = plan.warnings.find((x) => x.type === "reserve_shortfall")!;
+    expect(w).toMatchObject({ batchId: "b1", onHandBbl: 1, owedBbl: 7 });
   });
 
-  it("does NOT warn under_production while a batch is still packaging", () => {
+  it("does NOT warn reserve_shortfall while a batch is still packaging", () => {
     const b = batch({
       batchId: "b1",
       producedBbl: 12,
@@ -325,14 +340,14 @@ describe("planShipment", () => {
       perBatchDrawBbl: [{ batchId: "b1", drawBbl: 1 }],
       batches: [b],
     });
-    expect(hasType(plan.warnings, "under_production")).toBe(false);
+    expect(hasType(plan.warnings, "reserve_shortfall")).toBe(false);
   });
 
   it("multi-batch FIFO: soft draw strands an older batch's deposit", () => {
     const b1 = batch({
       batchId: "b1",
       producedBbl: 8,
-      status: "complete", // final yield known — 8 < 10 guaranteed is a real shortfall
+      status: "complete",
       totalExportedBbl: 0,
       allocations: [alloc({ id: "C1", channel: "contract_brewing", percentage: 100, bookedBbl: 10, exportedBbl: 0 })],
     });
@@ -349,7 +364,39 @@ describe("planShipment", () => {
     const cov = plan.warnings.filter((w) => w.type === "guarantee_coverage");
     expect(cov).toHaveLength(1);
     expect(cov[0]).toMatchObject({ batchId: "b1" });
-    expect(hasType(plan.warnings, "under_production")).toBe(true); // b1: 8 < 10
+    // b1 still HOLDS everything it owes (8 on hand, 8 reserved) — the draw is
+    // what would strand it, which is the guarantee_coverage warning above.
+    expect(hasType(plan.warnings, "reserve_shortfall")).toBe(false);
+  });
+
+  it("a fully-delivered batch cannot absorb a younger batch's beer (B-041/B-054)", () => {
+    // B-041: booked 20, produced 17.0963 after shrinkage, all 17.0963 shipped.
+    // Its booked remainder (2.9037) is pure shrinkage — crediting against it once
+    // let a later B-054 shipment be logged as B-041 delivery.
+    const b1 = batch({
+      batchId: "b1",
+      producedBbl: 17.0963,
+      totalExportedBbl: 17.0963,
+      status: "complete",
+      allocations: [alloc({ id: "A1", channel: "contract_brewing", percentage: 100, bookedBbl: 20, exportedBbl: 17.0963 })],
+    });
+    const b2 = batch({
+      batchId: "b2",
+      producedBbl: 16.2588,
+      totalExportedBbl: 7.0968,
+      status: "complete",
+      allocations: [alloc({ id: "A2", channel: "contract_brewing", percentage: 100, bookedBbl: 20, exportedBbl: 7.0968 })],
+    });
+    const plan = planShipment({
+      requestedBbl: 8.9955, // 54 sixtels, physically drawn from b2
+      candidates: [
+        { allocationId: "A1", batchId: "b1", channel: "contract_brewing", bookedRemainingBbl: 2.9037, realizableRemainingBbl: 0 },
+        { allocationId: "A2", batchId: "b2", channel: "contract_brewing", bookedRemainingBbl: 12.9032, realizableRemainingBbl: 9.162 },
+      ],
+      perBatchDrawBbl: [{ batchId: "b2", drawBbl: 8.9955 }],
+      batches: [b1, b2],
+    });
+    expect(plan.credits).toEqual([{ allocationId: "A2", bbl: 8.9955, overAllocation: false }]);
   });
 
   it("soft channel never emits over_booked even when requesting far more", () => {

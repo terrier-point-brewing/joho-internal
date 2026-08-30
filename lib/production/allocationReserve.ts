@@ -99,13 +99,13 @@ export function batchReserve(batch: BatchInput): BatchReserve {
   }, 0);
   const onHandBbl = Math.max(0, batch.producedBbl - batch.totalExportedBbl);
   const freeToShipBbl = Math.max(0, onHandBbl - reservedForContractBbl);
-  const guaranteedBbl = contract.reduce((s, a) => s + (a.bookedBbl ?? 0), 0);
-  // Under-coverage is a *final-yield shortfall* — production finished below the
-  // guaranteed contract total. It is only meaningful once the batch is COMPLETE:
-  // before that, produced is still climbing as kegging/canning proceeds, so a
-  // sub-guarantee figure is expected, not a shortfall. Gating on completion
-  // stops the badge from firing on unproduced / partially-packaged batches.
-  const underCovered = batch.status === "complete" && batch.producedBbl < guaranteedBbl - EPS;
+  // Under-coverage means the batch can no longer physically cover what its
+  // deposit holders are still owed: on-hand has fallen below the reserve.
+  // It is NOT "produced < booked" — booked is a pre-shrinkage estimate and the
+  // partner bears their pro-rata share of shrinkage, so every complete batch
+  // with any shrinkage would trip that test even when fully delivered.
+  // Only meaningful once COMPLETE: before that, produced is still climbing.
+  const underCovered = batch.status === "complete" && onHandBbl < reservedForContractBbl - EPS;
   return { batchId: batch.batchId, producedBbl: batch.producedBbl, onHandBbl, reservedForContractBbl, freeToShipBbl, underCovered };
 }
 
@@ -147,8 +147,9 @@ export function completionReconciliation(alloc: AllocationInput, batch: BatchInp
 export type ShipmentWarning =
   // Draw on a batch would leave less than what other deposit holders are still owed.
   | { type: "guarantee_coverage"; batchId: string; reservedBbl: number; onHandAfterBbl: number; drawBbl: number }
-  // Batch hasn't produced enough yet to cover its contract guarantees (shrinkage/yield risk).
-  | { type: "under_production"; batchId: string; producedBbl: number; guaranteedBbl: number }
+  // A complete batch no longer holds enough beer to settle what its deposit
+  // holders are still owed — beer went somewhere else.
+  | { type: "reserve_shortfall"; batchId: string; onHandBbl: number; owedBbl: number }
   // Shipped beyond every bookable claim (contract booked, with no soft allocation to absorb).
   | { type: "over_booked"; overBbl: number };
 
@@ -157,6 +158,12 @@ export interface ShipmentCandidate {
   batchId: string;
   channel: AllocationChannel;
   bookedRemainingBbl: number | null; // contract: max(0, booked − exported); soft: null (uncapped)
+  // contract: max(0, percentage × produced − exported) — the entitlement the
+  // batch has ACTUALLY made. `booked` is a pre-shrinkage estimate, so a fully
+  // delivered batch keeps a booked remainder equal to its shrinkage; crediting
+  // against that lets one batch absorb another batch's beer. Undefined on
+  // legacy callers → this term does not cap. Soft channels: null (uncapped).
+  realizableRemainingBbl?: number | null;
 }
 
 export interface ShipmentPlanInput {
@@ -193,7 +200,12 @@ export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
   let bblLeft = input.requestedBbl;
   for (const c of input.candidates) {
     if (bblLeft <= EPS) break;
-    const cap = isDepositBacked(c.channel) ? Math.max(0, c.bookedRemainingBbl ?? 0) : Infinity;
+    // A contract credit can never exceed either the pre-paid booking or the
+    // share the batch actually produced — whichever is smaller.
+    const realizableCap = c.realizableRemainingBbl == null ? Infinity : Math.max(0, c.realizableRemainingBbl);
+    const cap = isDepositBacked(c.channel)
+      ? Math.min(Math.max(0, c.bookedRemainingBbl ?? 0), realizableCap)
+      : Infinity;
     const take = Math.min(cap, bblLeft);
     if (take > EPS) {
       credits.push({ allocationId: c.allocationId, bbl: round4(take), overAllocation: false });
@@ -240,10 +252,12 @@ export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
     }
 
     if (res.underCovered) {
-      const guaranteedBbl = batch.allocations
-        .filter((a) => isDepositBacked(a.channel) && !a.writtenOff)
-        .reduce((s, a) => s + (a.bookedBbl ?? 0), 0);
-      warnings.push({ type: "under_production", batchId: draw.batchId, producedBbl: round4(batch.producedBbl), guaranteedBbl: round4(guaranteedBbl) });
+      warnings.push({
+        type: "reserve_shortfall",
+        batchId: draw.batchId,
+        onHandBbl: round4(res.onHandBbl),
+        owedBbl: round4(res.reservedForContractBbl),
+      });
     }
   }
 

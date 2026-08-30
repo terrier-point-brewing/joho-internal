@@ -73,9 +73,40 @@ export interface TaproomCategoryTotals {
   netSalesCents: number;  // gross - discounts - returns
 }
 
+// One line's contribution to a category total.
+//
+// Emitted from the same two funnels that increment `byCategory` (see
+// `addToCategory` / `addReturn` in lib/reports/taproom-model.ts), so the rows
+// for a category sum *exactly* to that category's totals by construction —
+// cocktail combos and keg detection included. Anything that reconstructs the
+// same figures by re-reading orders would drift the moment the detection rules
+// change; this cannot.
+export interface TaproomLineContribution {
+  categoryId: string;
+  orderId: string;
+  // "" when the contribution has no single source line — a prorated refund
+  // fallback. Combo cocktails join their component uids with "+".
+  lineUid: string;
+  occurredAt: string;      // ISO; order created_at, matching sales-pulse day bucketing
+  itemName: string;
+  variationName: string;
+  quantity: number;
+  grossSalesCents: number;
+  discountsCents: number;
+  returnsCents: number;
+  taxCents: number;
+  discountNames: string[]; // names of discounts applied to the source line
+  kind: "sale" | "return";
+  // True when the amount was pro-rated across an order rather than read off a
+  // returned line — no Square receipt shows this exact figure. Surface it, or
+  // whoever drills in will go hunting for a line that doesn't exist.
+  prorated: boolean;
+}
+
 export interface TaproomModelResult {
   byCategory: Record<string, TaproomCategoryTotals>;
   totalTipsCents: number;
+  contributions: TaproomLineContribution[];
 }
 
 // ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { conversionDelta, type BillLine } from "./recipeLineage";
+import { baseMapOf, conversionDelta, isDerivedFrom, type BillLine } from "./recipeLineage";
 import { releaseCommitments, upsertConversionCommitments } from "./commitments";
 
 /**
@@ -32,12 +32,47 @@ import { releaseCommitments, upsertConversionCommitments } from "./commitments";
 export const CONVERSION_ADDITION_NOTE = "Conversion addition";
 
 /**
- * The base recipe a conversion from `sourceBatchId` into `targetBatchId` draws
- * against, or null when the two are not linked.
+ * The lineage map every ancestry question here is answered against.
  *
- * The link has to name THIS source. A recipe based on Pace Yourself Pilsner says
- * nothing about what a Carolina Brown Ale conversion into it would add, so a
- * mismatch is treated exactly like no link at all.
+ * The whole recipes table, which is a few dozen rows — cheaper and far simpler
+ * than a recursive query, and it lets the pure walkers in `recipeLineage` do the
+ * thinking.
+ */
+async function fetchBaseMap(supabase: SupabaseClient): Promise<Map<string, string | null>> {
+  const { data } = await supabase.from("recipes").select("id, base_recipe_id");
+  return baseMapOf((data ?? []) as Array<{ id: string; base_recipe_id: string | null }>);
+}
+
+/**
+ * True when a conversion from `sourceRecipeId` into `derivedRecipeId` is one the
+ * books can price — i.e. the source sits somewhere above the target in the
+ * lineage chain.
+ *
+ * Any depth counts. Transfusion Lager is Carolina Mule plus grape juice and
+ * Carolina Mule is Pace Yourself Pilsner plus ginger and lime, so a Transfusion
+ * conversion is chargeable off either one; what changes is the subtraction, not
+ * whether it is allowed. An unrelated pair is still nothing we can defend
+ * charging for.
+ */
+export async function isChargeableConversion(
+  supabase: SupabaseClient,
+  sourceRecipeId: string,
+  derivedRecipeId: string,
+): Promise<boolean> {
+  if (sourceRecipeId === derivedRecipeId) return false;
+  return isDerivedFrom(derivedRecipeId, sourceRecipeId, await fetchBaseMap(supabase));
+}
+
+/**
+ * The base recipe a conversion from `sourceBatchId` into `targetBatchId` draws
+ * against, or null when the two are unrelated.
+ *
+ * The base returned is always the SOURCE's own recipe, never whatever the target
+ * names in `base_recipe_id`. That is the recipe of the liquid physically being
+ * drawn off, so it is the only bill the parent batch actually paid for — and it
+ * is what makes a chain work without a special case: draw Transfusion off a Mule
+ * batch and the subtraction is against Mule, draw it off a Pilsner batch and the
+ * subtraction is against Pilsner.
  */
 export async function resolveConversionBase(
   supabase: SupabaseClient,
@@ -53,11 +88,8 @@ export async function resolveConversionBase(
   const derivedRecipeId = (targetRow as { recipe_id: string | null } | null)?.recipe_id ?? null;
   if (!sourceRecipeId || !derivedRecipeId) return null;
 
-  const { data: derivedRecipe } = await supabase
-    .from("recipes").select("base_recipe_id").eq("id", derivedRecipeId).maybeSingle();
-  const baseRecipeId = (derivedRecipe as { base_recipe_id: string | null } | null)?.base_recipe_id ?? null;
-
-  return baseRecipeId === sourceRecipeId ? { derivedRecipeId, baseRecipeId } : null;
+  const chargeable = await isChargeableConversion(supabase, sourceRecipeId, derivedRecipeId);
+  return chargeable ? { derivedRecipeId, baseRecipeId: sourceRecipeId } : null;
 }
 
 /**
@@ -114,7 +146,6 @@ export async function consumeConversionAdditions(
 
   const link = await resolveConversionBase(supabase, sourceBatchId, targetBatchId);
   if (!link) return { status: "unlinked" };
-  const { derivedRecipeId, baseRecipeId } = link;
 
   const { data: targetRow } = await supabase
     .from("brew_batches").select("batch_number, beer_name").eq("id", targetBatchId).maybeSingle();
@@ -129,6 +160,102 @@ export async function consumeConversionAdditions(
     .limit(1);
   if (alreadyBooked?.length) return { status: "already_booked" };
 
+  const result = await chargeConversionDelta(supabase, {
+    derivedRecipeId: link.derivedRecipeId,
+    baseRecipeId:    link.baseRecipeId,
+    volumeBbl:       volume,
+    ledgerBatchId:   targetBatchId,
+    note: `${CONVERSION_ADDITION_NOTE} — ${target?.batch_number ?? targetBatchId}: ${target?.beer_name ?? ""}`.trim(),
+  });
+
+  // Stock has moved, so whatever this batch was holding in reserve is spent.
+  if (result.status === "deducted") await releaseCommitments(supabase, targetBatchId);
+
+  return result;
+}
+
+/**
+ * Charge an in-keg (or in-can) conversion — one that happens ON the packaging
+ * run rather than in a tank.
+ *
+ * Some conversions never get a vessel of their own: the dose goes into each keg
+ * as it is filled, so the beer is Carolina Mule in the brite tank and Transfusion
+ * Lager by the time the keg is capped. There is no target batch to hold the
+ * addition, because there is no target batch at all — the liquid leaves the
+ * source batch as finished goods under a different recipe.
+ *
+ * So the ledger row hangs off the SOURCE batch (the beer it physically came out
+ * of) and is keyed to the packaging transfer, which is what makes it idempotent:
+ * a batch can be kegged many times, and each run is its own charge.
+ *
+ * Never throws — the packaging transfer is already committed by the time this
+ * runs, and a stock write that fails must not unmake finished goods.
+ */
+export async function consumePackagedConversionAdditions(
+  supabase: SupabaseClient,
+  { sourceBatchId, transferId, packagedRecipeId, volumeBbl }: {
+    sourceBatchId: string;
+    /** The packaging transfer this charge belongs to — the idempotency key. */
+    transferId: string;
+    /** The recipe the run actually produced, i.e. what came out of the filler. */
+    packagedRecipeId: string;
+    /** Finished volume packaged under that recipe, in bbl. */
+    volumeBbl: number;
+  },
+): Promise<ConsumeConversionResult> {
+  const volume = Number(volumeBbl);
+  if (!Number.isFinite(volume) || volume <= 0) return { status: "not_applicable" };
+
+  const { data: sourceRow } = await supabase
+    .from("brew_batches").select("recipe_id, batch_number").eq("id", sourceBatchId).maybeSingle();
+  const source = sourceRow as { recipe_id: string | null; batch_number: string | null } | null;
+  const baseRecipeId = source?.recipe_id ?? null;
+  if (!baseRecipeId) return { status: "unlinked" };
+  if (!(await isChargeableConversion(supabase, baseRecipeId, packagedRecipeId))) {
+    return { status: "unlinked" };
+  }
+
+  // Keyed to the transfer, not the batch: kegging the same batch twice is two
+  // conversions and two charges, but retrying one run must not double-charge it.
+  const note = `${CONVERSION_ADDITION_NOTE} — ${source?.batch_number ?? sourceBatchId} packaging run ${transferId}`;
+  const { data: alreadyBooked } = await supabase
+    .from("stock_adjustments")
+    .select("id")
+    .eq("batch_id", sourceBatchId)
+    .eq("type", "batch_use")
+    .eq("note", note)
+    .limit(1);
+  if (alreadyBooked?.length) return { status: "already_booked" };
+
+  return chargeConversionDelta(supabase, {
+    derivedRecipeId: packagedRecipeId,
+    baseRecipeId,
+    volumeBbl:       volume,
+    ledgerBatchId:   sourceBatchId,
+    note,
+  });
+}
+
+/**
+ * Write the per-bbl difference between two bills to the ingredient ledger.
+ *
+ * The shared middle of both conversion paths: work out what the derived recipe
+ * adds on top of the base, scale it by the volume converted, and move that much
+ * stock. Deliberately does no de-duplication of its own — what counts as "the
+ * same conversion" differs between a tank conversion (once per target batch) and
+ * an in-keg one (once per packaging run), so each caller owns that check.
+ */
+async function chargeConversionDelta(
+  supabase: SupabaseClient,
+  { derivedRecipeId, baseRecipeId, volumeBbl, ledgerBatchId, note }: {
+    derivedRecipeId: string;
+    baseRecipeId: string;
+    volumeBbl: number;
+    /** Batch the stock movement is filed under. */
+    ledgerBatchId: string;
+    note: string;
+  },
+): Promise<ConsumeConversionResult> {
   const [derivedBill, baseBill] = await Promise.all([
     supabase.from("recipe_ingredients")
       .select("ingredient_id, quantity_per_bbl, ingredients(cost_per_unit_usd, unit)")
@@ -150,18 +277,17 @@ export async function consumeConversionAdditions(
   const metaByIngredient = new Map(
     derivedLines.map((l) => [l.ingredient_id, l.ingredients ?? null]),
   );
-  const label = `${CONVERSION_ADDITION_NOTE} — ${target?.batch_number ?? targetBatchId}: ${target?.beer_name ?? ""}`.trim();
 
   const lines = delta.map((d) => {
     const meta = metaByIngredient.get(d.ingredient_id) ?? null;
-    const qty = d.quantity_per_bbl * volume;
+    const qty = d.quantity_per_bbl * volumeBbl;
     const costPU = meta?.cost_per_unit_usd ?? null;
     return {
       ingredient_id:          d.ingredient_id,
       quantity:               -qty,
       type:                   "batch_use" as const,
-      note:                   label,
-      batch_id:               targetBatchId,
+      note,
+      batch_id:               ledgerBatchId,
       cost_per_unit_usd:      costPU,
       total_value_change_usd: costPU != null ? -qty * costPU : null,
       unit:                   meta?.unit ?? null,
@@ -179,9 +305,6 @@ export async function consumeConversionAdditions(
       p_delta: line.quantity,
     });
   }
-
-  // Stock has moved, so whatever this batch was holding in reserve is spent.
-  await releaseCommitments(supabase, targetBatchId);
 
   return {
     status: "deducted",
