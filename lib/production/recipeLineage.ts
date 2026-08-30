@@ -80,3 +80,77 @@ export function splitBillAgainstBase<T extends { ingredient_id: string; quantity
 
   return { inherited, added };
 }
+
+// ─── Lineage chains ───────────────────────────────────────────────────────────
+// Lineage used to stop after one step, because "the difference against the base"
+// looked ambiguous once a chain existed. It isn't: a conversion always measures
+// against the recipe of the batch it is actually drawn off, and because every
+// bill is COMPLETE and every conversion only adds, the arithmetic composes.
+//
+//   Pace Yourself Pilsner  →  Carolina Mule  →  Transfusion Lager
+//                          (+ ginger, lime)   (+ grape juice)
+//
+// Drawing Transfusion off a Mule batch charges the grape juice. Drawing it
+// straight off a Pilsner batch charges ginger + lime + grape juice. Both are
+// right, and both fall out of the same subtraction — so a chain needs no special
+// case, only a guard against a cycle.
+
+/** Hard stop when walking a chain. A longer one is a data bug, not a beer. */
+export const MAX_LINEAGE_DEPTH = 20;
+
+/**
+ * Every recipe this one is converted from, nearest base first.
+ *
+ * Self-limiting: a cycle (which the DB trigger rejects, but old rows or a
+ * partial fetch could still present) stops at the first repeat rather than
+ * spinning.
+ */
+export function lineageAncestors(
+  recipeId: string,
+  baseById: ReadonlyMap<string, string | null>,
+): string[] {
+  const chain: string[] = [];
+  const seen = new Set<string>([recipeId]);
+
+  let cursor = baseById.get(recipeId) ?? null;
+  while (cursor && !seen.has(cursor) && chain.length < MAX_LINEAGE_DEPTH) {
+    chain.push(cursor);
+    seen.add(cursor);
+    cursor = baseById.get(cursor) ?? null;
+  }
+  return chain;
+}
+
+/** True when `ancestorId` appears anywhere above `recipeId` in the chain. */
+export function isDerivedFrom(
+  recipeId: string,
+  ancestorId: string,
+  baseById: ReadonlyMap<string, string | null>,
+): boolean {
+  return lineageAncestors(recipeId, baseById).includes(ancestorId);
+}
+
+/**
+ * Every recipe that converts from this one, at any depth.
+ *
+ * What a conversion off a batch of `recipeId` may legitimately produce, and —
+ * inverted — the set a recipe may never be based on, since that would close a
+ * cycle.
+ */
+export function lineageDescendants(
+  recipeId: string,
+  baseById: ReadonlyMap<string, string | null>,
+): Set<string> {
+  const out = new Set<string>();
+  for (const id of baseById.keys()) {
+    if (id !== recipeId && isDerivedFrom(id, recipeId, baseById)) out.add(id);
+  }
+  return out;
+}
+
+/** Build the id → base_recipe_id map the walkers read, from any recipe rows. */
+export function baseMapOf(
+  recipes: ReadonlyArray<{ id: string; base_recipe_id?: string | null }>,
+): Map<string, string | null> {
+  return new Map(recipes.map((r) => [r.id, r.base_recipe_id ?? null]));
+}

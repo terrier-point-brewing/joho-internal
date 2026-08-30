@@ -5,7 +5,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
 import { finalizeConversion, createConversionTargetBatch, reconcileConvertedBatchVolume } from "@/lib/production/conversionFinalizer";
-import { consumeConversionAdditions } from "@/lib/production/conversionIngredients";
+import { consumeConversionAdditions, consumePackagedConversionAdditions, isChargeableConversion } from "@/lib/production/conversionIngredients";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { applyPackagingLoss } from "@/lib/production/packagingMaterials";
@@ -29,6 +29,13 @@ interface TransferLineInput {
   recipe_id: string | null;
   /** Canning loss %, applied to containers/lids/labels. Ignored for other types. */
   packaging_loss_pct: number;
+  /**
+   * Set only for an in-keg/in-can conversion — the recipe this run produced,
+   * which differs from the batch's own. `recipe_id` above is already this value
+   * (finished goods land under the beer that came out of the filler); this is
+   * the flag that says so, stamped on the transfer row for the record.
+   */
+  packaged_as_recipe_id?: string | null;
 }
 
 /**
@@ -43,7 +50,7 @@ async function processTransferLine(
   supabase: SupabaseClient,
   line: TransferLineInput
 ): Promise<{ transfer: Record<string, unknown>; scheduleUpdate: ScheduleUpdateEntry[] }> {
-  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id, packaging_loss_pct: packagingLossPct } = line;
+  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id, packaging_loss_pct: packagingLossPct, packaged_as_recipe_id } = line;
 
   const { data: transfer, error } = await supabase
     .rpc("record_batch_transfer", {
@@ -67,14 +74,14 @@ async function processTransferLine(
 
   const transferRow = transfer as { id: string };
 
-  // The RPC's signature predates packaging loss, so stamp it on the row it just
+  // The RPC's signature predates both of these, so stamp them on the row it just
   // wrote. Kept off the RPC deliberately: changing that signature would break
-  // every other caller for a column only canning cares about.
-  if (transfer_type === "canning" && packagingLossPct > 0) {
-    await supabase
-      .from("batch_transfers")
-      .update({ packaging_loss_pct: packagingLossPct })
-      .eq("id", transferRow.id);
+  // every other caller for columns only packaging runs care about.
+  const postInsertPatch: Record<string, unknown> = {};
+  if (transfer_type === "canning" && packagingLossPct > 0) postInsertPatch.packaging_loss_pct = packagingLossPct;
+  if (packaged_as_recipe_id) postInsertPatch.packaged_as_recipe_id = packaged_as_recipe_id;
+  if (Object.keys(postInsertPatch).length > 0) {
+    await supabase.from("batch_transfers").update(postInsertPatch).eq("id", transferRow.id);
   }
 
   // ── Packaging deduction + cold storage inventory ─────────────────────────
@@ -615,12 +622,17 @@ async function upsertColdStorageInventory(
   args: { batch_id: string; recipe_id: string | null; variation_id: string; quantity_delta: number; source_transfer_id: string }
 ) {
   const { batch_id, recipe_id, variation_id, quantity_delta, source_transfer_id } = args;
-  const { data: existing } = await supabase
+  // Batch + variation used to be identity enough, because one batch was one
+  // beer. An in-keg conversion breaks that: the same batch can fill 1/2 bbl kegs
+  // of Carolina Mule and 1/2 bbl kegs of Transfusion Lager on the same day, and
+  // merging them would put half the cellar under the wrong beer.
+  let lookup = supabase
     .from("cold_storage_inventory")
     .select("id, quantity_on_hand")
     .eq("batch_id", batch_id)
-    .eq("variation_id", variation_id)
-    .maybeSingle();
+    .eq("variation_id", variation_id);
+  lookup = recipe_id ? lookup.eq("recipe_id", recipe_id) : lookup.is("recipe_id", null);
+  const { data: existing } = await lookup.maybeSingle();
 
   if (existing) {
     await supabase
@@ -646,7 +658,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from("batch_transfers")
-    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number), packaging_variations(id, name), created_by")
+    .select("*, from_tank:from_tank_id(id, name, type), to_tank:to_tank_id(id, name, type), to_batch:to_batch_id(id, beer_name, batch_number), packaged_as:packaged_as_recipe_id(beer_name), packaging_variations(id, name), created_by")
     .order("transferred_at", { ascending: false });
 
   if (batch_id) query = query.eq("batch_id", batch_id);
@@ -689,6 +701,7 @@ export async function POST(req: NextRequest) {
     notes,
     packaging_lines,
     new_batch,
+    packaged_as_recipe_id,
   } = body as {
     batch_id: string;
     from_tank_id: string | null;
@@ -701,6 +714,8 @@ export async function POST(req: NextRequest) {
     packaging_lines?: { variation_id: string; quantity: number }[];
     packaging_loss_pct?: number;
     new_batch?: { beer_name: string; recipe_id: string } | null;
+    /** In-keg/in-can conversion: the recipe this packaging run produced. */
+    packaged_as_recipe_id?: string | null;
   };
 
   // Clamped rather than rejected: the field is advisory shrink accounting, and a
@@ -710,7 +725,38 @@ export async function POST(req: NextRequest) {
     : 0;
 
   const { data: batchRow } = await supabase.from("brew_batches").select("recipe_id").eq("id", batch_id).single();
-  const recipe_id: string | null = batchRow?.recipe_id ?? null;
+  const batchRecipeId: string | null = batchRow?.recipe_id ?? null;
+
+  // ── In-keg conversion ──────────────────────────────────────────────────────
+  // Some conversions have no tank of their own: the ginger and lime go in as the
+  // brite tank empties into kegs, so the batch is Pace Yourself Pilsner right up
+  // to the filler and Carolina Mule the moment the keg is capped. Rather than
+  // invent a phantom vessel and a second batch to hold a beer that never sat
+  // anywhere, the packaging run itself says what it produced.
+  //
+  // From here on, `recipe_id` IS the beer that came out of the filler: it drives
+  // the packaging-variation gate, the cold-storage rows, and the Square push. The
+  // batch keeps its own identity — the volume still leaves the source batch, and
+  // the source batch is still what completes.
+  const isPackagingRun = transfer_type === "kegging" || transfer_type === "canning";
+  const packagedAs = isPackagingRun ? (packaged_as_recipe_id || null) : null;
+
+  if (packagedAs) {
+    if (!batchRecipeId) {
+      return NextResponse.json({ error: "Batch has no recipe — it cannot be converted while packaging." }, { status: 422 });
+    }
+    // The source's recipe must sit above the packaged one in the lineage chain,
+    // or there is no way to tell which of the packaged bill's lines the batch
+    // already paid for at the brewhouse — the same rule a tank conversion obeys.
+    if (!(await isChargeableConversion(supabase, batchRecipeId, packagedAs))) {
+      return NextResponse.json(
+        { error: "That beer is not a conversion of this batch's recipe. Link it under Recipes → Based On first." },
+        { status: 422 },
+      );
+    }
+  }
+
+  const recipe_id: string | null = packagedAs ?? batchRecipeId;
 
   // ── Build one line per packaging variation (or a single line for plain transfers/conversions) ──
   type Line = { volume_bbl: number; shrinkage_bbl: number; variation_id: string | null; quantity: number | null };
@@ -830,6 +876,7 @@ export async function POST(req: NextRequest) {
         variation_id: line.variation_id, quantity: line.quantity,
         created_by: currentUser?.id ?? null, recipe_id,
         packaging_loss_pct: packagingLossPct,
+        packaged_as_recipe_id: packagedAs,
       });
       transfers.push(transfer);
       allScheduleUpdates.push(...scheduleUpdate);
@@ -839,6 +886,27 @@ export async function POST(req: NextRequest) {
         { error: (e as Error).message, transfers_committed: transfers.length },
         { status }
       );
+    }
+  }
+
+  // ── In-keg conversion: charge what the dose added ──────────────────────────
+  // Once per run, on the volume that actually went into containers, and filed
+  // against the source batch — the beer it came out of. Runs after every line so
+  // a multi-variation run is one conversion, not one per keg size. Never rolls
+  // back the committed packaging: finished goods exist either way.
+  if (packagedAs && transfers.length > 0) {
+    const runTransferId = (transfers[0] as { id?: string }).id;
+    if (runTransferId) {
+      try {
+        await consumePackagedConversionAdditions(supabase, {
+          sourceBatchId:    batch_id,
+          transferId:       runTransferId,
+          packagedRecipeId: packagedAs,
+          volumeBbl:        totalVolumeForCapacityCheck,
+        });
+      } catch (additionsErr) {
+        console.error("[transfers] In-keg conversion additions failed (packaging committed):", additionsErr);
+      }
     }
   }
 
