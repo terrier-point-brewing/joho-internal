@@ -5,10 +5,11 @@ import { Modal } from "./shared";
 import Banner from "@/app/components/ui/Banner";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import PackagingMaterialsBreakdownModal from "./PackagingMaterialsBreakdownModal";
+import IngredientDepositBreakdownModal from "./IngredientDepositBreakdownModal";
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
 import { useInvoicePreview, useExportSquareCatalogQuery } from "../hooks/queries";
 import type { SquareCatalogOptions } from "../types";
-import type { ConversionDepositOption } from "@/lib/production/exportIngredientDeposit";
+import type { ConversionDepositOption, ShippedDepositLine } from "@/lib/production/exportIngredientDeposit";
 import { fmtUsd } from "@/lib/utils/formatting";
 import { crossesExciseTreatmentBoundary } from "@/lib/tax/parties/ncDorBeerExcise/rates";
 
@@ -152,6 +153,12 @@ export default function InvoicePreviewModal({
   // The deposit lines this modal put on the invoice, so re-running the
   // calculation replaces them instead of stacking a second charge underneath.
   const [depositLineIds, setDepositLineIds] = useState<string[]>([]);
+  // Per-line derivation of each deposit charge, keyed by the line id the route
+  // minted — so "How is this calculated?" opens the right one even after the
+  // operator edits the description.
+  const [depositBreakdowns, setDepositBreakdowns] = useState<Record<string, ShippedDepositLine>>({});
+  const [depositBreakdownLineId, setDepositBreakdownLineId] = useState<string | null>(null);
+  const openDepositBreakdown = depositBreakdownLineId ? depositBreakdowns[depositBreakdownLineId] : undefined;
   const hasDepositLine = effectiveLineItems.some((li) =>
     li.squareCatalogVariationId != null && /ingredient deposit/i.test(li.description)
   );
@@ -181,6 +188,11 @@ export default function InvoicePreviewModal({
       }
       const kept = effectiveLineItems.filter((li) => !depositLineIds.includes(li.id));
       setDepositLineIds(added.map((li) => li.id));
+      // Replaced wholesale rather than merged: the previous run's ids are gone
+      // from the invoice, so keeping their derivations would leak a stale
+      // breakdown behind a line that no longer exists.
+      setDepositBreakdowns((body.depositBreakdowns ?? {}) as Record<string, ShippedDepositLine>);
+      setDepositBreakdownLineId(null);
       setLineItems([...kept, ...added]);
     } catch (e) {
       setDepositError(e instanceof Error ? e.message : "Couldn't compute the ingredient deposit");
@@ -677,6 +689,14 @@ export default function InvoicePreviewModal({
                           How is this calculated?
                         </button>
                       )}
+                      {depositBreakdowns[li.id] && (
+                        <button
+                          onClick={() => setDepositBreakdownLineId(li.id)}
+                          className="block ml-auto text-2xs text-accent hover:text-accent-soft underline"
+                        >
+                          How is this calculated?
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -746,6 +766,12 @@ export default function InvoicePreviewModal({
       <PackagingMaterialsBreakdownModal
         breakdown={openBreakdown}
         onClose={() => setBreakdownLineId(null)}
+      />
+    )}
+    {openDepositBreakdown && (
+      <IngredientDepositBreakdownModal
+        line={openDepositBreakdown}
+        onClose={() => setDepositBreakdownLineId(null)}
       />
     )}
     </>

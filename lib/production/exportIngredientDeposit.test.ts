@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { calculateShippedIngredientDeposits, shippedDepositDescription } from "./exportIngredientDeposit";
+import { allocateShares, calculateShippedIngredientDeposits, shippedDepositDescription } from "./exportIngredientDeposit";
 
 /**
  * Stub of the reads: the selected transactions, the equipment types, the batch,
@@ -310,7 +310,7 @@ describe("calculateShippedIngredientDeposits", () => {
       batchId: "b1", batchNumber: "B-038", beerName: "Pumpkin Ale",
       shippedBbl: 3.0968, packagedBbl: 22.9975, inTankBbl: 0, projectedYieldBbl: 22.9975,
       percentage: 13.4659, depositCents: 22917, totalIngredientCostUsd: 1701.79,
-      packagingInProgress: false, excludedRecipes: [],
+      packagingInProgress: false, excludedRecipes: [], breakdown: [],
     });
     expect(text).toBe("Ingredient Deposit — Pumpkin Ale: 3.10 bbl of the 23.00 bbl packaged (13.47%)");
   });
@@ -328,10 +328,90 @@ describe("calculateShippedIngredientDeposits", () => {
         { recipeId: "r-mule", beerName: "Carolina Mule" },
         { recipeId: "r-pils", beerName: "Pace Yourself Pilsner" },
       ],
+      breakdown: [],
     });
     expect(text).toBe(
       "Ingredient Deposit — Transfusion Pilsner: 4.00 bbl of the 20.00 bbl packaged (20.00%)" +
       ", conversion additions only (excludes Carolina Mule, Pace Yourself Pilsner)",
     );
+  });
+});
+
+describe("allocateShares", () => {
+  it("always sums to the total, so the breakdown column ties to the charge", () => {
+    // Rounding each line on its own loses a cent here: 1/3 of 100¢ three ways is
+    // 33.33 each, and three 33s are 99. Largest-remainder hands the odd cent out.
+    expect(allocateShares(100, [1, 1, 1])).toEqual([34, 33, 33]);
+    expect(allocateShares(100, [1, 1, 1]).reduce((a, b) => a + b, 0)).toBe(100);
+  });
+
+  it("hands leftover cents to the biggest fractional parts", () => {
+    // 10¢ over weights 1/6/3 → 0.999.., 5.999.., 3.0 exactly. Floors are 0/5/3
+    // = 8, so the two largest fractions take a cent each.
+    expect(allocateShares(10, [1, 6, 3])).toEqual([1, 6, 3]);
+  });
+
+  it("splits a real bill without drift", () => {
+    // The Carolina Mule additions at 16.67%: ginger $1,304.16 and lime $897.60,
+    // charged $366.96 between them.
+    const shares = allocateShares(36696, [1304.16, 897.60]);
+    expect(shares.reduce((a, b) => a + b, 0)).toBe(36696);
+    expect(shares[0]).toBeGreaterThan(shares[1]);
+  });
+
+  it("returns zeros rather than NaN when there is nothing to weigh", () => {
+    // An unpriced bill must not put NaN in front of a customer.
+    expect(allocateShares(500, [0, 0])).toEqual([0, 0]);
+    expect(allocateShares(500, [])).toEqual([]);
+  });
+});
+
+describe("calculateShippedIngredientDeposits — breakdown", () => {
+  it("derives each ingredient's share, and the shares sum to the charge", async () => {
+    // 20 bbl batch, 1 turn, $1,000 of ingredients across two lines; 9 bbl of the
+    // 18 packaged ships, so the deposit is half the bill.
+    const supabase = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 9 }],
+      batch: BATCH,
+      transfers: [{ transfer_type: "canning", volume_bbl: 18, shrinkage_bbl: 2 }],
+      ingredients: [
+        { quantity_per_turn: 700, cost_per_unit_usd: 1 },
+        { quantity_per_turn: 300, cost_per_unit_usd: 1 },
+      ],
+    });
+    const { lines } = await calculateShippedIngredientDeposits(supabase, ["t1"]);
+
+    expect(lines[0].depositCents).toBe(50000);
+    expect(lines[0].breakdown).toHaveLength(2);
+    // Batch quantity is what the recipe card says, not a per-bbl rate.
+    expect(lines[0].breakdown[0].batchQuantity).toBeCloseTo(700, 6);
+    expect(lines[0].breakdown[0].batchCostUsd).toBe(700);
+    expect(lines[0].breakdown.reduce((a, b) => a + b.shareCents, 0)).toBe(lines[0].depositCents);
+  });
+
+  it("breaks down only what a conversion added, once a base is excluded", async () => {
+    const supabase = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 10 }],
+      batch: { ...BATCH, beer_name: "Transfusion Pilsner", recipe_id: "r-tran" },
+      transfers: [{ transfer_type: "kegging", volume_bbl: 20 }],
+      ingredients: [
+        { quantity_per_turn: 900, cost_per_unit_usd: 1 },
+        { quantity_per_turn: 100, cost_per_unit_usd: 1 },
+      ],
+      recipes: [
+        { id: "r-pils", beer_name: "Pace Yourself Pilsner", base_recipe_id: null },
+        { id: "r-mule", beer_name: "Carolina Mule", base_recipe_id: "r-pils" },
+        { id: "r-tran", beer_name: "Transfusion Pilsner", base_recipe_id: "r-mule" },
+      ],
+      baseIngredients: [{ recipe_id: "r-mule", ingredient_id: "ing-0", quantity_per_bbl: 45 }],
+    });
+    const { lines } = await calculateShippedIngredientDeposits(
+      supabase, ["t1"], new Map([["b1", ["r-mule"]]]),
+    );
+
+    // The malt the Mule already paid for is gone from the table entirely — a $0
+    // row would read as "we charged you for malt", which is the opposite.
+    expect(lines[0].breakdown.map((b) => b.name)).toEqual(["Ingredient 1"]);
+    expect(lines[0].breakdown[0].shareCents).toBe(lines[0].depositCents);
   });
 });

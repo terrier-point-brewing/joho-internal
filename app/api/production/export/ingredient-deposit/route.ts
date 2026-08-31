@@ -71,14 +71,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // One id per line, minted once and used for BOTH the draft line item and its
+    // derivation, so the modal can open the right breakdown without matching on
+    // a description string that the operator is free to edit.
+    const withIds = lines.map((line) => ({ id: crypto.randomUUID(), line }));
+
     return NextResponse.json({
-      lineItems: lines.map((line) => ({
-        id: crypto.randomUUID(),
+      lineItems: withIds.map(({ id, line }) => ({
+        id,
         description: shippedDepositDescription(line),
         quantity: 1,
         unitPriceCents: line.depositCents,
         squareCatalogVariationId: mapping.square_catalog_variation_id,
       })),
+      depositBreakdowns: Object.fromEntries(withIds.map(({ id, line }) => [id, line])),
       derivations: lines,
       warnings,
       conversionOptions,

@@ -87,6 +87,57 @@ export interface ShippedDepositLine {
    * on an ordinary full-bill deposit.
    */
   excludedRecipes: RecipeRef[];
+  /**
+   * Ingredient-by-ingredient derivation of `depositCents`, for the operator to
+   * check before an invoice goes to a customer. `shareCents` sums EXACTLY to
+   * `depositCents` — see `allocateShares`.
+   */
+  breakdown: DepositBreakdownLine[];
+}
+
+/** One ingredient's contribution to a shipped deposit. */
+export interface DepositBreakdownLine {
+  ingredientId: string;
+  name: string;
+  unit: string;
+  costPerUnitUsd: number;
+  /** What the whole batch's bill calls for, after any conversion exclusion. */
+  batchQuantity: number;
+  /** What that quantity costs across the whole batch. */
+  batchCostUsd: number;
+  /** This shipment's share of that cost, in cents. */
+  shareCents: number;
+}
+
+/**
+ * Split `totalCents` across `weights` so the parts sum to exactly `totalCents`.
+ *
+ * Largest-remainder: floor every share, then hand the leftover cents out to the
+ * lines with the biggest fractional parts. Rounding each line independently
+ * leaves a cent or two unaccounted for, and a breakdown whose column does not
+ * add up to the charge is worse than no breakdown at all — it makes the operator
+ * distrust a number that was right.
+ *
+ * Exported for unit testing.
+ */
+export function allocateShares(totalCents: number, weights: number[]): number[] {
+  const sum = weights.reduce((a, w) => a + w, 0);
+  if (sum <= 0 || weights.length === 0) return weights.map(() => 0);
+
+  const exact = weights.map((w) => (w / sum) * totalCents);
+  const shares = exact.map((v) => Math.floor(v));
+  let remainder = totalCents - shares.reduce((a, v) => a + v, 0);
+
+  // Biggest fractional part first; ties fall to the earlier line so the result
+  // is deterministic rather than dependent on sort stability.
+  const order = exact
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+
+  for (let k = 0; remainder > 0 && k < order.length; k++, remainder--) {
+    shares[order[k].i] += 1;
+  }
+  return shares;
 }
 
 export interface RecipeRef {
@@ -300,6 +351,21 @@ export async function calculateShippedIngredientDeposits(
       );
     }
 
+    // Per-ingredient derivation. `quantity_per_bbl` is a rate over the turn's own
+    // volume, so multiplying by the batch's nominal volume returns the quantity
+    // the bill actually calls for (quantity_per_turn × turns) — the figure a
+    // brewer would recognise off the recipe card.
+    const shares = allocateShares(calc.deposit_cents, calc.breakdown.map((b) => b.line_total_usd));
+    const breakdown: DepositBreakdownLine[] = calc.breakdown.map((b, i) => ({
+      ingredientId:   b.ingredient_id,
+      name:           b.name,
+      unit:           b.unit,
+      costPerUnitUsd: b.cost_per_unit_usd,
+      batchQuantity:  b.quantity_per_bbl * nominalBbl,
+      batchCostUsd:   b.line_total_usd,
+      shareCents:     shares[i],
+    }));
+
     lines.push({
       batchId,
       batchNumber: batch.batch_number ?? null,
@@ -313,6 +379,7 @@ export async function calculateShippedIngredientDeposits(
       totalIngredientCostUsd: calc.total_ingredient_cost_usd,
       packagingInProgress,
       excludedRecipes: excludeIds.map(recipeRef),
+      breakdown,
     });
   }
 
