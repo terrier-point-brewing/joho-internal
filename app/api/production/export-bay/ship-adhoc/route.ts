@@ -64,6 +64,10 @@ export async function POST(req: NextRequest) {
       recipientName: recipient_name ?? null,
       allocationId: null,
       notes,
+      // The whole point of this route: stock going out with nothing booked
+      // behind it. Recorded on the row so an invoice does not have to infer it
+      // from a null allocation, which four other things also produce.
+      adHoc: true,
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });

@@ -16,6 +16,10 @@ export const dynamic = "force-dynamic";
  * to every contract-brewing invoice would charge those partners twice. This is
  * the operator saying "this one was converted from distribution and never paid
  * a deposit", so it is a button, not a default.
+ *
+ * Returns `conversionOptions` alongside the lines: the lineage of every shipped
+ * batch whose recipe is made by converting another, so the caller can offer
+ * those bases as exclusions and come back with `exclude=`.
  */
 export async function GET(req: NextRequest) {
   try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
@@ -23,9 +27,23 @@ export async function GET(req: NextRequest) {
   const idsParam = req.nextUrl.searchParams.get("ids");
   const ids = idsParam ? idsParam.split(",").filter(Boolean) : [];
 
+  // `exclude=<batchId>:<recipeId>,…` — the converted-from recipes whose
+  // ingredients this deposit must not charge for, per shipped batch. Keyed by
+  // batch because the deposit is one line per batch and two batches on the same
+  // invoice can be different beers with different lineage. Both halves are
+  // UUIDs, so a colon and a comma are unambiguous separators.
+  const exclusions = new Map<string, string[]>();
+  for (const pair of (req.nextUrl.searchParams.get("exclude") ?? "").split(",")) {
+    const [batchId, recipeId] = pair.split(":");
+    if (!batchId || !recipeId) continue;
+    exclusions.set(batchId, [...(exclusions.get(batchId) ?? []), recipeId]);
+  }
+
   const supabase = createSupabaseAdminClient();
   try {
-    const { lines, warnings } = await calculateShippedIngredientDeposits(supabase, ids);
+    const { lines, warnings, conversionOptions } = await calculateShippedIngredientDeposits(
+      supabase, ids, exclusions,
+    );
 
     // The Square item to bill it against — same mapping the allocation deposit
     // resolves, partner override first, then the default.
@@ -63,6 +81,7 @@ export async function GET(req: NextRequest) {
       })),
       derivations: lines,
       warnings,
+      conversionOptions,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

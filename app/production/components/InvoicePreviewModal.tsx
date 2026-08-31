@@ -8,6 +8,7 @@ import PackagingMaterialsBreakdownModal from "./PackagingMaterialsBreakdownModal
 import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/SquareCatalogSelect";
 import { useInvoicePreview, useExportSquareCatalogQuery } from "../hooks/queries";
 import type { SquareCatalogOptions } from "../types";
+import type { ConversionDepositOption } from "@/lib/production/exportIngredientDeposit";
 import { fmtUsd } from "@/lib/utils/formatting";
 import { crossesExciseTreatmentBoundary } from "@/lib/tax/parties/ncDorBeerExcise/rates";
 
@@ -126,6 +127,10 @@ export default function InvoicePreviewModal({
     [discounts]
   );
 
+  // Whether the notice speaks about one shipment or several — the preview flags
+  // the selection as a whole, and a multi-row selection can mix the two.
+  const isMixedAdHoc = transactionIds.length > 1;
+
   const defaultDiscount = data?.defaultDiscountCatalogId
     ? discountById.get(data.defaultDiscountCatalogId)
     : undefined;
@@ -138,29 +143,66 @@ export default function InvoicePreviewModal({
   const [depositPending, setDepositPending] = useState(false);
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositWarnings, setDepositWarnings] = useState<string[]>([]);
+  // Which shipped batches were made by converting another beer, and which of
+  // their bases the operator has said the partner already paid for. Both arrive
+  // from the same endpoint the deposit does, so the choices can only ever
+  // describe batches actually on this invoice.
+  const [conversionOptions, setConversionOptions] = useState<ConversionDepositOption[]>([]);
+  const [excludedByBatch, setExcludedByBatch] = useState<Record<string, string[]>>({});
+  // The deposit lines this modal put on the invoice, so re-running the
+  // calculation replaces them instead of stacking a second charge underneath.
+  const [depositLineIds, setDepositLineIds] = useState<string[]>([]);
   const hasDepositLine = effectiveLineItems.some((li) =>
     li.squareCatalogVariationId != null && /ingredient deposit/i.test(li.description)
   );
 
-  async function addIngredientDeposit() {
+  function excludeParam(exclusions: Record<string, string[]>): string {
+    const pairs = Object.entries(exclusions).flatMap(([batchId, recipeIds]) =>
+      recipeIds.map((recipeId) => `${batchId}:${recipeId}`)
+    );
+    return pairs.length ? `&exclude=${pairs.join(",")}` : "";
+  }
+
+  async function loadIngredientDeposit(exclusions: Record<string, string[]>) {
     setDepositPending(true);
     setDepositError(null);
     try {
-      const res = await fetch(`/api/production/export/ingredient-deposit?ids=${transactionIds.join(",")}`);
+      const res = await fetch(
+        `/api/production/export/ingredient-deposit?ids=${transactionIds.join(",")}${excludeParam(exclusions)}`
+      );
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Couldn't compute the ingredient deposit");
       const added = (body.lineItems ?? []) as DraftLineItem[];
       setDepositWarnings(body.warnings ?? []);
+      setConversionOptions((body.conversionOptions ?? []) as ConversionDepositOption[]);
       if (added.length === 0) {
         setDepositError("No ingredient deposit could be computed for these shipments.");
         return;
       }
-      setLineItems([...effectiveLineItems, ...added]);
+      const kept = effectiveLineItems.filter((li) => !depositLineIds.includes(li.id));
+      setDepositLineIds(added.map((li) => li.id));
+      setLineItems([...kept, ...added]);
     } catch (e) {
       setDepositError(e instanceof Error ? e.message : "Couldn't compute the ingredient deposit");
     } finally {
       setDepositPending(false);
     }
+  }
+
+  // Excluding a base implies excluding everything above it — the bills nest, so
+  // "the partner already paid for the Mule" necessarily means they paid for the
+  // Pilsner the Mule was made from. Ticking one box therefore ticks the rest of
+  // the chain, and unticking releases only what sits below.
+  function toggleExclusion(option: ConversionDepositOption, recipeId: string) {
+    const chain = option.ancestors.map((a) => a.recipeId);
+    const depth = chain.indexOf(recipeId);
+    const current = excludedByBatch[option.batchId] ?? [];
+    // A valid selection is always a tail of the chain, so ticking takes
+    // everything from here down and unticking takes everything strictly below.
+    const next = current.includes(recipeId) ? chain.slice(depth + 1) : chain.slice(depth);
+    const exclusions = { ...excludedByBatch, [option.batchId]: next };
+    setExcludedByBatch(exclusions);
+    void loadIngredientDeposit(exclusions);
   }
 
   // ── Line mutations ────────────────────────────────────────────────────────
@@ -356,11 +398,27 @@ export default function InvoicePreviewModal({
             </>
           )}
 
+          {/* ── Ad-hoc shipment notice ───────────────────────────────────────
+              Ad-hoc stock left the Export Bay with no commitment behind it, so
+              no ingredient deposit was ever collected up front. Whether this
+              partner owes one is still a question about their agreement, so
+              this points at the button rather than pressing it. */}
+          {data?.adHoc && (
+            <Banner tone="accent">
+              {isMixedAdHoc ? "Some of these shipments were" : "This shipment was"} raised{" "}
+              <span className="font-medium">ad-hoc</span> — no commitment behind{" "}
+              {isMixedAdHoc ? "them" : "it"}, so no ingredient deposit was collected up front.
+              {channel === "contract_brewing"
+                ? " Add one below if the batch's ingredients are this partner's to pay for."
+                : " Bill as Contract Brewing if the batch's ingredients are this partner's to pay for."}
+            </Banner>
+          )}
+
           {/* ── Ingredient deposit ─────────────────────────────────────────── */}
           {channel === "contract_brewing" && !hasDepositLine && (
             <div className="space-y-1">
               <button
-                onClick={addIngredientDeposit}
+                onClick={() => loadIngredientDeposit(excludedByBatch)}
                 disabled={depositPending}
                 className="btn-secondary"
               >
@@ -370,6 +428,49 @@ export default function InvoicePreviewModal({
                 This shipment&rsquo;s share of the batch&rsquo;s ingredient bill, by packaged volume so
                 shrinkage is shared. Only for shipments that never paid a deposit up front.
               </p>
+            </div>
+          )}
+
+          {/* ── Conversion exclusions ──────────────────────────────────────────
+              A conversion recipe's bill is complete — Transfusion Pilsner lists
+              the Pilsner's grain as well as its own grape juice — so a full-bill
+              deposit re-charges malt the base batch already paid for. Only the
+              operator knows whether this partner covered that base, so the
+              choice is theirs, per batch. */}
+          {hasDepositLine && conversionOptions.length > 0 && (
+            <div className="rounded-lg border border-line bg-surface p-3 space-y-3">
+              <div>
+                <p className="text-xs font-medium text-secondary">Converted beer — what has the partner already paid for?</p>
+                <p className="text-xs text-faint">
+                  Tick a beer to leave its ingredients out of the deposit. Ticking one further up the
+                  chain also excludes everything it was made from.
+                </p>
+              </div>
+              {conversionOptions.map((option) => {
+                const excluded = excludedByBatch[option.batchId] ?? [];
+                return (
+                  <div key={option.batchId} className="space-y-1.5">
+                    <p className="text-xs text-secondary">
+                      {option.beerName}
+                      {option.batchNumber && <span className="text-faint"> · {option.batchNumber}</span>}
+                    </p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                      {option.ancestors.map((ancestor) => (
+                        <label key={ancestor.recipeId} className="flex items-center gap-1.5 text-xs text-body">
+                          <input
+                            type="checkbox"
+                            className="accent-amber-500"
+                            checked={excluded.includes(ancestor.recipeId)}
+                            disabled={depositPending}
+                            onChange={() => toggleExclusion(option, ancestor.recipeId)}
+                          />
+                          Exclude {ancestor.beerName}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           {depositError && <Banner tone="danger">{depositError}</Banner>}
