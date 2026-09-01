@@ -367,6 +367,18 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       const responseData = await res.json();
       await onDone(responseData);
+      // The run IS recorded — do not offer to retry, that would double-book the
+      // beer. But the kegs are in the cold room and not on the books, and the
+      // only person who can fix that is standing here right now.
+      const coldStorageErrors: string[] = responseData?.cold_storage_errors ?? [];
+      if (coldStorageErrors.length > 0) {
+        alert(
+          "The packaging run was recorded, but the beer did NOT enter cold storage:\n\n"
+          + coldStorageErrors.map((m) => `• ${m}`).join("\n")
+          + "\n\nDo not submit this run again — it is already recorded. "
+          + "Add the missing units under Production → Inventory, and tell someone.",
+        );
+      }
       onClose();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Error");

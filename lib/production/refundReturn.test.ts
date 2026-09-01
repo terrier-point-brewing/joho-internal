@@ -98,6 +98,7 @@ function fakeClient(opts: {
         const chain: Record<string, unknown> = {
           select: () => chain,
           eq: () => chain,
+          is: () => chain,
           maybeSingle: async () => ({ data: opts.coldStorageRow ?? null, error: null }),
           update: (patch: { quantity_on_hand: number }) => ({
             eq: async (_c: string, id: string) => {
