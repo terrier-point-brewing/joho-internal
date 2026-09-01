@@ -123,13 +123,16 @@ describe("rampCardBalance for a month that has ended", () => {
     expect(readLatestDailyBalance).not.toHaveBeenCalled();
   });
 
-  it("treats a period end falling on today as a month that has ended", async () => {
-    readDailyBalance.mockResolvedValue(-1);
+  it("treats a period end falling on today as still OPEN — the day is running and its capture lands tomorrow", async () => {
+    // Regression (fixed in isOpenPeriod): this used to demand the exact
+    // capture for today, which the 2am cron only writes TOMORROW, so the card
+    // vanished from the live balance sheet for the whole last day of every
+    // month. On the last day, asking Ramp where the card stands right now is
+    // both available and the best possible answer.
+    getRampCardBalance.mockResolvedValue(owed(412_00));
 
-    await rampCardBalance.compute(ctx(TODAY));
-
-    expect(readDailyBalance).toHaveBeenCalledWith({}, "coa-2110", TODAY);
-    expect(getRampCardBalance).not.toHaveBeenCalled();
+    expect(await rampCardBalance.compute(ctx(TODAY))).toBe(-412_00);
+    expect(readDailyBalance).not.toHaveBeenCalled();
   });
 });
 

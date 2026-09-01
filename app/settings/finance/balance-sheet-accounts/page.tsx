@@ -402,12 +402,40 @@ function SourceRow({
   );
 }
 
+/**
+ * The last twelve ENDED month-end dates, newest first, for the recompute
+ * picker. Twelve is a window, not a claim: months older than the picker still
+ * exist, but a snapshot that stale is a bigger conversation than a dropdown.
+ * The open month is deliberately absent -- it is live-computed on every view
+ * and the route refuses it with a better sentence than a disabled option.
+ */
+function endedMonthEnds(): string[] {
+  const now = new Date();
+  const out: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    // Day 0 of month (m - i) = last day of the month before it; i=0 is the
+    // most recently ended month.
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 0);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    out.push(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+  }
+  return out;
+}
+
+/** "2026-07-31" -> "July 2026". */
+function monthLabel(periodEnd: string): string {
+  const [y, m] = periodEnd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
 export default function BalanceSheetAccountsPage() {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [recomputing, setRecomputing] = useState(false);
+  /** "" = the default (last ended month); otherwise a month-end date to recompute. */
+  const [recomputeMonth, setRecomputeMonth] = useState("");
   const [pendingKind, setPendingKind] = useState<Record<string, MethodKind | "">>({});
   const [pendingMethod, setPendingMethod] = useState<Record<string, string>>({});
   const [explaining, setExplaining] = useState<{ methodKey: string; accountId: string | null } | null>(null);
@@ -522,20 +550,33 @@ export default function BalanceSheetAccountsPage() {
   }
 
   /**
-   * Recomputes and stores the last CLOSED month.
+   * Recomputes and stores an ENDED month -- by default the most recent one.
    *
    * The open month needs no button -- it is worked out fresh on every load of
    * this screen and of the balance sheet. What could not be done before was
    * making a finished month pick up a source configured after its snapshot ran,
    * which meant waiting until 09:00 the next day to find out whether the setup
    * had worked at all.
+   *
+   * The month picker exists because the nightly job only ever revisits the
+   * month currently being closed. A month snapshotted BEFORE the books around
+   * it were finished stays exactly as first written until somebody recomputes
+   * it -- April 2026 sat showing one cash row and none of the acquisition,
+   * because its snapshot predated the wire being coded, and nothing on any
+   * screen could reach it. A CLOSED month is refused by snapshotPeriod
+   * regardless of what is picked here, so this cannot rewrite signed-off books;
+   * recompute first, then close, is the intended order.
    */
   async function handleRecompute() {
     setRecomputing(true);
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch("/api/finance/balance-sources/recompute", { method: "POST" });
+      const res = await fetch("/api/finance/balance-sources/recompute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(recomputeMonth ? { periodEnd: recomputeMonth } : {}),
+      });
       const json = (await res.json().catch(() => ({}))) as {
         periodEnd?: string;
         written?: number;
@@ -602,9 +643,21 @@ export default function BalanceSheetAccountsPage() {
               (excludedCount > 0 ? ` · ${excludedCount} excluded` : "")
             : "Balance-sheet accounts appear here once the chart of accounts is mapped."}
         </p>
-        <button type="button" className="btn-secondary shrink-0" disabled={recomputing} onClick={handleRecompute}>
-          {recomputing ? "Recomputing…" : "Recompute last month"}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <select
+            className="inp-sm"
+            value={recomputeMonth}
+            onChange={(ev) => setRecomputeMonth(ev.target.value)}
+            aria-label="Month to recompute"
+          >
+            {endedMonthEnds().map((pe, i) => (
+              <option key={pe} value={i === 0 ? "" : pe}>{monthLabel(pe)}{i === 0 ? " (latest)" : ""}</option>
+            ))}
+          </select>
+          <button type="button" className="btn-secondary" disabled={recomputing} onClick={handleRecompute}>
+            {recomputing ? "Recomputing…" : "Recompute"}
+          </button>
+        </div>
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}

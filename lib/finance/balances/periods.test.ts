@@ -31,3 +31,27 @@ describe("mostRecentlyEndedMonthEnd", () => {
     expect(mostRecentlyEndedMonthEnd("2026-08-01")).toBe("2026-07-31");
   });
 });
+
+// isOpenPeriod decides whether a provider answers with the running balance or
+// demands an exact month-end capture. The boundary case is the reason it is
+// pinned: the month's last day is still running, and its capture only exists
+// the next morning.
+import { isOpenPeriod } from "./periods";
+
+describe("isOpenPeriod", () => {
+  it("mid-month, the current month end is open", () => {
+    expect(isOpenPeriod("2026-08-31", "2026-08-12")).toBe(true);
+  });
+
+  it("the month's LAST DAY is still open — its capture is written tomorrow at 2am", () => {
+    // Regression: this used to answer false, so every integration-backed bank
+    // and card account demanded a not-yet-existing exact capture and vanished
+    // from the live balance sheet for the whole last day of every month.
+    expect(isOpenPeriod("2026-08-31", "2026-08-31")).toBe(true);
+  });
+
+  it("a month that has genuinely ended is closed and answered exactly", () => {
+    expect(isOpenPeriod("2026-08-31", "2026-09-01")).toBe(false);
+    expect(isOpenPeriod("2026-07-31", "2026-08-31")).toBe(false);
+  });
+});

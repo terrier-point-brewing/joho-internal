@@ -9,20 +9,20 @@
 // OWN per-month net income across every month up to periodEnd, so there is no
 // second net-income formula that could drift from the statement's.
 //
-// ── One known gap, stated rather than implied ────────────────────────────────
-// This is the P&L pipeline, but it is not the whole P&L STATEMENT. The
-// statement injects manual net sales entries (buildFinancials.ts's
-// injectManualNetSales) AFTER aggregateRows; this provider never fetched them
-// and still does not. Measured at 2026-08-31 that is the entire remaining
-// difference: the statement's months sum to 2,858,336 and this returns 620,236,
-// the 2,238,100 gap being April's 1,346,800 and May's 891,300 of manual net
-// sales, to the cent. Verified month by month -- June, July and August agree
-// exactly, because only April and May carry manual entries.
+// ── The manual-entries gap, now closed ───────────────────────────────────────
+// This provider long excluded the statement's injected manual net-sales rows
+// (buildFinancials.ts's injectManualNetSales), and for a while that was the
+// entire, documented difference to the statement: $22,381.00, April and May
+// 2026's hand-entered revenue, to the cent. The question it deferred -- does
+// hand-entered revenue belong in equity -- was settled by the owner on
+// 2026-08-31: yes. Equity absorbs what the statement reports, full stop; a
+// revenue that counts on the P&L but never reaches retained earnings is a
+// permanent balancing difference wearing a policy costume.
 //
-// Left alone deliberately. It predates this file, it is a question about which
-// revenue belongs in equity rather than a defect in the arithmetic here, and
-// folding it in would move GL 3300 again. Do not describe this provider as
-// reconciling to the P&L statement until it is settled.
+// So the same entries are fetched and injected here, through the SAME
+// functions the statement uses, before net income is summed. If a manual
+// entry is miscoded, the fix is the entry, never a fork between the two
+// readers of it.
 //
 // ── Why it is not read off the previous month's snapshot ─────────────────────
 // Retained earnings at period end looks like "last month's 3300 plus this
@@ -70,7 +70,9 @@ import {
   fetchExpenses,
   fetchBank,
   fetchRefunds,
+  fetchManualNetSalesEntries,
 } from "@/lib/finance/financials/fetchSources";
+import { injectManualNetSales } from "@/lib/finance/financials/manualNetSales";
 import type { DateRange } from "@/lib/finance/financials/fetchSources";
 import { aggregateRows } from "@/lib/finance/financials/aggregateRows";
 import { buildKpis } from "@/lib/finance/financials/summaries";
@@ -139,7 +141,7 @@ export const retainedEarnings: BalanceProvider = {
     const { supabase, periodEnd } = ctx;
     const range = cumulativeRangeThrough(periodEnd);
 
-    const [coa, pos, invoiceLines, expenses, bank, refunds] = await Promise.all([
+    const [coa, pos, invoiceLines, expenses, bank, refunds, manualEntries] = await Promise.all([
       fetchCoa(supabase),
       // The one source that runs past a single 1000-row page from inception,
       // and the only reason this provider was ever slow.
@@ -148,6 +150,7 @@ export const retainedEarnings: BalanceProvider = {
       fetchExpenses(supabase, range, false),
       fetchBank(supabase, range, "pl"),
       fetchRefunds(supabase, range),
+      fetchManualNetSalesEntries(supabase),
     ]);
 
     const months = monthsThroughPeriodEnd(
@@ -158,11 +161,15 @@ export const retainedEarnings: BalanceProvider = {
         ...expenses.map((r) => r.payrollPeriod?.start),
         ...bank.map((r) => r.transactionDate),
         ...refunds.map((r) => r.refundedAt),
+        // Manual entries are not transactions, so nothing above sees their
+        // dates -- an entry whose range starts before the earliest transaction
+        // would silently prorate onto months this list never contained.
+        ...manualEntries.map((e) => e.startDate),
       ],
       periodEnd,
     );
 
-    const rows = aggregateRows({
+    let rows = aggregateRows({
       pos,
       invoiceLines,
       expenses,
@@ -175,6 +182,17 @@ export const retainedEarnings: BalanceProvider = {
       coa,
       months,
     });
+
+    // The statement's own injection, over the same months. Entries coded to a
+    // balance-sheet account synthesize rows in balance-sheet sections, which
+    // buildKpis' P&L-section sum then ignores -- exactly as the statement does.
+    //
+    // Entries whose RANGE starts before this scan's earliest transaction month
+    // are the one shape monthsThroughPeriodEnd cannot see (it reads transaction
+    // dates, and a manual entry is not a transaction), so their start months
+    // are folded into the month list before injection rather than silently
+    // prorated onto nothing.
+    rows = injectManualNetSales(rows, manualEntries, months, coa);
 
     // buildKpis' netIncomeCents is a plain per-month sum of the P&L sections
     // (summaries.ts's sumSectionByMonth), so adding its months up is the P&L's

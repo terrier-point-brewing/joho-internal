@@ -116,11 +116,15 @@ describe("plaidBalance for a closed month", () => {
     expect(filters.some(([k]) => k.startsWith("lte:"))).toBe(false);
   });
 
-  it("treats a period end falling on today as closed", async () => {
+  it("treats a period end falling on today as still OPEN — the day is running and its capture lands tomorrow", async () => {
+    // Regression (fixed in isOpenPeriod): demanding today's exact capture made
+    // GL 1020 vanish from the live balance sheet for the whole last day of
+    // every month, because the 2am cron writes today's figure TOMORROW.
     const { context, filters } = ctx("2026-08-12", { balance_cents: 1 });
 
     await plaidBalance.compute(context);
 
-    expect(filters).toContainEqual(["eq:as_of_date", "2026-08-12"]);
+    expect(filters.some(([k]) => k.startsWith("lte:"))).toBe(true);
+    expect(filters).not.toContainEqual(["eq:as_of_date", "2026-08-12"]);
   });
 });

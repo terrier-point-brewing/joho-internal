@@ -72,6 +72,17 @@ export interface KpiSummary {
   revenueMoMPct: Record<string, number>;
   operatingCashCents: Record<string, number> | null;
   cashOnHandCents: number | null;
+  /**
+   * cash_flow only, attached by the API route (the builder cannot reach the
+   * balances tree -- statement isolation). Average operating cash of the last
+   * three ENDED months, signed: negative is a burn. Null everywhere else.
+   */
+  burnRateCents?: number | null;
+  /**
+   * cash_flow only: months of cash left at that burn rate. Null when there is
+   * no burn -- operating cash flow is non-negative -- or nothing to divide.
+   */
+  runwayMonths?: number | null;
 }
 
 /** Minimal chart_of_accounts reference row -- every account (not just ones with postings of their own), so buildTree (app/finance/financials/buildTree.ts) can nest a leaf under an ancestor that carries no direct transactions, seed a real-but-currently-unused root account as a $0 line, and FinancialsTable can look up a row's GL account number for the optional "Show GL #" toggle. `statementSection` is the same derived value aggregateRows.ts's coaSection() would assign this account if it ever got a posting. */

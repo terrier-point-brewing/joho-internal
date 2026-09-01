@@ -591,7 +591,7 @@ export async function fetchRefunds(supabase: SupabaseClient, range: DateRange): 
  * (balance-sheet) rows are deliberately excluded here -- see manual_entries'
  * schema (Task 1 migration) for the entry_kind split.
  */
-async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<ManualNetSalesEntryRecord[]> {
+export async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<ManualNetSalesEntryRecord[]> {
   const rows = await fetchAllRows<{
     id: string;
     start_date: string;
