@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createExportInvoice, publishInvoice, getInvoiceStatus } from "@/lib/square/square-invoices";
@@ -24,6 +24,7 @@ import {
 } from "@/lib/production/invoiceSkuSubstitutions";
 import type { CatalogItem } from "@/types/square";
 import { getNetTermsDays } from "@/lib/production/invoiceTerms";
+import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
@@ -69,7 +70,9 @@ export async function POST(req: NextRequest) {
 
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, recipient_name, status, invoice_id, batch_id, channel")
+    // recipe_id rides along for the post-send Square push: raising an invoice
+    // changes what Square holds committed, which changes the push target.
+    .select("id, recipient_id, recipient_name, status, invoice_id, batch_id, channel, recipe_id")
     .in("id", transactionIds);
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 });
   if (!txs || txs.length !== transactionIds.length) {
@@ -341,11 +344,44 @@ export async function POST(req: NextRequest) {
       inventoryWarnings = [`Square inventory credit failed: ${message}`];
     }
 
-    try {
-      await syncSquareInvoicesForYear(supabase, new Date().getFullYear());
-    } catch (err) {
-      console.error("[export-invoice] post-send Finance sync failed:", err);
-    }
+    // Both of these run AFTER the response, and both used to be — or would have
+    // been — blocking. Moving them matters for two separate reasons.
+    //
+    // The Finance sync re-reads every invoice of the year from Square and
+    // cascades Square's status back onto ours. Run inline, it races the publish
+    // we just did: Square can still be reporting DRAFT for a few moments, and
+    // the cascade then writes 'draft' straight back over the 'open' set above.
+    // The caller refetches, sees Draft, and the invoice looks unsent. Deferring
+    // it means the status the client reads is the one this request wrote, and
+    // the reconciliation still happens a moment later once Square has caught up.
+    //
+    // The Square push is new here and makes several Square round-trips; blocking
+    // on it would leave the operator watching a spinner after the invoice has
+    // already gone out.
+    after(async () => {
+      try {
+        await syncSquareInvoicesForYear(supabase, new Date().getFullYear());
+      } catch (err) {
+        console.error("[export-invoice] post-send Finance sync failed:", err);
+      }
+
+      // Publishing is the moment Square COMMITS this invoice's units — it holds
+      // them out of "available" while leaving them inside IN_STOCK until
+      // payment. The push target is cold storage PLUS committed, so raising an
+      // invoice moves that target with nothing else changing. Restate it, or
+      // Square's available reads low by exactly this invoice until the nightly
+      // sweep and the taproom is refused beer that is on the shelf.
+      //
+      // Only the raise needs this. At payment Square deducts the committed units
+      // from IN_STOCK, which lands on the new, lower target by itself.
+      //
+      // No-ops while the push gate is shut, and never throws.
+      await triggerSquarePush(
+        supabase,
+        txs.map((t) => t.recipe_id),
+        `invoice ${invoiceId} sent`,
+      );
+    });
 
     return NextResponse.json({ ok: true, ...(inventoryWarnings.length ? { warnings: inventoryWarnings } : {}) });
   }
