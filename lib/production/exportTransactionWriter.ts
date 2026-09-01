@@ -61,6 +61,13 @@ export async function writeExportTransaction(
      * quantity that was physically consumed. 0 for kegs and for runs with no loss.
      */
     packagingLossPct?: number;
+    /**
+     * Stock shipped with no commitment behind it. Distinct from a null
+     * `allocationId`, which taproom consumption, over-deliveries and revision
+     * reversals also carry — this says the shipment was CREATED ad-hoc, which is
+     * what tells an invoice that no ingredient deposit was collected up front.
+     */
+    isAdHoc?: boolean;
   }
 ): Promise<string> {
   const taxBreakdown = await computeExciseTaxBreakdown(supabase, params.volumeBbl);
@@ -92,6 +99,7 @@ export async function writeExportTransaction(
       is_phantom: params.isPhantom ?? false,
       phantom_origin: params.phantomOrigin ?? null,
       packaging_loss_pct: params.packagingLossPct ?? 0,
+      is_ad_hoc: params.isAdHoc ?? false,
     })
     .select("id")
     .single();

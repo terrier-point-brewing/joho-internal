@@ -88,7 +88,7 @@ export async function reviseShipment(
   const { data: rows, error: readErr } = await supabase
     .from("export_transactions")
     .select(
-      "id, channel, status, invoice_id, is_phantom, allocation_id, quantity, recipe_id, recipient_id, recipient_name, notes, created_at",
+      "id, channel, status, invoice_id, is_phantom, allocation_id, is_ad_hoc, quantity, recipe_id, recipient_id, recipient_name, notes, created_at",
     )
     .eq("shipment_id", shipmentId)
     .gt("quantity", 0);
@@ -192,6 +192,11 @@ export async function reviseShipment(
 
   const newShipmentId = crypto.randomUUID();
   const channel = patch.channel ?? (rows[0].channel as string);
+  // A correction does not turn an ad-hoc shipment into a booked one. The flag
+  // rides along, and the writer still drops it from any row that ends up
+  // crediting a commitment — by revision time one may exist that did not
+  // before.
+  const wasAdHoc = rows.some((r) => (r as { is_ad_hoc?: boolean | null }).is_ad_hoc === true);
   const notes = plan.reason;
   const reserveWarnings: ShipmentWarning[] = [];
 
@@ -209,6 +214,7 @@ export async function reviseShipment(
         recipientName: (rows[0].recipient_name as string | null) ?? null,
         notes,
         credit: partnerId ? { partnerId } : null,
+        adHoc: wasAdHoc,
       });
       result.created.push(...written.created);
       reserveWarnings.push(...written.warnings);

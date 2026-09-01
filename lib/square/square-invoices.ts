@@ -27,6 +27,38 @@ export interface DepositCalculation {
     unit: string;
     line_total_usd: number;
   }>;
+  /**
+   * Recipes whose bill was netted out of this calculation, in the order asked
+   * for. Empty on an ordinary full-bill deposit. See `IngredientDepositOptions`.
+   */
+  excluded_recipe_ids: string[];
+}
+
+export interface IngredientDepositOptions {
+  /**
+   * Ancestor recipes whose ingredients this deposit must NOT charge for.
+   *
+   * A conversion recipe carries the COMPLETE bill — Transfusion Pilsner lists
+   * the Pilsner's grain, the Mule's ginger and lime, and its own grape juice —
+   * because brewing it from scratch is legitimate and every costing reader
+   * needs the whole thing. But when the beer was actually made by converting,
+   * the base's grain was bought and charged once already, against the batch it
+   * was drawn off. Charging it again on the conversion's deposit bills the
+   * partner twice for the same malt.
+   *
+   * Excluding a recipe subtracts ITS per-bbl rates from the bill being priced,
+   * ingredient by ingredient, floored at zero — a conversion can only add, so a
+   * base that uses more of something than the derived recipe nets to nothing
+   * rather than a credit.
+   *
+   * Several may be excluded at once, and the chain makes that meaningful:
+   * Pilsner → Carolina Mule → Transfusion Pilsner. Excluding the Pilsner alone
+   * charges ginger + lime + grape juice; excluding the Pilsner AND the Mule
+   * charges only the grape juice. Because bills nest, the union is taken as the
+   * HIGHEST rate any excluded recipe carries for an ingredient, which gives
+   * exactly those two answers without depending on the order they arrive in.
+   */
+  excludeRecipeIds?: string[];
 }
 
 export interface CreateDepositInvoiceParams {
@@ -85,11 +117,16 @@ interface SquareOrderGetResponse {
  * batch volume billed the partner for grain nobody bought. The per-bbl figure
  * on each breakdown line is a display rate over the turn's own volume, so
  * rate × volume still reconciles to the line total.
+ *
+ * `options.excludeRecipeIds` nets an ancestor recipe's bill out first, for a
+ * batch that was made by converting rather than brewed from scratch — see
+ * IngredientDepositOptions. Omitted, the whole bill is priced, exactly as before.
  */
 export async function calculateIngredientDeposit(
   supabase: SupabaseClient,
   batchId: string,
-  percentage: number
+  percentage: number,
+  options?: IngredientDepositOptions
 ): Promise<DepositCalculation> {
   const { data: batch, error: batchErr } = await supabase
     .from("brew_batches")
@@ -115,6 +152,48 @@ export async function calculateIngredientDeposit(
   // divide by zero and emit Infinity into an invoice.
   const turnVol = volumeBbl > 0 ? volumeBbl / turns : 0;
 
+  // ── What an excluded base already paid for, expressed in THIS bill's terms ──
+  // The excluded rates are per bbl (that is the only figure two recipes with
+  // different expected yields share); the bill being priced is per turn. turnVol
+  // is the bridge, so a volume-less batch cannot express the subtraction at all
+  // — better to refuse than to silently charge the full bill under a label that
+  // says otherwise.
+  const excludeRecipeIds = [...new Set(options?.excludeRecipeIds ?? [])].filter(
+    (id) => id && id !== batch.recipe_id,
+  );
+  const excludedPerTurn = new Map<string, number>();
+  if (excludeRecipeIds.length > 0) {
+    if (turnVol <= 0) {
+      throw new Error(
+        "This batch has no recorded volume, so a converted-from recipe's ingredients cannot be netted out of its deposit.",
+      );
+    }
+    const { data: baseRows, error: baseErr } = await supabase
+      .from("recipe_ingredients")
+      .select("recipe_id, ingredient_id, quantity_per_bbl")
+      .in("recipe_id", excludeRecipeIds);
+    if (baseErr) throw new Error(`Failed to fetch converted-from recipe ingredients: ${baseErr.message}`);
+
+    // Sum within a recipe (a bill may list an ingredient on more than one line),
+    // then take the highest across recipes — the union, since the chain nests.
+    const perRecipe = new Map<string, Map<string, number>>();
+    for (const row of baseRows ?? []) {
+      const qty = Number(row.quantity_per_bbl);
+      if (!Number.isFinite(qty)) continue;
+      const byIngredient = perRecipe.get(row.recipe_id as string) ?? new Map<string, number>();
+      byIngredient.set(row.ingredient_id as string, (byIngredient.get(row.ingredient_id as string) ?? 0) + qty);
+      perRecipe.set(row.recipe_id as string, byIngredient);
+    }
+    for (const byIngredient of perRecipe.values()) {
+      for (const [ingredientId, qtyPerBbl] of byIngredient) {
+        excludedPerTurn.set(
+          ingredientId,
+          Math.max(excludedPerTurn.get(ingredientId) ?? 0, qtyPerBbl * turnVol),
+        );
+      }
+    }
+  }
+
   let totalIngredientCostUsd = 0;
   const breakdown: DepositCalculation["breakdown"] = [];
 
@@ -122,7 +201,16 @@ export async function calculateIngredientDeposit(
     const ing = ri.ingredients as unknown as { id: string; name: string; unit: string; cost_per_unit_usd: number | null } | null;
     if (!ing || ing.cost_per_unit_usd == null) continue;
 
-    const qtyPerTurn = Number(ri.quantity_per_turn);
+    const grossPerTurn = Number(ri.quantity_per_turn);
+    // Drawn down as it is consumed, so a bill listing an ingredient twice has
+    // the exclusion applied once across both lines rather than once per line.
+    const claimable = Math.min(grossPerTurn, excludedPerTurn.get(ing.id) ?? 0);
+    if (claimable > 0) excludedPerTurn.set(ing.id, (excludedPerTurn.get(ing.id) ?? 0) - claimable);
+    const qtyPerTurn = grossPerTurn - claimable;
+    // An ingredient the base fully covers adds nothing to a conversion-only
+    // deposit, so it is dropped rather than shown as a $0 line.
+    if (excludeRecipeIds.length > 0 && qtyPerTurn <= 0) continue;
+
     const costPerUnit = Number(ing.cost_per_unit_usd);
     const lineTotal = qtyPerTurn * turns * costPerUnit;
     const qtyPerBbl = turnVol > 0 ? qtyPerTurn / turnVol : 0;
@@ -149,6 +237,7 @@ export async function calculateIngredientDeposit(
     deposit_cents: depositCents,
     ingredient_count: breakdown.length,
     breakdown,
+    excluded_recipe_ids: excludeRecipeIds,
   };
 }
 

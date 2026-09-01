@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculateIngredientDeposit } from "@/lib/square/square-invoices";
 import { computeLocationBreakdown, type LedgerTransfer } from "@/lib/production/volumeLedger";
+import { baseMapOf, lineageAncestors } from "@/lib/production/recipeLineage";
 
 /**
  * Ingredient deposit for a shipment that is being billed as contract brewing
@@ -45,6 +46,19 @@ import { computeLocationBreakdown, type LedgerTransfer } from "@/lib/production/
  *
  * The dollar math is deliberately delegated to calculateIngredientDeposit, the
  * same function the allocation deposit uses, so the two can never drift.
+ *
+ * ── Beer that was converted, not brewed ──────────────────────────────────────
+ * A conversion recipe's bill is COMPLETE: Transfusion Pilsner lists the
+ * Pilsner's grain, the Mule's ginger and lime, and its own grape juice. Priced
+ * whole, the deposit charges the partner for malt that was bought and charged
+ * once already, against the batch the liquid was drawn off.
+ *
+ * So each shipped batch also reports its recipe's lineage — every recipe it
+ * converts from, nearest base first — and the operator says which of them the
+ * partner has already covered. Excluding those nets their bills out, leaving
+ * the additions the conversion genuinely bought. It is a choice rather than a
+ * default because only the operator knows whether the base was billed to this
+ * partner or to somebody else.
  */
 export interface ShippedDepositLine {
   batchId: string;
@@ -68,11 +82,91 @@ export interface ShippedDepositLine {
    * The deposit is conservative, not wrong.
    */
   packagingInProgress: boolean;
+  /**
+   * Converted-from recipes netted out of this line, nearest base first. Empty
+   * on an ordinary full-bill deposit.
+   */
+  excludedRecipes: RecipeRef[];
+  /**
+   * Ingredient-by-ingredient derivation of `depositCents`, for the operator to
+   * check before an invoice goes to a customer. `shareCents` sums EXACTLY to
+   * `depositCents` — see `allocateShares`.
+   */
+  breakdown: DepositBreakdownLine[];
+}
+
+/** One ingredient's contribution to a shipped deposit. */
+export interface DepositBreakdownLine {
+  ingredientId: string;
+  name: string;
+  unit: string;
+  costPerUnitUsd: number;
+  /** What the whole batch's bill calls for, after any conversion exclusion. */
+  batchQuantity: number;
+  /** What that quantity costs across the whole batch. */
+  batchCostUsd: number;
+  /** This shipment's share of that cost, in cents. */
+  shareCents: number;
+}
+
+/**
+ * Split `totalCents` across `weights` so the parts sum to exactly `totalCents`.
+ *
+ * Largest-remainder: floor every share, then hand the leftover cents out to the
+ * lines with the biggest fractional parts. Rounding each line independently
+ * leaves a cent or two unaccounted for, and a breakdown whose column does not
+ * add up to the charge is worse than no breakdown at all — it makes the operator
+ * distrust a number that was right.
+ *
+ * Exported for unit testing.
+ */
+export function allocateShares(totalCents: number, weights: number[]): number[] {
+  const sum = weights.reduce((a, w) => a + w, 0);
+  if (sum <= 0 || weights.length === 0) return weights.map(() => 0);
+
+  const exact = weights.map((w) => (w / sum) * totalCents);
+  const shares = exact.map((v) => Math.floor(v));
+  let remainder = totalCents - shares.reduce((a, v) => a + v, 0);
+
+  // Biggest fractional part first; ties fall to the earlier line so the result
+  // is deterministic rather than dependent on sort stability.
+  const order = exact
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+
+  for (let k = 0; remainder > 0 && k < order.length; k++, remainder--) {
+    shares[order[k].i] += 1;
+  }
+  return shares;
+}
+
+export interface RecipeRef {
+  recipeId: string;
+  beerName: string;
+}
+
+/**
+ * One shipped batch whose recipe is made by converting another — and therefore
+ * the only batches where excluding a base is a meaningful thing to ask for.
+ *
+ * `ancestors` is the whole chain, nearest base first: for Transfusion Pilsner
+ * that is [Carolina Mule, Pace Yourself Pilsner]. Any subset may be excluded;
+ * because the bills nest, excluding the Mule implies the Pilsner's grain is
+ * gone too, so the two useful answers are "just the Pilsner" and "both".
+ */
+export interface ConversionDepositOption {
+  batchId: string;
+  batchNumber: string | null;
+  beerName: string;
+  recipeId: string;
+  ancestors: RecipeRef[];
 }
 
 export interface ShippedDepositResult {
   lines: ShippedDepositLine[];
   warnings: string[];
+  /** Per-batch conversion lineage, for the caller to offer as exclusions. */
+  conversionOptions: ConversionDepositOption[];
 }
 
 type DepositTxRow = {
@@ -80,9 +174,13 @@ type DepositTxRow = {
   volume_bbl: number | null;
 };
 
+/** batch id → the recipes whose ingredients this deposit must not charge for. */
+export type DepositExclusions = ReadonlyMap<string, readonly string[]>;
+
 export async function calculateShippedIngredientDeposits(
   supabase: SupabaseClient,
   transactionIds: string[],
+  exclusions: DepositExclusions = new Map(),
 ): Promise<ShippedDepositResult> {
   if (transactionIds.length === 0) {
     throw new Error("At least one export transaction must be selected");
@@ -122,12 +220,25 @@ export async function calculateShippedIngredientDeposits(
   const tankTypeById: Record<string, string> = {};
   for (const e of equipment ?? []) tankTypeById[e.id as string] = e.type as string;
 
+  // The whole recipes table — a few dozen rows — so the pure lineage walkers can
+  // answer "what does this convert from?" without a recursive query. Same
+  // approach conversionIngredients takes, for the same reason.
+  const { data: recipeRows, error: recipeErr } = await supabase
+    .from("recipes")
+    .select("id, beer_name, base_recipe_id");
+  if (recipeErr) throw new Error(recipeErr.message);
+  const recipes = (recipeRows ?? []) as Array<{ id: string; beer_name: string | null; base_recipe_id: string | null }>;
+  const baseById = baseMapOf(recipes);
+  const recipeNameById = new Map(recipes.map((r) => [r.id, String(r.beer_name ?? "").trim()]));
+  const recipeRef = (id: string): RecipeRef => ({ recipeId: id, beerName: recipeNameById.get(id) || "Unknown recipe" });
+
   const lines: ShippedDepositLine[] = [];
+  const conversionOptions: ConversionDepositOption[] = [];
 
   for (const [batchId, shippedBbl] of bblByBatch) {
     const { data: batch, error: batchErr } = await supabase
       .from("brew_batches")
-      .select("id, beer_name, batch_number, volume_bbl")
+      .select("id, beer_name, batch_number, volume_bbl, recipe_id")
       .eq("id", batchId)
       .single();
     if (batchErr || !batch) {
@@ -136,6 +247,32 @@ export async function calculateShippedIngredientDeposits(
     }
     const beerName = String(batch.beer_name ?? "").trim();
     const label = batch.batch_number ? `${beerName} (${batch.batch_number})` : beerName;
+
+    // ── What this batch could be converted from, and what the caller excluded ──
+    const recipeId = (batch.recipe_id as string | null) ?? null;
+    const ancestorIds = recipeId ? lineageAncestors(recipeId, baseById) : [];
+    if (recipeId && ancestorIds.length > 0) {
+      conversionOptions.push({
+        batchId,
+        batchNumber: batch.batch_number ?? null,
+        beerName,
+        recipeId,
+        ancestors: ancestorIds.map(recipeRef),
+      });
+    }
+
+    // Only a real ancestor can be excluded. Anything else — a stale id, a
+    // recipe from a different beer — is dropped with a warning rather than
+    // quietly reducing the bill by an amount nobody can account for.
+    const requested = [...new Set(exclusions.get(batchId) ?? [])];
+    const excludeIds = requested.filter((id) => ancestorIds.includes(id));
+    for (const id of requested) {
+      if (!excludeIds.includes(id)) {
+        warnings.push(
+          `${label} is not converted from ${recipeNameById.get(id) || id}, so that recipe's ingredients were left in its deposit.`,
+        );
+      }
+    }
 
     // The batch's whole ledger: its own rows plus any sibling conversion row
     // that handed volume into its tanks. computeTankVolumes needs both.
@@ -188,10 +325,15 @@ export async function calculateShippedIngredientDeposits(
 
     const percentage = (shippedBbl / projectedYieldBbl) * 100;
     // Same function the allocation deposit uses — one formula, two entry points.
-    const calc = await calculateIngredientDeposit(supabase, batchId, percentage);
+    const calc = await calculateIngredientDeposit(supabase, batchId, percentage, {
+      excludeRecipeIds: excludeIds,
+    });
     if (calc.deposit_cents === 0) {
       warnings.push(
-        `${label} has no priced ingredients, so its deposit computes to $0 — set ingredient costs before charging it.`,
+        excludeIds.length > 0
+          ? `${label} adds nothing priced on top of ${excludeIds.map((id) => recipeNameById.get(id) || id).join(" and ")}, ` +
+            `so a conversion-only deposit computes to $0 — set the addition's ingredient costs before charging it.`
+          : `${label} has no priced ingredients, so its deposit computes to $0 — set ingredient costs before charging it.`,
       );
       continue;
     }
@@ -209,6 +351,21 @@ export async function calculateShippedIngredientDeposits(
       );
     }
 
+    // Per-ingredient derivation. `quantity_per_bbl` is a rate over the turn's own
+    // volume, so multiplying by the batch's nominal volume returns the quantity
+    // the bill actually calls for (quantity_per_turn × turns) — the figure a
+    // brewer would recognise off the recipe card.
+    const shares = allocateShares(calc.deposit_cents, calc.breakdown.map((b) => b.line_total_usd));
+    const breakdown: DepositBreakdownLine[] = calc.breakdown.map((b, i) => ({
+      ingredientId:   b.ingredient_id,
+      name:           b.name,
+      unit:           b.unit,
+      costPerUnitUsd: b.cost_per_unit_usd,
+      batchQuantity:  b.quantity_per_bbl * nominalBbl,
+      batchCostUsd:   b.line_total_usd,
+      shareCents:     shares[i],
+    }));
+
     lines.push({
       batchId,
       batchNumber: batch.batch_number ?? null,
@@ -221,10 +378,12 @@ export async function calculateShippedIngredientDeposits(
       depositCents: calc.deposit_cents,
       totalIngredientCostUsd: calc.total_ingredient_cost_usd,
       packagingInProgress,
+      excludedRecipes: excludeIds.map(recipeRef),
+      breakdown,
     });
   }
 
-  return { lines, warnings };
+  return { lines, warnings, conversionOptions };
 }
 
 /**
@@ -236,9 +395,14 @@ export function shippedDepositDescription(line: ShippedDepositLine): string {
   const basis = line.packagingInProgress
     ? `${line.projectedYieldBbl.toFixed(2)} bbl projected yield`
     : `${line.projectedYieldBbl.toFixed(2)} bbl packaged`;
+  // A conversion-only deposit is a smaller number than the beer's name would
+  // lead anyone to expect, so the line has to say which bill it is a share of.
+  const scope = line.excludedRecipes.length
+    ? `, conversion additions only (excludes ${line.excludedRecipes.map((r) => r.beerName).join(", ")})`
+    : "";
   return (
     `Ingredient Deposit — ${line.beerName}: ${line.shippedBbl.toFixed(2)} bbl of the ` +
-    `${basis} (${line.percentage.toFixed(2)}%)`
+    `${basis} (${line.percentage.toFixed(2)}%)${scope}`
   );
 }
 

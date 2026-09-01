@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { calculateShippedIngredientDeposits, shippedDepositDescription } from "./exportIngredientDeposit";
+import { allocateShares, calculateShippedIngredientDeposits, shippedDepositDescription } from "./exportIngredientDeposit";
 
 /**
  * Stub of the reads: the selected transactions, the equipment types, the batch,
@@ -18,6 +18,10 @@ function stub(opts: {
   /** batch_transfers rows: canning/kegging are packaging, the rest are tank movement. */
   transfers: Array<{ transfer_type: string; volume_bbl: number; from_tank_id?: string | null; to_tank_id?: string | null; shrinkage_bbl?: number }>;
   ingredients: Array<{ quantity_per_turn: number; cost_per_unit_usd: number | null }>;
+  /** The recipes table, for lineage. Omitted = no beer converts from anything. */
+  recipes?: Array<{ id: string; beer_name: string; base_recipe_id: string | null }>;
+  /** Converted-from bills, per bbl, keyed by recipe — what an exclusion nets out. */
+  baseIngredients?: Array<{ recipe_id: string; ingredient_id: string; quantity_per_bbl: number }>;
 }): SupabaseClient {
   const client = {
     from(table: string) {
@@ -26,6 +30,10 @@ function stub(opts: {
         select() { return chain; },
         eq(col: string, val: unknown) { filters[col] = val; return chain; },
         in(col: string, val: unknown) { filters[col] = val; return chain; },
+        // The exclusion path reads converted-from bills per bbl, scoped by
+        // `.in("recipe_id", …)` — the one recipe_ingredients read that is NOT
+        // the batch's own bill.
+
         or() { return chain; },
         single() {
           return Promise.resolve(
@@ -55,7 +63,17 @@ function stub(opts: {
               error: null,
             });
           }
+          if (table === "recipes") {
+            return resolve({ data: opts.recipes ?? [], error: null });
+          }
           if (table === "recipe_ingredients") {
+            const scoped = filters.recipe_id;
+            if (Array.isArray(scoped)) {
+              return resolve({
+                data: (opts.baseIngredients ?? []).filter((r) => scoped.includes(r.recipe_id)),
+                error: null,
+              });
+            }
             return resolve({
               data: opts.ingredients.map((ri, i) => ({
                 quantity_per_turn: ri.quantity_per_turn,
@@ -190,13 +208,210 @@ describe("calculateShippedIngredientDeposits", () => {
     expect(lines[0].projectedYieldBbl).toBe(20);
   });
 
+  // ── Converted beer ────────────────────────────────────────────────────────
+  // Pace Yourself Pilsner → Carolina Mule → Transfusion Pilsner. The shipped
+  // batch is the Transfusion, whose bill is COMPLETE: 900 lb of malt (ing-0)
+  // plus 100 lb of grape juice (ing-1), $1/unit, over a 20 bbl single turn.
+  const LINEAGE = [
+    { id: "r-pils", beer_name: "Pace Yourself Pilsner", base_recipe_id: null },
+    { id: "r-mule", beer_name: "Carolina Mule", base_recipe_id: "r-pils" },
+    { id: "r-tran", beer_name: "Transfusion Pilsner", base_recipe_id: "r-mule" },
+  ];
+  const CONVERTED_BATCH = { ...BATCH, beer_name: "Transfusion Pilsner", recipe_id: "r-tran" };
+  const CONVERTED_BILL = [
+    { quantity_per_turn: 900, cost_per_unit_usd: 1 },
+    { quantity_per_turn: 100, cost_per_unit_usd: 1 },
+  ];
+  // The malt, per bbl: 900 lb ÷ 20 bbl = 45. Both ancestors carry it.
+  const ANCESTOR_BILLS = [
+    { recipe_id: "r-pils", ingredient_id: "ing-0", quantity_per_bbl: 45 },
+    { recipe_id: "r-mule", ingredient_id: "ing-0", quantity_per_bbl: 45 },
+  ];
+
+  it("reports the lineage of a converted batch so the caller can offer it as a choice", async () => {
+    const supabase = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 10 }],
+      batch: CONVERTED_BATCH,
+      transfers: [{ transfer_type: "kegging", volume_bbl: 20 }],
+      ingredients: CONVERTED_BILL,
+      recipes: LINEAGE,
+      baseIngredients: ANCESTOR_BILLS,
+    });
+    const { conversionOptions } = await calculateShippedIngredientDeposits(supabase, ["t1"]);
+    expect(conversionOptions).toEqual([
+      {
+        batchId: "b1",
+        batchNumber: "B-038",
+        beerName: "Transfusion Pilsner",
+        recipeId: "r-tran",
+        // Nearest base first — the order the operator reads down the chain.
+        ancestors: [
+          { recipeId: "r-mule", beerName: "Carolina Mule" },
+          { recipeId: "r-pils", beerName: "Pace Yourself Pilsner" },
+        ],
+      },
+    ]);
+  });
+
+  it("offers nothing for a beer that was brewed rather than converted", async () => {
+    const supabase = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 9 }],
+      batch: BATCH,
+      transfers: [{ transfer_type: "canning", volume_bbl: 20 }],
+      ingredients: BILL,
+      recipes: [{ id: "r1", beer_name: "Pumpkin Ale", base_recipe_id: null }],
+    });
+    const { conversionOptions } = await calculateShippedIngredientDeposits(supabase, ["t1"]);
+    expect(conversionOptions).toEqual([]);
+  });
+
+  it("nets an excluded base out of the deposit and names it on the line", async () => {
+    // Half the 20 bbl shipped. The whole bill is $1,000, so a full-bill deposit
+    // would be $500 — but the malt was bought and charged against the Pilsner
+    // batch this was drawn off, leaving $100 of grape juice and a $50 share.
+    const supabase = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 10 }],
+      batch: CONVERTED_BATCH,
+      transfers: [{ transfer_type: "kegging", volume_bbl: 20 }],
+      ingredients: CONVERTED_BILL,
+      recipes: LINEAGE,
+      baseIngredients: ANCESTOR_BILLS,
+    });
+    const { lines } = await calculateShippedIngredientDeposits(
+      supabase, ["t1"], new Map([["b1", ["r-mule"]]]),
+    );
+    expect(lines[0].depositCents).toBe(5000);
+    expect(lines[0].totalIngredientCostUsd).toBe(100);
+    expect(lines[0].excludedRecipes).toEqual([{ recipeId: "r-mule", beerName: "Carolina Mule" }]);
+    expect(shippedDepositDescription(lines[0])).toContain("conversion additions only (excludes Carolina Mule)");
+  });
+
+  it("refuses an exclusion the batch does not descend from, and says so", async () => {
+    // A stale id or the wrong beer must not quietly shave the bill by an amount
+    // nobody can reconstruct — the deposit stays whole and the operator is told.
+    const supabase = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 10 }],
+      batch: CONVERTED_BATCH,
+      transfers: [{ transfer_type: "kegging", volume_bbl: 20 }],
+      ingredients: CONVERTED_BILL,
+      recipes: [...LINEAGE, { id: "r-other", beer_name: "Epic Hazy IPA", base_recipe_id: null }],
+      baseIngredients: [{ recipe_id: "r-other", ingredient_id: "ing-0", quantity_per_bbl: 45 }],
+    });
+    const { lines, warnings } = await calculateShippedIngredientDeposits(
+      supabase, ["t1"], new Map([["b1", ["r-other"]]]),
+    );
+    expect(lines[0].depositCents).toBe(50000);
+    expect(lines[0].excludedRecipes).toEqual([]);
+    expect(warnings.some((w) => w.includes("not converted from Epic Hazy IPA"))).toBe(true);
+  });
+
   it("puts the derivation in the description, since Square files it as the line note", () => {
     const text = shippedDepositDescription({
       batchId: "b1", batchNumber: "B-038", beerName: "Pumpkin Ale",
       shippedBbl: 3.0968, packagedBbl: 22.9975, inTankBbl: 0, projectedYieldBbl: 22.9975,
       percentage: 13.4659, depositCents: 22917, totalIngredientCostUsd: 1701.79,
-      packagingInProgress: false,
+      packagingInProgress: false, excludedRecipes: [], breakdown: [],
     });
     expect(text).toBe("Ingredient Deposit — Pumpkin Ale: 3.10 bbl of the 23.00 bbl packaged (13.47%)");
+  });
+
+  it("names the excluded bases, so a conversion-only deposit is not read as the whole bill", () => {
+    // The number on a conversion-only line is much smaller than the beer's name
+    // suggests. Square files this text as the line note, so it is the only place
+    // a reader a year from now can see which bill the share was taken of.
+    const text = shippedDepositDescription({
+      batchId: "b2", batchNumber: "B-051", beerName: "Transfusion Pilsner",
+      shippedBbl: 4, packagedBbl: 20, inTankBbl: 0, projectedYieldBbl: 20,
+      percentage: 20, depositCents: 1800, totalIngredientCostUsd: 90,
+      packagingInProgress: false,
+      excludedRecipes: [
+        { recipeId: "r-mule", beerName: "Carolina Mule" },
+        { recipeId: "r-pils", beerName: "Pace Yourself Pilsner" },
+      ],
+      breakdown: [],
+    });
+    expect(text).toBe(
+      "Ingredient Deposit — Transfusion Pilsner: 4.00 bbl of the 20.00 bbl packaged (20.00%)" +
+      ", conversion additions only (excludes Carolina Mule, Pace Yourself Pilsner)",
+    );
+  });
+});
+
+describe("allocateShares", () => {
+  it("always sums to the total, so the breakdown column ties to the charge", () => {
+    // Rounding each line on its own loses a cent here: 1/3 of 100¢ three ways is
+    // 33.33 each, and three 33s are 99. Largest-remainder hands the odd cent out.
+    expect(allocateShares(100, [1, 1, 1])).toEqual([34, 33, 33]);
+    expect(allocateShares(100, [1, 1, 1]).reduce((a, b) => a + b, 0)).toBe(100);
+  });
+
+  it("hands leftover cents to the biggest fractional parts", () => {
+    // 10¢ over weights 1/6/3 → 0.999.., 5.999.., 3.0 exactly. Floors are 0/5/3
+    // = 8, so the two largest fractions take a cent each.
+    expect(allocateShares(10, [1, 6, 3])).toEqual([1, 6, 3]);
+  });
+
+  it("splits a real bill without drift", () => {
+    // The Carolina Mule additions at 16.67%: ginger $1,304.16 and lime $897.60,
+    // charged $366.96 between them.
+    const shares = allocateShares(36696, [1304.16, 897.60]);
+    expect(shares.reduce((a, b) => a + b, 0)).toBe(36696);
+    expect(shares[0]).toBeGreaterThan(shares[1]);
+  });
+
+  it("returns zeros rather than NaN when there is nothing to weigh", () => {
+    // An unpriced bill must not put NaN in front of a customer.
+    expect(allocateShares(500, [0, 0])).toEqual([0, 0]);
+    expect(allocateShares(500, [])).toEqual([]);
+  });
+});
+
+describe("calculateShippedIngredientDeposits — breakdown", () => {
+  it("derives each ingredient's share, and the shares sum to the charge", async () => {
+    // 20 bbl batch, 1 turn, $1,000 of ingredients across two lines; 9 bbl of the
+    // 18 packaged ships, so the deposit is half the bill.
+    const supabase = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 9 }],
+      batch: BATCH,
+      transfers: [{ transfer_type: "canning", volume_bbl: 18, shrinkage_bbl: 2 }],
+      ingredients: [
+        { quantity_per_turn: 700, cost_per_unit_usd: 1 },
+        { quantity_per_turn: 300, cost_per_unit_usd: 1 },
+      ],
+    });
+    const { lines } = await calculateShippedIngredientDeposits(supabase, ["t1"]);
+
+    expect(lines[0].depositCents).toBe(50000);
+    expect(lines[0].breakdown).toHaveLength(2);
+    // Batch quantity is what the recipe card says, not a per-bbl rate.
+    expect(lines[0].breakdown[0].batchQuantity).toBeCloseTo(700, 6);
+    expect(lines[0].breakdown[0].batchCostUsd).toBe(700);
+    expect(lines[0].breakdown.reduce((a, b) => a + b.shareCents, 0)).toBe(lines[0].depositCents);
+  });
+
+  it("breaks down only what a conversion added, once a base is excluded", async () => {
+    const supabase = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 10 }],
+      batch: { ...BATCH, beer_name: "Transfusion Pilsner", recipe_id: "r-tran" },
+      transfers: [{ transfer_type: "kegging", volume_bbl: 20 }],
+      ingredients: [
+        { quantity_per_turn: 900, cost_per_unit_usd: 1 },
+        { quantity_per_turn: 100, cost_per_unit_usd: 1 },
+      ],
+      recipes: [
+        { id: "r-pils", beer_name: "Pace Yourself Pilsner", base_recipe_id: null },
+        { id: "r-mule", beer_name: "Carolina Mule", base_recipe_id: "r-pils" },
+        { id: "r-tran", beer_name: "Transfusion Pilsner", base_recipe_id: "r-mule" },
+      ],
+      baseIngredients: [{ recipe_id: "r-mule", ingredient_id: "ing-0", quantity_per_bbl: 45 }],
+    });
+    const { lines } = await calculateShippedIngredientDeposits(
+      supabase, ["t1"], new Map([["b1", ["r-mule"]]]),
+    );
+
+    // The malt the Mule already paid for is gone from the table entirely — a $0
+    // row would read as "we charged you for malt", which is the opposite.
+    expect(lines[0].breakdown.map((b) => b.name)).toEqual(["Ingredient 1"]);
+    expect(lines[0].breakdown[0].shareCents).toBe(lines[0].depositCents);
   });
 });

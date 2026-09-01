@@ -67,6 +67,15 @@ export interface WriteColdStorageShipmentParams {
    * this writer never branches on channel.
    */
   credit?: { partnerId: string } | null;
+  /**
+   * This shipment was raised ad-hoc — the operator sent stock no commitment
+   * asked for. Stamped on every row it produces that ends up crediting nothing,
+   * so an invoice can tell a genuine ad-hoc ship apart from the other three
+   * things a null `allocation_id` means. A row that DOES credit an allocation is
+   * never ad-hoc, whatever the caller passes: revising an ad-hoc shipment can
+   * legitimately land it on a commitment that exists by then.
+   */
+  adHoc?: boolean;
 }
 
 export interface WriteColdStorageShipmentResult {
@@ -98,7 +107,7 @@ export async function writeColdStorageShipment(
   const {
     channel, recipeId, variationId, quantity,
     recipientId = null, recipientName = null, allocationId = null,
-    sourceRef = null, notes = null, credit = null,
+    sourceRef = null, notes = null, credit = null, adHoc = false,
   } = params;
   const shipmentId = params.shipmentId ?? crypto.randomUUID();
 
@@ -183,6 +192,7 @@ export async function writeColdStorageShipment(
       sourceRef,
       overAllocation: w.overAllocation,
       packagingLossPct: lossPctByBatch.get(w.batchId) ?? 0,
+      isAdHoc: adHoc && !w.allocationId,
     });
 
     if (!completedBatches.has(w.batchId)) {

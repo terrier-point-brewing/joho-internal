@@ -54,6 +54,8 @@ interface ShipmentRow {
   is_phantom: boolean | null;
   /** Set once a phantom is resolved against a keg lot, or dismissed as stockless. */
   alert_acknowledged_at: string | null;
+  /** Shipped ad-hoc from the Export Bay, with no commitment behind it. */
+  is_ad_hoc: boolean | null;
 }
 
 // Display status shown on the Shipments tab. "draft" is a UI-only state derived
@@ -92,6 +94,12 @@ interface GroupProductRow {
   total_excise_tax_usd: number;
   /** True when any constituent row came from a restock-driven draft keg swap. */
   isDraftRecount: boolean;
+  /**
+   * True when any constituent row was shipped ad-hoc. Surfaced because it
+   * decides whether an ingredient deposit still has to be charged — an ad-hoc
+   * shipment never paid one up front.
+   */
+  isAdHoc: boolean;
   /** Worst reconciliation state across the constituent rows. */
   reconcileState: ReconcileState;
   allocations: AllocationCredit[];
@@ -290,6 +298,7 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
         total_volume_bbl: 0,
         total_excise_tax_usd: 0,
         isDraftRecount: false,
+        isAdHoc: false,
         reconcileState: null,
         allocations: [],
       };
@@ -297,6 +306,7 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
     }
 
     if (isDraftRecountRef(row.source_ref)) product.isDraftRecount = true;
+    if (row.is_ad_hoc) product.isAdHoc = true;
     product.reconcileState = worseReconcileState(product.reconcileState, rowReconcileState(row));
 
     product.total_quantity = Math.round((product.total_quantity + Number(row.quantity)) * 10000) / 10000;
@@ -709,6 +719,14 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                               title="Keg drained by a draft line restock (recount swap), not a partner shipment"
                             >
                               Draft recount
+                            </span>
+                          )}
+                          {product.isAdHoc && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-accent-muted/40 text-accent-soft whitespace-nowrap shrink-0"
+                              title="Shipped ad-hoc from the Export Bay — no commitment behind it, so no ingredient deposit was collected up front."
+                            >
+                              Ad-hoc
                             </span>
                           )}
                           {product.reconcileState === "unreconciled" && (
