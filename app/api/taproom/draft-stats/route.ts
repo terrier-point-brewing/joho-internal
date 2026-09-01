@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchSellThrough } from "@/lib/square/sell-through";
 import { aggregateShrinkage, type SwapShrinkageRow } from "@/lib/reports/draftShrinkage";
 import { swapReserveFlOz, tapBblOnHand } from "@/lib/reports/draftTapMetrics";
+import { allTapBookingGaps, type TapBookingInput } from "@/lib/reports/draftBookingGap";
 import { apiError } from "@/lib/utils/api";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 
@@ -30,7 +31,9 @@ export async function GET(req: NextRequest) {
         // Full-keg volume is DERIVED from the swap keg's own variation, never
         // stored on the tap. Plain embed — tap_assignments has a single FK into
         // packaging_variations, so there is no constraint name to get wrong.
-        .select("tap_number, recipe_id, label, swap_variation_id, recipes(beer_name), packaging_variations(total_volume_fl_oz)")
+        // last_restock_at rides along for the booking-gap check: it is the only
+        // record that a keg was ever actually booked onto this tap.
+        .select("tap_number, recipe_id, label, swap_variation_id, last_restock_at, recipes(beer_name), packaging_variations(total_volume_fl_oz)")
         .order("tap_number"),
       supabase.from("system_settings").select("value").eq("key", "tap_count").maybeSingle(),
       fetchSellThrough(supabase, { packaging: "draft" }),
@@ -114,7 +117,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (draftSellThrough.length === 0) {
-      return NextResponse.json({ tap_count: tapCount, taps: emptyTaps, shrinkage_by_recipe: [] });
+      return NextResponse.json({ tap_count: tapCount, taps: emptyTaps, shrinkage_by_recipe: [], booking_gaps: [] });
     }
 
     // Aggregate draft-on-tap per-recipe (multiple draft links possible, though rare).
@@ -192,10 +195,72 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // ── Kegs that went on a tap with no Draft Restock behind them ─────────────
+    //
+    // Pour totals come from draft_pour_consumption, which is keyed by recipe and
+    // business_date. Compared against each tap's last_restock_at, they answer the
+    // one question the tap card cannot: did the beer that poured have a keg
+    // booked out of cold storage for it?
+    //
+    // Non-fatal by design — a failure here costs the warning banner, not the tab.
+    let bookingGaps: ReturnType<typeof allTapBookingGaps> = [];
+    try {
+      const tappedRecipeIds = [...new Set(taps.map((t) => t.recipe_id).filter(Boolean))] as string[];
+      if (tappedRecipeIds.length > 0) {
+        const { data: pours, error: pourErr } = await supabase
+          .from("draft_pour_consumption")
+          .select("recipe_id, business_date, fl_oz")
+          .in("recipe_id", tappedRecipeIds);
+        if (pourErr) throw new Error(pourErr.message);
+
+        const pourRows = (pours ?? []) as { recipe_id: string; business_date: string; fl_oz: number | string }[];
+        const inputs: TapBookingInput[] = [];
+        for (const t of taps) {
+          const tapRow = t as unknown as {
+            tap_number: number; recipe_id: string | null; swap_variation_id: string | null;
+            last_restock_at: string | null;
+            recipes: { beer_name: string } | null;
+            packaging_variations: { total_volume_fl_oz: number | null } | null;
+          };
+          if (!tapRow.recipe_id) continue;
+          if (retiredIds.has(tapRow.recipe_id)) continue; // a retired beer is not pouring
+
+          // Strictly AFTER the restock DATE. Pours on the day of a swap include
+          // the outgoing keg's tail, and counting those against the incoming keg
+          // is how a correct booking would get flagged.
+          const restockDate = tapRow.last_restock_at ? tapRow.last_restock_at.slice(0, 10) : null;
+          let sinceFlOz = 0;
+          let everFlOz = 0;
+          for (const p of pourRows) {
+            if (p.recipe_id !== tapRow.recipe_id) continue;
+            const oz = Number(p.fl_oz) || 0;
+            everFlOz += oz;
+            if (restockDate === null || p.business_date > restockDate) sinceFlOz += oz;
+          }
+
+          inputs.push({
+            tapNumber: tapRow.tap_number,
+            beerName: tapRow.recipes?.beer_name?.trim() ?? null,
+            lastRestockAt: tapRow.last_restock_at,
+            pouredSinceRestockFlOz: sinceFlOz,
+            pouredEverFlOz: everFlOz,
+            swapKegFlOz: tapRow.packaging_variations?.total_volume_fl_oz ?? null,
+            swapKegsOnHand: tapRow.swap_variation_id
+              ? onHandByRecipeVar.get(`${tapRow.recipe_id}|${tapRow.swap_variation_id}`) ?? 0
+              : 0,
+          });
+        }
+        bookingGaps = allTapBookingGaps(inputs);
+      }
+    } catch (e) {
+      console.error("[draft-stats] booking-gap check failed", e instanceof Error ? e.message : e);
+    }
+
     return NextResponse.json({
       tap_count:           tapCount,
       taps:                enrichedTaps,
       shrinkage_by_recipe: shrinkageByRecipe,
+      booking_gaps:        bookingGaps,
     });
   } catch (err) {
     return apiError(err);

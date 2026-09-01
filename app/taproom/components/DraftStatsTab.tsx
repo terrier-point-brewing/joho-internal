@@ -67,10 +67,23 @@ interface ShrinkageItem {
   keg_count: number;
 }
 
+/**
+ * A tap whose beer poured without a keg being booked out of cold storage — or
+ * whose next Draft Restock has nothing to draw. See lib/reports/draftBookingGap.
+ */
+interface BookingGap {
+  tapNumber: number;
+  beerName: string | null;
+  kind: "never_booked" | "unbooked_kegs" | "no_keg_to_draw";
+  unbookedKegs: number;
+  detail: string;
+}
+
 interface DraftStatsData {
   tap_count: number;
   taps: TapRow[];
   shrinkage_by_recipe: ShrinkageItem[];
+  booking_gaps?: BookingGap[];
 }
 
 interface TapConfig {
@@ -490,6 +503,10 @@ export default function DraftStatsTab() {
     ? Array.from({ length: parseInt(tapCountInput) || 8 }, (_, i) => i + 1)
     : Array.from({ length: stats?.tap_count ?? tapConfig?.tap_count ?? 8 }, (_, i) => i + 1);
 
+  // Hidden while the tap list is being edited: half-saved config would make the
+  // warnings churn, and the operator is already looking at the thing to fix.
+  const bookingGaps = editingTaps ? [] : (stats?.booking_gaps ?? []);
+
   return (
     <div>
       {/* ── Header ── */}
@@ -515,6 +532,43 @@ export default function DraftStatsTab() {
       </div>
 
       {err && <p className="text-sm text-danger mb-3">{err}</p>}
+
+      {/* ── Kegs that went on without a ring ──────────────────────────────────
+          The amber accent box is the house caution pattern — there is no
+          `warning` tone in this app.
+
+          This is the one thing the tap cards cannot show. Assigning a beer to a
+          tap makes the card read correctly and starts attributing pours, but
+          books no inventory: only the Draft Restock ring draws the keg out of
+          cold storage and puts it on the excise record. The two are
+          indistinguishable on screen, which is why the FIRST keg on a newly
+          assigned tap is the one that goes missing. Named per tap, with the
+          remedy, because "something is off" is not actionable at 4pm on a
+          Friday. */}
+      {bookingGaps.length > 0 && (
+        <Banner tone="accent" className="mb-4">
+          <p className="font-semibold">
+            {bookingGaps.length === 1
+              ? "One tap is not booking its kegs"
+              : `${bookingGaps.length} taps are not booking their kegs`}
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {bookingGaps.map((g, i) => (
+              <li key={`${g.tapNumber}-${g.kind}-${i}`} className="leading-snug">
+                <span className="font-medium">
+                  Tap {g.tapNumber}
+                  {g.beerName ? ` · ${g.beerName}` : ""}
+                </span>{" "}
+                — {g.detail}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs">
+            Ring <span className="font-medium">Draft Restock</span> in Square each time a keg goes on, including
+            the first. Assigning a beer here does not move inventory.
+          </p>
+        </Banner>
+      )}
 
       {/* ── Tap count editor ── */}
       {editingTaps && (
