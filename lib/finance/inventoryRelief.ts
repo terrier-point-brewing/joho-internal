@@ -44,6 +44,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { inventoryPoolOf, valueInventoryPoolCents, type InventoryPool } from "@/lib/finance/inventoryValuation";
+import { monthEnd } from "@/lib/finance/manualEntries";
 
 /**
  * Config key on an inventoryOnHand source row naming the COGS account its
@@ -140,11 +141,14 @@ export async function fetchInventoryValueSeries(
   // outside a tidy [first-1, last] fetch is exactly the bug this avoids. A
   // handful of rows per account per year — fetching all of them is nothing.
   const last = months[months.length - 1];
+  // The REAL month end, not `${last}-31`: Postgres rejects "2026-04-31"
+  // outright, and this fetch sits under retained earnings, so the malformed
+  // date took GL 3300 down for every 30-day month it was asked about.
   const { data, error } = await supabase
     .from("gl_account_balances")
     .select("chart_of_accounts_id, period_end, balance_cents")
     .in("chart_of_accounts_id", sources.map((s) => s.accountCoaId))
-    .lte("period_end", `${last}-31`);
+    .lte("period_end", monthEnd(`${last}-01`));
   if (error) throw new Error(`Load inventory balances failed: ${error.message}`);
 
   const byAccount = new Map<string, Record<string, number>>();

@@ -119,13 +119,16 @@ describe("readRampBalance — the open month", () => {
     });
   });
 
-  it("treats the period end falling on today as a closed period, not an open one", async () => {
-    // 31 August, read on 31 August: the day has arrived, so the exact-date rule
-    // applies and an earlier day must not be substituted.
+  it("treats the period end falling on today as still OPEN — the day is running", async () => {
+    // Regression (fixed in isOpenPeriod): 31 August read ON 31 August used to
+    // demand that day's exact figure, which Ramp only reports once the day is
+    // over — so the account read as unsourced for the whole last day of every
+    // month. The newest recent day is the honest running balance instead.
     getRampAccountBalanceHistory.mockResolvedValue([day("2026-08-30", 100_00)]);
 
     const result = await readRampBalance(conn, "2026-08-31", "2026-08-31");
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
+    expect(result.ok === true && result.balanceCents).toBe(100_00);
   });
 });
 

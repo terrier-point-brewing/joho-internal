@@ -104,6 +104,18 @@ function KpiStrip({ data }: { data: FinancialsResponse | undefined }) {
   const revenueMoM    = lastMonth && kpis ? kpis.revenueMoMPct[lastMonth] ?? null    : null;
   const operatingCash = lastMonth && kpis?.operatingCashCents ? kpis.operatingCashCents[lastMonth] ?? null : null;
   const cashOnHand    = kpis?.cashOnHandCents ?? null;
+  const burnRate      = kpis?.burnRateCents ?? null;
+  const runway        = kpis?.runwayMonths ?? null;
+
+  // The lifeline, said in one line under the cash figure. A burn quotes months
+  // of runway at the trailing average; positive operating cash means there is
+  // no countdown to quote, which is worth saying outright rather than leaving
+  // the tile mute. Only the cash-flow statement carries these fields.
+  const cashSubLabel =
+    cashOnHand == null ? "n/a"
+    : runway != null ? `≈ ${runway} months of runway at the current burn`
+    : burnRate != null && burnRate >= 0 ? "cash-flow positive — no burn to outrun"
+    : undefined;
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
@@ -111,7 +123,7 @@ function KpiStrip({ data }: { data: FinancialsResponse | undefined }) {
       <KpiTile label="Gross Margin" pct={grossMargin} percentDenominated />
       <KpiTile label="Revenue" cents={revenue} pct={revenueMoM} />
       <KpiTile label="Operating Cash" cents={operatingCash} subLabel={operatingCash == null ? "n/a" : undefined} />
-      <KpiTile label="Cash on Hand" cents={cashOnHand} subLabel={cashOnHand == null ? "n/a" : undefined} />
+      <KpiTile label="Cash on Hand" cents={cashOnHand} subLabel={cashSubLabel} />
     </div>
   );
 }

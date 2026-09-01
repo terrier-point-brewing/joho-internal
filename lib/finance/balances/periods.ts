@@ -48,11 +48,24 @@ export function mostRecentlyEndedMonthEnd(todayIso: string): string {
  * it makes the account read as unsourced from the 1st of the month until the
  * close. Both the Ramp and Plaid feeds shipped with that bug.
  *
- * The boundary is deliberately inclusive of today. A period end falling ON
- * today is a month that has arrived, so it is answered exactly.
+ * ── The last day of the month is still OPEN ──────────────────────────────────
+ * The boundary used to exclude today ("a period end falling ON today has
+ * arrived, so answer exactly"), and that reasoning had the day backwards: on
+ * 31 August the day is still RUNNING, and its capture is written by the 2am
+ * cron on 1 September. Answering exactly meant every integration-backed bank
+ * and card account demanded a row that could not exist yet and vanished from
+ * the live balance sheet for the entire last day of every month — measured on
+ * 2026-08-31, that was GL 1020 and GL 2110 dropping ~$19k of cash from the
+ * statement while the captures sat right there, one day behind. A month end is
+ * only answerable exactly once the day is OVER, so today itself stays open.
+ *
+ * The one behaviour this trades away: freezing a close ON the month's last day
+ * now stamps the latest running balance rather than refusing the account as
+ * unsourced. An operator closing a month before it has ended gets the best
+ * figure that exists instead of a hole, which is the better wrong.
  */
 export function isOpenPeriod(periodEnd: string, todayIso: string): boolean {
-  return periodEnd > todayIso;
+  return periodEnd >= todayIso;
 }
 
 /**
