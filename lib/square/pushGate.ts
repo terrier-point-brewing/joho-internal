@@ -36,10 +36,36 @@
 // gate will keep overwriting it, and the argument for shutting the gate again is
 // that someone is still counting into the wrong system.
 //
-// Turning this on makes cold storage overwrite Square. If it is ever shut again,
-// re-open it the same way — adjudicate the disagreements first, then flip. The
-// gate is the last thing to flip, not the first.
-export const PUSH_TO_SQUARE_ENABLED = true;
+// ── SHUT AGAIN 2026-08-31 ────────────────────────────────────────────────────
+//
+// The shape above is exactly what happened, at full scale. A physical count of
+// the cold room was taken on 2026-08-31 and entered into the Square Dashboard,
+// because the app has nowhere to record a count. The push read all 23 lines as
+// drift and reversed every one of them — kegs at 17:38Z, cans at 22:31Z. Each
+// row in square_inventory_reconciliations for that day carries the counted
+// number in square_cans_before and the (wrong) book number in
+// cold_storage_cans. The count now exists only on paper.
+//
+// The count also exposed a second reason not to push: the reconciler cannot see
+// a can family whose LOOSE tier is at zero. Families are built from
+// cold_storage_inventory rows, so a family holding only cases and 4-packs has no
+// loose row, deriveCansEach throws, and the family is dropped into plan.skips —
+// which pushInventoryToSquare discards without surfacing. On 2026-08-31 that hid
+// 684 cans across eight families, and made Epic Hazy push 2 onto Square against
+// 330 actually in cold storage. A skipped family and a family in perfect
+// agreement are indistinguishable in the cron record.
+//
+// Re-open only after ALL THREE hold, in this order:
+//   1. cold_storage_inventory is trued up to the 2026-08-31 count;
+//   2. the loose-tier bug is fixed and skips are surfaced as warnings, so a
+//      family that cannot be measured says so;
+//   3. a push is run by hand and its planned writes read as corrections rather
+//      than as the count being erased a second time.
+//
+// Turning this on makes cold storage overwrite Square. Re-open it the same way
+// it was re-opened in August — adjudicate the disagreements first, then flip.
+// The gate is the last thing to flip, not the first.
+export const PUSH_TO_SQUARE_ENABLED = false;
 
 /** Drift below this is left alone — rounding and in-flight sales, not a real gap. */
 export const DRIFT_THRESHOLD = 0.5;

@@ -28,17 +28,23 @@ describe("selectPushable", () => {
 });
 
 describe("push gate", () => {
-  // Still a deliberate tripwire, now pointing the other way. It was shut from
-  // 2026-08-03 until 2026-08-20, held by this test while seventeen drifting SKUs
-  // went unadjudicated; it opened once a person had ruled on every one of them
-  // and the drift measured zero across all 61 mapped SKUs.
+  // A deliberate tripwire, pointing whichever way the gate currently sits, so
+  // that moving it is always an edit someone has to justify. Open 2026-08-20 to
+  // 2026-08-31; shut before that from 2026-08-03.
   //
-  // If this test fails, someone is shutting the push off again. That is a real
-  // decision, not a cleanup: while it is shut, packaging runs stop reaching
-  // Square but sales and invoices keep deducting, so Square drifts low and
-  // eventually negative — which is precisely how it got to −15 Pace Yourself
-  // 1/6 kegs the last time. Shut it deliberately, and re-open it deliberately.
-  it("is open", () => {
-    expect(PUSH_TO_SQUARE_ENABLED).toBe(true);
+  // Shut again on 2026-08-31: a physical count of the cold room was entered into
+  // the Square Dashboard — the only place there is to put one — and the push
+  // reversed all 23 lines within hours. It also emerged that the reconciler
+  // cannot see a can family whose loose tier is at zero, which hid 684 cans and
+  // made Epic Hazy push 2 against 330 on hand.
+  //
+  // If this test fails, someone is re-opening the push. That is a real decision,
+  // not a cleanup, and it has a cost in BOTH directions. While it is shut,
+  // packaging runs stop reaching Square but sales and invoices keep deducting,
+  // so Square drifts low and eventually negative — which is how it got to −15
+  // Pace Yourself 1/6 kegs last time. So do not leave it shut indefinitely
+  // either: fix cold storage, fix the loose-tier blind spot, then re-open.
+  it("is shut", () => {
+    expect(PUSH_TO_SQUARE_ENABLED).toBe(false);
   });
 });

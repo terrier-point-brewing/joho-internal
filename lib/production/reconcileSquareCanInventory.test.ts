@@ -7,6 +7,17 @@ vi.mock("@/lib/square/inventory", () => ({
 vi.mock("@/lib/square/skuMappings", () => ({
   resolveProductSku: vi.fn(),
 }));
+// The write-path tests below assert what a push DOES, which is a different
+// question from whether pushing is currently switched on. Reading the live
+// constant conflated the two: shutting the gate on 2026-08-31 turned three
+// behaviour tests red without any behaviour changing. The gate's own state is
+// asserted deliberately, in one place, by the tripwire in
+// pushInventoryToSquare.test.ts.
+vi.mock("@/lib/square/pushGate", () => ({
+  PUSH_TO_SQUARE_ENABLED: true,
+  DRIFT_THRESHOLD: 0.5,
+  INVOICE_WRITEBACK_ENABLED: false,
+}));
 
 import {
   planCanReconciliation,
