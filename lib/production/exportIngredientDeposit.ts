@@ -30,7 +30,8 @@ import { baseMapOf, lineageAncestors } from "@/lib/production/recipeLineage";
  *
  * The denominator is therefore the batch's PROJECTED yield:
  *
- *     packaged so far  +  what is still unpackaged in its tanks
+ *     packaged so far  +  what is still unpackaged in its tanks, shrunk to the
+ *                         volume that beer is expected to actually yield
  *
  * "Unpackaged" is the backlog / brewhouse / fermenter / brite side of
  * computeLocationBreakdown, NOT the sum of computeTankVolumes: a canning or
@@ -38,11 +39,37 @@ import { baseMapOf, lineageAncestors } from "@/lib/production/recipeLineage";
  * the packaged beer a second time and inflates the denominator to roughly the
  * whole batch twice over.
  *
- * Beer only leaves a fermenter by being packaged or lost, so that sum can only
- * fall as packaging proceeds. The share it produces is therefore never too
- * high — it errs low while beer is still in tank and converges upward to the
- * true figure once the batch is off the line. Under-charging is recoverable;
- * billing a partner for grain that was never theirs is not.
+ * ── Why the in-tank volume is shrunk ─────────────────────────────────────────
+ * Beer only leaves a fermenter by being packaged or lost, so counting it at its
+ * CURRENT volume puts more bbl in the denominator than the batch will ever
+ * yield — and every invoice cut while beer is still in tank is divided by a
+ * number that is too big. That is not a rounding artefact that later invoices
+ * correct: each invoice is computed once and never restated, so the shortfall on
+ * the early ones is permanent and the batch's ingredient bill is never fully
+ * recovered from anybody.
+ *
+ * Worked example — 20 bbl brewed, $1,000 of grain, a 10% packaging loss, shipped
+ * as two 9 bbl loads. At its current volume the first invoice divides 9 by
+ * (9 packaged + 10 in tank) = 19 and charges $473.68; the second divides by the
+ * finished 18 and charges $500. The partner took every drop of the beer and paid
+ * $973.68 of a $1,000 bill.
+ *
+ * So the in-tank volume is multiplied by the expected packaging yield — the
+ * `deposit_packaging_yield_pct` setting — before it joins the denominator. With
+ * a 90% factor the first invoice divides by (9 + 10 × 0.9) = 18, the same figure
+ * the finished batch produces, and the two invoices sum to the whole bill.
+ *
+ * The factor is a setting rather than a constant because it is a house rule
+ * about this brewery's losses. Which way to err is NOT obvious, so state it: the
+ * factor is in the DENOMINATOR, so a HIGHER factor makes a bigger denominator
+ * and a SMALLER charge. Setting it at or a touch above the brewery's true yield
+ * keeps the deposit erring low. Setting it below the true yield shrinks the
+ * denominator past the batch's real yield and bills the partner for grain that
+ * was never theirs — under-charging is recoverable, that is not.
+ *
+ * 100 is therefore the safest possible value and also the old behaviour, with
+ * the full leak intact. The point is to sit just above the real yield, not at
+ * either extreme.
  *
  * The dollar math is deliberately delegated to calculateIngredientDeposit, the
  * same function the allocation deposit uses, so the two can never drift.
@@ -70,16 +97,20 @@ export interface ShippedDepositLine {
   packagedBbl: number;
   /** bbl still unpackaged — in backlog, brewhouse, fermenter or brite. */
   inTankBbl: number;
-  /** packagedBbl + inTankBbl — the batch's projected yield, and the denominator. */
+  /** The expected packaging yield applied to `inTankBbl`, as a percentage. */
+  packagingYieldPct: number;
+  /** inTankBbl × packagingYieldPct — what that beer is expected to package out at. */
+  expectedFromTankBbl: number;
+  /** packagedBbl + expectedFromTankBbl — the projected yield, and the denominator. */
   projectedYieldBbl: number;
   /** shippedBbl ÷ projectedYieldBbl, as a percentage. */
   percentage: number;
   depositCents: number;
   totalIngredientCostUsd: number;
   /**
-   * Beer is still in tank, so the denominator will shrink (by that beer's
-   * packaging loss) and the final share will be a little higher than this one.
-   * The deposit is conservative, not wrong.
+   * Beer is still in tank, so part of the denominator is the expected yield of
+   * that beer rather than a measured one. The final share moves only if the real
+   * loss differs from `packagingYieldPct`.
    */
   packagingInProgress: boolean;
   /**
@@ -177,6 +208,35 @@ type DepositTxRow = {
 /** batch id → the recipes whose ingredients this deposit must not charge for. */
 export type DepositExclusions = ReadonlyMap<string, readonly string[]>;
 
+/**
+ * Expected packaging yield when the setting has never been written — 90%, i.e.
+ * a 10% loss between the fermenter and the package. A brewery that reliably
+ * loses more than that should RAISE this number, not lower it: the factor is a
+ * denominator, so a value above the true yield errs low and a value below it
+ * overcharges.
+ */
+export const DEFAULT_PACKAGING_YIELD_PCT = 90;
+
+/**
+ * The house rule for how much of the beer still in tank will survive packaging.
+ *
+ * A missing row, an out-of-range value or a failed read all fall back to the
+ * default rather than throwing: a deposit that cannot be computed at all is
+ * worse than one computed on the standard assumption, and the invoice line says
+ * which factor it used either way.
+ */
+export async function loadPackagingYieldPct(supabase: SupabaseClient): Promise<number> {
+  const { data, error } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("key", "deposit_packaging_yield_pct")
+    .maybeSingle();
+  if (error || !data) return DEFAULT_PACKAGING_YIELD_PCT;
+  const pct = Number(data.value);
+  if (!Number.isFinite(pct) || pct <= 0 || pct > 100) return DEFAULT_PACKAGING_YIELD_PCT;
+  return pct;
+}
+
 export async function calculateShippedIngredientDeposits(
   supabase: SupabaseClient,
   transactionIds: string[],
@@ -193,6 +253,9 @@ export async function calculateShippedIngredientDeposits(
   if (txErr) throw new Error(txErr.message);
 
   const warnings: string[] = [];
+
+  // The house packaging-yield rule, applied to every batch on this invoice.
+  const packagingYieldPct = await loadPackagingYieldPct(supabase);
 
   // One deposit line per batch: two shipments off the same batch are one share
   // of one ingredient bill, not two.
@@ -307,7 +370,11 @@ export async function calculateShippedIngredientDeposits(
     const where = computeLocationBreakdown(batchId, nominalBbl, ledger, tankTypeById, true);
     const inTankBbl = round4(where.backlog + where.brewhouse + where.fermenter + where.brite);
 
-    const projectedYieldBbl = round4(packagedBbl + inTankBbl);
+    // That beer has its packaging loss ahead of it, so it joins the denominator
+    // at what it is expected to yield, not at what is in the tank today.
+    const expectedFromTankBbl = round4(inTankBbl * (packagingYieldPct / 100));
+
+    const projectedYieldBbl = round4(packagedBbl + expectedFromTankBbl);
     if (projectedYieldBbl <= 0) {
       warnings.push(
         `${label} has no packaged volume and nothing left in tank, so there is nothing to divide its ingredient bill by — no deposit charged for its ${shippedBbl.toFixed(2)} bbl.`,
@@ -317,7 +384,7 @@ export async function calculateShippedIngredientDeposits(
     if (shippedBbl > projectedYieldBbl) {
       warnings.push(
         `${label} shipped ${shippedBbl.toFixed(2)} bbl but only yields ${projectedYieldBbl.toFixed(2)} bbl ` +
-        `(${packagedBbl.toFixed(2)} packaged, ${inTankBbl.toFixed(2)} in tank). The deposit would exceed the ` +
+        `(${packagedBbl.toFixed(2)} packaged, ${inTankBbl.toFixed(2)} in tank at ${packagingYieldPct}% expected yield). The deposit would exceed the ` +
         `whole ingredient bill — reconcile the batch before charging it.`,
       );
       continue;
@@ -338,16 +405,16 @@ export async function calculateShippedIngredientDeposits(
       continue;
     }
 
-    // Beer still in tank will lose a little to packaging, so the denominator
-    // will end up smaller and the true share slightly larger. Say so — the
-    // number is deliberately conservative, and someone reconciling later should
-    // know which direction it can move.
+    // Part of the denominator is an expectation rather than a measurement. Say
+    // so, and say which factor produced it — someone reconciling later needs to
+    // know the number rests on the house yield rule, not on the ledger.
     const packagingInProgress = inTankBbl > 0.01;
     if (packagingInProgress) {
       warnings.push(
-        `${label} still has ${inTankBbl.toFixed(2)} bbl in tank, so its yield is projected at ` +
-        `${projectedYieldBbl.toFixed(2)} bbl. This deposit errs low — the final share rises slightly ` +
-        `once that beer is packaged and its loss is known.`,
+        `${label} still has ${inTankBbl.toFixed(2)} bbl in tank, counted at the house ${packagingYieldPct}% ` +
+        `packaging yield as ${expectedFromTankBbl.toFixed(2)} bbl, so its yield is projected at ` +
+        `${projectedYieldBbl.toFixed(2)} bbl. The final share moves only if that beer packages out ` +
+        `differently than expected.`,
       );
     }
 
@@ -373,6 +440,8 @@ export async function calculateShippedIngredientDeposits(
       shippedBbl,
       packagedBbl,
       inTankBbl,
+      packagingYieldPct,
+      expectedFromTankBbl,
       projectedYieldBbl,
       percentage,
       depositCents: calc.deposit_cents,
@@ -393,7 +462,7 @@ export async function calculateShippedIngredientDeposits(
  */
 export function shippedDepositDescription(line: ShippedDepositLine): string {
   const basis = line.packagingInProgress
-    ? `${line.projectedYieldBbl.toFixed(2)} bbl projected yield`
+    ? `${line.projectedYieldBbl.toFixed(2)} bbl projected yield (in-tank beer at ${line.packagingYieldPct}%)`
     : `${line.projectedYieldBbl.toFixed(2)} bbl packaged`;
   // A conversion-only deposit is a smaller number than the beer's name would
   // lead anyone to expect, so the line has to say which bill it is a share of.

@@ -66,8 +66,10 @@ export default function IngredientDepositBreakdownModal({
             {line.inTankBbl > 0.01 && (
               <>
                 {" "}
-                {line.inTankBbl.toFixed(2)} bbl is still in tank, so the yield is projected and this share errs
-                low; it rises slightly once that beer is packaged.
+                {line.inTankBbl.toFixed(2)} bbl is still in tank and has its packaging loss ahead of it, so it
+                counts at the house {line.packagingYieldPct}% expected yield — {line.expectedFromTankBbl.toFixed(2)}{" "}
+                bbl — rather than at its tank volume. The share moves only if that beer packages out differently
+                than expected.
               </>
             )}
           </p>

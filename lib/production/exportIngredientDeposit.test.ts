@@ -22,6 +22,8 @@ function stub(opts: {
   recipes?: Array<{ id: string; beer_name: string; base_recipe_id: string | null }>;
   /** Converted-from bills, per bbl, keyed by recipe — what an exclusion nets out. */
   baseIngredients?: Array<{ recipe_id: string; ingredient_id: string; quantity_per_bbl: number }>;
+  /** `deposit_packaging_yield_pct`. Omitted = the setting has never been written. */
+  packagingYieldPct?: number;
 }): SupabaseClient {
   const client = {
     from(table: string) {
@@ -35,6 +37,13 @@ function stub(opts: {
         // the batch's own bill.
 
         or() { return chain; },
+        maybeSingle() {
+          // Only the packaging-yield setting reads through maybeSingle.
+          return Promise.resolve({
+            data: opts.packagingYieldPct === undefined ? null : { value: opts.packagingYieldPct },
+            error: null,
+          });
+        },
         single() {
           return Promise.resolve(
             opts.batch ? { data: opts.batch, error: null } : { data: null, error: { message: "not found" } },
@@ -149,7 +158,8 @@ describe("calculateShippedIngredientDeposits", () => {
   it("counts beer still in tank, so shipping mid-packaging can't overcharge", async () => {
     // The guard that matters: 4 bbl packaged of a 20 bbl batch, 16 still in
     // tank. Dividing by packaged-to-date would make a 2 bbl shipment 50% of the
-    // batch ($500). Against the projected 20 bbl yield it is 10% ($100).
+    // batch ($500). The 16 in tank counts at the default 90% yield — 14.4 bbl —
+    // so the denominator is 18.4 and the shipment is 10.87% ($108.70).
     const supabase = stub({
       txs: [{ batch_id: "b1", volume_bbl: 2 }],
       batch: BATCH,
@@ -159,25 +169,97 @@ describe("calculateShippedIngredientDeposits", () => {
     const { lines, warnings } = await calculateShippedIngredientDeposits(supabase, ["t1"]);
     expect(lines[0].packagedBbl).toBe(4);
     expect(lines[0].inTankBbl).toBe(16);
-    expect(lines[0].projectedYieldBbl).toBe(20);
-    expect(lines[0].percentage).toBeCloseTo(10, 6);
-    expect(lines[0].depositCents).toBe(10000);
+    expect(lines[0].packagingYieldPct).toBe(90);
+    expect(lines[0].expectedFromTankBbl).toBe(14.4);
+    expect(lines[0].projectedYieldBbl).toBe(18.4);
+    expect(lines[0].percentage).toBeCloseTo(10.8696, 3);
+    expect(lines[0].depositCents).toBe(10870);
     expect(lines[0].packagingInProgress).toBe(true);
     expect(warnings.some((w) => /still has 16.00 bbl in tank/.test(w))).toBe(true);
+    expect(warnings.some((w) => /house 90% packaging yield as 14.40 bbl/.test(w))).toBe(true);
   });
 
-  it("errs low rather than high: the share only rises as the rest is packaged", async () => {
-    // Same shipment, same batch, invoiced after packaging finished at 18 bbl.
-    // The early figure (10%) is below the final one (11.11%) — never above it.
-    const supabase = stub({
-      txs: [{ batch_id: "b1", volume_bbl: 2 }],
+  it("closes the undercharge: two half invoices off one batch sum to the whole bill", async () => {
+    // The leak, and the fix. 20 bbl brewed, $1,000 of grain, a real 10% loss,
+    // shipped as two 9 bbl loads. At the tank's raw volume the first invoice
+    // divides by 19 and charges $473.68, the second by 18 for $500 — $973.68 of
+    // a $1,000 bill, and no later invoice ever restates the first.
+    //
+    // With the in-tank beer shrunk to its expected yield both invoices divide by
+    // 18, and the two halves come to exactly $1,000.
+    const midRun = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 9 }],
+      batch: BATCH,
+      // Half the batch packaged: 10 bbl drawn yielded 9, leaving 10 in tank.
+      transfers: [{ transfer_type: "canning", volume_bbl: 9, shrinkage_bbl: 1 }],
+      ingredients: BILL,
+    });
+    const first = (await calculateShippedIngredientDeposits(midRun, ["t1"])).lines[0];
+    expect(first.inTankBbl).toBe(10);
+    expect(first.expectedFromTankBbl).toBe(9);
+    expect(first.projectedYieldBbl).toBe(18);
+    expect(first.depositCents).toBe(50000);
+
+    const finished = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 9 }],
       batch: BATCH,
       transfers: [{ transfer_type: "canning", volume_bbl: 18, shrinkage_bbl: 2 }],
       ingredients: BILL,
     });
+    const second = (await calculateShippedIngredientDeposits(finished, ["t1"])).lines[0];
+    expect(second.projectedYieldBbl).toBe(18);
+    expect(second.depositCents).toBe(50000);
+
+    expect(first.depositCents + second.depositCents).toBe(100000);
+  });
+
+  it("errs low when the factor is set at or above the yield actually achieved", async () => {
+    // The direction that reads backwards, pinned: the factor is a DENOMINATOR,
+    // so a factor above the real yield errs low and one below it overcharges.
+    //
+    // The batch finishes at 19 bbl. Mid-run it has 4 bbl packaged and 16 in
+    // tank, so the factor that lands exactly on the final share is 15/16 =
+    // 93.75%. Above it (97%) the mid-run share sits BELOW the final one — the
+    // safe direction. Below it (90%) the share overshoots the final one, which
+    // is the overcharge the setting must never be pitched into.
+    const midRun = (pct: number) => stub({
+      txs: [{ batch_id: "b1", volume_bbl: 2 }],
+      batch: BATCH,
+      transfers: [{ transfer_type: "canning", volume_bbl: 4 }],
+      ingredients: BILL,
+      packagingYieldPct: pct,
+    });
+
+    const finished = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 2 }],
+      batch: BATCH,
+      transfers: [{ transfer_type: "canning", volume_bbl: 19, shrinkage_bbl: 1 }],
+      ingredients: BILL,
+    });
+    const final = (await calculateShippedIngredientDeposits(finished, ["t1"])).lines[0];
+
+    const exact = (await calculateShippedIngredientDeposits(midRun(93.75), ["t1"])).lines[0];
+    expect(exact.percentage).toBeCloseTo(final.percentage, 6);
+
+    const safe = (await calculateShippedIngredientDeposits(midRun(97), ["t1"])).lines[0];
+    expect(safe.percentage).toBeLessThan(final.percentage);
+
+    const tooLow = (await calculateShippedIngredientDeposits(midRun(90), ["t1"])).lines[0];
+    expect(tooLow.percentage).toBeGreaterThan(final.percentage);
+  });
+
+  it("honours a configured yield factor over the default", async () => {
+    const supabase = stub({
+      txs: [{ batch_id: "b1", volume_bbl: 2 }],
+      batch: BATCH,
+      transfers: [{ transfer_type: "canning", volume_bbl: 4 }],
+      ingredients: BILL,
+      packagingYieldPct: 95,
+    });
     const { lines } = await calculateShippedIngredientDeposits(supabase, ["t1"]);
-    expect(lines[0].percentage).toBeCloseTo(11.1111, 3);
-    expect(lines[0].depositCents).toBeGreaterThan(10000);
+    expect(lines[0].packagingYieldPct).toBe(95);
+    expect(lines[0].expectedFromTankBbl).toBe(15.2);   // 16 × 0.95
+    expect(lines[0].projectedYieldBbl).toBe(19.2);
   });
 
   it("charges nothing, with a warning, when the batch has no ledger to read a yield from", async () => {
@@ -205,7 +287,7 @@ describe("calculateShippedIngredientDeposits", () => {
     const { lines } = await calculateShippedIngredientDeposits(supabase, ["t1"]);
     expect(lines[0].packagedBbl).toBe(8);
     expect(lines[0].inTankBbl).toBe(12);       // 20 seeded − 8 drawn, NOT 20
-    expect(lines[0].projectedYieldBbl).toBe(20);
+    expect(lines[0].projectedYieldBbl).toBe(18.8);  // 8 packaged + 12 × 0.9
   });
 
   // ── Converted beer ────────────────────────────────────────────────────────
@@ -308,7 +390,7 @@ describe("calculateShippedIngredientDeposits", () => {
   it("puts the derivation in the description, since Square files it as the line note", () => {
     const text = shippedDepositDescription({
       batchId: "b1", batchNumber: "B-038", beerName: "Pumpkin Ale",
-      shippedBbl: 3.0968, packagedBbl: 22.9975, inTankBbl: 0, projectedYieldBbl: 22.9975,
+      shippedBbl: 3.0968, packagedBbl: 22.9975, inTankBbl: 0, packagingYieldPct: 90, expectedFromTankBbl: 0, projectedYieldBbl: 22.9975,
       percentage: 13.4659, depositCents: 22917, totalIngredientCostUsd: 1701.79,
       packagingInProgress: false, excludedRecipes: [], breakdown: [],
     });
@@ -321,7 +403,8 @@ describe("calculateShippedIngredientDeposits", () => {
     // a reader a year from now can see which bill the share was taken of.
     const text = shippedDepositDescription({
       batchId: "b2", batchNumber: "B-051", beerName: "Transfusion Pilsner",
-      shippedBbl: 4, packagedBbl: 20, inTankBbl: 0, projectedYieldBbl: 20,
+      shippedBbl: 4, packagedBbl: 20, inTankBbl: 0, packagingYieldPct: 90,
+      expectedFromTankBbl: 0, projectedYieldBbl: 20,
       percentage: 20, depositCents: 1800, totalIngredientCostUsd: 90,
       packagingInProgress: false,
       excludedRecipes: [
