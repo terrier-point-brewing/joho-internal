@@ -408,7 +408,21 @@ export async function reconcileSquareCanInventory(
         baseSquareVariationId: base?.squareVariationId ?? null,
         baseVariationName: base?.variationName ?? null,
         cansEachByVar,
-        onHandByVar,
+        // THIS family's tiers only, not the whole recipe's. mergeFamiliesByBase
+        // sums onHandByVar across families that share a base Square variation,
+        // relying on variation ids belonging to exactly one family. Handing every
+        // family the recipe-wide map broke that: two families merging onto one
+        // base counted the same stock twice.
+        //
+        // It stayed hidden while one of the two was always being skipped. Epic
+        // Hazy cans it as printed and as labeled, both mapped to the same Square
+        // "Regular" SKU; the labeled family had no loose row so it never reached
+        // the merge. Fixing the loose-tier blind spot made both families real on
+        // the same base, and the drift read immediately showed 516 against 258
+        // actually on hand.
+        onHandByVar: Object.fromEntries(
+          famRows.map((v) => [v.id, onHandByVar[v.id] ?? 0]),
+        ),
       });
     }
   }
