@@ -506,6 +506,7 @@ export default function DraftStatsTab() {
   // Hidden while the tap list is being edited: half-saved config would make the
   // warnings churn, and the operator is already looking at the thing to fix.
   const bookingGaps = editingTaps ? [] : (stats?.booking_gaps ?? []);
+  const gapTapCount = new Set(bookingGaps.map((g) => g.tapNumber)).size;
 
   return (
     <div>
@@ -547,10 +548,14 @@ export default function DraftStatsTab() {
           Friday. */}
       {bookingGaps.length > 0 && (
         <Banner tone="accent" className="mb-4">
+          {/* Counted by TAP, not by finding — one tap can raise two (an unbooked
+              keg AND no keg left to draw), and "6 taps" over five taps is the
+              kind of small wrongness that makes an operator stop trusting the
+              rest of the number. */}
           <p className="font-semibold">
-            {bookingGaps.length === 1
+            {gapTapCount === 1
               ? "One tap is not booking its kegs"
-              : `${bookingGaps.length} taps are not booking their kegs`}
+              : `${gapTapCount} taps are not booking their kegs`}
           </p>
           <ul className="mt-1.5 space-y-1">
             {bookingGaps.map((g, i) => (
