@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { selectPendingDeductionRecipes, type ShipmentDeduction } from "./pendingSquareDeduction";
+import { selectPendingDeductionHolds, selectPendingDeductionRecipes, type ShipmentDeduction } from "./pendingSquareDeduction";
 
 // The deferring state is the window BEFORE send: shipped, invoice drafted (or
 // not yet raised), Square's deduction still to come.
@@ -21,12 +21,18 @@ describe("selectPendingDeductionRecipes", () => {
     expect(selectPendingDeductionRecipes([ship()])).toEqual(new Set(["R1"]));
   });
 
-  // 'unpaid' is set by the send action in the same request that publishes the
-  // Square invoice — and publishing is when Square deducts. Deferring past send
-  // would strand the recipe for the invoice's net terms (often 30 days) with the
-  // deduction already landed.
-  it("releases at send (status unpaid), not at payment", () => {
-    expect(selectPendingDeductionRecipes([ship({ status: "unpaid" })])).toEqual(new Set());
+  // Corrected 2026-09-01. This previously asserted the opposite — that sending
+  // released the hold, because publishing was believed to be when Square
+  // deducts. It is not: raising an invoice COMMITS the units and Square moves
+  // them out of IN_STOCK only at payment, which is why an unpaid invoice shows
+  // an oversell warning rather than reading as sold. Releasing at send let the
+  // push write IN_STOCK down while the commitment was still outstanding, and
+  // payment then took the same units again.
+  //
+  // Waiting costs nothing: the commitment holds Square's AVAILABLE equal to cold
+  // storage for the whole window, so the taproom cannot sell the shipped units.
+  it("keeps deferring a sent-but-unpaid invoice — Square deducts at payment", () => {
+    expect(selectPendingDeductionRecipes([ship({ status: "unpaid" })])).toEqual(new Set(["R1"]));
   });
 
   it("stays released once paid", () => {
@@ -121,5 +127,41 @@ describe("selectPendingDeductionRecipes", () => {
 
   it("ignores rows with no recipe... none exist by construction of the loader", () => {
     expect(selectPendingDeductionRecipes([])).toEqual(new Set());
+  });
+});
+
+describe("selectPendingDeductionHolds", () => {
+  // The two holds mean different things to whoever is looking at the screen:
+  // one is waiting on the customer, the other is waiting on someone here to
+  // raise the invoice. Only the second is theirs to clear.
+  it("labels a sent invoice as awaiting payment, with the invoice named", () => {
+    expect(selectPendingDeductionHolds([ship({ status: "unpaid", invoiceId: "INV-1" })])).toEqual([
+      { recipeId: "R1", reason: "awaiting_payment", invoiceIds: ["INV-1"] },
+    ]);
+  });
+
+  it("labels a drafted invoice as awaiting invoice", () => {
+    expect(selectPendingDeductionHolds([ship({ status: "invoice_required", invoiceId: "INV-2" })])).toEqual([
+      { recipeId: "R1", reason: "awaiting_invoice", invoiceIds: ["INV-2"] },
+    ]);
+  });
+
+  it("labels a shipment with no invoice at all as awaiting invoice, naming none", () => {
+    expect(selectPendingDeductionHolds([
+      ship({ status: "invoice_required", invoiceId: null, invoiceHasInventoryLine: null }),
+    ])).toEqual([{ recipeId: "R1", reason: "awaiting_invoice", invoiceIds: [] }]);
+  });
+
+  // A recipe held by both kinds at once reports the one with a name on it —
+  // "chase invoice 000054" beats "something of this beer is unbilled".
+  it("prefers awaiting_payment when a recipe is held by both, and merges invoices", () => {
+    expect(selectPendingDeductionHolds([
+      ship({ status: "invoice_required", invoiceId: "INV-2" }),
+      ship({ status: "unpaid", invoiceId: "INV-1" }),
+    ])).toEqual([{ recipeId: "R1", reason: "awaiting_payment", invoiceIds: ["INV-2", "INV-1"] }]);
+  });
+
+  it("holds nothing once paid", () => {
+    expect(selectPendingDeductionHolds([ship({ status: "paid" })])).toEqual([]);
   });
 });

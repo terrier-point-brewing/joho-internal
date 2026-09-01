@@ -8,12 +8,15 @@
 // still owed. Pushing into that window hands the pending deduction a lower
 // starting point, and it then takes the same units a second time.
 //
-//   ship 24 of 100      cold storage 76, Square 100   (Square stale but owed -24)
-//   push sets Square 76 cold storage 76, Square  76   (looks right)
-//   invoice deducts 24  cold storage 76, Square  52   (wrong, by exactly the ship)
+//   ship 24 of 100       cold storage 76  IN_STOCK 100  committed  0
+//   invoice raised/sent  cold storage 76  IN_STOCK 100  committed 24
+//   push sets IN_STOCK   cold storage 76  IN_STOCK  76  committed 24  (looks right)
+//   payment deducts 24   cold storage 76  IN_STOCK  52  committed  0  (wrong, by the ship)
 //
-// Left alone, Square goes 100 → 76 on its own and lands correct. The push and
-// the invoice are two mechanisms for one event; running both double-counts.
+// Left alone, Square goes 100 → 76 on its own at payment and lands correct. The
+// push and the invoice are two mechanisms for one event; running both
+// double-counts. Note the third row only LOOKS right: Square's AVAILABLE is
+// IN_STOCK minus committed, so the push has already taken it to 52 there.
 //
 // Three shipment models, three answers:
 //
@@ -24,9 +27,25 @@
 //                         will NEVER deduct. The ship-time push is the only
 //                         signal Square gets — never deferred.
 //   Distribution/wholesale the invoice carries the product SKU, so Square will
-//                         deduct on its own — at SEND, not at payment. Deferred
-//                         from ship until the invoice is sent; the drift in
-//                         between is expected and labelled, not corrected.
+//                         deduct on its own — at PAYMENT. Raising the invoice
+//                         only COMMITS the units; they stay in IN_STOCK until it
+//                         is paid. Deferred from ship all the way to payment; the
+//                         drift in between is expected and labelled, not
+//                         corrected.
+//
+// ── Corrected 2026-09-01 ─────────────────────────────────────────────────────
+//
+// This file used to release a shipment at 'unpaid' (sent), asserting that
+// "publishing is the moment Square deducts". That is wrong. Square holds an
+// invoice's units as COMMITTED when the invoice is raised and moves them out of
+// IN_STOCK only on payment — which is exactly why an unpaid invoice shows an
+// oversell warning instead of reading as already sold. Releasing at send let the
+// push write IN_STOCK down to cold storage while the commitment was still
+// outstanding, so payment took the same units twice and Square under-reported
+// until the next absolute push cleaned up.
+//
+// Waiting for payment costs nothing: the commitment already holds Square's
+// AVAILABLE equal to cold storage for the whole window.
 //
 // The decision uses the best evidence available at each stage. Once an invoice
 // exists, its actual line items answer directly. Before one exists, the
@@ -70,20 +89,65 @@ export interface ShipmentDeduction {
   invoiceHasInventoryLine: boolean | null;
 }
 
+/** Why a recipe is being held back, in the terms an operator can act on. */
+export type PendingHoldReason =
+  /** Invoice raised and sent; Square holds the units COMMITTED and deducts at payment. */
+  | "awaiting_payment"
+  /** Shipped, no invoice yet. Raising one is what starts Square's deduction. */
+  | "awaiting_invoice";
+
+export interface PendingHold {
+  recipeId: string;
+  reason: PendingHoldReason;
+  /** Invoices behind the hold. Empty for `awaiting_invoice`. */
+  invoiceIds: string[];
+}
+
 /**
  * PURE. Recipes with stock that has shipped but whose Square-side deduction has
- * not landed yet.
+ * not landed yet, and why.
+ *
+ * A recipe can be held by several shipments at once. `awaiting_payment` wins the
+ * label when both apply, because it is the one with a named invoice an operator
+ * can go and chase.
  */
-export function selectPendingDeductionRecipes(rows: ShipmentDeduction[]): Set<string> {
-  const pending = new Set<string>();
+export function selectPendingDeductionHolds(rows: ShipmentDeduction[]): PendingHold[] {
+  const byRecipe = new Map<string, { reason: PendingHoldReason; invoiceIds: Set<string> }>();
+
+  const hold = (recipeId: string, reason: PendingHoldReason, invoiceId: string | null) => {
+    const existing = byRecipe.get(recipeId);
+    if (!existing) {
+      byRecipe.set(recipeId, {
+        reason,
+        invoiceIds: new Set(invoiceId ? [invoiceId] : []),
+      });
+      return;
+    }
+    if (invoiceId) existing.invoiceIds.add(invoiceId);
+    if (reason === "awaiting_payment") existing.reason = "awaiting_payment";
+  };
+
   for (const r of rows) {
-    // 'unpaid' means SENT, not merely owed: the send action publishes the Square
-    // invoice and flips invoice_required → unpaid in the same request
-    // (app/api/production/export/invoice, action=send), and publishing is the
-    // moment Square deducts. So by 'unpaid' the deduction has already landed and
-    // the recipe is safe to push again — payment changes nothing for inventory.
-    // Holding until 'paid' would strand the recipe for the invoice's net terms.
-    if (r.status === "unpaid" || r.status === "paid") continue;
+    // PAID is the only release. Square holds an invoice's units as COMMITTED
+    // from the moment the invoice is raised and does not move them out of
+    // IN_STOCK until it is paid — which is why an unpaid invoice shows an
+    // oversell warning rather than simply reading as sold.
+    //
+    // This used to release at 'unpaid' (i.e. sent), on the belief that
+    // publishing was the moment Square deducted. It is not. Releasing then let
+    // the push set IN_STOCK down to cold storage while the commitment was still
+    // outstanding, and payment then took the same units a second time:
+    //
+    //   ship 24 of 100     cold storage 76  IN_STOCK 100  committed  0
+    //   invoice raised     cold storage 76  IN_STOCK 100  committed 24  (available 76 ✓)
+    //   push (was here)    cold storage 76  IN_STOCK  76  committed 24  (available 52 ✗)
+    //   payment            cold storage 76  IN_STOCK  52  committed  0  (✗ by the ship)
+    //
+    // Held to payment, rows three and four collapse into one correct move.
+    // Nothing is lost by waiting: Square's own commitment already keeps
+    // AVAILABLE equal to cold storage for the whole window, so the taproom can
+    // never sell the shipped units even while IN_STOCK still counts them.
+    if (r.status === "paid") continue;
 
     // An invoice exists: its line items are the best evidence there is, and they
     // are checked FIRST — before the skuTracked gate — because skuTracked rests
@@ -91,7 +155,12 @@ export function selectPendingDeductionRecipes(rows: ShipmentDeduction[]): Set<st
     // must not release a shipment whose drafted invoice provably carries an
     // inventory line Square will deduct.
     if (r.invoiceId !== null) {
-      if (r.invoiceHasInventoryLine) pending.add(r.recipeId);
+      if (r.invoiceHasInventoryLine) {
+        // 'unpaid' means the invoice is sent and the commitment is live;
+        // 'invoice_required' means it is still a draft. Either way Square has
+        // not deducted, but only the sent one is waiting on the customer.
+        hold(r.recipeId, r.status === "unpaid" ? "awaiting_payment" : "awaiting_invoice", r.invoiceId);
+      }
       continue;
     }
 
@@ -104,15 +173,28 @@ export function selectPendingDeductionRecipes(rows: ShipmentDeduction[]): Set<st
     // deduction from Square ever, so the ship-time push is the only signal
     // Square gets and must not be held back. Every other channel is assumed to
     // owe one: stale is recoverable, double-counting is not.
-    if (!FEE_ONLY_CHANNELS.has(r.channel)) pending.add(r.recipeId);
+    if (!FEE_ONLY_CHANNELS.has(r.channel)) hold(r.recipeId, "awaiting_invoice", null);
   }
-  return pending;
+
+  return [...byRecipe.entries()].map(([recipeId, v]) => ({
+    recipeId, reason: v.reason, invoiceIds: [...v.invoiceIds],
+  }));
+}
+
+/** PURE. The same decision, as the id set the push gate consumes. */
+export function selectPendingDeductionRecipes(rows: ShipmentDeduction[]): Set<string> {
+  return new Set(selectPendingDeductionHolds(rows).map((h) => h.recipeId));
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = { from: (t: string) => any };
 
 export async function loadPendingDeductionRecipes(db: Db): Promise<Set<string>> {
+  return new Set((await loadPendingDeductionHolds(db)).map((h) => h.recipeId));
+}
+
+/** The same load, keeping WHY each recipe is held so the drift view can say so. */
+export async function loadPendingDeductionHolds(db: Db): Promise<PendingHold[]> {
   const { data: txRows, error: txErr } = await db
     .from("export_transactions")
     .select("recipe_id, variant_label, channel, status, invoice_id")
@@ -123,7 +205,7 @@ export async function loadPendingDeductionRecipes(db: Db): Promise<Set<string>> 
     recipe_id: string | null; variant_label: string | null;
     channel: string; status: string; invoice_id: string | null;
   }[];
-  if (shipments.length === 0) return new Set();
+  if (shipments.length === 0) return [];
 
   // Shipped item → its Square SKU, keyed the way the invoice builder resolves it:
   // the literal variation name shipped, scoped to the recipe.
@@ -170,7 +252,7 @@ export async function loadPendingDeductionRecipes(db: Db): Promise<Set<string>> 
     }
   }
 
-  return selectPendingDeductionRecipes(
+  return selectPendingDeductionHolds(
     shipments
       .filter((s) => s.recipe_id)
       .map((s) => {
