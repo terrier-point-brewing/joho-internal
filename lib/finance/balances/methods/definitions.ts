@@ -17,6 +17,7 @@ import { registerMethod, CLOSE_DUE_DAYS_KEY } from "./registry";
 import type { BalanceMethod } from "./registry";
 import { INVENTORY_POOL_KEY } from "../providers/inventoryOnHand";
 import { COGS_OFFSET_KEY } from "@/lib/finance/inventoryRelief";
+import { PROCESSING_FEES_KEY } from "@/lib/finance/squareFees";
 import type { CoaAccountRef } from "../../financials/types";
 
 const isReceivable = (coa: CoaAccountRef) => coa.statementSection === "ar";
@@ -627,6 +628,19 @@ const squareStoredBalance: BalanceMethod = {
       optional: true,
       label: "Bank account Square pays out to",
       help: "Which of your bank accounts Square moves this money into. Square never reports those transfers, so naming the account here is the only way they can be taken off the Square balance as they happen — without it, the figure climbs all month and is only corrected at month end.",
+    },
+    {
+      // OPTIONAL, same contract as inventoryOnHand's COGS offset: the method
+      // that owns the money names where its derived P&L row lands, and leaving
+      // it blank keeps today's behaviour. The fee data itself comes from the
+      // Payments API via the nightly finance sync (lib/finance/syncSquareFees)
+      // — the orders and payouts feeds both hide it.
+      kind: "account",
+      key: PROCESSING_FEES_KEY,
+      sections: ["expenses", "cogs"],
+      optional: true,
+      label: "Account Square's processing fees expense to",
+      help: "Square keeps its processing fee before anything reaches this balance, so the money you receive is smaller than the sales the P&L records — the fee is a real cost that otherwise appears on no statement. Name the expense account it belongs to (usually Bank & Credit Card Fees) and each month's fees appear there automatically, on both the P&L and the cash-flow statement. Leave it blank and the fees stay unrecorded, as before.",
     },
   ],
   steps: [
