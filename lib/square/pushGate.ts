@@ -62,10 +62,46 @@
 //   3. a push is run by hand and its planned writes read as corrections rather
 //      than as the count being erased a second time.
 //
-// Turning this on makes cold storage overwrite Square. Re-open it the same way
-// it was re-opened in August — adjudicate the disagreements first, then flip.
-// The gate is the last thing to flip, not the first.
-export const PUSH_TO_SQUARE_ENABLED = false;
+// ── RE-OPENED 2026-09-01 ─────────────────────────────────────────────────────
+//
+// All three hold, and the direction of every correction has reversed. What made
+// this safe, in the order it happened:
+//
+//   1. #521's migrations trued cold storage to the count. Every keg line and all
+//      fourteen can families tie to the sheet exactly. Cold storage is no longer
+//      the stale side of the argument — it is the counted side, so "cold storage
+//      overwrites Square" now means the count overwrites the book numbers the
+//      push itself wrote on 2026-08-31, rather than the reverse.
+//   2. #521 fixed the loose-tier blind spot, and #522 fixed a double-count it
+//      exposed. Reading the drift endpoint against prod between each deploy —
+//      cheap, because the gate was shut and the read is observe-only — is what
+//      made this work: it showed the bug (five of fourteen can families
+//      measured, warnings empty), then the fix (all fourteen), and then Epic
+//      Hazy at 516 against 258 on hand, because two label families sharing one
+//      Square SKU were summing the same stock twice. That last one no test had
+//      caught, and an open gate would have written it to Square.
+//   3. The final read-back was reviewed line by line before this flip: fourteen
+//      can families and fifty-eight keg SKUs, zero warnings, zero dead links,
+//      nothing unmeasured. Every planned write moves Square TOWARD the physical
+//      count — Epic Hazy 2 -> 258, Blackberry Lemon Wheat 2 -> 77, Castle Ruins
+//      6 -> 33, Oktoberfest 159 -> 62, Carolina Pale Ale's eight phantom half
+//      kegs 8 -> 0, Vienna 14 -> 8 halves and 14 -> 20 sixtels.
+//
+// The lesson worth keeping: the read-back is not a formality. Two of the three
+// bugs fixed in this sequence were found by reading prod through the drift
+// endpoint with the gate shut, not by tests. Do that before every re-open.
+//
+// The watch-for shape is unchanged and now has a name: someone counting into the
+// Square Dashboard in parallel with cold storage. The reason it is safe to leave
+// the gate open is that cold storage is currently right, not that the habit has
+// stopped. Until a count screen exists in the app (the real fix), a physical
+// count still has nowhere to go but Square, where this will erase it. Shut the
+// gate BEFORE the next count, not after.
+//
+// Turning this on makes cold storage overwrite Square. If it is ever shut again,
+// re-open it the same way — adjudicate the disagreements first, then flip. The
+// gate is the last thing to flip, not the first.
+export const PUSH_TO_SQUARE_ENABLED = true;
 
 /** Drift below this is left alone — rounding and in-flight sales, not a real gap. */
 export const DRIFT_THRESHOLD = 0.5;
