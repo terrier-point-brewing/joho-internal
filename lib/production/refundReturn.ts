@@ -24,6 +24,7 @@
 import crypto from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveShippedVariationId, type ShippedVariationRef } from "@/lib/production/resolveShippedVariation";
+import { upsertColdStorageInventory } from "@/lib/production/coldStorageUpsert";
 
 export interface RefundReturnResult {
   shipmentId: string;
@@ -49,9 +50,12 @@ interface ReturnParams {
 
 /**
  * Put units back into a batch's cold-storage lot, creating the row if the
- * shipment had emptied it. Mirrors upsertColdStorageInventory in the transfers
- * route — the same read-modify-write, kept here so the refund path does not
- * import a route handler.
+ * shipment had emptied it.
+ *
+ * Delegates to the shared upsert so the refund path and the packaging path
+ * agree on what a lot IS. They did not before: this one matched on batch +
+ * variation alone, which on a converted batch would find the wrong beer's kegs
+ * (or two rows, and quietly treat that as none).
  */
 export async function restockColdStorage(
   supabase: SupabaseClient,
@@ -59,27 +63,9 @@ export async function restockColdStorage(
 ): Promise<void> {
   const { batchId, recipeId, variationId, quantity } = args;
   if (quantity <= 0) return;
-
-  const { data: existing } = await supabase
-    .from("cold_storage_inventory")
-    .select("id, quantity_on_hand")
-    .eq("batch_id", batchId)
-    .eq("variation_id", variationId)
-    .maybeSingle();
-
-  if (existing) {
-    const { error } = await supabase
-      .from("cold_storage_inventory")
-      .update({ quantity_on_hand: Number(existing.quantity_on_hand) + quantity })
-      .eq("id", existing.id);
-    if (error) throw new Error(error.message);
-    return;
-  }
-
-  const { error } = await supabase
-    .from("cold_storage_inventory")
-    .insert({ batch_id: batchId, recipe_id: recipeId, variation_id: variationId, quantity_on_hand: quantity });
-  if (error) throw new Error(error.message);
+  await upsertColdStorageInventory(supabase, {
+    batchId, recipeId, variationId, quantityDelta: quantity,
+  });
 }
 
 /**

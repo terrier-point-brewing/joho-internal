@@ -10,6 +10,7 @@ import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { applyPackagingLoss } from "@/lib/production/packagingMaterials";
 import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
+import { upsertColdStorageInventory } from "@/lib/production/coldStorageUpsert";
 
 export const dynamic = "force-dynamic";
 
@@ -40,16 +41,24 @@ interface TransferLineInput {
 
 /**
  * Records exactly one batch_transfers row plus its downstream side effects
- * (packaging deduction, schedule reconciliation, cold-storage inventory).
+ * (cold-storage inventory, packaging deduction, schedule reconciliation).
  * Called once per packaging variation when transfer_type is kegging/canning,
- * or once total for plain transfers/conversions. Side effects after the RPC
- * insert are best-effort (logged, not rolled back) — same convention the
- * pre-existing packaging-deduction code already used.
+ * or once total for plain transfers/conversions.
+ *
+ * Two tiers of side effect, deliberately not the same tier:
+ *
+ *  - COLD STORAGE is the beer. Its failure is caught only so the committed
+ *    transfer row is not orphaned by a thrown 500 the operator would answer by
+ *    re-submitting and double-booking the run — but it is then reported back
+ *    through `coldStorageError` and stamped on the transfer row, never merely
+ *    logged. Nobody should be able to lose finished goods quietly.
+ *  - Everything else (lids, trays, the Square push, the schedule) is
+ *    best-effort: logged, not rolled back, same convention as before.
  */
 async function processTransferLine(
   supabase: SupabaseClient,
   line: TransferLineInput
-): Promise<{ transfer: Record<string, unknown>; scheduleUpdate: ScheduleUpdateEntry[] }> {
+): Promise<{ transfer: Record<string, unknown>; scheduleUpdate: ScheduleUpdateEntry[]; coldStorageError: string | null }> {
   const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id, packaging_loss_pct: packagingLossPct, packaged_as_recipe_id } = line;
 
   const { data: transfer, error } = await supabase
@@ -84,7 +93,36 @@ async function processTransferLine(
     await supabase.from("batch_transfers").update(postInsertPatch).eq("id", transferRow.id);
   }
 
-  // ── Packaging deduction + cold storage inventory ─────────────────────────
+  // ── Cold storage: the finished goods themselves ──────────────────────────
+  // Runs FIRST, and outside the packaging-materials try/catch, for two reasons.
+  // It needs nothing from the packaging_variations row, so a failure to load
+  // that row must not be able to skip it; and its own failure must not be
+  // indistinguishable from a miscounted lid.
+  let coldStorageError: string | null = null;
+  if (variation_id && quantity) {
+    try {
+      await upsertColdStorageInventory(supabase, {
+        batchId: batch_id, recipeId: recipe_id, variationId: variation_id,
+        quantityDelta: quantity, sourceTransferId: transferRow.id,
+      });
+    } catch (coldErr) {
+      coldStorageError = (coldErr as Error).message;
+      console.error(
+        `[transfers] COLD STORAGE NOT BOOKED — ${quantity} unit(s) from transfer ${transferRow.id} (batch ${batch_id}) are physically in the room and absent from the books:`,
+        coldErr,
+      );
+      // A durable trace on the record of production itself, so this is
+      // answerable later from the transfer log rather than only from whichever
+      // Vercel log window happened to still be open.
+      const stamp = `⚠ Cold storage NOT booked (${quantity} unit(s)): ${coldStorageError}`;
+      await supabase
+        .from("batch_transfers")
+        .update({ notes: notes ? `${notes}\n${stamp}` : stamp })
+        .eq("id", transferRow.id);
+    }
+  }
+
+  // ── Packaging materials deduction ────────────────────────────────────────
   if (variation_id && quantity) {
     try {
       const { data: variation } = await supabase
@@ -134,10 +172,6 @@ async function processTransferLine(
           }
         }
 
-        await upsertColdStorageInventory(supabase, {
-          batch_id, recipe_id, variation_id, quantity_delta: quantity, source_transfer_id: transferRow.id,
-        });
-
         // Finished goods just arrived. Restate this recipe's Square counts now so
         // the taproom sees the new stock immediately rather than after the
         // nightly push — Square has no other way to learn that beer was packaged.
@@ -145,14 +179,14 @@ async function processTransferLine(
         await triggerSquarePush(supabase, [recipe_id], `canning/kegging batch ${batch_id}`);
       }
     } catch (deductionErr) {
-      console.error("[transfers] Packaging deduction / cold storage update failed (transfer committed):", deductionErr);
+      console.error("[transfers] Packaging materials deduction failed (transfer committed):", deductionErr);
     }
   }
 
   // ── Schedule reconciliation ───────────────────────────────────────────────
   const scheduleUpdate = await reconcileSchedule(supabase, { batch_id, from_tank_id, to_tank_id, volume_bbl });
 
-  return { transfer: transfer as Record<string, unknown>, scheduleUpdate };
+  return { transfer: transfer as Record<string, unknown>, scheduleUpdate, coldStorageError };
 }
 
 async function reconcileSchedule(
@@ -617,39 +651,6 @@ async function reconcileSchedule(
   return scheduleUpdate;
 }
 
-async function upsertColdStorageInventory(
-  supabase: SupabaseClient,
-  args: { batch_id: string; recipe_id: string | null; variation_id: string; quantity_delta: number; source_transfer_id: string }
-) {
-  const { batch_id, recipe_id, variation_id, quantity_delta, source_transfer_id } = args;
-  // Batch + variation used to be identity enough, because one batch was one
-  // beer. An in-keg conversion breaks that: the same batch can fill 1/2 bbl kegs
-  // of Carolina Mule and 1/2 bbl kegs of Transfusion Lager on the same day, and
-  // merging them would put half the cellar under the wrong beer.
-  let lookup = supabase
-    .from("cold_storage_inventory")
-    .select("id, quantity_on_hand")
-    .eq("batch_id", batch_id)
-    .eq("variation_id", variation_id);
-  lookup = recipe_id ? lookup.eq("recipe_id", recipe_id) : lookup.is("recipe_id", null);
-  const { data: existing } = await lookup.maybeSingle();
-
-  if (existing) {
-    await supabase
-      .from("cold_storage_inventory")
-      .update({
-        quantity_on_hand: Number(existing.quantity_on_hand) + quantity_delta,
-        source_transfer_id,
-      })
-      .eq("id", existing.id);
-  } else {
-    await supabase.from("cold_storage_inventory").insert({
-      batch_id, recipe_id, variation_id,
-      quantity_on_hand: quantity_delta, source_transfer_id,
-    });
-  }
-}
-
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
@@ -866,10 +867,11 @@ export async function POST(req: NextRequest) {
 
   const transfers: Record<string, unknown>[] = [];
   const allScheduleUpdates: ScheduleUpdateEntry[] = [];
+  const coldStorageErrors: string[] = [];
 
   for (const line of lines) {
     try {
-      const { transfer, scheduleUpdate } = await processTransferLine(supabase, {
+      const { transfer, scheduleUpdate, coldStorageError } = await processTransferLine(supabase, {
         batch_id, from_tank_id, to_tank_id,
         volume_bbl: line.volume_bbl, shrinkage_bbl: line.shrinkage_bbl,
         transfer_type: transfer_type ?? "transfer", notes: notes || null,
@@ -880,6 +882,7 @@ export async function POST(req: NextRequest) {
       });
       transfers.push(transfer);
       allScheduleUpdates.push(...scheduleUpdate);
+      if (coldStorageError) coldStorageErrors.push(coldStorageError);
     } catch (e) {
       const status = (e as { status?: number }).status ?? 500;
       return NextResponse.json(
@@ -1000,5 +1003,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ transfers, schedule_update: allScheduleUpdates }, { status: 201 });
+  // 201, not 500, even when cold storage failed: the batch_transfers rows are
+  // committed and are the record of production. A 500 here reads as "the run did
+  // not happen" and the operator's next move is to submit it again, which
+  // double-books the beer. So the run is reported as recorded and the missing
+  // inventory is handed back as a warning the caller must not swallow.
+  return NextResponse.json(
+    {
+      transfers,
+      schedule_update: allScheduleUpdates,
+      ...(coldStorageErrors.length > 0 ? { cold_storage_errors: coldStorageErrors } : {}),
+    },
+    { status: 201 },
+  );
 }

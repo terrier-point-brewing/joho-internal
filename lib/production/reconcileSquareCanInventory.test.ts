@@ -7,6 +7,17 @@ vi.mock("@/lib/square/inventory", () => ({
 vi.mock("@/lib/square/skuMappings", () => ({
   resolveProductSku: vi.fn(),
 }));
+// The write-path tests below assert what a push DOES, which is a different
+// question from whether pushing is currently switched on. Reading the live
+// constant conflated the two: shutting the gate on 2026-08-31 turned three
+// behaviour tests red without any behaviour changing. The gate's own state is
+// asserted deliberately, in one place, by the tripwire in
+// pushInventoryToSquare.test.ts.
+vi.mock("@/lib/square/pushGate", () => ({
+  PUSH_TO_SQUARE_ENABLED: true,
+  DRIFT_THRESHOLD: 0.5,
+  INVOICE_WRITEBACK_ENABLED: false,
+}));
 
 import {
   planCanReconciliation,
@@ -191,13 +202,31 @@ interface CatalogVarRow {
   is_deleted?: boolean;
 }
 
+/** A row of the recipe's packaging CATALOGUE — what tiers exist, stock or not. */
+const catalogRow = (recipeId: string, pv: PackagingVariationRow) => ({
+  recipe_id: recipeId,
+  packaging_variations: { ...pv, packaging_items: { type: "can" } },
+});
+
 function fakeSupabase(opts: {
   coldStorageRows: ReturnType<typeof csRow>[];
   catalogVariationsByItem: Record<string, CatalogVarRow[]>;
+  /** recipe_packaging_variations. Omitted = empty, i.e. tiers come from stock alone. */
+  catalogPackagingRows?: ReturnType<typeof catalogRow>[];
   sink?: { reconciliations: unknown[] };
 }) {
   return {
     from: (table: string) => {
+      if (table === "recipe_packaging_variations") {
+        return {
+          select: () => ({
+            in: (_col: string, ids: string[]) => ({
+              data: (opts.catalogPackagingRows ?? []).filter((r) => ids.includes(r.recipe_id)),
+              error: null,
+            }),
+          }),
+        };
+      }
       if (table === "cold_storage_inventory") {
         return {
           select: () => ({
@@ -277,6 +306,123 @@ describe("reconcileSquareCanInventory (IO)", () => {
       return null;
     });
   }
+
+  // The 2026-08-31 bug. Cases and 4-packs with no loose singles is the NORMAL
+  // resting state for a beer nobody has cracked a single from, and it used to
+  // make the whole family vanish: no loose row in cold storage meant no loose
+  // tier to normalise against, deriveCansEach threw, and the family was skipped
+  // silently. Eight of sixteen live families were in that state, hiding 684 cans;
+  // Epic Hazy pushed 2 against 330 on hand because only its printed family had a
+  // loose row. Tiers now come from the recipe's catalogue, so stock-at-zero on
+  // any one tier changes nothing.
+  it("measures a family whose loose tier holds no stock, using the recipe's catalogue", async () => {
+    mockRegularFamilySkus();
+    fetchCounts
+      .mockResolvedValueOnce(new Map([["SQ-BASE", 5]]))
+      .mockResolvedValueOnce(new Map([["SQ-BASE", 56]]));
+    recount.mockResolvedValue(undefined);
+    const sink = { reconciliations: [] as unknown[] };
+
+    const supabase = fakeSupabase({
+      // Only sealed stock on hand — exactly Hop Roar IPA's shape on the day.
+      coldStorageRows: [
+        csRow("r1", "PV-PACK", 2, packPv),
+        csRow("r1", "PV-CASE", 2, casePv),
+      ],
+      // …but the catalogue still declares the loose tier the family normalises to.
+      catalogPackagingRows: [
+        catalogRow("r1", loosePv),
+        catalogRow("r1", packPv),
+        catalogRow("r1", casePv),
+      ],
+      catalogVariationsByItem: { "ITEM-1": baseItemVars },
+      sink,
+    });
+
+    const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"], occurredAt: "2026-07-08T12:00:00Z" });
+
+    // 0 loose + 2 packs*4 + 2 cases*24 = 56. Before the fix this was skipped.
+    expect(res.skips).toEqual([]);
+    expect(res.measurements).toEqual([
+      expect.objectContaining({ recipeId: "r1", coldStorageCans: 56, squareCans: 5, drift: -51 }),
+    ]);
+    expect(recount).toHaveBeenCalledWith("SQ-BASE", 56, "2026-07-08T12:00:00Z");
+    expect(res.applied).toBe(1);
+  });
+
+  // Epic Hazy's shape: one beer canned under two labels, both mapped to the same
+  // Square "Regular" SKU, so the two families merge onto one base. Each family
+  // must carry only its OWN tiers' on-hand — handing both the recipe-wide map
+  // made the merge sum the same stock twice and report 516 against 258 on hand.
+  it("does not double-count when two label families merge onto one base variation", async () => {
+    const printedLoose = packagingRow({ id: "PV-P-LOOSE", format: "loose", total_volume_fl_oz: 16, label_id: null });
+    const printedCase = packagingRow({ id: "PV-P-CASE", format: "case", total_volume_fl_oz: 384, label_id: null });
+    const labeledLoose = packagingRow({ id: "PV-L-LOOSE", format: "loose", total_volume_fl_oz: 16, label_id: "LBL-1" });
+    const labeledCase = packagingRow({ id: "PV-L-CASE", format: "case", total_volume_fl_oz: 384, label_id: "LBL-1" });
+
+    // Every tier of both families resolves to the same Square item, so both
+    // families land on SQ-BASE and merge.
+    resolveSku.mockImplementation(async (_db, args) => {
+      if (args.kind !== "packaged") return null;
+      return { squareVariationId: "SQ-CASE-SALE", squareItemId: "ITEM-1", catalogVariationId: null, itemName: "Regular", variationName: "Regular - Case" };
+    });
+    fetchCounts.mockResolvedValue(new Map([["SQ-BASE", 50]]));
+    const sink = { reconciliations: [] as unknown[] };
+
+    const supabase = fakeSupabase({
+      // All the stock is in the LABELED family; printed holds nothing.
+      coldStorageRows: [
+        csRow("r1", "PV-L-LOOSE", 2, labeledLoose),
+        csRow("r1", "PV-L-CASE", 1, labeledCase),
+      ],
+      catalogPackagingRows: [
+        catalogRow("r1", printedLoose), catalogRow("r1", printedCase),
+        catalogRow("r1", labeledLoose), catalogRow("r1", labeledCase),
+      ],
+      catalogVariationsByItem: { "ITEM-1": baseItemVars },
+      sink,
+    });
+
+    const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"], occurredAt: "2026-07-08T12:00:00Z" });
+
+    // 2 loose + 1 case*24 = 26 across both families combined, not 52.
+    expect(res.measurements).toEqual([
+      expect.objectContaining({ baseSquareVariationId: "SQ-BASE", coldStorageCans: 26 }),
+    ]);
+  });
+
+  it("keeps a catalogue tier at zero from inflating a family that does hold stock", async () => {
+    mockRegularFamilySkus();
+    fetchCounts
+      .mockResolvedValueOnce(new Map([["SQ-BASE", 32]]))
+      .mockResolvedValueOnce(new Map([["SQ-BASE", 32]]));
+    const sink = { reconciliations: [] as unknown[] };
+
+    const supabase = fakeSupabase({
+      coldStorageRows: [
+        csRow("r1", "PV-LOOSE", 8, loosePv),
+        csRow("r1", "PV-CASE", 1, casePv),
+      ],
+      // Every tier declared, including the two that already carry stock. The
+      // catalogue rows contribute onHand 0, so the totals must not double.
+      catalogPackagingRows: [
+        catalogRow("r1", loosePv),
+        catalogRow("r1", packPv),
+        catalogRow("r1", casePv),
+      ],
+      catalogVariationsByItem: { "ITEM-1": baseItemVars },
+      sink,
+    });
+
+    const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"], occurredAt: "2026-07-08T12:00:00Z" });
+
+    // Still 8 + 24 = 32, not 16 + 48. Square agrees, so nothing is written.
+    expect(res.measurements).toEqual([
+      expect.objectContaining({ coldStorageCans: 32, squareCans: 32, drift: 0 }),
+    ]);
+    expect(res.writes).toEqual([]);
+    expect(recount).not.toHaveBeenCalled();
+  });
 
   it("pushes the loose-equivalent correction and journals it once Square confirms", async () => {
     mockRegularFamilySkus();

@@ -6,8 +6,9 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/production/transfer-log
  *
- * Cross-batch chronological transfer log with actor, batch, and equipment
- * detail joined in. Supports optional filtering:
+ * Cross-batch chronological transfer log with actor, batch, equipment, and
+ * packaging output (units, variation, and the beer an in-keg conversion
+ * produced) joined in. Supports optional filtering:
  *   ?batch_id=<uuid>         — single batch
  *   ?from=<YYYY-MM-DD>       — transferred_at >= date
  *   ?to=<YYYY-MM-DD>         — transferred_at <= date
@@ -36,7 +37,10 @@ export async function GET(req: NextRequest) {
       transferred_at,
       to_batch_id,
       created_by,
+      quantity,
       batch:brew_batches!batch_transfers_batch_id_fkey ( id, beer_name, batch_number ),
+      packaging_variations ( id, name ),
+      packaged_as:packaged_as_recipe_id ( id, beer_name ),
       from_tank:from_tank_id ( id, name, type ),
       to_tank:to_tank_id     ( id, name, type ),
       to_batch:to_batch_id   ( id, beer_name, batch_number )

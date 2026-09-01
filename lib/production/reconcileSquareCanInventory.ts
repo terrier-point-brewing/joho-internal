@@ -271,12 +271,69 @@ export async function reconcileSquareCanInventory(
     byRecipe.set(recipeId, list);
   }
 
+  // 2b. A family's TIERS come from the recipe's packaging catalogue, not from
+  // whichever tiers happen to hold stock right now.
+  //
+  // Building tiers from cold_storage_inventory alone made a family disappear the
+  // moment its loose tier hit zero: no loose row, no loose variation in the
+  // family, deriveCansEach throws for want of a base to normalise against, and
+  // the whole family lands in `skips`. Since skips were not surfaced either, a
+  // family nobody could measure looked exactly like a family that agreed.
+  //
+  // It was not an edge case. On 2026-08-31 eight of the sixteen live families
+  // were in that state — 684 cans invisible — and Epic Hazy pushed 2 onto Square
+  // against 330 actually in cold storage, because only its printed family (which
+  // had a loose row) was seen. Cases and 4-packs are the NORMAL resting state for
+  // a beer nobody has cracked a single from yet, so the bug fired hardest on the
+  // beers with the most stock.
+  //
+  // Scope stays where it was: only recipes that already appear in cold storage
+  // are extended to their full tier set. A recipe holding no stock at all is
+  // still not measured, rather than being newly pushed to zero.
+  const catalogRecipeIds = [...byRecipe.keys()];
+  if (catalogRecipeIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: catalog, error: catalogErr } = await (supabase as any)
+      .from("recipe_packaging_variations")
+      .select(
+        "recipe_id, " +
+        "packaging_variations!inner ( id, format, total_volume_fl_oz, container_id, lid_id, label_id, partner_id, packaging_items:container_id ( type ) )",
+      )
+      .in("recipe_id", catalogRecipeIds);
+    if (catalogErr) throw new Error(catalogErr.message);
+
+    for (const r of (catalog ?? []) as Record<string, unknown>[]) {
+      const pv = r.packaging_variations as unknown as {
+        id: string; format: string; total_volume_fl_oz: number | null;
+        container_id: string; lid_id: string | null; label_id: string | null; partner_id: string | null;
+        packaging_items: { type: string } | null;
+      } | null;
+      if (!pv || pv.packaging_items?.type !== "can" || pv.total_volume_fl_oz == null || r.recipe_id == null) continue;
+      const recipeId = r.recipe_id as string;
+      const list = byRecipe.get(recipeId);
+      if (!list) continue; // recipe holds no cold storage at all — leave it alone
+      // onHand 0: present so the tier exists for normalisation, contributing
+      // nothing to the family's total.
+      list.push({
+        recipeId,
+        onHand: 0,
+        row: {
+          id: pv.id, format: pv.format, container_id: pv.container_id,
+          lid_id: pv.lid_id, label_id: pv.label_id, partner_id: pv.partner_id,
+          total_volume_fl_oz: Number(pv.total_volume_fl_oz),
+        },
+      });
+    }
+  }
+
   const families: ReconcileFamilyInput[] = [];
   const preWarnings: string[] = [];
   const preSkips: { recipeId: string; reason: string }[] = [];
 
   for (const [recipeId, loaded] of byRecipe) {
     // Sum on-hand per variation (batches collapse) and dedupe the packaging rows.
+    // The catalogue rows added above carry onHand 0, so a variation that also has
+    // real stock sums to its real quantity either way round.
     const onHandByVar: Record<string, number> = {};
     const rowById = new Map<string, FamilyPackagingRow>();
     for (const l of loaded) {
@@ -351,7 +408,21 @@ export async function reconcileSquareCanInventory(
         baseSquareVariationId: base?.squareVariationId ?? null,
         baseVariationName: base?.variationName ?? null,
         cansEachByVar,
-        onHandByVar,
+        // THIS family's tiers only, not the whole recipe's. mergeFamiliesByBase
+        // sums onHandByVar across families that share a base Square variation,
+        // relying on variation ids belonging to exactly one family. Handing every
+        // family the recipe-wide map broke that: two families merging onto one
+        // base counted the same stock twice.
+        //
+        // It stayed hidden while one of the two was always being skipped. Epic
+        // Hazy cans it as printed and as labeled, both mapped to the same Square
+        // "Regular" SKU; the labeled family had no loose row so it never reached
+        // the merge. Fixing the loose-tier blind spot made both families real on
+        // the same base, and the drift read immediately showed 516 against 258
+        // actually on hand.
+        onHandByVar: Object.fromEntries(
+          famRows.map((v) => [v.id, onHandByVar[v.id] ?? 0]),
+        ),
       });
     }
   }

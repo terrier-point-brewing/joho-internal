@@ -200,6 +200,14 @@ export async function pushInventoryToSquare(
     });
     out.applied += canPlan.applied;
     out.warnings.push(...canPlan.warnings);
+    // A skipped family is not a quiet family. Dropping these made "could not be
+    // measured" and "measured, and the two sides agree" produce identical run
+    // detail: zero planned writes, no warnings. That is how the loose-tier blind
+    // spot hid 684 cans for as long as it did, and how the stale-link outage went
+    // nine days. Whatever the reconciler could not answer for, say so.
+    for (const s of canPlan.skips) {
+      out.warnings.push(`can family not measured for recipe ${s.recipeId}: ${s.reason}`);
+    }
     for (const w of canPlan.writes) {
       out.planned.push({
         packaging: "can",
