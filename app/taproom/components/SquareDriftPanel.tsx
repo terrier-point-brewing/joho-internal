@@ -7,6 +7,7 @@ import Banner from "@/app/components/ui/Banner";
 import type { FamilyMeasurement } from "@/lib/production/reconcileSquareCanInventory";
 import type { KegMeasurement } from "@/lib/production/kegDrift";
 import type { DeadLink } from "@/lib/square/linkHealth";
+import type { PendingHold } from "@/lib/production/pendingSquareDeduction";
 
 interface DriftResponse {
   cans: FamilyMeasurement[];
@@ -15,6 +16,8 @@ interface DriftResponse {
   unmeasured: { recipeId: string; reason: string; variationName?: string | null }[];
   syncFindings: { at: string | null; items: { kind: string; detail: string }[] };
   pendingDeductionRecipeIds: string[];
+  pendingDeductionHolds?: PendingHold[];
+  invoiceNumbers?: Record<string, string>;
   warnings: string[];
   recipeNames: Record<string, string>;
 }
@@ -37,12 +40,16 @@ function DriftCell({ drift }: { drift: number }) {
 }
 
 /**
- * Shipped, but the invoice that will decrement Square has not settled. Square is
- * legitimately still holding those units, so this is a state, not a variance.
+ * Shipped, but Square has not made its own deduction yet. Square commits an
+ * invoice's units when the invoice is raised and only moves them out of IN_STOCK
+ * at payment, so this is a state, not a variance — and the push deliberately
+ * leaves the recipe alone until it clears.
  */
-function PendingBadge() {
+function HeldBadge({ reason }: { reason: PendingHold["reason"] }) {
   return (
-    <span className="ml-1 text-[10px] text-info whitespace-nowrap">awaiting invoice</span>
+    <span className="ml-1 text-[10px] text-info whitespace-nowrap">
+      {reason === "awaiting_payment" ? "held · awaiting payment" : "held · awaiting invoice"}
+    </span>
   );
 }
 
@@ -83,7 +90,9 @@ export default function SquareDriftPanel() {
   if (!data || !summary) return null;
 
   const name = (id: string) => data.recipeNames[id] || id;
-  const pendingIds = new Set(data.pendingDeductionRecipeIds);
+  const holds = data.pendingDeductionHolds ?? [];
+  const holdByRecipe = new Map(holds.map((h) => [h.recipeId, h]));
+  const invoiceNo = (id: string) => data.invoiceNumbers?.[id] ?? id.slice(0, 8);
   const driftingKegs = data.kegs.filter((k) => k.drift !== 0);
   const driftingCans = data.cans.filter((c) => c.drift !== 0);
 
@@ -105,11 +114,52 @@ export default function SquareDriftPanel() {
             <>
               <span className="text-muted"> · </span>
               <span className="text-info font-semibold">{summary.pending}</span>
-              <span className="text-muted"> awaiting invoice</span>
+              <span className="text-muted"> held</span>
             </>
           )}
         </span>
       </div>
+
+      {/* ── Held from Square, and why ────────────────────────────────────────
+          The push is not "on" or "off" per run — it pushes some recipes and
+          deliberately skips others, and until now the skipped ones were only
+          visible as a badge on rows that happened to be drifting. A recipe held
+          with zero measured drift showed nothing at all, which reads exactly
+          like a recipe that was pushed and agrees.
+
+          Square commits an invoice's units when the invoice is raised and only
+          moves them out of IN_STOCK at payment. Pushing into that window writes
+          IN_STOCK down while the commitment is still outstanding, and payment
+          then takes the same units again — so these are skipped on purpose. */}
+      {holds.length > 0 && (
+        <div className="rounded-lg border border-info-border bg-info-surface/30 px-3 py-2.5">
+          <div className="text-sm font-semibold text-body mb-1">
+            {holds.length} recipe{holds.length === 1 ? " is" : "s are"} held back from the push
+          </div>
+          <p className="text-xs text-muted mb-2 leading-relaxed">
+            Square holds an invoice&apos;s units as <span className="text-body font-medium">committed</span> from
+            the moment it is raised, and only deducts them from stock when it is paid. Pushing before
+            then would take the same beer twice. Everything not listed here was pushed normally.
+          </p>
+          <ul className="text-xs flex flex-col gap-1">
+            {holds.map((h) => (
+              <li key={h.recipeId} className="flex flex-wrap items-baseline gap-x-1.5">
+                <span className="text-body font-medium">{name(h.recipeId)}</span>
+                <span className="text-muted">
+                  {h.reason === "awaiting_payment"
+                    ? "— committed to a sent invoice; Square deducts on payment"
+                    : "— shipped, but no sent invoice yet for Square to deduct against"}
+                </span>
+                {h.invoiceIds.length > 0 && (
+                  <span className="text-faint tabular-nums">
+                    ({h.invoiceIds.map(invoiceNo).join(", ")})
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {data.deadLinks.length > 0 && (
         <Banner tone="danger">
@@ -194,7 +244,7 @@ export default function SquareDriftPanel() {
                   <tr key={k.squareVariationId} className="border-b border-line/40">
                     <td className="px-3 py-1.5 text-strong">
                       {name(k.recipeId)}
-                      {pendingIds.has(k.recipeId) && <PendingBadge />}
+                      {holdByRecipe.get(k.recipeId) && <HeldBadge reason={holdByRecipe.get(k.recipeId)!.reason} />}
                       {k.multiRecipe && (
                         <span className="ml-1 text-[10px] text-danger">
                           + {k.multiRecipe.length - 1} other recipe{k.multiRecipe.length > 2 ? "s" : ""}
@@ -247,7 +297,7 @@ export default function SquareDriftPanel() {
                   <tr key={c.baseSquareVariationId} className="border-b border-line/40">
                     <td className="px-3 py-1.5 text-strong">
                       {name(c.recipeId)}
-                      {pendingIds.has(c.recipeId) && <PendingBadge />}
+                      {holdByRecipe.get(c.recipeId) && <HeldBadge reason={holdByRecipe.get(c.recipeId)!.reason} />}
                     </td>
                     <td className="px-3 py-1.5 text-body">{c.baseVariationName ?? "—"}</td>
                     <td className="px-3 py-1.5 text-muted tabular-nums">

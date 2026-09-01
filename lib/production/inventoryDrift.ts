@@ -16,7 +16,7 @@ import { loadKegLinks } from "./kegLinks";
 import { fetchColdStorageOnHand } from "./coldStorageOnHand";
 import { fetchCurrentCounts } from "@/lib/square/inventory";
 import { findDeadLinks, type DeadLink } from "@/lib/square/linkHealth";
-import { loadPendingDeductionRecipes } from "./pendingSquareDeduction";
+import { loadPendingDeductionHolds, type PendingHold } from "./pendingSquareDeduction";
 
 /** A mapping problem the last consumption sync ran into, as recorded in cron_runs. */
 export interface SyncDiscrepancySummary {
@@ -39,6 +39,16 @@ export interface InventoryDrift {
    * counted as drift — Square is legitimately still holding those units.
    */
   pendingDeductionRecipeIds: string[];
+  /**
+   * The same recipes, with WHY each is held — so the view can distinguish a
+   * recipe waiting on a customer's payment from one waiting on an invoice
+   * nobody has raised yet. Square commits an invoice's units when it is raised
+   * and only deducts them at payment, so both are legitimate holds, but only one
+   * of them is the operator's to clear.
+   */
+  pendingDeductionHolds: PendingHold[];
+  /** Invoice id → number, for every invoice named by a hold above. */
+  invoiceNumbers: Record<string, string>;
   warnings: string[];
   /** Beer names for every recipe referenced above, so the UI needs no second call. */
   recipeNames: Record<string, string>;
@@ -58,6 +68,22 @@ async function loadRecipeNames(db: Db, recipeIds: string[]): Promise<Record<stri
   const out: Record<string, string> = {};
   for (const r of (data ?? []) as { id: string; beer_name: string | null }[]) {
     out[r.id] = r.beer_name ?? "";
+  }
+  return out;
+}
+
+/** Invoice id → its human number, so a hold can name the invoice to chase. */
+async function loadInvoiceNumbers(db: Db, invoiceIds: string[]): Promise<Record<string, string>> {
+  if (invoiceIds.length === 0) return {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (db as any)
+    .from("invoices")
+    .select("id, invoice_number")
+    .in("id", [...new Set(invoiceIds)]);
+  if (error) throw new Error(error.message);
+  const out: Record<string, string> = {};
+  for (const r of (data ?? []) as { id: string; invoice_number: string | null }[]) {
+    if (r.invoice_number) out[r.id] = r.invoice_number;
   }
   return out;
 }
@@ -180,9 +206,9 @@ export async function measureInventoryDrift(db: Db): Promise<InventoryDrift> {
     warnings.push(`sync findings unavailable: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  let pendingDeductionRecipeIds: string[] = [];
+  let pendingDeductionHolds: PendingHold[] = [];
   try {
-    pendingDeductionRecipeIds = [...await loadPendingDeductionRecipes(db)];
+    pendingDeductionHolds = await loadPendingDeductionHolds(db);
   } catch (e) {
     warnings.push(`pending-deduction check unavailable: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -192,11 +218,20 @@ export async function measureInventoryDrift(db: Db): Promise<InventoryDrift> {
     ...kegs.map((k) => k.recipeId),
     ...deadLinks.map((d) => d.recipeId),
     ...kegUnmeasured.map((u) => u.recipeId),
-    ...pendingDeductionRecipeIds,
+    ...pendingDeductionHolds.map((h) => h.recipeId),
   ]);
+
+  // Best-effort: a hold is still worth showing without its invoice number.
+  let invoiceNumbers: Record<string, string> = {};
+  try {
+    invoiceNumbers = await loadInvoiceNumbers(db, pendingDeductionHolds.flatMap((h) => h.invoiceIds));
+  } catch (e) {
+    warnings.push(`invoice numbers unavailable: ${e instanceof Error ? e.message : String(e)}`);
+  }
 
   return {
     cans, kegs, deadLinks, unmeasured: kegUnmeasured, syncFindings,
-    pendingDeductionRecipeIds, warnings, recipeNames,
+    pendingDeductionRecipeIds: pendingDeductionHolds.map((h) => h.recipeId),
+    pendingDeductionHolds, invoiceNumbers, warnings, recipeNames,
   };
 }

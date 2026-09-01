@@ -183,7 +183,14 @@ export async function pushInventoryToSquare(
   }
 
   const scoped = opts.recipeIds?.filter((id) => !deferred.has(id));
-  out.deferredRecipeIds = [...(opts.recipeIds ?? []).filter((id) => deferred.has(id))];
+  // Report every recipe held, not just the ones a scoped trigger asked about.
+  // Intersecting with opts.recipeIds meant the nightly sweep — which passes none
+  // — always reported an EMPTY deferral list while silently holding recipes
+  // back, so the run detail read as "nothing was deferred" when the opposite was
+  // true. A hold the operator cannot see is indistinguishable from agreement.
+  out.deferredRecipeIds = opts.recipeIds
+    ? opts.recipeIds.filter((id) => deferred.has(id))
+    : [...deferred];
   // A trigger scoped entirely to deferred recipes has nothing left to do.
   if (opts.recipeIds && scoped!.length === 0) return out;
 
