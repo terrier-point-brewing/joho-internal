@@ -21,6 +21,7 @@ import {
   invoiceHeaderTotalsFromOrder,
 } from "@/lib/finance/invoiceLineItems";
 import type { CatalogItem } from "@/types/square";
+import { conversionDepositExclusions } from "@/lib/production/exportIngredientDeposit";
 import { getNetTermsDays } from "@/lib/production/invoiceTerms";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
@@ -59,7 +60,13 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   const batchId = allocation.batch_id;
   const percentage = Number(allocation.percentage);
 
-  const calculation = await calculateIngredientDeposit(supabase, batchId, percentage);
+  // A conversion-born batch's deposit charges only what the conversion added —
+  // the drawn liquid's own bill was bought and deposit-billed against the
+  // parent batch. Empty for a brewed batch, so nothing changes there.
+  const excludedRecipes = await conversionDepositExclusions(supabase, batchId);
+  const calculation = await calculateIngredientDeposit(supabase, batchId, percentage, {
+    excludeRecipeIds: excludedRecipes.map((r) => r.recipeId),
+  });
 
   // Build the Square Dashboard URL directly from the invoice ID — public_url is only
   // populated by Square after an invoice is sent, so it's always null for drafts.
@@ -67,7 +74,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     ? `https://app.squareup.com/dashboard/invoices/${allocation.square_deposit_invoice_id}/edit?currentUnitToken=${process.env.SQUARE_LOCATION_ID}`
     : null;
 
-  return NextResponse.json({ allocation, calculation, invoiceUrl });
+  return NextResponse.json({ allocation, calculation, invoiceUrl, excludedRecipes });
 }
 
 // ── POST /api/production/allocations/[id]/invoice ────────────────────────────
@@ -123,10 +130,18 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
       return NextResponse.json({ error: "Invoice has already been paid — allocation is locked" }, { status: 422 });
     }
 
-    const calculation = await calculateIngredientDeposit(supabase, batch.id, Number(allocation.percentage));
+    // Conversion-born batch → net the parent's bill out; see the GET handler.
+    const excludedRecipes = await conversionDepositExclusions(supabase, batch.id);
+    const calculation = await calculateIngredientDeposit(supabase, batch.id, Number(allocation.percentage), {
+      excludeRecipeIds: excludedRecipes.map((r) => r.recipeId),
+    });
 
     if (calculation.deposit_cents === 0) {
-      return NextResponse.json({ error: "Deposit amount is $0 — check that recipe ingredients have costs set" }, { status: 422 });
+      return NextResponse.json({
+        error: excludedRecipes.length > 0
+          ? `Deposit amount is $0 — ${batch.beer_name} adds nothing priced on top of ${excludedRecipes.map((r) => r.beerName).join(" and ")}. Set the addition's ingredient costs before generating this invoice.`
+          : "Deposit amount is $0 — check that recipe ingredients have costs set",
+      }, { status: 422 });
     }
 
     // Resolve the Ingredient Deposit Square item: partner-specific override first, then default.
@@ -154,9 +169,15 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     const requestedBbl = commitment?.volume_bbl != null ? Number(commitment.volume_bbl) : null;
 
     const title = `Ingredient Deposit — ${batch.beer_name} (${pct.toFixed(1)}% allocation)`;
-    const description = requestedBbl != null
+    // A conversion deposit is a smaller number than the beer's name suggests, so
+    // the description must say which bill it is a share of — same convention as
+    // shippedDepositDescription.
+    const conversionScope = excludedRecipes.length > 0
+      ? ` Conversion additions only — excludes ${excludedRecipes.map((r) => r.beerName).join(", ")}, already covered by the batch it was converted from.`
+      : "";
+    const description = (requestedBbl != null
       ? `Deposit for your ${requestedBbl.toFixed(1)} bbl commitment of a ${batchBbl.toFixed(1)} bbl ${batch.beer_name} batch (${requestedBbl.toFixed(1)} bbl ÷ ${batchBbl.toFixed(1)} bbl = ${pct.toFixed(1)}%). Covers ingredient costs for your contracted share.`
-      : `Deposit for ${pct.toFixed(1)}% of ${batch.beer_name} batch (${batchBbl.toFixed(1)} bbl). Covers ingredient costs for your allocated share.`;
+      : `Deposit for ${pct.toFixed(1)}% of ${batch.beer_name} batch (${batchBbl.toFixed(1)} bbl). Covers ingredient costs for your allocated share.`) + conversionScope;
 
     const invoiceParams = {
       squareCustomerId: partner.square_customer_id,
@@ -447,7 +468,10 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
 
     if (inv?.id) {
       try {
-        const calc = await calculateIngredientDeposit(supabase, batch.id, Number(allocation.percentage));
+        const excluded = await conversionDepositExclusions(supabase, batch.id);
+        const calc = await calculateIngredientDeposit(supabase, batch.id, Number(allocation.percentage), {
+          excludeRecipeIds: excluded.map((r) => r.recipeId),
+        });
         await snapshotDepositBreakdown(adminSupabase, inv.id, calcToBreakdownInputs(calc), amountCents);
       } catch (e) {
         console.error("[deposit-invoice] mark_paid breakdown snapshot failed:", e);

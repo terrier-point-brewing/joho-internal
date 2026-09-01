@@ -24,8 +24,15 @@
 /** Channels a shipment may be edited between. `taproom` is deliberately absent. */
 export type EditableChannel = "distribution" | "wholesale" | "contract_brewing";
 
-/** The soft channels an edit may target. Entering contract_brewing is phase 2. */
-const TARGETABLE_CHANNELS: EditableChannel[] = ["distribution", "wholesale"];
+/**
+ * The channels an edit may target. Entering contract_brewing is allowed but
+ * always UNCREDITED: an edit re-labels rows, it cannot plan allocation credits
+ * (that is what a revision's unship-and-rebook is for). The rows land with a
+ * null allocation_id and is_ad_hoc set, which is precisely "invoice this under
+ * the contract model, ad-hoc" — fee-based billing, with the shipped-deposit
+ * button offered at invoice time.
+ */
+const TARGETABLE_CHANNELS: EditableChannel[] = ["distribution", "wholesale", "contract_brewing"];
 
 /** Statuses that mean money has been recorded against the row. */
 const PAID_STATUSES = ["unpaid", "paid"];
@@ -139,15 +146,23 @@ export function planShipmentEdit(
     if (target === "taproom") {
       return reject("A shipment cannot be converted into taproom consumption.");
     }
-    if (target === "contract_brewing") {
-      return reject(
-        "Moving a shipment into contract brewing is not supported — unship and rebook it so its allocation credits are planned correctly.",
-      );
-    }
     if (!TARGETABLE_CHANNELS.includes(target as EditableChannel)) {
       return reject(`Unknown channel "${target}".`);
     }
-    if (channelChanges) updates.channel = target;
+    if (channelChanges) {
+      updates.channel = target;
+      // Entering contract via an edit never credits an allocation — the rows
+      // are ad-hoc contract by definition, and the flag is what tells the
+      // invoice modal a deposit is still owed. Set only on the way IN: a row
+      // leaving contract keeps whatever ad-hoc history it already carries.
+      // over_allocation is cleared even on rows that credited nothing: an
+      // over-delivery verdict was rendered against the OLD channel's booking
+      // and would contradict is_ad_hoc on the re-labelled row.
+      if (target === "contract_brewing") {
+        updates.is_ad_hoc = true;
+        updates.over_allocation = false;
+      }
+    }
   }
 
   // ── Recipient ─────────────────────────────────────────────────────────────
@@ -202,9 +217,10 @@ export function planShipmentEdit(
 // revision is an unship followed by a rebook, and the rebook runs the same
 // planShipment the original ship did.
 //
-// Which is also why a revision may enter contract_brewing while an edit may not
-// (see the reject in planShipmentEdit, which says exactly this): the credits are
-// planned from scratch rather than carried across.
+// Which is also the difference between the two ways into contract_brewing: a
+// revision PLANS credits from scratch against the partner's allocations, while
+// an edit enters contract uncredited (allocation_id null, is_ad_hoc set) — the
+// ad-hoc contract-billing shape.
 
 /** One line of what actually shipped. An empty list means the shipment is being unshipped entirely. */
 export interface RevisionLine {

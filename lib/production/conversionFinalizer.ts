@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkAndCompleteBatch } from "./batchCompletion";
-import { upsertCommitments, upsertConversionCommitments } from "./commitments";
+import { releaseCommitments, upsertCommitments, upsertConversionCommitments } from "./commitments";
 import { resolveConversionBase } from "./conversionIngredients";
 
 /** Batch status implied by the stage a batch occupies in a given equipment type. */
@@ -151,6 +151,33 @@ export async function reconcileConvertedBatchVolume(
       }
     }
   }
+}
+
+/**
+ * Complete a conversion-born child that was packaged in its entirety — an
+ * in-keg/in-can conversion, whose whole volume went into containers within the
+ * same request that created it.
+ *
+ * Deliberately NOT routed through batch_exhaustion: brew_batches.volume_bbl is
+ * numeric(8,2) while the packaging rows keep full precision, so a child born at
+ * e.g. one sixtel (0.16656 bbl, stored 0.17) misses the view's 0.001 tolerance
+ * by rounding alone and would sit in 'planning' forever. The child is complete
+ * by construction; say so directly.
+ */
+export async function completeConversionChild(
+  supabase: SupabaseClient,
+  childBatchId: string,
+): Promise<void> {
+  const { data: batch } = await supabase
+    .from("brew_batches").select("status").eq("id", childBatchId).maybeSingle();
+  if ((batch as { status: string | null } | null)?.status === "complete") return;
+
+  await supabase.from("brew_batches").update({ status: "complete" }).eq("id", childBatchId);
+  await supabase.from("batch_status_history").insert({
+    batch_id: childBatchId, status: "complete", note: "Auto: fully packaged (in-keg conversion)",
+  });
+  // Anything a pre-planned conversion was holding in reserve is spent or moot.
+  await releaseCommitments(supabase, childBatchId);
 }
 
 export interface FinalizeConversionArgs {

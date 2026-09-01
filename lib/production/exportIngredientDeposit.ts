@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculateIngredientDeposit } from "@/lib/square/square-invoices";
 import { computeLocationBreakdown, type LedgerTransfer } from "@/lib/production/volumeLedger";
-import { baseMapOf, lineageAncestors } from "@/lib/production/recipeLineage";
+import { baseMapOf, isDerivedFrom, lineageAncestors } from "@/lib/production/recipeLineage";
 
 /**
  * Ingredient deposit for a shipment that is being billed as contract brewing
@@ -174,6 +174,54 @@ export function allocateShares(totalCents: number, weights: number[]): number[] 
 export interface RecipeRef {
   recipeId: string;
   beerName: string;
+}
+
+/**
+ * The recipes a conversion-born batch's OWN deposit must not charge for.
+ *
+ * The house rule is that a conversion charges only the addition: the liquid a
+ * conversion target was drawn off already contained the source recipe's bill —
+ * and everything above it in the lineage chain — bought and deposit-billed
+ * against the parent batch. So the default exclusion set for the allocation
+ * deposit is the source's recipe plus its ancestors, the same subtraction the
+ * shipped-deposit flow offers per shipment.
+ *
+ * Empty for a brewed batch, for a target with no recorded source, and for a
+ * source whose recipe is not actually in the target's chain (a blend or one-off
+ * experiment) — there the full bill stands, because nothing provably covers it.
+ */
+export async function conversionDepositExclusions(
+  supabase: SupabaseClient,
+  batchId: string,
+): Promise<RecipeRef[]> {
+  const { data: batchRow } = await supabase
+    .from("brew_batches")
+    .select("recipe_id, converted_from_batch_id")
+    .eq("id", batchId)
+    .maybeSingle();
+  const batch = batchRow as { recipe_id: string | null; converted_from_batch_id: string | null } | null;
+  if (!batch?.recipe_id || !batch.converted_from_batch_id) return [];
+
+  const { data: sourceRow } = await supabase
+    .from("brew_batches")
+    .select("recipe_id")
+    .eq("id", batch.converted_from_batch_id)
+    .maybeSingle();
+  const sourceRecipeId = (sourceRow as { recipe_id: string | null } | null)?.recipe_id ?? null;
+  if (!sourceRecipeId || sourceRecipeId === batch.recipe_id) return [];
+
+  const { data: recipeRows } = await supabase
+    .from("recipes")
+    .select("id, beer_name, base_recipe_id");
+  const recipes = (recipeRows ?? []) as Array<{ id: string; beer_name: string | null; base_recipe_id: string | null }>;
+  const baseById = baseMapOf(recipes);
+  if (!isDerivedFrom(batch.recipe_id, sourceRecipeId, baseById)) return [];
+
+  const nameById = new Map(recipes.map((r) => [r.id, String(r.beer_name ?? "").trim()]));
+  return [sourceRecipeId, ...lineageAncestors(sourceRecipeId, baseById)].map((id) => ({
+    recipeId: id,
+    beerName: nameById.get(id) || "Unknown recipe",
+  }));
 }
 
 /**

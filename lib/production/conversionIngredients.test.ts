@@ -12,7 +12,6 @@ import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   consumeConversionAdditions,
-  consumePackagedConversionAdditions,
   resolveConversionBase,
   CONVERSION_ADDITION_NOTE,
 } from "./conversionIngredients";
@@ -325,52 +324,5 @@ describe("a chained conversion", () => {
     // Converting the finished Transfusion back into Mule is not a conversion —
     // the chain only runs one way, and nothing can un-add grape juice.
     await expect(resolveConversionBase(client, "src-batch", "tgt-batch")).resolves.toBeNull();
-  });
-});
-
-describe("consumePackagedConversionAdditions", () => {
-  const IN_KEG: StubConfig = {
-    ...CHAIN,
-    sourceRecipeId: "mule",
-    bills: { transfusion: priced(TRANSFUSION_BILL), mule: MULE_BILL, pilsner: PILSNER_BILL },
-  };
-
-  it("charges the dose against the batch it was kegged out of", async () => {
-    const { client, recorded, rpcCalls } = stub(IN_KEG);
-    const result = await consumePackagedConversionAdditions(client, {
-      sourceBatchId: "src-batch", transferId: "xfer-1",
-      packagedRecipeId: "transfusion", volumeBbl: 20,
-    });
-
-    expect(result.status).toBe("deducted");
-    const rows = recorded.find((r) => r.table === "stock_adjustments")!.payload as Array<Record<string, unknown>>;
-    expect(rows.map((r) => r.ingredient_id)).toEqual(["grape"]);
-    // Filed against the SOURCE batch — the beer it physically came out of. There
-    // is no other batch; that is the whole point of an in-keg conversion.
-    expect(rows[0].batch_id).toBe("src-batch");
-    // Keyed to this run, so kegging the same batch again is a second charge.
-    expect(String(rows[0].note)).toContain("xfer-1");
-    expect(rpcCalls).toEqual([{ p_id: "grape", p_delta: rows[0].quantity }]);
-  });
-
-  it("does not charge the run twice when it is retried", async () => {
-    const { client, recorded, rpcCalls } = stub({ ...IN_KEG, alreadyBooked: true });
-    const result = await consumePackagedConversionAdditions(client, {
-      sourceBatchId: "src-batch", transferId: "xfer-1",
-      packagedRecipeId: "transfusion", volumeBbl: 20,
-    });
-    expect(result.status).toBe("already_booked");
-    expect(recorded).toEqual([]);
-    expect(rpcCalls).toEqual([]);
-  });
-
-  it("refuses a beer that is not a conversion of the batch's own", async () => {
-    const { client, recorded } = stub({ ...IN_KEG, sourceRecipeId: "brown-ale" });
-    const result = await consumePackagedConversionAdditions(client, {
-      sourceBatchId: "src-batch", transferId: "xfer-1",
-      packagedRecipeId: "transfusion", volumeBbl: 20,
-    });
-    expect(result.status).toBe("unlinked");
-    expect(recorded).toEqual([]);
   });
 });

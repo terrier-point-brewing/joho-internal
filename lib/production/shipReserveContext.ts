@@ -27,6 +27,10 @@ export async function loadShipReserveContext(
   supabase: SupabaseClient,
   { recipeId, partnerId, drawnBatchIds }: { recipeId: string; partnerId: string; drawnBatchIds: string[] }
 ): Promise<ShipReserveContext> {
+  // Creditable channels only: taproom is internal, and safety_stock is a hold —
+  // neither may absorb a partner shipment, and neither channel can be invoiced
+  // (exportInvoicePreview throws on anything but contract/distribution/wholesale),
+  // so a row stamped with one would be permanently unbillable.
   const { data: allocRows } = await supabase
     .from("batch_allocations")
     .select(`
@@ -35,7 +39,7 @@ export async function loadShipReserveContext(
       brew_batches!inner(id, recipe_id, created_at, status)
     `)
     .eq("partner_id", partnerId)
-    .neq("channel", "taproom")
+    .in("channel", ["contract_brewing", "distribution", "wholesale"])
     .eq("brew_batches.recipe_id", recipeId);
 
   const reserveBatchIds = [...new Set([

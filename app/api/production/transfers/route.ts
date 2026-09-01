@@ -4,8 +4,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
-import { finalizeConversion, createConversionTargetBatch, reconcileConvertedBatchVolume } from "@/lib/production/conversionFinalizer";
-import { consumeConversionAdditions, consumePackagedConversionAdditions, isChargeableConversion } from "@/lib/production/conversionIngredients";
+import { finalizeConversion, createConversionTargetBatch, completeConversionChild, reconcileConvertedBatchVolume } from "@/lib/production/conversionFinalizer";
+import { consumeConversionAdditions, isChargeableConversion } from "@/lib/production/conversionIngredients";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
 import { applyPackagingLoss } from "@/lib/production/packagingMaterials";
@@ -31,12 +31,19 @@ interface TransferLineInput {
   /** Canning loss %, applied to containers/lids/labels. Ignored for other types. */
   packaging_loss_pct: number;
   /**
-   * Set only for an in-keg/in-can conversion — the recipe this run produced,
-   * which differs from the batch's own. `recipe_id` above is already this value
-   * (finished goods land under the beer that came out of the filler); this is
-   * the flag that says so, stamped on the transfer row for the record.
+   * Set on the conversion row of an in-keg/in-can conversion — the recipe the
+   * run produced. Provenance only: the finished goods themselves now live on a
+   * conversion-born child batch whose recipe IS that beer.
    */
   packaged_as_recipe_id?: string | null;
+  /**
+   * Skip schedule reconciliation for this row. Set on the packaging rows of an
+   * in-keg conversion: they belong to the conversion-born child batch, which
+   * has no schedule and must never acquire a tank assignment on the packaging
+   * station. The SOURCE batch's conversion row reconciles the schedule for the
+   * whole run instead.
+   */
+  skipSchedule?: boolean;
 }
 
 /**
@@ -59,7 +66,7 @@ async function processTransferLine(
   supabase: SupabaseClient,
   line: TransferLineInput
 ): Promise<{ transfer: Record<string, unknown>; scheduleUpdate: ScheduleUpdateEntry[]; coldStorageError: string | null }> {
-  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id, packaging_loss_pct: packagingLossPct, packaged_as_recipe_id } = line;
+  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id, packaging_loss_pct: packagingLossPct, packaged_as_recipe_id, skipSchedule } = line;
 
   const { data: transfer, error } = await supabase
     .rpc("record_batch_transfer", {
@@ -184,7 +191,9 @@ async function processTransferLine(
   }
 
   // ── Schedule reconciliation ───────────────────────────────────────────────
-  const scheduleUpdate = await reconcileSchedule(supabase, { batch_id, from_tank_id, to_tank_id, volume_bbl });
+  const scheduleUpdate = skipSchedule
+    ? []
+    : await reconcileSchedule(supabase, { batch_id, from_tank_id, to_tank_id, volume_bbl });
 
   return { transfer: transfer as Record<string, unknown>, scheduleUpdate, coldStorageError };
 }
@@ -703,6 +712,7 @@ export async function POST(req: NextRequest) {
     packaging_lines,
     new_batch,
     packaged_as_recipe_id,
+    packaged_as_commitment_id,
   } = body as {
     batch_id: string;
     from_tank_id: string | null;
@@ -717,6 +727,13 @@ export async function POST(req: NextRequest) {
     new_batch?: { beer_name: string; recipe_id: string } | null;
     /** In-keg/in-can conversion: the recipe this packaging run produced. */
     packaged_as_recipe_id?: string | null;
+    /**
+     * Optional, in-keg conversion only: the commitment this run serves. The
+     * conversion-born child gets a 100% allocation against it — the same shape
+     * a tank conversion's operator would make by hand — so the kegs can be
+     * credited when they ship instead of landing as over-delivery.
+     */
+    packaged_as_commitment_id?: string | null;
   };
 
   // Clamped rather than rejected: the field is advisory shrink accounting, and a
@@ -731,14 +748,19 @@ export async function POST(req: NextRequest) {
   // ── In-keg conversion ──────────────────────────────────────────────────────
   // Some conversions have no tank of their own: the ginger and lime go in as the
   // brite tank empties into kegs, so the batch is Pace Yourself Pilsner right up
-  // to the filler and Carolina Mule the moment the keg is capped. Rather than
-  // invent a phantom vessel and a second batch to hold a beer that never sat
-  // anywhere, the packaging run itself says what it produced.
+  // to the filler and Carolina Mule the moment the keg is capped.
+  //
+  // The run still produces a BATCH. Every commercial reader — allocations,
+  // shipment crediting, deposits, fulfillment — keys on brew_batches, so a beer
+  // with no batch cannot be allocated, credited or deposit-billed, and its kegs
+  // ship flagged over_allocation (the Orange Pilsner 1/2 keg of 2026-08-31).
+  // So the flag births a conversion child, exactly the shape a tank conversion
+  // leaves behind, minus the vessel: one conversion row moves the volume off the
+  // source, the packaging rows land on the child, and the child completes
+  // immediately — born in the container.
   //
   // From here on, `recipe_id` IS the beer that came out of the filler: it drives
-  // the packaging-variation gate, the cold-storage rows, and the Square push. The
-  // batch keeps its own identity — the volume still leaves the source batch, and
-  // the source batch is still what completes.
+  // the packaging-variation gate, the cold-storage rows, and the Square push.
   const isPackagingRun = transfer_type === "kegging" || transfer_type === "canning";
   const packagedAs = isPackagingRun ? (packaged_as_recipe_id || null) : null;
 
@@ -755,6 +777,28 @@ export async function POST(req: NextRequest) {
         { status: 422 },
       );
     }
+  }
+
+  // The commitment an in-keg conversion serves, validated before anything is
+  // written so a stale id rejects the run cleanly rather than after the fact.
+  let inKegCommitment: { id: string; partner_id: string; channel: string } | null = null;
+  if (packagedAs && packaged_as_commitment_id) {
+    const { data: commitmentRow } = await supabase
+      .from("commitments")
+      .select("id, recipe_id, partner_id, channel")
+      .eq("id", packaged_as_commitment_id)
+      .maybeSingle();
+    const c = commitmentRow as { id: string; recipe_id: string | null; partner_id: string | null; channel: string | null } | null;
+    if (!c) {
+      return NextResponse.json({ error: "That commitment no longer exists." }, { status: 422 });
+    }
+    if (c.recipe_id !== packagedAs) {
+      return NextResponse.json({ error: "That commitment is for a different beer than this run produces." }, { status: 422 });
+    }
+    if (!c.partner_id || c.channel === "taproom") {
+      return NextResponse.json({ error: "That commitment has no partner to allocate to." }, { status: 422 });
+    }
+    inKegCommitment = { id: c.id, partner_id: c.partner_id, channel: c.channel ?? "contract_brewing" };
   }
 
   const recipe_id: string | null = packagedAs ?? batchRecipeId;
@@ -869,20 +913,100 @@ export async function POST(req: NextRequest) {
   const allScheduleUpdates: ScheduleUpdateEntry[] = [];
   const coldStorageErrors: string[] = [];
 
-  for (const line of lines) {
+  if (packagedAs) {
+    // ── In-keg conversion: birth the child, then package under it ────────────
+    // Order matters. The child must exist before the conversion row can point at
+    // it; the conversion row goes in before the packaging rows so the ledger
+    // never shows finished goods for a batch that received no volume. Nothing
+    // after the conversion row rolls it back — same convention as everywhere
+    // else in this route: committed movements are the record of production.
+    const { data: packagedRecipe } = await supabase
+      .from("recipes").select("beer_name").eq("id", packagedAs).single();
+
+    // A pre-planned in-keg conversion already has its child waiting: a pending
+    // batch_conversions row whose target is a pre-brew batch of the packaged
+    // recipe. Resolving onto it keeps the plan's identity (and releases what it
+    // reserved) instead of minting a duplicate child next to it. Oldest plan
+    // first, so two planned runs of the same beer resolve in order.
+    let childBatchId: string | null = null;
+    let plannedConversionId: string | null = null;
+    {
+      const { data: pendingPlans } = await supabase
+        .from("batch_conversions")
+        .select("id, target_batch_id, target:brew_batches!target_batch_id(recipe_id, status)")
+        .eq("source_batch_id", batch_id)
+        .is("converted_at", null)
+        .order("created_at", { ascending: true });
+      for (const plan of pendingPlans ?? []) {
+        const target = plan.target as unknown as { recipe_id: string | null; status: string | null } | null;
+        if (target?.recipe_id === packagedAs && (target.status === "planning" || target.status === "backlog")) {
+          childBatchId = plan.target_batch_id as string;
+          plannedConversionId = plan.id as string;
+          break;
+        }
+      }
+    }
+
+    if (childBatchId) {
+      // The plan's volume was an estimate; the filler's is the fact.
+      await supabase.from("brew_batches")
+        .update({
+          volume_bbl:              totalVolumeForCapacityCheck,
+          converted_volume_bbl:    totalVolumeForCapacityCheck,
+          converted_from_batch_id: batch_id,
+        })
+        .eq("id", childBatchId);
+      await supabase.from("batch_conversions")
+        .update({ converted_at: new Date().toISOString() })
+        .eq("id", plannedConversionId!);
+    } else {
+      try {
+        childBatchId = await createConversionTargetBatch(supabase, {
+          sourceBatchId: batch_id,
+          beerName:      packagedRecipe?.beer_name ?? "Converted batch",
+          recipeId:      packagedAs,
+          volumeBbl:     totalVolumeForCapacityCheck,
+        });
+      } catch (createErr) {
+        return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
+      }
+    }
+
+    // Serve the declared commitment: the whole child is that partner's beer.
+    // Best-effort once the child exists — a failed allocation must not unmake
+    // the run; the operator can add it by hand exactly as for a tank conversion.
+    if (inKegCommitment) {
+      const { error: allocErr } = await supabase.from("batch_allocations").insert({
+        batch_id:            childBatchId,
+        channel:             inKegCommitment.channel,
+        percentage:          100,
+        partner_id:          inKegCommitment.partner_id,
+        contract_request_id: inKegCommitment.id,
+        notes:               "Auto: in-keg conversion packaged for this commitment",
+      });
+      if (allocErr) {
+        console.error("[transfers] In-keg conversion allocation failed (run continues):", allocErr);
+      }
+    }
+
+    // One conversion row on the SOURCE carries the whole run's draw — delivered
+    // volume plus shrinkage — and reconciles the source's schedule exactly as
+    // the old per-line kegging rows did (station arrival, clawback, partial
+    // reassignment of the source tank).
+    let conversionRowId: string | null = null;
     try {
-      const { transfer, scheduleUpdate, coldStorageError } = await processTransferLine(supabase, {
+      const { transfer, scheduleUpdate } = await processTransferLine(supabase, {
         batch_id, from_tank_id, to_tank_id,
-        volume_bbl: line.volume_bbl, shrinkage_bbl: line.shrinkage_bbl,
-        transfer_type: transfer_type ?? "transfer", notes: notes || null,
-        variation_id: line.variation_id, quantity: line.quantity,
-        created_by: currentUser?.id ?? null, recipe_id,
-        packaging_loss_pct: packagingLossPct,
+        volume_bbl: totalVolumeForCapacityCheck, shrinkage_bbl: totalShrinkage,
+        transfer_type: "conversion", notes: notes || null,
+        variation_id: null, quantity: null,
+        created_by: currentUser?.id ?? null, recipe_id: batchRecipeId,
+        packaging_loss_pct: 0,
         packaged_as_recipe_id: packagedAs,
       });
+      conversionRowId = (transfer as { id?: string }).id ?? null;
       transfers.push(transfer);
       allScheduleUpdates.push(...scheduleUpdate);
-      if (coldStorageError) coldStorageErrors.push(coldStorageError);
     } catch (e) {
       const status = (e as { status?: number }).status ?? 500;
       return NextResponse.json(
@@ -890,35 +1014,96 @@ export async function POST(req: NextRequest) {
         { status }
       );
     }
-  }
+    if (conversionRowId) {
+      await supabase.from("batch_transfers")
+        .update({ to_batch_id: childBatchId })
+        .eq("id", conversionRowId);
+    }
 
-  // ── In-keg conversion: charge what the dose added ──────────────────────────
-  // Once per run, on the volume that actually went into containers, and filed
-  // against the source batch — the beer it came out of. Runs after every line so
-  // a multi-variation run is one conversion, not one per keg size. Never rolls
-  // back the committed packaging: finished goods exist either way.
-  if (packagedAs && transfers.length > 0) {
-    const runTransferId = (transfers[0] as { id?: string }).id;
-    if (runTransferId) {
+    // The packaging rows belong to the CHILD: cold storage, materials and the
+    // Square push all key on it, which is what puts the finished goods under
+    // the beer that actually came out of the filler. from = the packaging
+    // station (where the conversion delivered), to = nowhere — the child's
+    // station ledger nets to zero instead of showing beer parked there forever.
+    // No schedule reconciliation: the child has no schedule, and the partial-
+    // transfer reassignment would otherwise hand it the station as a tank.
+    for (const line of lines) {
       try {
-        await consumePackagedConversionAdditions(supabase, {
-          sourceBatchId:    batch_id,
-          transferId:       runTransferId,
-          packagedRecipeId: packagedAs,
-          volumeBbl:        totalVolumeForCapacityCheck,
+        const { transfer, coldStorageError } = await processTransferLine(supabase, {
+          batch_id: childBatchId, from_tank_id: to_tank_id, to_tank_id: null,
+          volume_bbl: line.volume_bbl, shrinkage_bbl: 0,
+          transfer_type: transfer_type ?? "transfer", notes: notes || null,
+          variation_id: line.variation_id, quantity: line.quantity,
+          created_by: currentUser?.id ?? null, recipe_id,
+          packaging_loss_pct: packagingLossPct,
+          skipSchedule: true,
         });
-      } catch (additionsErr) {
-        console.error("[transfers] In-keg conversion additions failed (packaging committed):", additionsErr);
+        transfers.push(transfer);
+        if (coldStorageError) coldStorageErrors.push(coldStorageError);
+      } catch (e) {
+        const status = (e as { status?: number }).status ?? 500;
+        return NextResponse.json(
+          { error: (e as Error).message, transfers_committed: transfers.length },
+          { status }
+        );
       }
     }
-  }
 
-  // ── Auto-complete: batch is done when all volume is kegged/canned/shrinkage ─
-  if (transfer_type === "kegging" || transfer_type === "canning") {
+    // Charge what the dose added — the same path a tank conversion takes, filed
+    // against the child. Never rolls back the committed packaging.
     try {
+      const additions = await consumeConversionAdditions(supabase, {
+        sourceBatchId: batch_id,
+        targetBatchId: childBatchId,
+        volumeBbl:     totalVolumeForCapacityCheck,
+      });
+      if (additions.status === "unlinked") {
+        console.info("[transfers] In-keg conversion additions not charged — recipes are not linked.");
+      }
+    } catch (additionsErr) {
+      console.error("[transfers] In-keg conversion additions failed (packaging committed):", additionsErr);
+    }
+
+    // The child is born fully packaged, so it completes on the spot — directly,
+    // not via batch_exhaustion, whose 2dp headline volume can miss the view's
+    // tolerance by rounding alone. The source completes when its own ledger
+    // says so, conversion included.
+    try {
+      await completeConversionChild(supabase, childBatchId);
       await checkAndCompleteBatch(supabase, batch_id);
     } catch (completionErr) {
       console.error("[transfers] Batch completion check failed:", completionErr);
+    }
+  } else {
+    for (const line of lines) {
+      try {
+        const { transfer, scheduleUpdate, coldStorageError } = await processTransferLine(supabase, {
+          batch_id, from_tank_id, to_tank_id,
+          volume_bbl: line.volume_bbl, shrinkage_bbl: line.shrinkage_bbl,
+          transfer_type: transfer_type ?? "transfer", notes: notes || null,
+          variation_id: line.variation_id, quantity: line.quantity,
+          created_by: currentUser?.id ?? null, recipe_id,
+          packaging_loss_pct: packagingLossPct,
+        });
+        transfers.push(transfer);
+        allScheduleUpdates.push(...scheduleUpdate);
+        if (coldStorageError) coldStorageErrors.push(coldStorageError);
+      } catch (e) {
+        const status = (e as { status?: number }).status ?? 500;
+        return NextResponse.json(
+          { error: (e as Error).message, transfers_committed: transfers.length },
+          { status }
+        );
+      }
+    }
+
+    // ── Auto-complete: batch is done when all volume is kegged/canned/shrinkage ─
+    if (transfer_type === "kegging" || transfer_type === "canning") {
+      try {
+        await checkAndCompleteBatch(supabase, batch_id);
+      } catch (completionErr) {
+        console.error("[transfers] Batch completion check failed:", completionErr);
+      }
     }
   }
 

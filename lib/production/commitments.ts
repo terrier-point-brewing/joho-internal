@@ -13,7 +13,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { conversionDelta, type BillLine } from "./recipeLineage";
+import { baseMapOf, conversionDelta, isDerivedFrom, type BillLine } from "./recipeLineage";
 
 export interface IngredientShortfall {
   ingredient_id: string;
@@ -178,6 +178,16 @@ const PRE_BREW_STATUSES = ["planning", "backlog"];
  * quantities forever — B-056 sat at 900 lb of Pilsner Malt long after the recipe
  * had moved to 660. Batches past planning are skipped: their ingredients are
  * already physically deducted, so re-committing would double-charge stock.
+ *
+ * A pre-brew batch that is a CONVERSION TARGET (it names a source batch in
+ * `converted_from_batch_id`) never gets the full bill here. Its commitments
+ * were deliberately reduced to the conversion's addition when the plan was
+ * made, and re-applying recipe × turns would resurrect the base grain the
+ * parent batch already consumed — the exact double-count the reservation swap
+ * exists to prevent. Instead the ADDITION is recomputed at the planned volume,
+ * so a recipe edit still flows through; when the planned volume or lineage
+ * link can't be resolved, the batch is left exactly as it was — guessing in
+ * either direction is worse.
  */
 export async function resyncRecipeCommitments(
   supabase: SupabaseClient,
@@ -185,13 +195,48 @@ export async function resyncRecipeCommitments(
 ): Promise<void> {
   const { data: batches } = await supabase
     .from("brew_batches")
-    .select("id, turns")
+    .select("id, turns, converted_from_batch_id")
     .eq("recipe_id", recipeId)
     .in("status", PRE_BREW_STATUSES);
 
   for (const b of batches ?? []) {
+    if (b.converted_from_batch_id) {
+      await resyncConversionTargetCommitments(supabase, {
+        batchId: b.id, recipeId, sourceBatchId: b.converted_from_batch_id,
+      });
+      continue;
+    }
     await upsertCommitments(supabase, b.id, recipeId, Math.max(1, Number(b.turns ?? 1)));
   }
+}
+
+/**
+ * Re-apply the conversion DELTA to a pre-brew conversion target after a recipe
+ * edit. Inlined here (rather than delegating to conversionIngredients) because
+ * that module imports this one; the lineage walk itself is the same pure code
+ * both use.
+ */
+async function resyncConversionTargetCommitments(
+  supabase: SupabaseClient,
+  { batchId, recipeId, sourceBatchId }: { batchId: string; recipeId: string; sourceBatchId: string },
+): Promise<void> {
+  const [{ data: sourceRow }, { data: plan }, { data: recipeRows }] = await Promise.all([
+    supabase.from("brew_batches").select("recipe_id").eq("id", sourceBatchId).maybeSingle(),
+    supabase.from("batch_conversions")
+      .select("volume_bbl")
+      .eq("source_batch_id", sourceBatchId)
+      .eq("target_batch_id", batchId)
+      .is("converted_at", null)
+      .maybeSingle(),
+    supabase.from("recipes").select("id, base_recipe_id"),
+  ]);
+
+  const sourceRecipeId = (sourceRow as { recipe_id: string | null } | null)?.recipe_id ?? null;
+  const volume = Number((plan as { volume_bbl: number | null } | null)?.volume_bbl ?? 0);
+  if (!sourceRecipeId || volume <= 0) return;
+  if (!isDerivedFrom(recipeId, sourceRecipeId, baseMapOf(recipeRows ?? []))) return;
+
+  await upsertConversionCommitments(supabase, batchId, recipeId, sourceRecipeId, volume);
 }
 
 /** Mark all active commitments for a batch as released (archived or brewed). */

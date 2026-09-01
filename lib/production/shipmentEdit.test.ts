@@ -88,10 +88,40 @@ describe("planShipmentEdit — patch guards", () => {
     expect(!plan.ok && plan.error).toMatch(/taproom/i);
   });
 
-  it("G5 rejects contract_brewing as a target", () => {
-    const plan = planShipmentEdit([row()], { channel: "contract_brewing", edit_reason: "x" });
-    expect(plan.ok).toBe(false);
-    expect(!plan.ok && plan.error).toMatch(/contract/i);
+  it("G5 enters contract_brewing UNCREDITED — is_ad_hoc set, over_allocation cleared", () => {
+    // An edit cannot plan allocation credits (that is a revision's job), so the
+    // way into contract is the ad-hoc contract-billing shape: null allocation,
+    // is_ad_hoc for the deposit prompt, and no stale over-delivery verdict.
+    const plan = planShipmentEdit(
+      [row({ over_allocation: true } as never)],
+      { channel: "contract_brewing", edit_reason: "bill under contract model" },
+    );
+    expect(plan.ok).toBe(true);
+    if (plan.ok) {
+      expect(plan.updates.channel).toBe("contract_brewing");
+      expect(plan.updates.is_ad_hoc).toBe(true);
+      expect(plan.updates.over_allocation).toBe(false);
+    }
+  });
+
+  it("entering contract_brewing releases any credits the rows carried", () => {
+    const plan = planShipmentEdit(
+      [row({ channel: "distribution", allocation_id: "a1" })],
+      { channel: "contract_brewing", edit_reason: "bill under contract model" },
+    );
+    expect(plan.ok).toBe(true);
+    if (plan.ok) {
+      expect(plan.clearsCredits).toBe(true);
+      expect(plan.allocationsToRecheck).toEqual(["a1"]);
+      expect(plan.updates.allocation_id).toBeNull();
+      expect(plan.updates.is_ad_hoc).toBe(true);
+    }
+  });
+
+  it("a soft-channel target does not touch is_ad_hoc", () => {
+    const plan = planShipmentEdit([row()], { channel: "wholesale", edit_reason: "x" });
+    expect(plan.ok).toBe(true);
+    if (plan.ok) expect(plan.updates).not.toHaveProperty("is_ad_hoc");
   });
 
   it("G7 rejects clearing the recipient", () => {
@@ -221,13 +251,11 @@ describe("planShipmentEdit — legal transitions", () => {
 });
 
 describe("allowedTargetChannels", () => {
-  it("offers both soft channels for any editable current set", () => {
-    expect(allowedTargetChannels(["distribution"]).sort()).toEqual(["distribution", "wholesale"]);
-    expect(allowedTargetChannels(["contract_brewing"]).sort()).toEqual(["distribution", "wholesale"]);
-    expect(allowedTargetChannels(["contract_brewing", "distribution"]).sort()).toEqual([
-      "distribution",
-      "wholesale",
-    ]);
+  it("offers all three editable channels for any editable current set", () => {
+    const ALL = ["contract_brewing", "distribution", "wholesale"];
+    expect(allowedTargetChannels(["distribution"]).sort()).toEqual(ALL);
+    expect(allowedTargetChannels(["contract_brewing"]).sort()).toEqual(ALL);
+    expect(allowedTargetChannels(["contract_brewing", "distribution"]).sort()).toEqual(ALL);
   });
 
   it("offers nothing when taproom is involved", () => {
@@ -235,11 +263,9 @@ describe("allowedTargetChannels", () => {
     expect(allowedTargetChannels(["taproom", "distribution"])).toEqual([]);
   });
 
-  it("never offers taproom or contract_brewing", () => {
+  it("never offers taproom", () => {
     for (const input of [["distribution"], ["wholesale"], ["contract_brewing"]]) {
-      const out = allowedTargetChannels(input);
-      expect(out).not.toContain("taproom");
-      expect(out).not.toContain("contract_brewing");
+      expect(allowedTargetChannels(input)).not.toContain("taproom");
     }
   });
 });
@@ -361,9 +387,9 @@ describe("planShipmentRevision", () => {
     expect(plan.allocationsToRecheck.sort()).toEqual(["a1", "a2"]);
   });
 
-  it("allows entering contract_brewing, which a plain edit refuses", () => {
-    // The edit refuses it because credits would be carried across unplanned. A
-    // revision replans them from scratch, which is exactly what that reject asks for.
+  it("allows entering contract_brewing with credits planned from scratch", () => {
+    // The other way into contract: a plain edit enters it uncredited (ad-hoc);
+    // a revision replans the allocation credits against the new lines.
     const plan = planShipmentRevision([row()], {
       lines: [LINE],
       reason: "billed as contract",

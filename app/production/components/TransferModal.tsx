@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Equipment, BrewBatch, PackagingVariation, Recipe, RecipePackagingVariation, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import ToggleChip from "@/app/components/ui/ToggleChip";
@@ -125,6 +125,35 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   // beer in the tank: the variations offered, the cold-storage rows, the gate the
   // server applies. They are the same thing whenever no conversion is declared.
   const packagingRecipeId = packagedAsRecipeId || batch.recipe_id;
+
+  // ── Who the conversion is for ───────────────────────────────────────────────
+  // An in-keg conversion births its own batch, and a batch with no allocation
+  // ships as over-delivery. Naming the commitment here gives the child a 100%
+  // allocation against it, so the kegs credit the partner the moment they ship.
+  // Optional — no commitment means the beer ships ad-hoc, honestly.
+  interface InKegCommitment {
+    id: string; recipe_id: string | null; partner_id: string | null; status: string | null;
+    volume_bbl: number | null; contract_brewing_partners?: { company_name: string | null } | null;
+  }
+  const [inKegCommitments, setInKegCommitments] = useState<InKegCommitment[]>([]);
+  const [packagedAsCommitmentId, setPackagedAsCommitmentId] = useState("");
+  useEffect(() => {
+    if (!packagedAsRecipeId) return;
+    let cancelled = false;
+    // Degrades to "no options" for operators without partner read access.
+    fetch("/api/production/contract-requests")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: InKegCommitment[]) => {
+        if (cancelled) return;
+        setInKegCommitments((rows ?? []).filter((c) =>
+          c.recipe_id === packagedAsRecipeId
+          && c.partner_id
+          && !["fulfilled", "cancelled"].includes(c.status ?? "")
+        ));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [packagedAsRecipeId]);
 
   interface PackagingLine { variation_id: string; quantity: string }
 
@@ -361,6 +390,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           notes:         notes || null,
           packaging_lines,
           ...(packagedAsRecipeId ? { packaged_as_recipe_id: packagedAsRecipeId } : {}),
+          ...(packagedAsRecipeId && packagedAsCommitmentId ? { packaged_as_commitment_id: packagedAsCommitmentId } : {}),
           ...(transfer_type === "canning" ? { packaging_loss_pct: lossPctNum } : {}),
         }),
       });
@@ -620,8 +650,11 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               onChange={(e) => {
                 setPackagedAsRecipeId(e.target.value);
                 // A different beer declares a different set of variations, so
-                // nothing already picked can be assumed to still be valid.
+                // nothing already picked can be assumed to still be valid —
+                // and its commitments belong to the previous beer.
                 setPackagingLines([{ variation_id: "", quantity: "" }]);
+                setPackagedAsCommitmentId("");
+                setInKegCommitments([]);
               }}
             >
               <option value="">{batch.beer_name} — no conversion</option>
@@ -632,11 +665,31 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             {packagedAsRecipeId && (
               <p className="text-xs text-muted mt-1">
                 This run produces{" "}
-                <span className="text-secondary">{recipes.find((r) => r.id === packagedAsRecipeId)?.beer_name}</span>.
-                The {showKegDetail ? "kegs" : "cans"} go to cold storage under that beer, and what it
-                adds over {batch.beer_name} is deducted from ingredient stock. {batch.beer_name} keeps
-                the batch.
+                <span className="text-secondary">{recipes.find((r) => r.id === packagedAsRecipeId)?.beer_name}</span>{" "}
+                as its own small batch: the {showKegDetail ? "kegs" : "cans"} go to cold storage under
+                that beer, and what it adds over {batch.beer_name} is deducted from ingredient stock.
               </p>
+            )}
+            {packagedAsRecipeId && inKegCommitments.length > 0 && (
+              <div className="mt-2">
+                <label className="text-xs text-secondary block mb-1">For commitment</label>
+                <select
+                  className="inp"
+                  value={packagedAsCommitmentId}
+                  onChange={(e) => setPackagedAsCommitmentId(e.target.value)}
+                >
+                  <option value="">No commitment — ships ad-hoc</option>
+                  {inKegCommitments.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.contract_brewing_partners?.company_name ?? "Unknown partner"}
+                      {c.volume_bbl != null ? ` — ${Number(c.volume_bbl).toFixed(1)} bbl` : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted mt-1">
+                  The new batch is allocated 100% to this commitment, so shipping it credits the partner.
+                </p>
+              </div>
             )}
           </div>
         )}

@@ -90,6 +90,10 @@ export default function EditShipmentModal({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to save changes");
+      // Filing-adjacent advisories (e.g. the edit crossed the excise treatment
+      // line) — the change IS saved; the operator just needs to know.
+      const apiWarnings: string[] = json.warnings ?? [];
+      if (apiWarnings.length > 0) alert(apiWarnings.join("\n\n"));
       onSaved();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save changes");
@@ -123,14 +127,20 @@ export default function EditShipmentModal({
                 {CHANNEL_LABELS[c] ?? c}
               </option>
             ))}
-            {/* A current channel that is not a legal target (contract_brewing)
-                stays selectable so "no change" remains possible. */}
+            {/* A current channel that is not a legal target stays selectable so
+                "no change" remains possible. */}
             {currentChannels.length === 1 && !targets.includes(currentChannels[0] as never) && (
               <option value={currentChannels[0]}>
                 {CHANNEL_LABELS[currentChannels[0]] ?? currentChannels[0]} (current)
               </option>
             )}
           </select>
+          {channel === "contract_brewing" && !currentChannels.every((c) => c === "contract_brewing") && (
+            <p className="text-xs text-muted mt-1">
+              No commitment is attached — the shipment bills under the contract model ad-hoc:
+              packaging fees at invoice time, with the ingredient deposit offered there too.
+            </p>
+          )}
         </Field>
 
         <Field label="Customer" required>
