@@ -40,6 +40,9 @@ interface DraftLineItem {
   restoreInventory?: boolean;
 }
 
+/** Kept in step with MAX_CUSTOMER_NOTE_CHARS in the export invoice route. */
+const NOTE_MAX_CHARS = 1000;
+
 type CatalogDiscount = SquareCatalogOptions["discounts"][number];
 
 // Estimate what a Square catalog discount takes off a line's subtotal. Square
@@ -91,6 +94,10 @@ export default function InvoicePreviewModal({
   const [manualRef, setManualRef] = useState("");
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [overrideReason, setOverrideReason] = useState("");
+  // Customer-visible note carried onto the Square invoice. Square-only: a
+  // manually-recorded invoice is raised in QuickBooks, so there is no invoice
+  // here for a note to appear on.
+  const [customerNote, setCustomerNote] = useState("");
 
   const effectiveLineItems = lineItems ?? data?.lineItems ?? [];
   const materialBreakdowns = data?.materialBreakdowns ?? {};
@@ -299,6 +306,7 @@ export default function InvoicePreviewModal({
             lineItems: effectiveLineItems,
             bill_as_channel: billAsChannel ?? undefined,
             override_reason: isOverride ? overrideReason.trim() : undefined,
+            customer_note: customerNote.trim() || undefined,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "Failed to create invoice");
@@ -707,6 +715,28 @@ export default function InvoicePreviewModal({
           <button onClick={addLine} className="btn-secondary">
             + Add line item
           </button>
+
+          {/* ── Note to the customer ────────────────────────────────────────
+              Goes onto the Square invoice itself and the email that carries it,
+              so it is the place to say what the line items cannot: that this
+              invoice is late, that a shipment was re-billed, that a credit
+              follows. Square-only — a manual invoice is raised elsewhere. */}
+          {invoiceMode === "square" && (
+            <div className="space-y-1">
+              <label className="text-xs text-secondary">Note to the customer</label>
+              <textarea
+                className="inp-sm w-full min-h-16"
+                value={customerNote}
+                maxLength={NOTE_MAX_CHARS}
+                placeholder="e.g. This shipment went out on July 20 and we missed the invoice — apologies for the late bill."
+                onChange={(e) => setCustomerNote(e.target.value)}
+              />
+              <p className="text-[11px] text-faint">
+                Appears on the invoice and in the email Square sends.{" "}
+                {customerNote.length > 0 && `${customerNote.length}/${NOTE_MAX_CHARS}`}
+              </p>
+            </div>
+          )}
 
           {/* ── Totals ──────────────────────────────────────────────────────── */}
           <div className="pt-2 border-t border-line space-y-1">

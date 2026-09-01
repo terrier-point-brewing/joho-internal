@@ -28,6 +28,10 @@ import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
+/** Upper bound on the customer-visible note. Square allows far more; an invoice
+ *  note that runs past a short paragraph stops being read. */
+const MAX_CUSTOMER_NOTE_CHARS = 1000;
+
 interface PostBody {
   action: "generate" | "send" | "sync" | "mark_paid" | "record";
   transactionIds: string[];
@@ -39,6 +43,8 @@ interface PostBody {
   invoice_date?: string;
   bill_as_channel?: string;
   override_reason?: string;
+  /** Customer-visible note carried onto the Square invoice (generate only). */
+  customer_note?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -130,6 +136,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "This partner has no linked Square customer — add one in Contract Brewing Partners before invoicing" }, { status: 400 });
     }
 
+    // Customer-visible note. Square caps `description` at 65,536 characters;
+    // this is held far tighter because it is read on an invoice, not a page.
+    const customerNote = (body.customer_note ?? "").trim();
+    if (customerNote.length > MAX_CUSTOMER_NOTE_CHARS) {
+      return NextResponse.json(
+        { error: `Note to the customer must be ${MAX_CUSTOMER_NOTE_CHARS} characters or fewer` },
+        { status: 400 }
+      );
+    }
+
     const netTerms = await getNetTermsDays(supabase, "export");
     const draftDate = todayLocalDate();
     const dueDate = addDaysStr(draftDate, netTerms);
@@ -141,6 +157,7 @@ export async function POST(req: NextRequest) {
         title: `Export Invoice — ${partner.company_name}`,
         lineItems,
         dueDate,
+        description: customerNote || undefined,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Square invoice creation failed";

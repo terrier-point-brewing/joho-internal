@@ -84,6 +84,14 @@ export interface CreateExportInvoiceParams {
   title: string;
   lineItems: InvoiceLineItemDraft[];
   dueDate: string;
+  /**
+   * Customer-visible note, rendered by Square on the invoice itself and in the
+   * email that carries it. Use it to say the thing the line items cannot — that
+   * this invoice is late and why, that a shipment was re-billed to a different
+   * partner, that a credit is coming. Omitted, the invoice reads exactly as
+   * before.
+   */
+  description?: string;
 }
 
 export interface ExportInvoiceResult {
@@ -399,6 +407,7 @@ export async function createExportInvoice(
   return createInvoice({
     squareCustomerId: params.squareCustomerId,
     title: params.title,
+    description: params.description,
     lineItems: params.lineItems,
     dueDate: params.dueDate,
     // ACH-only: TPB does not accept card payments on generated invoices.
