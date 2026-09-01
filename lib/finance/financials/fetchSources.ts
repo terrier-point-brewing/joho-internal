@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchDepreciationState, type ScheduleState } from "@/lib/finance/depreciation/state";
 import { fetchInventoryValueSeries, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
+import { fetchSquareFeeSeries, type SquareFeeSeries } from "@/lib/finance/squareFees";
 import { fetchAllRows, PAGE_SIZE } from "@/lib/supabase/paginate";
 import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
 import { applyExpenseStatementFilters } from "./expenseFilters";
@@ -62,6 +63,13 @@ export interface FinancialsSourcesResult {
    */
   depreciationStates: ScheduleState[];
   inventoryValueSeries: InventoryValueSeries[];
+  /**
+   * Square processing fees, for BOTH pl and cash_flow — unlike the two above,
+   * a fee is real cash withheld at source, so leaving it off the cash-flow
+   * statement would overstate operating cash by the same amount the P&L was
+   * overstating profit. Null while no fee account is configured.
+   */
+  squareFeeSeries: SquareFeeSeries | null;
 }
 
 const VOLUME_CATEGORIES = new Set(["distribution_keg", "distribution_can"]);
@@ -665,6 +673,7 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
         fetchInventoryValueSeries(supabase, months, liveMonth),
       ])
     : [[], []];
+  const squareFeeSeries = await fetchSquareFeeSeries(supabase, months);
 
   return {
     coa,
@@ -678,5 +687,6 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     manualNetSalesEntries,
     depreciationStates,
     inventoryValueSeries,
+    squareFeeSeries,
   };
 }

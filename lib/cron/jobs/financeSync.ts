@@ -25,6 +25,7 @@ import { syncRefundsForRange } from "@/lib/finance/syncRefunds";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
 import { autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
+import { syncSquareFeesForRange } from "@/lib/finance/syncSquareFees";
 import { recordProviderSyncResult } from "@/lib/finance/balances/connections";
 
 /**
@@ -101,6 +102,18 @@ async function syncEverything(supabase: SupabaseClient) {
   const invoiceLineSync = await syncSquareInvoicesForYear(supabase, year);
   const invoiceAutoMap = await autoMapInvoiceLineItems(supabase, { year });
 
+  // Processing fees for the same window (the whole history on an empty table
+  // -- see syncSquareFees.ts). Swallowed, not thrown: fees are a derived P&L
+  // convenience over payments that are already safely recorded, and failing
+  // the orders sync over them would cost real data to protect a nicety.
+  let fees: { upserted: number; from: string } | { error: string };
+  try {
+    fees = await syncSquareFeesForRange(supabase, startDate, endDate);
+  } catch (e) {
+    console.error("[finance-sync] square fee sync failed", e);
+    fees = { error: e instanceof Error ? e.message : String(e) };
+  }
+
   return {
     windowDays: WINDOW_DAYS,
     orders,
@@ -108,5 +121,6 @@ async function syncEverything(supabase: SupabaseClient) {
     invoicesReconciled,
     invoiceLineSync: { synced: invoiceLineSync.synced, updated: invoiceLineSync.updated },
     invoiceAutoMapped: invoiceAutoMap.mapped,
+    fees,
   };
 }

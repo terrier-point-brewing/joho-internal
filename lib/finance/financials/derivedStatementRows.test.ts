@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { injectDepreciationRows, injectInventoryReliefRows, cumulativeDepreciationThrough } from "./derivedStatementRows";
+import { injectDepreciationRows, injectInventoryReliefRows, injectSquareFeeRows, cumulativeDepreciationThrough } from "./derivedStatementRows";
 import { reliefDeltasByMonth } from "@/lib/finance/inventoryRelief";
 import type { ScheduleState } from "@/lib/finance/depreciation/state";
 import type { CoaRecord } from "./aggregateRows";
@@ -107,5 +107,23 @@ describe("injectInventoryReliefRows", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].amountCentsByMonth["2026-05"]).toBe(300);
     expect((rows[0].sourceRef.ids ?? []).slice().sort()).toEqual(["coa-1210", "coa-1220"]);
+  });
+});
+
+describe("injectSquareFeeRows", () => {
+  const series = { coaId: "coa-5100", feeCentsByMonth: { "2026-05": 64_092, "2026-06": 71_000 } };
+
+  it("synthesizes one negative cost row on the configured account", () => {
+    const rows = injectSquareFeeRows([], series, MONTHS, COA);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].coaId).toBe("coa-5100");
+    expect(rows[0].accountName).toBe("Raw Materials Purchases (Card processing fees)");
+    expect(rows[0].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": -64_092, "2026-06": -71_000 });
+    expect(rows[0].sourceRef.table).toBe("square_payment_fees");
+  });
+
+  it("injects nothing while no account is configured, or when no month has fees", () => {
+    expect(injectSquareFeeRows([], null, MONTHS, COA)).toHaveLength(0);
+    expect(injectSquareFeeRows([], { coaId: "coa-5100", feeCentsByMonth: {} }, MONTHS, COA)).toHaveLength(0);
   });
 });

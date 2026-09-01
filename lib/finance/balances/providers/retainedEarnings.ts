@@ -79,6 +79,7 @@ import { buildKpis } from "@/lib/finance/financials/summaries";
 import { cumulativeDepreciationThrough } from "@/lib/finance/financials/derivedStatementRows";
 import { fetchDepreciationState } from "@/lib/finance/depreciation/state";
 import { cumulativeInventoryReliefThrough } from "@/lib/finance/inventoryRelief";
+import { cumulativeSquareFeesThrough } from "@/lib/finance/squareFees";
 import { PAGE_CONCURRENCY } from "@/lib/supabase/paginate";
 import { registerProvider } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
@@ -210,12 +211,14 @@ export const retainedEarnings: BalanceProvider = {
     const throughMonth = periodEnd.slice(0, 7);
     const now = new Date();
     const liveMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-    const [depreciationStates, inventoryCents] = await Promise.all([
+    const [depreciationStates, inventoryCents, squareFeeCents] = await Promise.all([
       fetchDepreciationState(supabase, coa),
       cumulativeInventoryReliefThrough(supabase, throughMonth, liveMonth),
+      cumulativeSquareFeesThrough(supabase, throughMonth),
     ]);
     netIncomeCents += cumulativeDepreciationThrough(depreciationStates, throughMonth);
     netIncomeCents += inventoryCents;
+    netIncomeCents += squareFeeCents;
 
     // Equity is credit-normal; the internal convention stores liabilities
     // and equity NEGATIVE (normalizeSign.ts's NEGATIVE_SECTIONS), so a

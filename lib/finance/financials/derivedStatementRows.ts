@@ -30,6 +30,7 @@ import { coaSection, type CoaRecord } from "./aggregateRows";
 import { expenseThroughMonth } from "@/lib/finance/depreciation/engine";
 import { seriesFor, type ScheduleState } from "@/lib/finance/depreciation/state";
 import { reliefDeltasByMonth, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
+import type { SquareFeeSeries } from "@/lib/finance/squareFees";
 
 function synthesizedRow(
   coaId: string,
@@ -148,4 +149,36 @@ export function cumulativeDepreciationThrough(states: ScheduleState[], month: st
   let sum = 0;
   for (const state of states) sum += expenseThroughMonth(seriesFor(state, month), month);
   return sum;
+}
+
+/**
+ * One row for Square's processing fees, negative — a cost. Unlike the two
+ * injections above this one runs on BOTH the P&L and the cash-flow statement:
+ * a fee is real cash withheld at source, so a cash-flow statement without it
+ * overstates operating cash by exactly what the P&L was overstating profit.
+ */
+export function injectSquareFeeRows(
+  rows: FinancialsRow[],
+  series: SquareFeeSeries | null,
+  months: string[],
+  coa: CoaRecord[],
+): FinancialsRow[] {
+  if (!series || months.length === 0) return rows;
+  const coaMap = new Map(coa.map((c) => [c.id, c]));
+
+  const amounts: Record<string, number> = {};
+  let hasNonZero = false;
+  for (const month of months) {
+    const cents = series.feeCentsByMonth[month] ?? 0;
+    // `0 - cents`, not `-cents`: negating a zero month produces -0, which fails
+    // strict equality in consumers that compare figures with Object.is.
+    amounts[month] = 0 - cents;
+    if (cents !== 0) hasNonZero = true;
+  }
+  if (!hasNonZero) return rows;
+
+  return [
+    ...rows,
+    synthesizedRow(series.coaId, "(Card processing fees)", "Card processing fees", "square_payment_fees", [], amounts, coaMap),
+  ];
 }
