@@ -350,6 +350,47 @@ describe("reconcileSquareCanInventory (IO)", () => {
     expect(res.applied).toBe(1);
   });
 
+  // Epic Hazy's shape: one beer canned under two labels, both mapped to the same
+  // Square "Regular" SKU, so the two families merge onto one base. Each family
+  // must carry only its OWN tiers' on-hand — handing both the recipe-wide map
+  // made the merge sum the same stock twice and report 516 against 258 on hand.
+  it("does not double-count when two label families merge onto one base variation", async () => {
+    const printedLoose = packagingRow({ id: "PV-P-LOOSE", format: "loose", total_volume_fl_oz: 16, label_id: null });
+    const printedCase = packagingRow({ id: "PV-P-CASE", format: "case", total_volume_fl_oz: 384, label_id: null });
+    const labeledLoose = packagingRow({ id: "PV-L-LOOSE", format: "loose", total_volume_fl_oz: 16, label_id: "LBL-1" });
+    const labeledCase = packagingRow({ id: "PV-L-CASE", format: "case", total_volume_fl_oz: 384, label_id: "LBL-1" });
+
+    // Every tier of both families resolves to the same Square item, so both
+    // families land on SQ-BASE and merge.
+    resolveSku.mockImplementation(async (_db, args) => {
+      if (args.kind !== "packaged") return null;
+      return { squareVariationId: "SQ-CASE-SALE", squareItemId: "ITEM-1", catalogVariationId: null, itemName: "Regular", variationName: "Regular - Case" };
+    });
+    fetchCounts.mockResolvedValue(new Map([["SQ-BASE", 50]]));
+    const sink = { reconciliations: [] as unknown[] };
+
+    const supabase = fakeSupabase({
+      // All the stock is in the LABELED family; printed holds nothing.
+      coldStorageRows: [
+        csRow("r1", "PV-L-LOOSE", 2, labeledLoose),
+        csRow("r1", "PV-L-CASE", 1, labeledCase),
+      ],
+      catalogPackagingRows: [
+        catalogRow("r1", printedLoose), catalogRow("r1", printedCase),
+        catalogRow("r1", labeledLoose), catalogRow("r1", labeledCase),
+      ],
+      catalogVariationsByItem: { "ITEM-1": baseItemVars },
+      sink,
+    });
+
+    const res = await reconcileSquareCanInventory(supabase, { recipeIds: ["r1"], occurredAt: "2026-07-08T12:00:00Z" });
+
+    // 2 loose + 1 case*24 = 26 across both families combined, not 52.
+    expect(res.measurements).toEqual([
+      expect.objectContaining({ baseSquareVariationId: "SQ-BASE", coldStorageCans: 26 }),
+    ]);
+  });
+
   it("keeps a catalogue tier at zero from inflating a family that does hold stock", async () => {
     mockRegularFamilySkus();
     fetchCounts
