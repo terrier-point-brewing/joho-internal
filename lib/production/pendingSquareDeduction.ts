@@ -54,6 +54,8 @@
 // bill. Either way the SKU must be inventory-tracked at all for Square to owe
 // anything.
 
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+
 /**
  * Channels whose invoices the app builds WITHOUT product lines — packaging fees,
  * excise, services. No Square deduction will ever arrive for these, so their
@@ -269,4 +271,70 @@ export async function loadPendingDeductionHolds(db: Db): Promise<PendingHold[]> 
         };
       }),
   );
+}
+
+// ── Committed stock, from our own open invoices ──────────────────────────────
+
+/**
+ * Units Square is holding COMMITTED against invoices we have raised and not been
+ * paid for, keyed by Square variation id.
+ *
+ * Read from OUR invoices rather than from Square. Square keeps committed stock in
+ * an inventory state `fetchCurrentCounts` does not request — it asks for IN_STOCK
+ * only — and guessing that state name in order to write against it would be
+ * careless. We already know what is committed: it is exactly the
+ * inventory-tracked lines of every unpaid invoice. Corroborated against the
+ * Square dashboard on 2026-09-01, where invoice 000054's 20 x 1/6 Keg and 8 x 1/2
+ * Keg of Epic Hazy matched the committed figures exactly.
+ *
+ * Fee lines — packaging, barrel excise, keg cleaning, forklift, materials,
+ * ingredient deposits — carry track_inventory=false and commit nothing, which is
+ * why a contract-brewing invoice contributes zero here.
+ *
+ * ADMIN CLIENT, deliberately. `invoice_line_items` is gated by the RLS policy
+ * `get_my_role() = ANY (finance_reader_roles())`, and finance_reader_roles()
+ * returns an EMPTY array, so NO user session can read it — the query comes back
+ * empty with no error. Through a request-scoped client this would silently report
+ * nothing committed and the compensation would quietly not happen, which is the
+ * failure mode that makes a wrong number look like a right one. `invoices` is
+ * admin-only for the same reason.
+ */
+export async function loadCommittedBySquareSku(): Promise<Map<string, number>> {
+  const admin = createSupabaseAdminClient();
+  const out = new Map<string, number>();
+
+  const { data: invRows, error: invErr } = await admin
+    .from("invoices")
+    .select("id")
+    .not("status", "in", "(paid,voided,cancelled)");
+  if (invErr) throw new Error(`committed: invoices unreadable — ${invErr.message}`);
+  const openIds = (invRows ?? []).map((r) => r.id as string);
+  if (openIds.length === 0) return out;
+
+  const [liRes, varRes] = await Promise.all([
+    admin.from("invoice_line_items")
+      .select("square_catalog_variation_id, quantity")
+      .in("invoice_id", openIds)
+      .not("square_catalog_variation_id", "is", null),
+    admin.from("square_catalog_variations")
+      .select("square_variation_id, track_inventory")
+      .eq("is_deleted", false),
+  ]);
+  if (liRes.error) throw new Error(`committed: invoice lines unreadable — ${liRes.error.message}`);
+  if (varRes.error) throw new Error(`committed: catalog unreadable — ${varRes.error.message}`);
+
+  const tracked = new Set(
+    ((varRes.data ?? []) as { square_variation_id: string; track_inventory: boolean | null }[])
+      .filter((v) => v.track_inventory)
+      .map((v) => v.square_variation_id),
+  );
+
+  for (const li of (liRes.data ?? []) as { square_catalog_variation_id: string; quantity: number | string }[]) {
+    // Square holds nothing against an untracked SKU, so a fee line commits nothing.
+    if (!tracked.has(li.square_catalog_variation_id)) continue;
+    const qty = Number(li.quantity) || 0;
+    if (qty <= 0) continue;
+    out.set(li.square_catalog_variation_id, (out.get(li.square_catalog_variation_id) ?? 0) + qty);
+  }
+  return out;
 }

@@ -234,6 +234,12 @@ export default function SquareDriftPanel() {
                   <th className="px-3 py-2 text-left font-semibold text-secondary">Size</th>
                   <th className="px-3 py-2 text-left font-semibold text-secondary">Cold storage breakdown</th>
                   <th className="px-3 py-2 text-right font-semibold text-secondary">Kegs</th>
+                  <th
+                    className="px-3 py-2 text-right font-semibold text-secondary"
+                    title="Units Square holds against an unpaid invoice. They stay inside Square's count until the invoice is paid, so the count has to carry them for available to equal cold storage."
+                  >
+                    Committed
+                  </th>
                   <th className="px-3 py-2 text-right font-semibold text-secondary">Square</th>
                   <th className="px-3 py-2 text-right font-semibold text-secondary">Drift</th>
                 </tr>
@@ -260,6 +266,15 @@ export default function SquareDriftPanel() {
                         : "—"}
                     </td>
                     <td className="px-3 py-1.5 text-right text-body tabular-nums">{fmt(k.coldStorageKegs)}</td>
+                    {/* Shown as a signed addition because that is what it is: the
+                        amount Square's count carries ON TOP of cold storage while
+                        an invoice is outstanding. Without it the Square column
+                        looks inflated for no visible reason. */}
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {k.committedKegs > 0
+                        ? <span className="text-info">+{fmt(k.committedKegs)}</span>
+                        : <span className="text-faint">—</span>}
+                    </td>
                     <td className="px-3 py-1.5 text-right text-body tabular-nums">{fmt(k.squareKegs)}</td>
                     <td className="px-3 py-1.5 text-right"><DriftCell drift={k.drift} /></td>
                   </tr>
