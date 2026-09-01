@@ -32,19 +32,23 @@ describe("push gate", () => {
   // that moving it is always an edit someone has to justify. Open 2026-08-20 to
   // 2026-08-31; shut before that from 2026-08-03.
   //
-  // Shut again on 2026-08-31: a physical count of the cold room was entered into
-  // the Square Dashboard — the only place there is to put one — and the push
-  // reversed all 23 lines within hours. It also emerged that the reconciler
-  // cannot see a can family whose loose tier is at zero, which hid 684 cans and
-  // made Epic Hazy push 2 against 330 on hand.
+  // Shut on 2026-08-31 after a physical count entered into the Square Dashboard
+  // was reversed by the push within hours, and re-opened on 2026-09-01 once cold
+  // storage had been trued to that count (#521) and the loose-tier blind spot
+  // that hid 684 cans was fixed. The read-back before the flip showed every
+  // planned write moving Square toward the count.
   //
-  // If this test fails, someone is re-opening the push. That is a real decision,
-  // not a cleanup, and it has a cost in BOTH directions. While it is shut,
-  // packaging runs stop reaching Square but sales and invoices keep deducting,
-  // so Square drifts low and eventually negative — which is how it got to −15
-  // Pace Yourself 1/6 kegs last time. So do not leave it shut indefinitely
-  // either: fix cold storage, fix the loose-tier blind spot, then re-open.
-  it("is shut", () => {
-    expect(PUSH_TO_SQUARE_ENABLED).toBe(false);
+  // If this test fails, someone is shutting the push off again. That is a real
+  // decision, not a cleanup: while it is shut, packaging runs stop reaching
+  // Square but sales and invoices keep deducting, so Square drifts low and
+  // eventually negative — which is precisely how it got to −15 Pace Yourself
+  // 1/6 kegs during the August closure. Shut it deliberately, and re-open it
+  // deliberately.
+  //
+  // The one case where shutting it IS right: before a physical count. Until the
+  // app can record a count itself, a count goes into Square, and an open gate
+  // will erase it.
+  it("is open", () => {
+    expect(PUSH_TO_SQUARE_ENABLED).toBe(true);
   });
 });
