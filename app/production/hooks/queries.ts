@@ -338,6 +338,13 @@ export function useDepositInvoiceDueDaysQuery() {
   });
 }
 
+export function useDepositPackagingYieldQuery() {
+  return useQuery({
+    queryKey: queryKeys.production.depositPackagingYield(),
+    queryFn: () => fetchJson<{ pct: number }>("/api/production/deposit-settings/packaging-yield"),
+  });
+}
+
 export function useInvoicePreview(transactionIds: string[], billAsChannel?: string | null) {
   return useQuery({
     queryKey: ["production", "invoice-preview", transactionIds, billAsChannel ?? null] as const,
