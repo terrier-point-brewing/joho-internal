@@ -209,6 +209,28 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // A linked commitment fixes the allocation's channel: crediting matches export
+  // rows on the ALLOCATION's channel, and deposit-backing is decided by it, so a
+  // mismatch either strands the commitment (its shipments credit under a channel
+  // it never books) or silently drops the deposit guarantee the partner paid for.
+  if (contract_request_id) {
+    const { data: commitment } = await supabase
+      .from("commitments")
+      .select("channel")
+      .eq("id", contract_request_id)
+      .maybeSingle();
+    if (!commitment) {
+      return NextResponse.json({ error: "The linked commitment does not exist." }, { status: 422 });
+    }
+    const commitmentChannel = (commitment as { channel: string | null }).channel;
+    if (commitmentChannel && commitmentChannel !== channel) {
+      return NextResponse.json(
+        { error: `This commitment is ${commitmentChannel} — the allocation must use the same channel to credit it.` },
+        { status: 422 }
+      );
+    }
+  }
+
   const { data, error } = await supabase
     .from("batch_allocations")
     .insert({

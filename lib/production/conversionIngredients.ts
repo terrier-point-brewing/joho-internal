@@ -175,68 +175,6 @@ export async function consumeConversionAdditions(
 }
 
 /**
- * Charge an in-keg (or in-can) conversion — one that happens ON the packaging
- * run rather than in a tank.
- *
- * Some conversions never get a vessel of their own: the dose goes into each keg
- * as it is filled, so the beer is Carolina Mule in the brite tank and Transfusion
- * Lager by the time the keg is capped. There is no target batch to hold the
- * addition, because there is no target batch at all — the liquid leaves the
- * source batch as finished goods under a different recipe.
- *
- * So the ledger row hangs off the SOURCE batch (the beer it physically came out
- * of) and is keyed to the packaging transfer, which is what makes it idempotent:
- * a batch can be kegged many times, and each run is its own charge.
- *
- * Never throws — the packaging transfer is already committed by the time this
- * runs, and a stock write that fails must not unmake finished goods.
- */
-export async function consumePackagedConversionAdditions(
-  supabase: SupabaseClient,
-  { sourceBatchId, transferId, packagedRecipeId, volumeBbl }: {
-    sourceBatchId: string;
-    /** The packaging transfer this charge belongs to — the idempotency key. */
-    transferId: string;
-    /** The recipe the run actually produced, i.e. what came out of the filler. */
-    packagedRecipeId: string;
-    /** Finished volume packaged under that recipe, in bbl. */
-    volumeBbl: number;
-  },
-): Promise<ConsumeConversionResult> {
-  const volume = Number(volumeBbl);
-  if (!Number.isFinite(volume) || volume <= 0) return { status: "not_applicable" };
-
-  const { data: sourceRow } = await supabase
-    .from("brew_batches").select("recipe_id, batch_number").eq("id", sourceBatchId).maybeSingle();
-  const source = sourceRow as { recipe_id: string | null; batch_number: string | null } | null;
-  const baseRecipeId = source?.recipe_id ?? null;
-  if (!baseRecipeId) return { status: "unlinked" };
-  if (!(await isChargeableConversion(supabase, baseRecipeId, packagedRecipeId))) {
-    return { status: "unlinked" };
-  }
-
-  // Keyed to the transfer, not the batch: kegging the same batch twice is two
-  // conversions and two charges, but retrying one run must not double-charge it.
-  const note = `${CONVERSION_ADDITION_NOTE} — ${source?.batch_number ?? sourceBatchId} packaging run ${transferId}`;
-  const { data: alreadyBooked } = await supabase
-    .from("stock_adjustments")
-    .select("id")
-    .eq("batch_id", sourceBatchId)
-    .eq("type", "batch_use")
-    .eq("note", note)
-    .limit(1);
-  if (alreadyBooked?.length) return { status: "already_booked" };
-
-  return chargeConversionDelta(supabase, {
-    derivedRecipeId: packagedRecipeId,
-    baseRecipeId,
-    volumeBbl:       volume,
-    ledgerBatchId:   sourceBatchId,
-    note,
-  });
-}
-
-/**
  * Write the per-bbl difference between two bills to the ingredient ledger.
  *
  * The shared middle of both conversion paths: work out what the derived recipe

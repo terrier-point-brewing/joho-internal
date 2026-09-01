@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { reserveConversionAdditions } from "@/lib/production/conversionIngredients";
+import { createConversionTargetBatch } from "@/lib/production/conversionFinalizer";
 
 export const dynamic = "force-dynamic";
 
@@ -42,25 +43,52 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const {
     source_batch_id,
-    target_batch_id,
     source_equipment_id,
     volume_bbl,
     planned_date,
     notes,
+    new_target,
   } = body as {
     source_batch_id:     string;
-    target_batch_id:     string;
+    target_batch_id?:    string | null;
     source_equipment_id: string | null;
     volume_bbl:          number;
     planned_date:        string | null;
     notes:               string | null;
+    /**
+     * Create the target inline instead of naming an existing batch — how an
+     * in-keg conversion is planned, where no target exists yet by definition.
+     * The child is born in 'planning' at the planned volume; the kegging run
+     * that later declares this recipe as `packaged_as` resolves onto it.
+     */
+    new_target?: { recipe_id: string } | null;
   };
+  let target_batch_id = (body as { target_batch_id?: string | null }).target_batch_id ?? null;
 
-  if (!source_batch_id || !target_batch_id || !volume_bbl) {
-    return NextResponse.json({ error: "source_batch_id, target_batch_id, and volume_bbl are required." }, { status: 422 });
+  if (!source_batch_id || !volume_bbl || (!target_batch_id && !new_target?.recipe_id)) {
+    return NextResponse.json({ error: "source_batch_id, volume_bbl, and a target batch (or a recipe for a new one) are required." }, { status: 422 });
   }
   if (source_batch_id === target_batch_id) {
     return NextResponse.json({ error: "Source and target batch must be different." }, { status: 422 });
+  }
+
+  if (!target_batch_id && new_target?.recipe_id) {
+    const { data: recipe } = await supabase
+      .from("recipes").select("beer_name").eq("id", new_target.recipe_id).maybeSingle();
+    if (!recipe) return NextResponse.json({ error: "That recipe does not exist." }, { status: 422 });
+    try {
+      target_batch_id = await createConversionTargetBatch(supabase, {
+        sourceBatchId: source_batch_id,
+        beerName:      (recipe as { beer_name: string | null }).beer_name ?? "Converted batch",
+        recipeId:      new_target.recipe_id,
+        volumeBbl:     Number(volume_bbl),
+      });
+    } catch (createErr) {
+      return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
+    }
+  }
+  if (!target_batch_id) {
+    return NextResponse.json({ error: "A target batch is required." }, { status: 422 });
   }
 
   const { data, error } = await supabase
