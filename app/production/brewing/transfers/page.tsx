@@ -25,7 +25,10 @@ interface TransferLogRow {
   notes: string | null;
   transferred_at: string;
   to_batch_id: string | null;
+  quantity: number | null;
   batch: { id: string; beer_name: string; batch_number: string | null } | null;
+  packaging_variations: { id: string; name: string } | null;
+  packaged_as: { id: string; beer_name: string } | null;
   from_tank: { id: string; name: string; type: string } | null;
   to_tank:   { id: string; name: string; type: string } | null;
   to_batch:  { id: string; beer_name: string; batch_number: string | null } | null;
@@ -51,6 +54,16 @@ function TypeBadge({ type }: { type: TransferType }) {
       {TYPE_LABELS[type] ?? type}
     </span>
   );
+}
+
+// An in-keg conversion leaves no second batch to point at, so the beer it
+// produced only shows up here — without it, a run that kegged Pace Yourself
+// Pilsner as Orange Pilsner reads as an ordinary kegging of the base beer.
+function outputLabel(row: TransferLogRow) {
+  if (!row.quantity || !row.packaging_variations?.name) return null;
+  return `${row.quantity}× ${row.packaging_variations.name}${
+    row.packaged_as ? ` — ${row.packaged_as.beer_name}` : ""
+  }`;
 }
 
 function fmtDateTime(iso: string) {
@@ -132,6 +145,7 @@ export default function TransferLogPage() {
                 <th className="px-3 py-2 text-xs text-muted font-medium">To</th>
                 <th className="px-3 py-2 text-xs text-muted font-medium text-right">Volume</th>
                 <th className="px-3 py-2 text-xs text-muted font-medium text-right">Shrinkage</th>
+                <th className="px-3 py-2 text-xs text-muted font-medium">Output</th>
                 <th className="px-3 py-2 text-xs text-muted font-medium">Actor</th>
                 <th className="px-3 py-2 text-xs text-muted font-medium">Notes</th>
               </tr>
@@ -139,7 +153,7 @@ export default function TransferLogPage() {
             <tbody>
               {rows.length === 0 && !isLoading && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-faint text-sm">
+                  <td colSpan={10} className="px-3 py-6 text-center text-faint text-sm">
                     No transfers found.
                   </td>
                 </tr>
@@ -188,6 +202,9 @@ export default function TransferLogPage() {
                     {row.shrinkage_bbl > 0
                       ? <span className="text-danger">{fmtBbl2(row.shrinkage_bbl)}</span>
                       : <span className="text-disabled">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap">
+                    {outputLabel(row) ?? <span className="text-disabled">—</span>}
                   </td>
                   <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap">
                     {row.created_by_profile?.email ?? <span className="text-faint">—</span>}
