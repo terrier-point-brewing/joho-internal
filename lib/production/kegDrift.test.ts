@@ -155,3 +155,42 @@ describe("measureKegDrift", () => {
       .toEqual({ measurements: [], unmeasured: [] });
   });
 });
+
+describe("measureKegDrift — committed compensation", () => {
+  const link = {
+    recipeId: "R1", variationId: "PV-6", squareVariationId: "SQ-6",
+    variationName: "1/6 Keg", coldStorageLabel: "1/6 Keg",
+  };
+  const cold = new Map([["R1\tPV-6", { qty: 2, totalVolumeFlOz: 661, format: "loose", containerType: "keg" as const }]]);
+
+  // Epic Hazy on 2026-09-01: 2 sixtels on the shelf, 20 committed to invoice
+  // 000054. IN_STOCK must read 22 for Square's available to be the true 2.
+  it("targets cold storage PLUS committed", () => {
+    const { measurements } = measureKegDrift({
+      links: [link], coldStorage: cold,
+      squareCountByVar: { "SQ-6": 22 },
+      committedByVar: { "SQ-6": 20 },
+    });
+    expect(measurements[0]).toMatchObject({
+      coldStorageKegs: 2, committedKegs: 20, targetKegs: 22, squareKegs: 22, drift: 0,
+    });
+  });
+
+  // The state the premature push left behind: IN_STOCK written down to cold
+  // storage while the commitment was still outstanding, so available was -18.
+  it("reports the shortfall when IN_STOCK sits at cold storage under a commitment", () => {
+    const { measurements } = measureKegDrift({
+      links: [link], coldStorage: cold,
+      squareCountByVar: { "SQ-6": 2 },
+      committedByVar: { "SQ-6": 20 },
+    });
+    expect(measurements[0]).toMatchObject({ targetKegs: 22, squareKegs: 2, drift: -20 });
+  });
+
+  it("is unchanged when nothing is committed", () => {
+    const { measurements } = measureKegDrift({
+      links: [link], coldStorage: cold, squareCountByVar: { "SQ-6": 2 },
+    });
+    expect(measurements[0]).toMatchObject({ committedKegs: 0, targetKegs: 2, drift: 0 });
+  });
+});

@@ -40,7 +40,17 @@ export interface KegMeasurement {
   variationName: string | null;
   coldStorageKegs: number;
   squareKegs: number;
-  drift: number; // squareKegs - coldStorageKegs
+  /**
+   * Units Square is holding COMMITTED against an unpaid invoice we raised.
+   *
+   * Square keeps committed stock OUT of "available" but still inside IN_STOCK,
+   * and only moves it out at payment. So the number Square's IN_STOCK should
+   * hold, for available to equal cold storage, is cold storage PLUS this.
+   */
+  committedKegs: number;
+  /** What IN_STOCK should read: coldStorageKegs + committedKegs. */
+  targetKegs: number;
+  drift: number; // squareKegs - targetKegs
   /** The cold-storage variations that sum to `coldStorageKegs`. */
   components: KegComponent[];
   /**
@@ -75,6 +85,8 @@ export function measureKegDrift(input: {
   links: KegLink[];
   coldStorage: Map<string, ColdStorageOnHand>;
   squareCountByVar: Record<string, number>;
+  /** Square variation id → units committed to unpaid invoices. Absent = none. */
+  committedByVar?: Record<string, number>;
 }): KegDriftResult {
   const measurements: KegMeasurement[] = [];
   const unmeasured: KegUnmeasured[] = [];
@@ -114,13 +126,22 @@ export function measureKegDrift(input: {
     }
 
     const recipeIds = [...new Set(links.map((l) => l.recipeId))];
+    // Compensate rather than compare raw. Cold storage was drawn down at SHIP;
+    // Square commits the same units when the invoice is raised and only removes
+    // them from IN_STOCK at payment. Measuring against cold storage alone would
+    // call that overlap "drift" and push IN_STOCK down into the commitment,
+    // taking the beer twice.
+    const committedKegs = input.committedByVar?.[squareVariationId] ?? 0;
+    const targetKegs = coldStorageKegs + committedKegs;
     measurements.push({
       recipeId: first.recipeId,
       squareVariationId,
       variationName: first.variationName,
       coldStorageKegs,
       squareKegs,
-      drift: squareKegs - coldStorageKegs,
+      committedKegs,
+      targetKegs,
+      drift: squareKegs - targetKegs,
       components,
       ...(recipeIds.length > 1 ? { multiRecipe: recipeIds } : {}),
     });

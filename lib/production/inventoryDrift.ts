@@ -16,7 +16,7 @@ import { loadKegLinks } from "./kegLinks";
 import { fetchColdStorageOnHand } from "./coldStorageOnHand";
 import { fetchCurrentCounts } from "@/lib/square/inventory";
 import { findDeadLinks, type DeadLink } from "@/lib/square/linkHealth";
-import { loadPendingDeductionHolds, type PendingHold } from "./pendingSquareDeduction";
+import { loadPendingDeductionHolds, loadCommittedBySquareSku, type PendingHold } from "./pendingSquareDeduction";
 
 /** A mapping problem the last consumption sync ran into, as recorded in cron_runs. */
 export interface SyncDiscrepancySummary {
@@ -180,7 +180,17 @@ export async function measureInventoryDrift(db: Db): Promise<InventoryDrift> {
       const squareCountByVar: Record<string, number> = {};
       for (const [id, qty] of counts) squareCountByVar[id] = qty;
 
-      const res = measureKegDrift({ links, coldStorage, squareCountByVar });
+      // Same compensation the push applies, or the view would report the
+      // committed units the push deliberately added as fresh drift.
+      let committedByVar: Record<string, number> = {};
+      try {
+        for (const [sku, units] of await loadCommittedBySquareSku()) committedByVar[sku] = units;
+      } catch (e) {
+        warnings.push(`committed stock unreadable: ${e instanceof Error ? e.message : String(e)}`);
+        committedByVar = {};
+      }
+
+      const res = measureKegDrift({ links, coldStorage, squareCountByVar, committedByVar });
       kegs = res.measurements;
       kegUnmeasured = res.unmeasured;
     }

@@ -25,7 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { reconcileSquareCanInventory } from "./reconcileSquareCanInventory";
 import { measureKegDrift, type KegMeasurement } from "./kegDrift";
 import { loadKegLinks } from "./kegLinks";
-import { loadPendingDeductionRecipes } from "./pendingSquareDeduction";
+import { loadPendingDeductionRecipes, loadCommittedBySquareSku } from "./pendingSquareDeduction";
 import { fetchColdStorageOnHand } from "./coldStorageOnHand";
 import { fetchCurrentCounts, setPhysicalCount } from "@/lib/square/inventory";
 import { PUSH_TO_SQUARE_ENABLED, DRIFT_THRESHOLD } from "@/lib/square/pushGate";
@@ -96,6 +96,7 @@ async function pushKegs(
   occurredAt: string,
   out: PushOutcome,
   deferred: ReadonlySet<string>,
+  committedByVar: Record<string, number>,
 ): Promise<void> {
   const allLinks = await loadKegLinks(db);
   const links = allLinks.filter((l) => !deferred.has(l.recipeId));
@@ -109,7 +110,7 @@ async function pushKegs(
   const squareCountByVar: Record<string, number> = {};
   for (const [id, qty] of counts) squareCountByVar[id] = qty;
 
-  const { measurements, unmeasured } = measureKegDrift({ links, coldStorage, squareCountByVar });
+  const { measurements, unmeasured } = measureKegDrift({ links, coldStorage, squareCountByVar, committedByVar });
   for (const u of unmeasured) {
     out.warnings.push(`keg ${u.variationName ?? u.squareVariationId}: ${u.reason}`);
   }
@@ -120,14 +121,16 @@ async function pushKegs(
       recipeId: m.recipeId,
       squareVariationId: m.squareVariationId,
       label: m.variationName,
-      coldStorageUnits: m.coldStorageKegs,
+      coldStorageUnits: m.targetKegs,
       squareUnitsBefore: m.squareKegs,
       drift: m.drift,
     });
 
     if (!PUSH_TO_SQUARE_ENABLED) continue;
     try {
-      const failure = await writeAndVerify(m.squareVariationId, m.coldStorageKegs, occurredAt);
+      // The TARGET, not raw cold storage: IN_STOCK must carry the committed units
+      // so Square's available lands on cold storage. See measureKegDrift.
+      const failure = await writeAndVerify(m.squareVariationId, m.targetKegs, occurredAt);
       if (failure) {
         out.warnings.push(`keg write NOT verified for ${m.variationName ?? m.squareVariationId}: ${failure}`);
         continue;
@@ -138,7 +141,7 @@ async function pushKegs(
         packaging: "keg",
         base_square_variation_id: m.squareVariationId,
         base_variation_name: m.variationName,
-        cold_storage_cans: m.coldStorageKegs,
+        cold_storage_cans: m.targetKegs,
         square_cans_before: m.squareKegs,
         drift: m.drift,
         occurred_at: occurredAt,
@@ -172,14 +175,36 @@ export async function pushInventoryToSquare(
   // line items once one exists, the channel's invoice shape before then — so a
   // contract-style shipment pushes at ship while a distribution one waits out
   // its invoice. See pendingSquareDeduction for the three shipment models.
+  //
+  // COMPENSATION, not deferral. Square commits an invoice's units when the
+  // invoice is raised and keeps them inside IN_STOCK until payment, so the number
+  // IN_STOCK must carry for AVAILABLE to equal cold storage is cold storage PLUS
+  // committed. Push that and every stage of an invoice's life is correct:
+  //
+  //   ship 24 of 100    cold 76  IN_STOCK 100  committed  0  -> target  76
+  //   invoice raised    cold 76  IN_STOCK  76  committed 24  -> target 100
+  //   payment           cold 76  IN_STOCK 100  committed  0  -> target  76
+  //
+  // Holding the recipe back instead — what this used to do — froze it for the
+  // whole of the invoice's net terms, so packaging runs never reached Square
+  // either. Compensation keeps Square live AND correct.
+  let committedByVar: Record<string, number> = {};
   let deferred: ReadonlySet<string> = new Set();
   try {
-    deferred = await loadPendingDeductionRecipes(db);
+    for (const [sku, units] of await loadCommittedBySquareSku()) committedByVar[sku] = units;
   } catch (e) {
-    // Failing open here would double-count real inventory, so refuse to push at
-    // all rather than push blind.
-    out.warnings.push(`push skipped — could not determine pending Square deductions: ${e instanceof Error ? e.message : String(e)}`);
-    return out;
+    // Without the committed figures a push would write IN_STOCK straight into an
+    // outstanding commitment and payment would take the same units again. Fall
+    // back to the old behaviour — hold every recipe Square still owes itself a
+    // deduction for — rather than push blind.
+    out.warnings.push(`committed stock unreadable, falling back to deferral: ${e instanceof Error ? e.message : String(e)}`);
+    committedByVar = {};
+    try {
+      deferred = await loadPendingDeductionRecipes(db);
+    } catch (e2) {
+      out.warnings.push(`push skipped — could not determine pending Square deductions: ${e2 instanceof Error ? e2.message : String(e2)}`);
+      return out;
+    }
   }
 
   const scoped = opts.recipeIds?.filter((id) => !deferred.has(id));
@@ -233,7 +258,7 @@ export async function pushInventoryToSquare(
   // Kegs: no tiers, but the same one-Square-SKU-many-cold-storage-rows grain, so
   // the sum is what gets written.
   try {
-    await pushKegs(db, occurredAt, out, deferred);
+    await pushKegs(db, occurredAt, out, deferred, committedByVar);
   } catch (e) {
     out.warnings.push(`keg push failed: ${e instanceof Error ? e.message : String(e)}`);
   }
