@@ -312,8 +312,8 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
             </tbody>
             {entries.length > 0 && (
               <tfoot>
-                <tr className="border-t-2 border-line-strong">
-                  <td className="py-2 px-3 text-muted text-xs font-medium">Total</td>
+                <tr className="border-t-2 border-line-strong bg-surface-mid/40">
+                  <td className="py-2 px-3 text-strong text-xs font-semibold uppercase tracking-wide">This period</td>
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{totHours.toFixed(1)}h</td>
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totBase)}</td>
                   <td className="text-right py-2 px-3 text-body font-mono font-medium">{fmtCents(totBonus)}</td>
@@ -328,23 +328,30 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
                 {/* Week-over-week comparison — prior period's locked snapshot */}
                 {priorTotals && prior?.priorPeriod && (
                   <>
-                    <tr className="border-t border-line text-xs">
-                      <td className="py-1.5 px-3 text-faint">
-                        Prior ({prior.priorPeriod.start_date} – {prior.priorPeriod.end_date})
+                    {/* Comparison block — visually separated from the period's own totals */}
+                    <tr className="border-t-2 border-line-strong">
+                      <td
+                        colSpan={editable && overrideMode ? 9 : 8}
+                        className="pt-3 pb-1 px-3 text-faint text-[11px] font-medium uppercase tracking-wide"
+                      >
+                        Comparison — prior period ({prior.priorPeriod.start_date} – {prior.priorPeriod.end_date}, locked)
                       </td>
-                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{priorTotals.hours.toFixed(1)}h</td>
-                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorTotals.basePayCents)}</td>
-                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorTotals.bonusCents)}</td>
-                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorCTips)}</td>
-                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorTotals.paycheckTipsCents)}</td>
-                      <td className="text-right py-1.5 px-3 text-secondary font-mono">{fmtCents(priorComp)}</td>
-                      <td className="text-right py-1.5 px-3 text-faint font-mono">
+                    </tr>
+                    <tr className="text-xs text-faint">
+                      <td className="py-1.5 px-3 pl-6">Prior period</td>
+                      <td className="text-right py-1.5 px-3 font-mono">{priorTotals.hours.toFixed(1)}h</td>
+                      <td className="text-right py-1.5 px-3 font-mono">{fmtCents(priorTotals.basePayCents)}</td>
+                      <td className="text-right py-1.5 px-3 font-mono">{fmtCents(priorTotals.bonusCents)}</td>
+                      <td className="text-right py-1.5 px-3 font-mono">{fmtCents(priorCTips)}</td>
+                      <td className="text-right py-1.5 px-3 font-mono">{fmtCents(priorTotals.paycheckTipsCents)}</td>
+                      <td className="text-right py-1.5 px-3 font-mono">{fmtCents(priorComp)}</td>
+                      <td className="text-right py-1.5 px-3 font-mono">
                         {priorHrlyRate != null ? `${fmtUsd(priorHrlyRate)}/hr` : "—"}
                       </td>
                       {editable && overrideMode && <td />}
                     </tr>
                     <tr className="text-xs">
-                      <td className="py-1.5 px-3 text-faint">Change</td>
+                      <td className="py-1.5 px-3 pl-6 text-faint">Change vs. prior</td>
                       <td className="text-right py-1.5 px-3 font-mono text-secondary">
                         {totHours - priorTotals.hours === 0
                           ? "—"
