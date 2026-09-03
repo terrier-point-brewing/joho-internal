@@ -407,7 +407,7 @@ const inventoryOnHand: BalanceMethod = {
       kind: "select",
       key: INVENTORY_POOL_KEY,
       label: "Which inventory this account holds",
-      help: "Pick what this account is for. Raw materials are the malt, hops, yeast and fruit tracked under Production, Ingredients; packaging materials are the cans, lids, labels, PakTechs and trays; finished goods are the packaged beer sitting in cold storage. Nothing can be valued until this is chosen, because the calculation would otherwise not know which shelf to count.",
+      help: "Pick what this account is for. Raw materials are the malt, hops, yeast and adjuncts tracked under Production, Ingredients; packaging materials are the cans, lids, labels, PakTechs and trays; finished goods are the packaged beer sitting in cold storage. Nothing can be valued until this is chosen, because the calculation would otherwise not know which shelf to count.",
       options: [
         { value: "rawMaterials", label: "Raw materials (ingredients)" },
         { value: "packagingMaterials", label: "Packaging materials" },
