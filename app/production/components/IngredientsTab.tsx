@@ -22,7 +22,7 @@ const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = 
   "Hops":         { color: "border-success-border bg-success-surface/30 text-success" },
   "Yeast":        { color: CC.yellow },
   "Brewing Aids": { color: "border-info-border bg-info-surface/30 text-info" },
-  "Fruit":        { color: CC.rose },
+  "Adjuncts":     { color: CC.rose },
   "Terpenes":     { color: CC.purple },
 };
 
@@ -722,7 +722,7 @@ export default function IngredientsTab() {
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums">
                                 <span className={Number(ing.stock_quantity) < 0 ? "text-danger" : "text-body"}>
-                                  {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
+                                  {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })} {ing.unit}
                                 </span>
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums text-body">{fmtValue(totalValue)}</td>
@@ -744,11 +744,11 @@ export default function IngredientsTab() {
                             </td>
                             <td className="px-3 py-2.5 text-secondary whitespace-nowrap">{ing.unit}</td>
                             <td className="px-3 py-2.5 text-body text-right tabular-nums whitespace-nowrap">
-                              {ing.cost_per_unit_usd != null ? formatUnitCost(Number(ing.cost_per_unit_usd)) : "—"}
+                              {ing.cost_per_unit_usd != null ? formatCurrency(Number(ing.cost_per_unit_usd)) : "—"}
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
                               <span className={Number(ing.stock_quantity) < 0 ? "text-danger" : "text-body"}>
-                                {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 3 })} {ing.unit}
+                                {Number(ing.stock_quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })} {ing.unit}
                               </span>
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-body whitespace-nowrap">{fmtValue(totalValue)}</td>
