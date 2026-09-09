@@ -314,12 +314,21 @@ export interface PeriodCoverage {
   withBalance: number;
   /** Labels of configured accounts that produced nothing. */
   missing: string[];
+  /**
+   * Total Assets − (Liabilities + Equity) for this period, from the stored
+   * snapshot. The internal convention keeps liabilities and equity negative,
+   * so the statement's Balancing Difference row IS the plain sum of the
+   * period's stored balances (buildTree.ts computes the same number from the
+   * same rows). Null when the period has never been snapshotted — no rows
+   * means "no answer", not "balanced".
+   */
+  balancingDifferenceCents: number | null;
 }
 
 export async function readPeriodCoverage(supabase: AdminClient, periodEnd: string): Promise<PeriodCoverage> {
   const [sourcesRes, balancesRes] = await Promise.all([
     supabase.from("balance_sheet_account_sources").select("chart_of_accounts_id").eq("active", true),
-    supabase.from("gl_account_balances").select("chart_of_accounts_id").eq("period_end", periodEnd),
+    supabase.from("gl_account_balances").select("chart_of_accounts_id, balance_cents").eq("period_end", periodEnd),
   ]);
   if (sourcesRes.error) throw new Error(sourcesRes.error.message);
   if (balancesRes.error) throw new Error(balancesRes.error.message);
@@ -327,9 +336,8 @@ export async function readPeriodCoverage(supabase: AdminClient, periodEnd: strin
   const configured = new Set(
     ((sourcesRes.data ?? []) as { chart_of_accounts_id: string }[]).map((r) => r.chart_of_accounts_id),
   );
-  const withBalance = new Set(
-    ((balancesRes.data ?? []) as { chart_of_accounts_id: string }[]).map((r) => r.chart_of_accounts_id),
-  );
+  const balanceRows = (balancesRes.data ?? []) as { chart_of_accounts_id: string; balance_cents: number | null }[];
+  const withBalance = new Set(balanceRows.map((r) => r.chart_of_accounts_id));
 
   const missingIds = Array.from(configured).filter((id) => !withBalance.has(id));
 
@@ -337,5 +345,7 @@ export async function readPeriodCoverage(supabase: AdminClient, periodEnd: strin
     configured: configured.size,
     withBalance: Array.from(configured).filter((id) => withBalance.has(id)).length,
     missing: await labelAccounts(supabase, missingIds),
+    balancingDifferenceCents:
+      balanceRows.length === 0 ? null : balanceRows.reduce((sum, r) => sum + (r.balance_cents ?? 0), 0),
   };
 }

@@ -476,12 +476,25 @@ describe("readPeriodCoverage", () => {
         // must count once.
         { chart_of_accounts_id: "coa-b", active: true },
       ],
-      balances: [{ chart_of_accounts_id: "coa-a", period_end: "2026-06-30" }],
+      balances: [{ chart_of_accounts_id: "coa-a", period_end: "2026-06-30", balance_cents: -524074 }],
       accounts: [{ id: "coa-b", account_name: "Ramp Operating", account_number: "1030" }],
     });
 
     const coverage = await readPeriodCoverage(makeFakeSupabase(db), "2026-06-30");
 
-    expect(coverage).toEqual({ configured: 2, withBalance: 1, missing: ["1030 · Ramp Operating"] });
+    expect(coverage).toEqual({
+      configured: 2,
+      withBalance: 1,
+      missing: ["1030 · Ramp Operating"],
+      balancingDifferenceCents: -524074,
+    });
+  });
+
+  it("reports null, not zero, for a period that was never snapshotted", async () => {
+    const db = emptyDb({ sources: [{ chart_of_accounts_id: "coa-a", active: true }], balances: [], accounts: [] });
+
+    const coverage = await readPeriodCoverage(makeFakeSupabase(db), "2026-03-31");
+
+    expect(coverage.balancingDifferenceCents).toBeNull();
   });
 });
