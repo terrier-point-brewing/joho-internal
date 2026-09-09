@@ -97,7 +97,15 @@ function fakeClient(opts: {
             t.createdAt >= lower &&
             t.createdAt < upper,
         );
-        return { data: hit.slice(from, to + 1).map((t) => ({ amount_usd: t.amountUsd })), error: null };
+        // The real select embeds the joined shipment; the month attribution
+        // reads its created_at, so the stub must return the same shape.
+        return {
+          data: hit.slice(from, to + 1).map((t) => ({
+            amount_usd: t.amountUsd,
+            export_transactions: { created_at: t.createdAt, channel: t.channel },
+          })),
+          error: null,
+        };
       },
     };
     return chain;

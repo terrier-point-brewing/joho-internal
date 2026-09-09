@@ -36,6 +36,7 @@ function emptySources(months: string[]): FinancialsSourcesResult {
     depreciationStates: [],
     inventoryValueSeries: [],
     squareFeeSeries: null,
+    exciseExpenseByMonth: {},
   };
 }
 
