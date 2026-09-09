@@ -44,6 +44,8 @@ export interface PeriodCoverage {
   configured: number;
   withBalance: number;
   missing: string[];
+  /** The period's Balancing Difference from its stored snapshot; null when never snapshotted. */
+  balancingDifferenceCents: number | null;
 }
 
 export interface CloseTasksResponse {

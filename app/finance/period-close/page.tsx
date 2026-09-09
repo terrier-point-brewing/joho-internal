@@ -13,6 +13,7 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { formatPeriodLabel, recentMonthEnds, type CloseTasksResponse } from "../closeTasks";
 import Badge from "@/app/components/ui/Badge";
+import { fmtCents } from "@/lib/utils/formatting";
 import { LedgerTable, Th } from "../transactions/components/LedgerTable";
 
 const DASH = <span className="text-faint">—</span>;
@@ -49,6 +50,19 @@ function OutstandingCell({ data }: { data: CloseTasksResponse }) {
       {openCount} balance{openCount === 1 ? "" : "s"} outstanding
     </span>
   );
+}
+
+/**
+ * The period's Balancing Difference, straight off its stored snapshot — the
+ * same figure the balance sheet's bottom row shows for that month. Zero is
+ * the goal state and renders quietly; anything else is the money still
+ * unaccounted for, and is what closing this month is meant to drive out.
+ */
+function BalancingDifferenceCell({ data }: { data: CloseTasksResponse }) {
+  const cents = data.coverage.balancingDifferenceCents;
+  if (cents === null) return DASH;
+  if (cents === 0) return <span className="text-2xs text-faint">{fmtCents(0)}</span>;
+  return <span className="text-body text-danger">{fmtCents(cents)}</span>;
 }
 
 function CoverageCell({ data }: { data: CloseTasksResponse }) {
@@ -106,6 +120,7 @@ export default function PeriodClosePage() {
             <Th label="Status" />
             <Th label="Outstanding" />
             <Th label="Coverage" />
+            <Th label="Balancing difference" />
             <Th label="Closed by" />
           </>
         }
@@ -122,6 +137,7 @@ export default function PeriodClosePage() {
               <td className="px-4 py-2">{isLoading || !data ? LOADING : <StatusCell data={data} />}</td>
               <td className="px-4 py-2">{isLoading || !data ? LOADING : <OutstandingCell data={data} />}</td>
               <td className="px-4 py-2">{isLoading || !data ? LOADING : <CoverageCell data={data} />}</td>
+              <td className="px-4 py-2 whitespace-nowrap">{isLoading || !data ? LOADING : <BalancingDifferenceCell data={data} />}</td>
               <td className="px-4 py-2">{isLoading || !data ? LOADING : <ClosedByCell data={data} />}</td>
             </tr>
           );
