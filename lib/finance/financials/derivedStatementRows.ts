@@ -31,6 +31,7 @@ import { expenseThroughMonth } from "@/lib/finance/depreciation/engine";
 import { seriesFor, type ScheduleState } from "@/lib/finance/depreciation/state";
 import { reliefDeltasByMonth, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
 import type { SquareFeeSeries } from "@/lib/finance/squareFees";
+import { EXCISE_EXPENSE_ACCOUNT_NUMBER } from "@/lib/finance/exciseExpense";
 
 function synthesizedRow(
   coaId: string,
@@ -180,5 +181,40 @@ export function injectSquareFeeRows(
   return [
     ...rows,
     synthesizedRow(series.coaId, "(Card processing fees)", "Card processing fees", "square_payment_fees", [], amounts, coaMap),
+  ];
+}
+
+/**
+ * One row on GL 6451 (Barrel Excise Taxes Paid): excise accrued per month from
+ * the shipment record, in internal P&L convention (negative — a cost).
+ * NON-CASH, like depreciation: payments post to the liability accounts when
+ * they happen, so the fetch layer supplies this for the P&L alone.
+ */
+export function injectExciseExpenseRows(
+  rows: FinancialsRow[],
+  exciseCentsByMonth: Record<string, number> | null,
+  months: string[],
+  coa: CoaRecord[],
+): FinancialsRow[] {
+  if (!exciseCentsByMonth || months.length === 0) return rows;
+  // Resolved by account number, mirroring the accrual providers' appliesTo.
+  // No 6451 in the chart means nowhere to post — skip rather than crash.
+  const account = coa.find((c) => c.accountNumber === EXCISE_EXPENSE_ACCOUNT_NUMBER);
+  if (!account) return rows;
+  const coaMap = new Map(coa.map((c) => [c.id, c]));
+
+  const amounts: Record<string, number> = {};
+  let hasNonZero = false;
+  for (const month of months) {
+    const cents = exciseCentsByMonth[month] ?? 0;
+    // `0 - cents`, not `-cents` — see injectSquareFeeRows on -0.
+    amounts[month] = 0 - cents;
+    if (cents !== 0) hasNonZero = true;
+  }
+  if (!hasNonZero) return rows;
+
+  return [
+    ...rows,
+    synthesizedRow(account.id, "(Excise accrued)", "Excise tax accrued", "export_transaction_taxes", [], amounts, coaMap),
   ];
 }

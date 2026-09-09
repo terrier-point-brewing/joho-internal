@@ -52,88 +52,35 @@
  * No active schedule at all still returns NULL. That is the difference between
  * "this authority is not something we file for" and "we owe it nothing".
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchAllRows } from "@/lib/supabase/paginate";
-import { addDaysStr } from "@/lib/utils/datetime";
-import { TAXABLE_CHANNELS as NC_TAXABLE_CHANNELS } from "@/lib/tax/parties/ncDorBeerExcise/rates";
-import { TTB_TAXABLE_CHANNELS } from "@/lib/tax/parties/ttbBeerExcise/rates";
+// The authority configs and the row-sum live in lib/finance/exciseExpense.ts,
+// shared with the P&L's derived expense row, so the liability accrued here and
+// the expense the income statement recognizes are ONE formula, not two that
+// agree today. This provider adds only the balance-sheet framing: the
+// null-vs-zero guards and the internal sign convention.
+import { fetchDeclaredStart, fetchExciseCentsByMonth, fetchRateIds, EXCISE_AUTHORITIES } from "@/lib/finance/exciseExpense";
+import type { ExciseAuthority } from "@/lib/finance/exciseExpense";
 import { registerProvider, sharedRead } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
 
-/** What one authority needs in order to be accrued. */
-interface ExciseAuthority {
-  /** `tax_rates.party_key` — which authority its excise rates are owed to. */
-  partyKey: string;
-  /** `tax_schedules.filing_key` — the schedule whose declared first period floors the accrual. */
-  filingKey: string;
-  /** Shipment channels this authority actually taxes. */
-  taxableChannels: ReadonlySet<string>;
-}
-
-/**
- * The first date this authority's excise may be accrued from, or null for no
- * floor. Distinguishes "no schedule" (undefined -> provider returns null) from
- * "schedule with no declared first period" (null -> accrue everything).
- */
-async function fetchDeclaredStart(sb: SupabaseClient, filingKey: string): Promise<string | null | undefined> {
-  const { data, error } = await sb
-    .from("tax_schedules")
-    .select("config")
-    .eq("filing_key", filingKey)
-    .eq("active", true)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) return undefined;
-  const declared = (data as { config?: Record<string, unknown> | null }).config?.first_period_start;
-  if (typeof declared === "string" && /^\d{4}-\d{2}-\d{2}$/.test(declared)) return declared;
-  return null;
-}
-
-/** The ids of every active excise rate belonging to this authority. */
-async function fetchRateIds(sb: SupabaseClient, partyKey: string): Promise<string[]> {
-  const { data, error } = await sb
-    .from("tax_rates")
-    .select("id")
-    .eq("category", "excise")
-    .eq("party_key", partyKey)
-    .eq("is_active", true);
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as { id: string }[]).map((r) => r.id);
-}
-
 /**
  * Excise recorded against shipments in `(floor, periodEnd]`, in cents.
- *
- * Each `amount_usd` was snapped to whole cents when it was written, so
- * rounding per row and summing is exact -- unlike summing the dollars and
- * rounding once, which reintroduces a fraction the stored figures do not have.
- *
- * `created_at` is the ship date, the event excise attaches to, and shipment
- * rows are not restated afterwards. So this answers honestly about a closed
- * month, which is why the provider does not set `dependsOnCurrentState`.
+ * `periodEnd` is always a month end, so summing the shared per-month figures
+ * through its month is the same bound the row filter applies.
  */
 async function fetchExciseCents(
-  sb: SupabaseClient,
+  sb: Parameters<typeof fetchExciseCentsByMonth>[0],
   opts: { rateIds: string[]; channels: ReadonlySet<string>; floor: string | null; periodEnd: string },
 ): Promise<number> {
-  if (opts.rateIds.length === 0) return 0;
-
-  const rows = await fetchAllRows<{ amount_usd: number | string | null }>(() => {
-    let q = sb
-      .from("export_transaction_taxes")
-      .select("amount_usd, export_transactions!inner(created_at, channel)")
-      .in("excise_tax_rate_id", opts.rateIds)
-      .in("export_transactions.channel", [...opts.channels])
-      .lt("export_transactions.created_at", `${addDaysStr(opts.periodEnd, 1)}T00:00:00Z`)
-      .order("id", { ascending: true });
-    if (opts.floor) q = q.gte("export_transactions.created_at", `${opts.floor}T00:00:00Z`);
-    return q;
+  const throughMonth = opts.periodEnd.slice(0, 7);
+  const byMonth = await fetchExciseCentsByMonth(sb, {
+    rateIds: opts.rateIds,
+    channels: opts.channels,
+    floor: opts.floor,
+    throughMonth,
   });
-
   let cents = 0;
-  for (const row of rows) {
-    const usd = Number(row.amount_usd ?? 0);
-    if (Number.isFinite(usd)) cents += Math.round(usd * 100);
+  for (const [month, monthCents] of Object.entries(byMonth)) {
+    if (month <= throughMonth) cents += monthCents;
   }
   return cents;
 }
@@ -192,7 +139,7 @@ export const ttbExciseAccrual = exciseAccrualProvider(
   "ttbExciseAccrual",
   "Federal excise accrued",
   "2260",
-  { partyKey: "federal_ttb", filingKey: "ttb_beer_excise", taxableChannels: TTB_TAXABLE_CHANNELS },
+  EXCISE_AUTHORITIES.ttb,
 );
 
 /**
@@ -204,7 +151,7 @@ export const ncExciseAccrual = exciseAccrualProvider(
   "ncExciseAccrual",
   "NC excise accrued",
   "2220",
-  { partyKey: "nc_dor", filingKey: "nc_dor_beer_excise", taxableChannels: NC_TAXABLE_CHANNELS },
+  EXCISE_AUTHORITIES.nc,
 );
 
 registerProvider(ttbExciseAccrual);

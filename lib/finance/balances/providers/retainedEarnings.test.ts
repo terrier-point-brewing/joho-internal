@@ -25,6 +25,9 @@ function fakeClient(tables: Record<string, unknown[]>): SupabaseClient {
       in: () => chain,
       order: () => chain,
       range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
+      // The excise-expense read (tax_schedules) resolves single rows; an empty
+      // fixture means "no schedule", so the excise term contributes nothing.
+      maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
     };
     return chain;
   };

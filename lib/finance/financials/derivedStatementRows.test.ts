@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { injectDepreciationRows, injectInventoryReliefRows, injectSquareFeeRows, cumulativeDepreciationThrough } from "./derivedStatementRows";
+import { injectDepreciationRows, injectExciseExpenseRows, injectInventoryReliefRows, injectSquareFeeRows, cumulativeDepreciationThrough } from "./derivedStatementRows";
 import { reliefDeltasByMonth } from "@/lib/finance/inventoryRelief";
 import type { ScheduleState } from "@/lib/finance/depreciation/state";
 import type { CoaRecord } from "./aggregateRows";
@@ -125,5 +125,31 @@ describe("injectSquareFeeRows", () => {
   it("injects nothing while no account is configured, or when no month has fees", () => {
     expect(injectSquareFeeRows([], null, MONTHS, COA)).toHaveLength(0);
     expect(injectSquareFeeRows([], { coaId: "coa-5100", feeCentsByMonth: {} }, MONTHS, COA)).toHaveLength(0);
+  });
+});
+
+describe("injectExciseExpenseRows", () => {
+  const COA_WITH_6451: CoaRecord[] = [
+    ...COA,
+    { id: "coa-6451", parentId: "coa-6450", accountName: "Barrel Excise Taxes Paid", accountNumber: "6451", accountType: "Expenses", statementSection: null },
+  ];
+
+  it("synthesizes one negative cost row on GL 6451", () => {
+    const rows = injectExciseExpenseRows([], { "2026-05": 12_345, "2026-06": 6_789 }, MONTHS, COA_WITH_6451);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].coaId).toBe("coa-6451");
+    expect(rows[0].accountName).toBe("Barrel Excise Taxes Paid (Excise accrued)");
+    expect(rows[0].parentId).toBe("coa-6450");
+    expect(rows[0].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": -12_345, "2026-06": -6_789 });
+    expect(rows[0].mappingSource).toBe("rule");
+    expect(rows[0].sourceRef.table).toBe("export_transaction_taxes");
+  });
+
+  it("injects nothing without a 6451 account, without data, or with only zero months", () => {
+    expect(injectExciseExpenseRows([], { "2026-05": 100 }, MONTHS, COA)).toHaveLength(0);
+    expect(injectExciseExpenseRows([], null, MONTHS, COA_WITH_6451)).toHaveLength(0);
+    expect(injectExciseExpenseRows([], {}, MONTHS, COA_WITH_6451)).toHaveLength(0);
+    // A month outside the asked window must not leak in.
+    expect(injectExciseExpenseRows([], { "2026-03": 5_000 }, MONTHS, COA_WITH_6451)).toHaveLength(0);
   });
 });

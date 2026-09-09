@@ -17,7 +17,7 @@ import { fetchFinancialsSources } from "./fetchSources";
 import { aggregateRows } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
 import { injectManualNetSales } from "./manualNetSales";
-import { injectDepreciationRows, injectInventoryReliefRows, injectSquareFeeRows } from "./derivedStatementRows";
+import { injectDepreciationRows, injectExciseExpenseRows, injectInventoryReliefRows, injectSquareFeeRows } from "./derivedStatementRows";
 import { HREFS, coaAccountRefsOf } from "./statementCommon";
 import { buildBalanceSheetFinancials } from "./buildBalanceSheetFinancials";
 import type { FinancialsResponse, StatementKind } from "./types";
@@ -54,6 +54,11 @@ async function buildFlowFinancials(statement: "pl" | "cash_flow", year: number):
   // these rows recognize. `?? []` because older fixtures predate the fields.
   rows = injectDepreciationRows(rows, src.depreciationStates ?? [], months, src.coa);
   rows = injectInventoryReliefRows(rows, src.inventoryValueSeries ?? [], months, src.coa);
+  // Excise accrued: derived and NON-CASH like the two above (payments post to
+  // the liability accounts when they happen), so the fetch layer supplies it
+  // for the P&L alone and retained earnings absorbs the same cumulative
+  // figure through lib/finance/exciseExpense.ts.
+  rows = injectExciseExpenseRows(rows, src.exciseExpenseByMonth ?? null, months, src.coa);
   // Square fees arrive for BOTH statements: real cash, withheld at source.
   rows = injectSquareFeeRows(rows, src.squareFeeSeries ?? null, months, src.coa);
 

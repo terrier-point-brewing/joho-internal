@@ -14,6 +14,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchDepreciationState, type ScheduleState } from "@/lib/finance/depreciation/state";
 import { fetchInventoryValueSeries, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
 import { fetchSquareFeeSeries, type SquareFeeSeries } from "@/lib/finance/squareFees";
+import { fetchExciseExpenseByMonth } from "@/lib/finance/exciseExpense";
 import { fetchAllRows, PAGE_SIZE } from "@/lib/supabase/paginate";
 import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
 import { applyExpenseStatementFilters } from "./expenseFilters";
@@ -70,6 +71,12 @@ export interface FinancialsSourcesResult {
    * overstating profit. Null while no fee account is configured.
    */
   squareFeeSeries: SquareFeeSeries | null;
+  /**
+   * Excise accrued per month from the shipment record, "YYYY-MM" → POSITIVE
+   * cents. NON-CASH like depreciation (payments post to the liability
+   * accounts), so fetched for "pl" only and empty otherwise.
+   */
+  exciseExpenseByMonth: Record<string, number>;
 }
 
 const VOLUME_CATEGORIES = new Set(["distribution_keg", "distribution_can"]);
@@ -667,12 +674,13 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
   // Depreciation and inventory relief inputs, P&L only — see the result type.
   // The live month uses the runtime clock the same way trailingMonths does.
   const liveMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  const [depreciationStates, inventoryValueSeries] = statement === "pl"
+  const [depreciationStates, inventoryValueSeries, exciseExpenseByMonth] = statement === "pl"
     ? await Promise.all([
         fetchDepreciationState(supabase, coa),
         fetchInventoryValueSeries(supabase, months, liveMonth),
+        fetchExciseExpenseByMonth(supabase, months[months.length - 1]),
       ])
-    : [[], []];
+    : [[], [], {}];
   const squareFeeSeries = await fetchSquareFeeSeries(supabase, months);
 
   return {
@@ -688,5 +696,6 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     depreciationStates,
     inventoryValueSeries,
     squareFeeSeries,
+    exciseExpenseByMonth,
   };
 }
