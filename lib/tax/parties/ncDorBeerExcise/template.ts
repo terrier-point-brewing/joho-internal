@@ -125,7 +125,10 @@ const settingsSchema: FieldSpec[] = [];
 const scheduleConfigSchema: FieldSpec[] = [];
 
 const requiredRegistrations: RequiredRegistration[] = [
-  { authorityKey: "nc_dor", registrationKey: "nc_dor_account_id", label: "NC DOR Account / License Number" },
+  // NC DOR issues separate account numbers for sales & use tax and alcohol
+  // excise tax — excise filings pay through their own account, distinct
+  // registrationKey from ncDorSalesUse's so both can be on file at once.
+  { authorityKey: "nc_dor", registrationKey: "nc_dor_excise_account_id", label: "NC DOR Alcohol Excise Account Number" },
   // Brewery-side excise filing needs the wholesaler permit, not the taproom's
   // on-premise sales permit (see wakeCountyFoodBeverage/template.ts) — same
   // `nc_abc` authority, distinct registrationKey so both can be on file at once.

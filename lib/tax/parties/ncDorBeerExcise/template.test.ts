@@ -19,9 +19,9 @@ describe("nc_dor_beer_excise template", () => {
   it("settings schema is empty — filer identity now lives in Tax Profile (tax_entity_profile / tax_registrations), not a per-party settings form", () => {
     expect(p.settingsSchema).toEqual([]);
   });
-  it("required registrations are NC DOR account # and the ABC wholesaler permit", () => {
+  it("required registrations are the excise account # and the ABC wholesaler permit", () => {
     expect(p.requiredRegistrations).toEqual([
-      { authorityKey: "nc_dor", registrationKey: "nc_dor_account_id", label: "NC DOR Account / License Number" },
+      { authorityKey: "nc_dor", registrationKey: "nc_dor_excise_account_id", label: "NC DOR Alcohol Excise Account Number" },
       { authorityKey: "nc_abc", registrationKey: "abc_permit_number", label: "NC ABC Wholesaler Permit Number" },
     ]);
   });
