@@ -170,7 +170,10 @@ function buildReferenceView(rateMap: Record<string, number>): ReferenceSpec {
 }
 
 const requiredRegistrations: RequiredRegistration[] = [
-  { authorityKey: "nc_dor", registrationKey: "nc_dor_account_id", label: "NC DOR Account / License Number" },
+  // NC DOR issues separate account numbers for sales & use tax and alcohol
+  // excise tax — this party pays through the sales & use account, distinct
+  // registrationKey from ncDorBeerExcise's so both can be on file at once.
+  { authorityKey: "nc_dor", registrationKey: "nc_dor_sales_use_account_id", label: "NC DOR Sales & Use Account Number" },
 ];
 
 // ── Assembled template ──────────────────────────────────────────────────────
