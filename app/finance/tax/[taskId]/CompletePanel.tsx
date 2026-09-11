@@ -25,7 +25,7 @@ import { fmtCents, fmtDateLong } from "@/lib/utils/formatting";
 import { centsToDollarString, dollarStringToCents } from "@/lib/tax/ncDorWorksheetMath";
 import type { TaxTask } from "@/lib/tax/types";
 import { canSubmitComplete, type CompleteFormState } from "@/lib/tax/completeForm";
-import FileUploader from "./FileUploader";
+import FileUploader from "../FileUploader";
 
 function formStateForTask(task: TaxTask): CompleteFormState {
   return {
@@ -90,7 +90,7 @@ export default function CompletePanel({ taskId, task }: { taskId: string; task: 
 
         <div className="border-t border-line pt-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Confirmation Files</p>
-          <FileUploader taskId={taskId} readOnly />
+          <FileUploader apiBase={`/api/tax/tasks/${taskId}/files`} queryKey={queryKeys.tax.taskFiles(taskId)} readOnly />
         </div>
       </Card>
     );
@@ -175,7 +175,7 @@ export default function CompletePanel({ taskId, task }: { taskId: string; task: 
 
         <div className="border-t border-line pt-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Confirmation Files</p>
-          <FileUploader taskId={taskId} />
+          <FileUploader apiBase={`/api/tax/tasks/${taskId}/files`} queryKey={queryKeys.tax.taskFiles(taskId)} />
         </div>
 
         <div className="flex justify-end gap-2 pt-2 border-t border-line">

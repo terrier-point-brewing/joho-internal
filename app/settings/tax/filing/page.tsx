@@ -8,6 +8,7 @@ import { useTaxPartiesQuery } from "@/app/finance/tax/hooks/useTaxData";
 import IdentityForm from "./IdentityForm";
 import ReferenceDisclosure from "./ReferenceDisclosure";
 import FilingPortalForm from "./FilingPortalForm";
+import FileUploader from "@/app/finance/tax/FileUploader";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import ButtonGroup from "@/app/components/ButtonGroup";
 
@@ -87,6 +88,22 @@ export default function TaxFilingSettingsPage() {
                 />
               </section>
             )}
+
+            <section className="flex flex-col gap-2">
+              <h3 className="text-sm font-semibold text-primary">Form Files</h3>
+              <p className="text-sm text-secondary">
+                Filing-form templates for this module (e.g. a partially prefilled return PDF) —
+                downloadable from every period&rsquo;s task worksheet.
+              </p>
+              {/* Keyed like the forms above — switching modules must remount so the
+                  uploader's local state (selected file, label) doesn't carry over. */}
+              <FileUploader
+                key={activeModule.key}
+                apiBase={`/api/tax/parties/${activeModule.key}/form-files`}
+                queryKey={queryKeys.tax.formFiles(activeModule.key)}
+                labelPlaceholder="e.g. Prefilled B-C-710"
+              />
+            </section>
 
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-semibold text-primary">Reference Data</h3>

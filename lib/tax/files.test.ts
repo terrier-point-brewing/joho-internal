@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TaxTaskFile } from "./types";
-import { uploadTaskFile, listTaskFiles, signedUrlForFile, deleteTaskFile } from "./files";
+import {
+  uploadTaskFile, listTaskFiles, signedUrlForFile, deleteTaskFile,
+  uploadFormFile, listFormFiles, signedUrlForFormFile, deleteFormFile,
+} from "./files";
 
 // Stubbed sb whose `.storage.from(bucket)` returns upload/createSignedUrl/remove
 // mocks and whose `.from('tax_task_files')` returns insert/select/delete mocks —
@@ -258,5 +261,57 @@ describe("deleteTaskFile", () => {
 
     await expect(deleteTaskFile(sb, "T1", "F1")).rejects.toThrow(/remove boom/);
     expect(calls.some((c) => c.kind === "delete")).toBe(false);
+  });
+});
+
+// ── party form-file templates ────────────────────────────────────────────────
+// Same underlying helpers as the task functions, so only the scoping is
+// re-asserted here: the form functions must hit `tax_form_files` keyed by
+// `party_key`, and a fileId from another party must read as not found.
+
+describe("form files (party-scoped)", () => {
+  it("uploadFormFile inserts into tax_form_files with party_key and a party-prefixed storage path", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("33333333-3333-3333-3333-333333333333");
+    const { sb, calls } = makeSb();
+
+    await uploadFormFile(sb, "nc_dor_beer_excise", {
+      file: new Blob(["form"]),
+      fileName: "BC710-prefilled.pdf",
+      label: "Prefilled B-C-710",
+      userId: "USER_1",
+    });
+
+    const fromCall = calls.find((c) => c.kind === "from");
+    expect(fromCall?.args[0]).toBe("tax_form_files");
+
+    const uploadCall = calls.find((c) => c.kind === "storage.upload");
+    expect(uploadCall?.args[0]).toBe("nc_dor_beer_excise/33333333-3333-3333-3333-333333333333-BC710-prefilled.pdf");
+
+    const insertCall = calls.find((c) => c.kind === "insert");
+    expect(insertCall?.args[0]).toMatchObject({
+      party_key: "nc_dor_beer_excise",
+      file_name: "BC710-prefilled.pdf",
+      label: "Prefilled B-C-710",
+      uploaded_by: "USER_1",
+    });
+    expect((insertCall?.args[0] as Record<string, unknown>).task_id).toBeUndefined();
+
+    vi.restoreAllMocks();
+  });
+
+  it("listFormFiles reads tax_form_files filtered by party_key", async () => {
+    const { sb, calls } = makeSb();
+    await listFormFiles(sb, "nc_dor_beer_excise");
+    expect(calls.find((c) => c.kind === "from")?.args[0]).toBe("tax_form_files");
+    expect(calls.find((c) => c.kind === "eq")?.args).toEqual(["party_key", "nc_dor_beer_excise"]);
+  });
+
+  it("signedUrlForFormFile / deleteFormFile treat a fileId scoped to another party as not found", async () => {
+    // sampleFile has no party_key, so the stub's filter-matching lookup
+    // rejects it for any party — standing in for a cross-party fileId.
+    const { sb, calls } = makeSb();
+    await expect(signedUrlForFormFile(sb, "nc_dor_beer_excise", "F1")).rejects.toThrow(/not found/i);
+    await expect(deleteFormFile(sb, "nc_dor_beer_excise", "F1")).rejects.toThrow(/not found/i);
+    expect(calls.some((c) => c.kind === "storage.remove")).toBe(false);
   });
 });

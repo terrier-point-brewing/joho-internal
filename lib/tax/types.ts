@@ -78,6 +78,12 @@ export interface TaxTaskFile {
   id: string; task_id: string; storage_path: string; file_name: string;
   label: string | null; uploaded_at: string; uploaded_by: string | null;
 }
+/** A filing-form template (e.g. partially prefilled return PDF) attached to
+ * a party module, reused by every period's task. */
+export interface TaxFormFile {
+  id: string; party_key: string; storage_path: string; file_name: string;
+  label: string | null; uploaded_at: string; uploaded_by: string | null;
+}
 
 export type TaxFilingProfileValues = Record<string, string>;
 

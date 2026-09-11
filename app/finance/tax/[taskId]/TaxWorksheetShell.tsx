@@ -32,6 +32,7 @@ import { useTaxPartiesQuery, useEntityProfileQuery, useLegalRepresentativeQuery,
 import { bankAccountTypeLabel } from "@/lib/tax/bankAccount";
 import { getWorksheetModule } from "../parties/registry";
 import CompletePanel from "./CompletePanel";
+import FileUploader from "../FileUploader";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
@@ -325,6 +326,21 @@ export default function TaxWorksheetShell({ taskId }: { taskId: string }) {
             </p>
           </div>
         </div>
+
+        {/* The party module's filing-form templates (e.g. a partially
+            prefilled return PDF), managed in Settings → Tax Filing —
+            download-only here: a template is setup, not per-period data.
+            Distinct from CompletePanel's confirmation files, which are
+            proof uploaded at submission. */}
+        <Card className="mb-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Form Files</p>
+          <FileUploader
+            apiBase={`/api/tax/parties/${task.filing_key}/form-files`}
+            queryKey={queryKeys.tax.formFiles(task.filing_key)}
+            emptyText="No form files. Upload templates in Settings → Tax Filing."
+            readOnly
+          />
+        </Card>
 
         <div id="complete-panel">
           <CompletePanel taskId={taskId} task={task} />

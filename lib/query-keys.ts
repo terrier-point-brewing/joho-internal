@@ -163,6 +163,7 @@ export const queryKeys = {
     tasks:     () => ["tax", "tasks"] as const,
     task:      (id: string) => ["tax", "tasks", id] as const,
     taskFiles: (id: string) => ["tax", "tasks", id, "files"] as const,
+    formFiles: (partyKey: string) => ["tax", "form-files", partyKey] as const,
     schedules: () => ["tax", "schedules"] as const,
     parties:   () => ["tax", "parties"] as const,
     profile:   (party: string) => ["tax", "profile", party] as const,
