@@ -1,6 +1,14 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
 /**
+ * exportedBbl and allocatedBbl arrive by different arithmetic paths (summed
+ * export rows vs percentage-of-produced), so an exactly-met commitment can
+ * miss by a float hair (observed: 17.6069 vs 17.607). Within this tolerance
+ * the commitment counts as met.
+ */
+export const FULFILLMENT_TOLERANCE_BBL = 0.01;
+
+/**
  * Everything needed to decide a commitment's fulfillment state, or null when a
  * gate failed and no decision can be made (no backing commitment, batch not
  * complete, or nothing produced yet).
@@ -88,7 +96,7 @@ export async function checkAndFulfillCommitment(
 ): Promise<void> {
   const state = await loadFulfillmentState(supabase, allocationId);
   if (!state) return;
-  if (state.exportedBbl < state.allocatedBbl) return;
+  if (state.exportedBbl < state.allocatedBbl - FULFILLMENT_TOLERANCE_BBL) return;
   if (state.status === "fulfilled") return;
 
   await supabase.from("commitments").update({ status: "fulfilled" }).eq("id", state.commitmentId);
@@ -111,7 +119,7 @@ export async function recheckCommitmentFulfillment(
   const state = await loadFulfillmentState(supabase, allocationId);
   if (!state) return;
 
-  const met = state.exportedBbl >= state.allocatedBbl;
+  const met = state.exportedBbl >= state.allocatedBbl - FULFILLMENT_TOLERANCE_BBL;
   const isFulfilled = state.status === "fulfilled";
   if (met === isFulfilled) return;
 
@@ -119,4 +127,45 @@ export async function recheckCommitmentFulfillment(
     .from("commitments")
     .update({ status: met ? "fulfilled" : "open" })
     .eq("id", state.commitmentId);
+}
+
+/**
+ * Re-evaluates every commitment-backed allocation on a batch. Fulfillment is
+ * gated on the batch being "complete", so exports written while the batch was
+ * still brewing never trigger a check — this runs the moment the batch turns
+ * complete and allocatedBbl becomes final.
+ */
+export async function recheckBatchCommitments(
+  supabase: SupabaseClient,
+  batchId: string,
+): Promise<void> {
+  const { data: allocations } = await supabase
+    .from("batch_allocations")
+    .select("id")
+    .eq("batch_id", batchId)
+    .not("contract_request_id", "is", null);
+  for (const a of allocations ?? []) {
+    await recheckCommitmentFulfillment(supabase, a.id);
+  }
+}
+
+/**
+ * When an allocation is deleted or re-pointed, the commitment it used to back
+ * may be stranded at "fulfilled" with nothing backing it. If no allocation
+ * references the commitment any more, its demand is unmet again — reopen it.
+ */
+export async function reopenOrphanedCommitment(
+  supabase: SupabaseClient,
+  commitmentId: string,
+): Promise<void> {
+  const { count } = await supabase
+    .from("batch_allocations")
+    .select("id", { count: "exact", head: true })
+    .eq("contract_request_id", commitmentId);
+  if ((count ?? 0) > 0) return;
+  await supabase
+    .from("commitments")
+    .update({ status: "open" })
+    .eq("id", commitmentId)
+    .eq("status", "fulfilled");
 }

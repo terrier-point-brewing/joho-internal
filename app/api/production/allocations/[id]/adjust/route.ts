@@ -3,6 +3,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { issueDepositReduction, RefundError } from "@/lib/finance/issueRefund";
+import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
 
 export const dynamic = "force-dynamic";
 
@@ -118,6 +119,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       { error: `Refund succeeded (id: ${refund.squareRefundId}) and is recorded, but saving the new percentage failed: ${updateErr.message}. Do NOT retry the refund — set the allocation to ${newPercentage}% by hand.`, moneyMoved: true },
       { status: 500 }
     );
+  }
+
+  // The percentage just changed allocatedBbl — re-judge the backing commitment.
+  if (updated.contract_request_id) {
+    await recheckCommitmentFulfillment(supabase, id);
   }
 
   return NextResponse.json({ allocation: updated, refundAmountCents, refundId: refund.squareRefundId });

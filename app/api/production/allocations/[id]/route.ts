@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  recheckCommitmentFulfillment,
+  reopenOrphanedCommitment,
+} from "@/lib/production/commitmentFulfillment";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +95,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Percentage or partner changes move allocatedBbl/exportedBbl, and re-pointing
+  // contract_request_id can strand the old commitment — re-judge both sides.
+  if (data.contract_request_id) {
+    await recheckCommitmentFulfillment(supabase, id);
+  }
+  if (current.contract_request_id && current.contract_request_id !== data.contract_request_id) {
+    await reopenOrphanedCommitment(supabase, current.contract_request_id);
+  }
+
   return NextResponse.json(data);
 }
 
@@ -105,7 +119,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { data: current, error: fetchErr } = await supabase
     .from("batch_allocations")
-    .select("invoice_paid_at")
+    .select("invoice_paid_at, contract_request_id")
     .eq("id", id)
     .single();
 
@@ -117,5 +131,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { error } = await supabase.from("batch_allocations").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // The FK nulls out on delete — don't leave the commitment stranded at
+  // "fulfilled" with nothing backing it.
+  if (current.contract_request_id) {
+    await reopenOrphanedCommitment(supabase, current.contract_request_id);
+  }
+
   return new NextResponse(null, { status: 204 });
 }
