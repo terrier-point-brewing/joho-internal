@@ -47,14 +47,14 @@ const CHANNEL_OPTIONS = [
 const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
   filters: [
     { param: "channel", accessor: (r) => r.channel },
-    { param: "style", accessor: (r) => r.beer_style },
+    { param: "recipe", accessor: (r) => r.recipe_name },
     { param: "partner", accessor: (r) => r.partner_id ?? "" },
   ],
   sort: {
     columns: [
       { key: "channel", accessor: (r) => r.channel },
       { key: "status", accessor: (r) => r.status },
-      { key: "beer_style", accessor: (r) => r.beer_style },
+      { key: "recipe_name", accessor: (r) => r.recipe_name },
       { key: "partner_name", accessor: (r) => r.partner_name },
       { key: "volume_bbl", accessor: (r) => r.volume_bbl },
       { key: "packaging_total_bbl", accessor: (r) => r.packaging_total_bbl },
@@ -467,7 +467,7 @@ interface SortableRow extends ContractBrewingRequest {
   packaging_total_bbl: number;
   schedule_sort: string;
   /** Derived from the joined recipe (commitments.beer_style was dropped). */
-  beer_style: string;
+  recipe_name: string;
 }
 
 function packagingTotalBbl(q: ContractBrewingRequest): number {
@@ -637,7 +637,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     return q.desired_delivery_date ? fmtDateLong(q.desired_delivery_date) : "—";
   }
 
-  const uniqueStyles = Array.from(new Set(rows.map((r) => r.recipes?.style ?? r.recipes?.beer_name).filter(Boolean))).sort() as string[];
+  const uniqueRecipes = Array.from(new Set(rows.map((r) => r.recipes?.beer_name).filter(Boolean))).sort() as string[];
   const uniquePartners = Array.from(
     new Map(
       rows
@@ -652,7 +652,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
       partner_name: q.contract_brewing_partners?.company_name ?? "",
       packaging_total_bbl: packagingTotalBbl(q),
       schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
-      beer_style: q.recipes?.style ?? q.recipes?.beer_name ?? "",
+      recipe_name: q.recipes?.beer_name ?? "",
     })),
     [rows],
   );
@@ -667,9 +667,9 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
         <FilterBar activeCount={activeCount} onClear={reset}>
           <FilterChips label="Channel" options={CHANNEL_OPTIONS}
             value={filters.channel ?? []} onChange={(v) => setFilter("channel", v)} />
-          <FilterSelect label="Style"
-            options={uniqueStyles.map((s) => ({ value: s, label: s }))}
-            value={filters.style ?? []} onChange={(v) => setFilter("style", v)} />
+          <FilterSelect label="Recipe"
+            options={uniqueRecipes.map((s) => ({ value: s, label: s }))}
+            value={filters.recipe ?? []} onChange={(v) => setFilter("recipe", v)} />
           <FilterSelect label="Partner"
             options={uniquePartners.map(([id, name]) => ({ value: id, label: name }))}
             value={filters.partner ?? []} onChange={(v) => setFilter("partner", v)} />
@@ -686,7 +686,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
               <tr className="border-b border-line bg-surface/50 text-left">
                 <SortableTh label="Channel" sortKey="channel" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
                 <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
-                <SortableTh label="Style" sortKey="beer_style" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Recipe" sortKey="recipe_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Partner" sortKey="partner_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Volume (BBL)" sortKey="volume_bbl" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
                 <SortableTh label="Packaging" sortKey="packaging_total_bbl" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
@@ -704,7 +704,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                 <tr key={q.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
                   <td className="px-4 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
                   <td className="px-4 py-2.5"><StatusBadge status={q.status} /></td>
-                  <td className="px-4 py-2.5 text-primary font-medium">{q.beer_style}</td>
+                  <td className="px-4 py-2.5 text-primary font-medium">{q.recipe_name || "—"}</td>
                   <td className="px-4 py-2.5 text-body">{q.contract_brewing_partners?.company_name ?? "—"}</td>
                   <td className="px-4 py-2.5 text-body tabular-nums">{Number(q.volume_bbl)}</td>
                   <td className="px-4 py-2.5 text-secondary text-xs">{pkgLabel(q)}</td>

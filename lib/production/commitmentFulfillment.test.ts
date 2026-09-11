@@ -155,6 +155,22 @@ describe("checkAndFulfillCommitment", () => {
     expect(recorded).toEqual([]);
   });
 
+  it("caps the owed volume at the commitment's booked volume_bbl on an over-yielding batch", async () => {
+    // produced = 29.1 ; share = 75% × 29.1 = 21.83 — but the commitment booked
+    // 15 and shipment crediting caps at booked, so 15 exported must fulfill.
+    const { client, recorded } = stub({
+      allocation: { ...fullAllocation, percentage: 75 },
+      batch: { status: "complete" },
+      transfers: [{ volume_bbl: 29.1, transfer_type: "kegging" }],
+      exports: [{ volume_bbl: 15 }],
+      commitment: { status: "open", volume_bbl: 15 },
+    });
+    await checkAndFulfillCommitment(client, "a1");
+    expect(recorded).toEqual([
+      { table: "commitments", op: "update", payload: { status: "fulfilled" } },
+    ]);
+  });
+
   it("treats missing shrinkage_bbl as zero in producedBbl", async () => {
     // produced = 20 - 0 = 20 ; allocated 50% = 10 ; exported 10 → fulfill
     const { client, recorded } = stub({

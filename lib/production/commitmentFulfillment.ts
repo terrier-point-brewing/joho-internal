@@ -58,7 +58,7 @@ async function loadFulfillmentState(
   // subtracted here (would double-count). See the allocation-reserve plan.
   const producedBbl = (transfers ?? []).reduce((s, t) => s + Number(t.volume_bbl), 0);
   if (producedBbl <= 0) return null;
-  const allocatedBbl = (Number(allocation.percentage) / 100) * producedBbl;
+  const shareBbl = (Number(allocation.percentage) / 100) * producedBbl;
 
   const { data: exports_ } = await supabase
     .from("export_transactions")
@@ -70,10 +70,17 @@ async function loadFulfillmentState(
 
   const { data: commitment } = await supabase
     .from("commitments")
-    .select("status")
+    .select("status, volume_bbl")
     .eq("id", allocation.contract_request_id)
     .single();
   if (!commitment) return null;
+
+  // Shipment crediting caps a contract allocation at its booked volume
+  // (planShipment: min(booked remaining, realizable)), so on an over-yielding
+  // batch exportedBbl can never reach percentage × produced — the commitment
+  // is owed min(its % of what was made, what was actually committed).
+  const bookedBbl = Number(commitment.volume_bbl);
+  const allocatedBbl = bookedBbl > 0 ? Math.min(shareBbl, bookedBbl) : shareBbl;
 
   return {
     commitmentId: allocation.contract_request_id,
