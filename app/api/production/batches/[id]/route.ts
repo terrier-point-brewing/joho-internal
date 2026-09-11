@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { upsertCommitments, releaseCommitments } from "@/lib/production/commitments";
+import { recheckBatchCommitments } from "@/lib/production/commitmentFulfillment";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,10 @@ export async function PATCH(
 
     // Release ingredient commitments — batch is cancelled.
     await releaseCommitments(supabase, id);
+
+    // Fulfillment is gated on batch completion, so exports shipped before this
+    // moment were never judged — evaluate the batch's commitments now.
+    await recheckBatchCommitments(supabase, id);
 
     // batch_allocations, export_transactions, batch_transfers, batch_status_history,
     // and batch_brew_activity_log are intentionally left untouched — they are
