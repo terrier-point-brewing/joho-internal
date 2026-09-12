@@ -280,6 +280,10 @@ export async function POST(req: NextRequest) {
         periodEnd: body.periodEnd,
         actorId: session.user.id,
         todayIso: todayLocalDate(),
+        // Optional, unlike reopen's: a clean month needs no explanation, but a
+        // month closed with a known, documented balancing difference deserves
+        // its decomposition on the record next to the closer's name.
+        reason: typeof body.reason === "string" ? body.reason : null,
       });
       // 409, not 400: the request was well formed and the answer is about the
       // state of the books. The blockers are full sentences meant to be shown

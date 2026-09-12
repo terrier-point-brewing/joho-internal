@@ -68,6 +68,7 @@ export default function ClosePeriodFooter({
   const [busy, setBusy] = useState(false);
   const [blockers, setBlockers] = useState<string[]>([]);
   const [reopening, setReopening] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
 
@@ -105,7 +106,8 @@ export default function ClosePeriodFooter({
     }
   }
 
-  async function closeMonth() {
+  async function closeMonth(reason: string) {
+    setClosing(false);
     setBusy(true);
     setBlockers([]);
     setPreview(null);
@@ -113,7 +115,7 @@ export default function ClosePeriodFooter({
       const res = await fetch("/api/finance/balance-close", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "close-period", periodEnd }),
+        body: JSON.stringify({ action: "close-period", periodEnd, ...(reason.trim() ? { reason } : {}) }),
       });
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as { error?: string; blockers?: string[] };
@@ -138,6 +140,7 @@ export default function ClosePeriodFooter({
               <>
                 {label} was closed by {close.actorEmail ?? "somebody whose login has since been removed"} on{" "}
                 {fmtMoment(close.at)}. Its balances no longer recompute.
+                {close.reason ? ` — “${close.reason}”` : ""}
               </>
             ) : (
               <>
@@ -161,7 +164,7 @@ export default function ClosePeriodFooter({
                 type="button"
                 className="btn-primary"
                 disabled={busy || previewing || openCount > 0}
-                onClick={closeMonth}
+                onClick={() => setClosing(true)}
                 // Said here rather than only on refusal: a disabled button with
                 // no explanation is the same dead end as a silent one.
                 title={openCount > 0 ? "Every account needs a balance or a recorded reason first." : undefined}
@@ -254,6 +257,14 @@ export default function ClosePeriodFooter({
         </Banner>
       )}
 
+      {closing && (
+        <CloseModal
+          label={label}
+          onClose={() => setClosing(false)}
+          onSubmit={closeMonth}
+        />
+      )}
+
       {reopening && (
         <ReopenModal
           label={label}
@@ -271,6 +282,54 @@ export default function ClosePeriodFooter({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * "These books are final" — with room to say what the reader should know.
+ *
+ * The note is OPTIONAL, unlike the reopen's mandatory reason: a clean month
+ * needs no explanation. It exists for the month that closes with a known,
+ * documented balancing difference — the decomposition belongs on the record
+ * next to the closer's name, not in a chat log.
+ */
+function CloseModal({
+  label,
+  onClose,
+  onSubmit,
+}: {
+  label: string;
+  onClose: () => void;
+  onSubmit: (reason: string) => Promise<void>;
+}) {
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    await onSubmit(note);
+  }
+
+  return (
+    <Modal title={`Close ${label}`} onClose={onClose}>
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <p className="text-xs text-secondary">
+          {label}&apos;s balances stop recomputing and the month reads as final with your name on it. Reopening later
+          requires a reason.
+        </p>
+        <Field label="Note for the record (optional)">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. closes at +$822.07 of month-boundary timing: wages paid Jun 2, card statement, untracked inventory"
+            className="inp min-h-20"
+            autoFocus
+          />
+        </Field>
+        <ModalActions submitting={submitting} onCancel={onClose} label="Close it" />
+      </form>
+    </Modal>
   );
 }
 
