@@ -724,7 +724,17 @@ export async function POST(req: NextRequest) {
     shrinkage_bbl?: number;
     packaging_lines?: { variation_id: string; quantity: number }[];
     packaging_loss_pct?: number;
-    new_batch?: { beer_name: string; recipe_id: string } | null;
+    /**
+     * Inline conversion target. conversion_date / expected_delivery_date are
+     * optional operator overrides for the child's timeline; absent, the child
+     * is dated today with delivery derived from the recipe's brite time.
+     */
+    new_batch?: {
+      beer_name: string;
+      recipe_id: string;
+      conversion_date?: string | null;
+      expected_delivery_date?: string | null;
+    } | null;
     /** In-keg/in-can conversion: the recipe this packaging run produced. */
     packaged_as_recipe_id?: string | null;
     /**
@@ -1172,7 +1182,8 @@ export async function POST(req: NextRequest) {
           beerName:      new_batch.beer_name,
           recipeId:      new_batch.recipe_id,
           volumeBbl:     convertedVol,
-          conversionDate: new Date().toISOString().split("T")[0],
+          conversionDate: new_batch.conversion_date || new Date().toISOString().split("T")[0],
+          expectedDeliveryDate: new_batch.expected_delivery_date ?? null,
         });
       } catch (createErr) {
         return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
@@ -1180,6 +1191,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (targetBatchId) {
+      // A resolved target (existing batch, plan child, reused child) INHERITS
+      // the operator's delivery date only when it has none of its own.
+      const inheritDelivery = (body as { expected_delivery_date?: string | null }).expected_delivery_date
+        ?? new_batch?.expected_delivery_date ?? null;
+      if (inheritDelivery) {
+        await supabase
+          .from("brew_batches")
+          .update({ expected_delivery_date: inheritDelivery })
+          .eq("id", targetBatchId)
+          .is("expected_delivery_date", null);
+      }
+
       const transferId = (transfers[0] as { id?: string }).id;
       if (transferId) {
         await supabase.from("batch_transfers").update({ to_batch_id: targetBatchId }).eq("id", transferId);

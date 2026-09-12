@@ -10,6 +10,7 @@ import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import type { ScheduleEntry } from "../hooks/queries";
 import { format, parseISO } from "date-fns";
 import { baseMapOf, lineageDescendants } from "@/lib/production/recipeLineage";
+import ConversionTargetFields, { emptyConversionTarget, type ConversionTargetValue } from "./ConversionTargetFields";
 
 // Allowed destinations by source equipment type. Fermenters and brite tanks
 // are interchangeable for the fermenting→conditioning move (many breweries
@@ -198,26 +199,15 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const [notes,      setNotes]      = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Conversion-specific state
-  const [convertToBatchId, setConvertToBatchId] = useState(initialConvert?.toBatchId ?? "");
-  const [convertBbl,       setConvertBbl]        = useState(initialConvert?.bbl ?? "");
-  // Existing target batch vs. create a brand-new one inline. Defaults to
-  // "existing" (pre-planned conversions arrive with a target batch).
-  const [convertTarget, setConvertTarget] = useState<"existing" | "new">("existing");
-  const [newBeerName, setNewBeerName] = useState(initialConvert?.beerName ?? "");
-  const [newRecipeId, setNewRecipeId] = useState("");
-
-  const linkedRecipes   = recipes.filter((r) => derivedRecipeIds.has(r.id));
-  const unlinkedRecipes = recipes.filter((r) => !derivedRecipeIds.has(r.id));
+  // Conversion-specific state — the shared block owns target/volume/dates.
+  // Defaults to "existing" (pre-planned conversions arrive with a target batch).
+  const [convert, setConvert] = useState<ConversionTargetValue>(() => ({
+    ...emptyConversionTarget(new Date().toISOString().slice(0, 10)),
+    targetBatchId: initialConvert?.toBatchId ?? "",
+    volumeBbl:     initialConvert?.bbl ?? "",
+  }));
 
   const convertCandidates = batches.filter((b) => b.id !== batch.id && b.status !== "complete");
-  const linkedBatches   = convertCandidates.filter((b) => b.recipe_id != null && derivedRecipeIds.has(b.recipe_id));
-  const unlinkedBatches = convertCandidates.filter((b) => !(b.recipe_id != null && derivedRecipeIds.has(b.recipe_id)));
-
-  const selectedTargetRecipeId = convertTarget === "new"
-    ? (newRecipeId || null)
-    : (convertCandidates.find((b) => b.id === convertToBatchId)?.recipe_id ?? null);
-  const conversionUnlinked = selectedTargetRecipeId != null && !derivedRecipeIds.has(selectedTargetRecipeId);
 
   const destTank = allTanks.find((t) => t.id === destId);
 
@@ -245,7 +235,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
 
   let drawBbl = 0;
   if (mode === "convert") {
-    drawBbl = parseFloat(convertBbl) || 0;
+    drawBbl = parseFloat(convert.volumeBbl) || 0;
   } else if (isPackagingForm) {
     const activeVariations = showKegDetail ? kegVariations : canVariations;
     drawBbl = packagingLines.reduce((sum, l) => {
@@ -278,7 +268,9 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     }
   }
 
-  const totalDraw = drawBbl + (mode === "convert" ? 0 : shrinkBbl);
+  // Shrinkage counts against the source in every mode — a conversion loses
+  // beer to trub and hoses exactly like any other draw.
+  const totalDraw = drawBbl + shrinkBbl;
   const remaining = batchVol - totalDraw;
 
   const destIsConstrained = destTank && !UNCONSTRAINED_EQUIPMENT_TYPES.includes(destTank.type);
@@ -312,11 +304,13 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     setSubmitting(true);
     try {
       if (mode === "convert") {
-        const usingExisting = convertTarget === "existing";
-        if (usingExisting && !convertToBatchId) { alert("Select a target batch."); return; }
-        if (!usingExisting && (!newBeerName.trim() || !newRecipeId)) { alert("Enter a name and recipe for the new batch."); return; }
-        if (!(parseFloat(convertBbl) > 0)) { alert("Enter the volume to convert."); return; }
+        const usingExisting = convert.targetMode === "existing";
+        if (usingExisting && !convert.targetBatchId) { alert("Select a target batch."); return; }
+        if (!usingExisting && !convert.newRecipeId) { alert("Select the beer the conversion produces."); return; }
+        if (!(parseFloat(convert.volumeBbl) > 0)) { alert("Enter the volume to convert."); return; }
 
+        // The child's name IS the recipe's beer — nothing to type, nothing to typo.
+        const newRecipeName = recipes.find((r) => r.id === convert.newRecipeId)?.beer_name ?? "Converted batch";
         const res = await fetch("/api/production/transfers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -324,10 +318,17 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             batch_id:      batch.id,
             from_tank_id:  fromTank.id,
             to_tank_id:    effectiveDestId || null,
-            to_batch_id:   usingExisting ? convertToBatchId : null,
-            new_batch:     usingExisting ? null : { beer_name: newBeerName.trim(), recipe_id: newRecipeId },
-            volume_bbl:    parseFloat(convertBbl),
-            shrinkage_bbl: 0,
+            to_batch_id:   usingExisting ? convert.targetBatchId : null,
+            // For an existing target the date is inherit-if-null server-side.
+            expected_delivery_date: convert.expectedDeliveryDate || null,
+            new_batch:     usingExisting ? null : {
+              beer_name:              newRecipeName,
+              recipe_id:              convert.newRecipeId,
+              conversion_date:        convert.conversionDate || null,
+              expected_delivery_date: convert.expectedDeliveryDate || null,
+            },
+            volume_bbl:    parseFloat(convert.volumeBbl),
+            shrinkage_bbl: shrinkBbl,
             transfer_type: "conversion",
             notes:         notes || null,
           }),
@@ -502,87 +503,23 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
 
           {/* ── Right column: how much / what's converting ── */}
           <div className="space-y-3">
-            {/* ── Convert mode fields ── */}
+            {/* ── Convert mode fields — the shared conversion block ── */}
             {mode === "convert" && (
               <>
-                <div className="flex gap-1">
-                  <ToggleChip active={convertTarget === "existing"} onClick={() => setConvertTarget("existing")}>
-                    Existing batch
-                  </ToggleChip>
-                  <ToggleChip active={convertTarget === "new"} onClick={() => setConvertTarget("new")}>
-                    New batch
-                  </ToggleChip>
-                </div>
-
-                {convertTarget === "existing" ? (
-                  <Field label="Target Batch" required>
-                    <select className="inp" value={convertToBatchId} required onChange={e => setConvertToBatchId(e.target.value)}>
-                      <option value="">— select batch —</option>
-                      {linkedBatches.length > 0 && (
-                        <optgroup label={`Based on ${batch.beer_name}`}>
-                          {linkedBatches.map(b => (
-                            <option key={b.id} value={b.id}>
-                              {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                      {unlinkedBatches.length > 0 && (
-                        <optgroup label={linkedBatches.length > 0 ? "Other batches" : "All batches"}>
-                          {unlinkedBatches.map(b => (
-                            <option key={b.id} value={b.id}>
-                              {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
-                  </Field>
-                ) : (
-                  <>
-                    <Field label="New Batch Name" required>
-                      <input className="inp" placeholder="e.g. Pumpkin Ale" required
-                        value={newBeerName} onChange={e => setNewBeerName(e.target.value)} />
-                    </Field>
-                    <Field label="Recipe" required>
-                      <select className="inp" value={newRecipeId} required onChange={e => setNewRecipeId(e.target.value)}>
-                        <option value="">— select recipe —</option>
-                        {linkedRecipes.length > 0 && (
-                          <optgroup label={`Based on ${batch.beer_name}`}>
-                            {linkedRecipes.map(r => (
-                              <option key={r.id} value={r.id}>{r.beer_name}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {unlinkedRecipes.length > 0 && (
-                          <optgroup label={linkedRecipes.length > 0 ? "Other recipes" : "All recipes"}>
-                            {unlinkedRecipes.map(r => (
-                              <option key={r.id} value={r.id}>{r.beer_name}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
-                    </Field>
-                  </>
-                )}
-
-                {/* A warning, never a block: converting into an unrelated recipe is a
-                  * real thing to do. It just cannot be costed, so say so plainly
-                  * instead of silently charging nothing. */}
-                {conversionUnlinked && (
-                  <p className="text-xs text-[var(--cat-amber-fg)]">
-                    This recipe isn&apos;t based on {batch.beer_name}, so the conversion won&apos;t
-                    charge any added ingredients. Set &ldquo;Based On&rdquo; on the recipe to have
-                    its additions costed. The conversion itself will go through either way.
-                  </p>
-                )}
-
-                <Field label="Volume to Convert (BBL)" required>
+                <ConversionTargetFields
+                  sourceBeerName={batch.beer_name}
+                  sourceRecipeId={batch.recipe_id}
+                  recipes={recipes}
+                  candidateBatches={convertCandidates}
+                  value={convert}
+                  onChange={setConvert}
+                  volumeMax={batchVol}
+                />
+                <Field label="Shrinkage (BBL)">
                   <div className="flex items-center gap-2">
-                    <input type="number" step="0.001" min="0.001" max={batchVol} className="inp w-40"
-                      placeholder="0.000" required
-                      value={convertBbl} onChange={(e) => setConvertBbl(e.target.value)} />
-                    <span className="text-muted text-sm">BBL</span>
+                    <input type="number" step="0.001" min="0" className="inp w-40"
+                      value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
+                    <span className="text-muted text-sm">lost from {fromTank.name}</span>
                   </div>
                 </Field>
               </>
