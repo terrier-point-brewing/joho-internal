@@ -300,7 +300,45 @@ describe("a closed month stops recomputing", () => {
       skipped: 0,
       errors: [],
       excluded: [],
+      balancingDifferenceCents: null,
     });
+  });
+
+  /**
+   * The close panel's "Preview close": the SAME snapshotPeriod, persisting
+   * nothing. The projected balancing difference must count both the values a
+   * real run would write AND the stored rows it would leave alone -- an
+   * account nothing recomputes keeps its row, so it keeps its place in the sum.
+   */
+  it("dry-runs without writing, projecting the sum of would-be writes plus kept rows", async () => {
+    const db = emptyDb({
+      sources: [{ chart_of_accounts_id: "coa-a", provider_key: "manualBalance", config: {}, active: true }],
+      manualEntries: [
+        { entry_kind: "balance", chart_of_accounts_id: "coa-a", as_of_date: "2026-06-30", amount_cents: 500 },
+      ],
+      // A stored row no source recomputes: a real run leaves it in place, so
+      // the projection must count it too.
+      balances: [{ chart_of_accounts_id: "coa-b", period_end: "2026-06-30", is_frozen: false, balance_cents: 300 }],
+    });
+    let upserts = 0;
+    const real = makeFakeSupabase(db);
+    const supabase = {
+      from(table: string) {
+        const base = (real as unknown as { from: (t: string) => Record<string, unknown> }).from(table);
+        if (table !== "gl_account_balances") return base;
+        return { ...base, upsert: async () => { upserts++; return { error: null }; } };
+      },
+    } as unknown as SupabaseClient;
+
+    const dry = await snapshotPeriod(supabase, "2026-06-30", { todayIso: "2026-08-02", dryRun: true });
+    expect(dry.balancingDifferenceCents).toBe(800);
+    expect(dry.written).toBe(0);
+    expect(upserts).toBe(0);
+
+    const wet = await snapshotPeriod(supabase, "2026-06-30", { todayIso: "2026-08-02" });
+    expect(wet.balancingDifferenceCents).toBe(800);
+    expect(wet.written).toBe(1);
+    expect(upserts).toBe(1);
   });
 
   it("recomputes again once the month has been reopened", async () => {

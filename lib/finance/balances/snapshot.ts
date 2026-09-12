@@ -48,6 +48,14 @@ export interface SnapshotResult {
    * configured".
    */
   excluded: string[];
+  /**
+   * The period's Balancing Difference AFTER this run: every stored row's
+   * balance, with this run's computed values replacing the rows they (would)
+   * overwrite. Computed identically whether or not the run persisted
+   * (`dryRun`), so a preview and the close it precedes cannot disagree. Null
+   * when the period is closed (nothing was computed) or holds no rows at all.
+   */
+  balancingDifferenceCents: number | null;
 }
 
 interface SourceRow {
@@ -59,6 +67,7 @@ interface SourceRow {
 interface ExistingRow {
   chart_of_accounts_id: string;
   is_frozen: boolean;
+  balance_cents: number | null;
 }
 
 /**
@@ -329,7 +338,7 @@ export async function fetchDeclaredSources(supabase: AdminClient): Promise<Decla
 export async function snapshotPeriod(
   supabase: AdminClient,
   periodEnd: string,
-  opts: { todayIso?: string } = {},
+  opts: { todayIso?: string; dryRun?: boolean } = {},
 ): Promise<SnapshotResult> {
   const todayIso = opts.todayIso ?? todayLocalDate();
 
@@ -343,7 +352,7 @@ export async function snapshotPeriod(
   // they had, which is what "these books are final" actually claims.
   const closeState = await readPeriodClose(supabase, periodEnd);
   if (closeState?.closed) {
-    return { written: 0, skipped: 0, errors: [], excluded: [] };
+    return { written: 0, skipped: 0, errors: [], excluded: [], balancingDifferenceCents: null };
   }
 
   // Strictly older than the month being closed. The current close period is
@@ -361,15 +370,33 @@ export async function snapshotPeriod(
 
   const { data: existingRows, error: existingError } = await supabase
     .from("gl_account_balances")
-    .select("chart_of_accounts_id, is_frozen")
+    .select("chart_of_accounts_id, is_frozen, balance_cents")
     .eq("period_end", periodEnd);
   if (existingError) throw new Error(existingError.message);
 
-  const existing = new Map<string, { isFrozen: boolean }>(
-    ((existingRows ?? []) as ExistingRow[]).map((r) => [r.chart_of_accounts_id, { isFrozen: r.is_frozen }]),
+  const existing = new Map<string, { isFrozen: boolean; balanceCents: number }>(
+    ((existingRows ?? []) as ExistingRow[]).map((r) => [
+      r.chart_of_accounts_id,
+      { isFrozen: r.is_frozen, balanceCents: r.balance_cents ?? 0 },
+    ]),
   );
 
   const writes = resolveSnapshotWrites(sources, results, existing);
+
+  // The table's contents after this run: every stored row, with the writes
+  // this run makes (or, dry, WOULD make) replacing the rows they overwrite. A
+  // row for an account this run did not compute stays -- upserts never delete
+  // -- which is exactly why it must stay in this sum too.
+  const projected = new Map<string, number>();
+  for (const [coaId, row] of existing) projected.set(coaId, row.balanceCents);
+  for (const write of writes) {
+    if (!failedAccounts.has(write.coaId)) projected.set(write.coaId, write.balanceCents);
+  }
+  let balancingDifferenceCents: number | null = null;
+  if (projected.size > 0) {
+    balancingDifferenceCents = 0;
+    for (const cents of projected.values()) balancingDifferenceCents += cents;
+  }
 
   let written = 0;
   for (const write of writes) {
@@ -377,6 +404,9 @@ export async function snapshotPeriod(
     // persist a partial sum as if it were a whole balance. Already reported in
     // `errors` at the point of failure.
     if (failedAccounts.has(write.coaId)) continue;
+    // A dry run stops exactly here: everything above computed, nothing below
+    // persisted. The preview in the close panel is this branch.
+    if (opts.dryRun) continue;
     const { error } = await supabase.from("gl_account_balances").upsert(
       {
         chart_of_accounts_id: write.coaId,
@@ -400,7 +430,7 @@ export async function snapshotPeriod(
   const consideredAccounts = new Set(declared.map((s) => s.coaId)).size;
   const skipped = Math.max(consideredAccounts - written, 0);
 
-  return { written, skipped, errors, excluded };
+  return { written, skipped, errors, excluded, balancingDifferenceCents };
 }
 
 /**

@@ -30,6 +30,13 @@ import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import { formatPeriodLabel, type CloseTasksResponse } from "../closeTasks";
+import { fmtCents } from "@/lib/utils/formatting";
+
+/** What the dry-run recalculation came back with — see the preview button below. */
+interface PreviewResult {
+  wouldCloseAtCents: number | null;
+  errors: string[];
+}
 
 async function post(body: unknown): Promise<void> {
   const res = await fetch("/api/finance/balance-close", {
@@ -61,6 +68,8 @@ export default function ClosePeriodFooter({
   const [busy, setBusy] = useState(false);
   const [blockers, setBlockers] = useState<string[]>([]);
   const [reopening, setReopening] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<PreviewResult | null>(null);
 
   if (!data) return null;
 
@@ -69,9 +78,37 @@ export default function ClosePeriodFooter({
   const isClosed = close?.closed ?? false;
   const coverage = data.coverage;
 
+  /**
+   * The close's own recalculation, run dry. Answers "what would this month
+   * land at?" without freezing anything, so checking the figure stops costing
+   * a close-check-reopen loop. The figure is a moment-in-time answer — data
+   * entered after it renders is not in it, which is why it names itself
+   * a preview rather than pretending to be live.
+   */
+  async function previewClose() {
+    setPreviewing(true);
+    setPreview(null);
+    try {
+      const res = await fetch("/api/finance/balance-close", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", periodEnd }),
+      });
+      const json = (await res.json().catch(() => ({}))) as Partial<PreviewResult> & { error?: string };
+      if (!res.ok) {
+        setPreview({ wouldCloseAtCents: null, errors: [json.error ?? "The preview did not go through."] });
+        return;
+      }
+      setPreview({ wouldCloseAtCents: json.wouldCloseAtCents ?? null, errors: json.errors ?? [] });
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
   async function closeMonth() {
     setBusy(true);
     setBlockers([]);
+    setPreview(null);
     try {
       const res = await fetch("/api/finance/balance-close", {
         method: "POST",
@@ -116,17 +153,22 @@ export default function ClosePeriodFooter({
               Reopen {label}
             </button>
           ) : (
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={busy || openCount > 0}
-              onClick={closeMonth}
-              // Said here rather than only on refusal: a disabled button with
-              // no explanation is the same dead end as a silent one.
-              title={openCount > 0 ? "Every account needs a balance or a recorded reason first." : undefined}
-            >
-              {busy ? "Closing…" : `Close ${label}`}
-            </button>
+            <span className="flex items-center gap-2">
+              <button type="button" className="btn-secondary" disabled={busy || previewing} onClick={previewClose}>
+                {previewing ? "Recalculating…" : "Preview close"}
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={busy || previewing || openCount > 0}
+                onClick={closeMonth}
+                // Said here rather than only on refusal: a disabled button with
+                // no explanation is the same dead end as a silent one.
+                title={openCount > 0 ? "Every account needs a balance or a recorded reason first." : undefined}
+              >
+                {busy ? "Closing…" : `Close ${label}`}
+              </button>
+            </span>
           ))}
       </div>
 
@@ -148,6 +190,27 @@ export default function ClosePeriodFooter({
           : `${coverage.withBalance} of ${coverage.configured} configured account${coverage.configured === 1 ? "" : "s"} produced a balance for ${label}.`}
         {coverage.missing.length > 0 && ` Nothing came through for ${coverage.missing.join(", ")}.`}
       </p>
+
+      {preview && (
+        <p className="text-2xs">
+          {preview.wouldCloseAtCents === null ? (
+            <span className="text-faint">Nothing would be computed for {label}.</span>
+          ) : preview.wouldCloseAtCents === 0 ? (
+            <span className="text-strong">
+              Closing now would land {label} at {fmtCents(0)} — balanced.
+            </span>
+          ) : (
+            <span className="text-danger">
+              Closing now would land {label} at a balancing difference of {fmtCents(preview.wouldCloseAtCents)}.
+            </span>
+          )}
+          {preview.errors.length > 0 && (
+            <span className="block text-danger mt-0.5">
+              The recalculation did not finish cleanly: {preview.errors.join("; ")}
+            </span>
+          )}
+        </p>
+      )}
 
       {blockers.length > 0 && (
         <Banner className="mt-1">
