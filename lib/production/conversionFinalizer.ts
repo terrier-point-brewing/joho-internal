@@ -97,7 +97,7 @@ export async function deriveConversionDeliveryDate(
 
 export async function createConversionTargetBatch(
   supabase: SupabaseClient,
-  { sourceBatchId, beerName, recipeId, volumeBbl, conversionDate, bornComplete }: {
+  { sourceBatchId, beerName, recipeId, volumeBbl, conversionDate, expectedDeliveryDate, bornComplete }: {
     sourceBatchId: string; beerName: string; recipeId: string; volumeBbl: number;
     /**
      * The day the conversion is planned to happen (or happened, for the
@@ -107,6 +107,11 @@ export async function createConversionTargetBatch(
      */
     conversionDate?: string | null;
     /**
+     * Operator-chosen delivery date. When absent it derives from the
+     * conversion date + the recipe's brite time.
+     */
+    expectedDeliveryDate?: string | null;
+    /**
      * In-keg/in-can child, completed within the same request. Skips the Square
      * project invoice — it tracks an upcoming delivery, which a batch born
      * fully packaged never has.
@@ -115,7 +120,7 @@ export async function createConversionTargetBatch(
   },
 ): Promise<string> {
   const brewDate = conversionDate || todayLocalDate();
-  const deliveryDate = await deriveConversionDeliveryDate(supabase, recipeId, brewDate);
+  const deliveryDate = expectedDeliveryDate || await deriveConversionDeliveryDate(supabase, recipeId, brewDate);
 
   const { data: child, error } = await supabase
     .from("brew_batches")

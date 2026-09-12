@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
     source_equipment_id,
     volume_bbl,
     planned_date,
+    expected_delivery_date,
     notes,
     new_target,
   } = body as {
@@ -54,6 +55,11 @@ export async function POST(req: NextRequest) {
     source_equipment_id: string | null;
     volume_bbl:          number;
     planned_date:        string | null;
+    /**
+     * Operator-chosen delivery date for the conversion's output. A new child
+     * is born with it; an existing target inherits it only when it has none.
+     */
+    expected_delivery_date?: string | null;
     notes:               string | null;
     /**
      * Create the target inline instead of naming an existing batch — how an
@@ -90,6 +96,7 @@ export async function POST(req: NextRequest) {
           recipeId:      new_target.recipe_id,
           volumeBbl:     Number(volume_bbl),
           conversionDate: planned_date ?? null,
+          expectedDeliveryDate: expected_delivery_date ?? null,
         });
       } catch (createErr) {
         return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
@@ -126,6 +133,16 @@ export async function POST(req: NextRequest) {
     .update({ converted_from_batch_id: source_batch_id })
     .eq("id", target_batch_id)
     .is("converted_from_batch_id", null);
+
+  // An existing/reused target INHERITS the plan's delivery date only when it
+  // has none of its own — a batch already carrying a promise keeps it.
+  if (expected_delivery_date) {
+    await supabase
+      .from("brew_batches")
+      .update({ expected_delivery_date })
+      .eq("id", target_batch_id)
+      .is("expected_delivery_date", null);
+  }
 
   // Reserve what the conversion will add, so a shortfall on the puree surfaces
   // now rather than on conversion day. Replaces whatever the target was holding:
