@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { releaseCommitments } from "./commitments";
+import { recheckBatchCommitments } from "./commitmentFulfillment";
 
 /**
  * Checks batch_exhaustion for the given batch and, if fully exhausted (all
@@ -24,4 +25,15 @@ export async function checkAndCompleteBatch(supabase: SupabaseClient, batchId: s
     note: "Auto: fully packaged",
   });
   await releaseCommitments(supabase, batchId);
+
+  // Fulfillment is only judged once a batch is complete, and this is the one
+  // completion path that never went through the batches PATCH route — a source
+  // exhausted BY a conversion (its last volume drawn off into a child) would
+  // otherwise leave its commitments un-re-judged forever. Best-effort: a
+  // fulfillment write must not undo the completion above.
+  try {
+    await recheckBatchCommitments(supabase, batchId);
+  } catch (recheckErr) {
+    console.error("[batchCompletion] Commitment recheck failed (batch completed):", recheckErr);
+  }
 }

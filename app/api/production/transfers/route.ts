@@ -11,6 +11,7 @@ import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations"
 import { applyPackagingLoss } from "@/lib/production/packagingMaterials";
 import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 import { upsertColdStorageInventory } from "@/lib/production/coldStorageUpsert";
+import { clawBackPlannedPackaging } from "@/lib/production/packagingClawback";
 
 export const dynamic = "force-dynamic";
 
@@ -412,40 +413,12 @@ async function reconcileSchedule(
         scheduleUpdate.push({ action: "created", entry_id: newEntry?.id ?? "", equipment_name: destTankInfo.name, was_deviation: false });
 
         if (isPackagingStage && volume_bbl != null) {
-          let remaining = Number(volume_bbl);
-          for (const deductStage of ["kegging", "canning"] as const) {
-            if (remaining <= 0) break;
-            const { data: openEntries } = await supabase
-              .from("batch_schedule_entries")
-              .select("id, volume_bbl")
-              .eq("batch_id", batch_id)
-              .eq("stage", deductStage)
-              .is("cancelled_at", null)
-              .is("actual_start", null)
-              .order("planned_start", { ascending: true })
-              .limit(1);
-            const openEntry = openEntries?.[0];
-            if (!openEntry || openEntry.volume_bbl == null) continue;
-            const newVol = Math.max(0, Number(openEntry.volume_bbl) - remaining);
-            const deducted = Number(openEntry.volume_bbl) - newVol;
-            // An entry clawed all the way to zero has no volume left to package,
-            // so it is not a pending action any more. Cancelling it here is what
-            // keeps it out of the Floorplan's "Up Next" banner — leaving it open
-            // stranded ghosts that advertised a canning run for months after the
-            // batch finished (see 20260831_cancel_fulfilled_packaging_ghosts).
-            const exhausted = newVol <= 0.001;
-            await supabase
-              .from("batch_schedule_entries")
-              .update({
-                volume_bbl: newVol,
-                ...(exhausted ? {
-                  cancelled_at: new Date().toISOString(),
-                  cancellation_reason: "Volume fulfilled by other packaging runs",
-                } : {}),
-              })
-              .eq("id", openEntry.id);
-            remaining -= deducted;
-          }
+          // Claw the unscheduled run's volume back out of whichever future
+          // packaging is still unfulfilled (shared with the conversion path —
+          // see lib/production/packagingClawback for the semantics).
+          await clawBackPlannedPackaging(
+            supabase, batch_id, Number(volume_bbl), "Volume fulfilled by other packaging runs",
+          );
         }
       }
       }

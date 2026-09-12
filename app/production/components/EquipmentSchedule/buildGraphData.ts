@@ -142,7 +142,7 @@ export function buildGraphData(
       });
     const nonPkgMap   = new Map(
       trackEntries
-        .filter(e => e.stage !== "kegging" && e.stage !== "canning" && e.stage !== "planned_conversion")
+        .filter(e => e.stage !== "kegging" && e.stage !== "canning")
         .map(e => [norm(e.stage), e]),
     );
 
@@ -401,7 +401,7 @@ export function buildGraphData(
       // (conditioning > fermenting) when the same tank hosts multiple stages.
       const CONVERSION_STAGE_RANK: Record<string, number> = { brewhouse: 0, fermenting: 1, fermenter: 1, conditioning: 2 };
       const sourceEntry = [...active]
-        .filter(e => e.equipment_id === sourceEquipmentId && e.stage !== "planned_conversion")
+        .filter(e => e.equipment_id === sourceEquipmentId)
         .sort((a, b) => (CONVERSION_STAGE_RANK[b.stage] ?? 0) - (CONVERSION_STAGE_RANK[a.stage] ?? 0))[0];
       const sourceNodeId = sourceEntry
         ? sourceEntry.id
@@ -411,10 +411,9 @@ export function buildGraphData(
       const convMap = sourceTx ? completedConvBblByNodeId : pendingConvBblByNodeId;
       convMap.set(sourceNodeId, (convMap.get(sourceNodeId) ?? 0) + volumeBbl);
 
-      // Read the child batch's own current first schedule entry live, rather
-      // than trusting the source's static planned_conversion marker — the
-      // child's entry is the single source of truth and may have been edited
-      // (date/equipment/volume) independently since the marker was created.
+      // Read the child batch's own current first schedule entry live — it is
+      // the single source of truth and may have been edited (date/equipment/
+      // volume) independently since the plan was created.
       const childFirstEntry = allScheduleEntries
         .filter(e => e.batch_id === cb.id && !e.cancelled_at)
         .sort((a, b) => (a.planned_start ?? "").localeCompare(b.planned_start ?? ""))[0];
