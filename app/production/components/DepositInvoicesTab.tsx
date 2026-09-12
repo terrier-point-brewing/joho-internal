@@ -47,6 +47,11 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
   const panelClass = "rounded border border-line bg-surface/40 p-3 space-y-2";
   const breakdownTotal = invoice.breakdown.reduce((s, l) => s + l.line_total_cents, 0);
   const refundCents = invoice.refund_amount_cents ?? 0;
+  // A deposit only binds the allocation once it is PAID. A voided invoice was
+  // cancelled (re-issued, or the partner is billed wholesale with no deposit at
+  // all), and a draft/open one hasn't collected yet — in both cases any
+  // remaining commitment is soft and there is nothing to "fulfill" against.
+  const guarantees = invoice.status === "paid" || invoice.status === "partial";
   return (
     <div className="px-4 pb-4 space-y-3">
       <div className={panelClass}>
@@ -101,19 +106,31 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
                 </React.Fragment>
               ) : "—"}
             </span>
-            <span className="text-muted">Guaranteed by Deposit</span>
-            <span className="text-body">{invoice.guaranteed_bbl != null ? `${invoice.guaranteed_bbl.toFixed(2)} bbl` : "—"}</span>
-            <span className="text-muted">Fulfilled to Date</span>
-            <span className="text-body">
-              {invoice.fulfilled_bbl != null ? `${invoice.fulfilled_bbl.toFixed(2)} bbl` : "—"}
-              {invoice.fulfilled_bbl != null && invoice.guaranteed_bbl != null && invoice.guaranteed_bbl > 0 && (
-                invoice.fulfilled_bbl >= invoice.guaranteed_bbl - FULFILLMENT_TOLERANCE_BBL
-                  ? <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs bg-success-surface/40 text-success">Fulfilled</span>
-                  : <span className="text-faint"> of {invoice.guaranteed_bbl.toFixed(2)} bbl ({Math.min(100, (invoice.fulfilled_bbl / invoice.guaranteed_bbl) * 100).toFixed(0)}%)</span>
-              )}
-            </span>
+            {guarantees ? (
+              <React.Fragment>
+                <span className="text-muted">Guaranteed by Deposit</span>
+                <span className="text-body">{invoice.guaranteed_bbl != null ? `${invoice.guaranteed_bbl.toFixed(2)} bbl` : "—"}</span>
+                <span className="text-muted">Fulfilled to Date</span>
+                <span className="text-body">
+                  {invoice.fulfilled_bbl != null ? `${invoice.fulfilled_bbl.toFixed(2)} bbl` : "—"}
+                  {invoice.fulfilled_bbl != null && invoice.guaranteed_bbl != null && invoice.guaranteed_bbl > 0 && (
+                    invoice.fulfilled_bbl >= invoice.guaranteed_bbl - FULFILLMENT_TOLERANCE_BBL
+                      ? <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs bg-success-surface/40 text-success">Fulfilled</span>
+                      : <span className="text-faint"> of {invoice.guaranteed_bbl.toFixed(2)} bbl ({Math.min(100, (invoice.fulfilled_bbl / invoice.guaranteed_bbl) * 100).toFixed(0)}%)</span>
+                  )}
+                </span>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                <span className="text-muted">Guaranteed by Deposit</span>
+                <span className="text-faint">
+                  None — {invoice.status === "voided" ? "this invoice was voided, so the deposit never bound the allocation" : "the deposit hasn't been paid yet"}.
+                  {" "}Any remaining commitment is soft.
+                </span>
+              </React.Fragment>
+            )}
           </div>
-          {invoice.guaranteed_bbl != null && invoice.guaranteed_bbl > 0 && invoice.fulfilled_bbl != null && (
+          {guarantees && invoice.guaranteed_bbl != null && invoice.guaranteed_bbl > 0 && invoice.fulfilled_bbl != null && (
             <div className="h-1.5 rounded bg-surface-mid overflow-hidden">
               <div
                 className={`h-full rounded ${invoice.fulfilled_bbl >= invoice.guaranteed_bbl - FULFILLMENT_TOLERANCE_BBL ? "bg-success" : "bg-accent"}`}
@@ -121,7 +138,7 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
               />
             </div>
           )}
-          <p className="text-xs text-faint">Shipments credit this allocation in Export → Cold Storage.</p>
+          {guarantees && <p className="text-xs text-faint">Shipments credit this allocation in Export → Cold Storage.</p>}
         </div>
       )}
 
@@ -272,7 +289,7 @@ export default function DepositInvoicesTab() {
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-right text-secondary tabular-nums whitespace-nowrap">
-                        {inv.fulfilled_bbl != null && inv.guaranteed_bbl != null && inv.guaranteed_bbl > 0 ? (
+                        {(inv.status === "paid" || inv.status === "partial") && inv.fulfilled_bbl != null && inv.guaranteed_bbl != null && inv.guaranteed_bbl > 0 ? (
                           <span className={inv.fulfilled_bbl >= inv.guaranteed_bbl - FULFILLMENT_TOLERANCE_BBL ? "text-success" : undefined}>
                             {inv.fulfilled_bbl.toFixed(1)} / {inv.guaranteed_bbl.toFixed(1)} bbl
                           </span>
