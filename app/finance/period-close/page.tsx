@@ -13,7 +13,7 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { formatPeriodLabel, recentMonthEnds, type CloseTasksResponse } from "../closeTasks";
 import Badge from "@/app/components/ui/Badge";
-import { fmtCents } from "@/lib/utils/formatting";
+import { formatBalanceCents } from "@/lib/format";
 import { LedgerTable, Th } from "../transactions/components/LedgerTable";
 
 const DASH = <span className="text-faint">—</span>;
@@ -61,8 +61,8 @@ function OutstandingCell({ data }: { data: CloseTasksResponse }) {
 function BalancingDifferenceCell({ data }: { data: CloseTasksResponse }) {
   const cents = data.coverage.balancingDifferenceCents;
   if (cents === null) return DASH;
-  if (cents === 0) return <span className="text-2xs text-faint">{fmtCents(0)}</span>;
-  return <span className="text-body text-danger">{fmtCents(cents)}</span>;
+  if (cents === 0) return <span className="text-2xs text-faint">{formatBalanceCents(0)}</span>;
+  return <span className="text-body text-danger">{formatBalanceCents(cents)}</span>;
 }
 
 function CoverageCell({ data }: { data: CloseTasksResponse }) {
