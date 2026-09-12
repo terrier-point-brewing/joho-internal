@@ -6,7 +6,7 @@ vi.mock("@/lib/square/projects", () => ({
 }));
 
 import { createBatchSquareProject } from "@/lib/square/projects";
-import { conversionTargetStatus, isForward, createConversionTargetBatch, deriveConversionDeliveryDate, findPendingConversionPlan, finalizeConversion, reconcileConvertedBatchVolume } from "./conversionFinalizer";
+import { conversionTargetStatus, isForward, createConversionTargetBatch, deriveConversionDeliveryDate, findPendingConversionPlan, finalizeConversion, reconcileConvertedBatchVolume, seedConversionChildSchedule, CONVERSION_PLAN_SCHEDULE_NOTE } from "./conversionFinalizer";
 
 describe("conversionTargetStatus", () => {
   it("maps brite → conditioning and fermenter → fermenting", () => {
@@ -123,6 +123,49 @@ describe("createConversionTargetBatch", () => {
       conversionDate: "2026-07-30", bornComplete: true,
     });
     expect(createBatchSquareProject).not.toHaveBeenCalled();
+  });
+});
+
+describe("seedConversionChildSchedule", () => {
+  function scheduleStub(briteDays: number | null) {
+    const recorded: Array<{ op: string; payload?: unknown }> = [];
+    const from = (table: string) => {
+      const b: Record<string, unknown> = {};
+      b.select = () => b;
+      b.eq = () => b;
+      b.is = () => b;
+      b.maybeSingle = () => Promise.resolve({ data: table === "recipes" ? { days_brite: briteDays } : null, error: null });
+      b.delete = () => { recorded.push({ op: "delete" }); return b; };
+      b.insert = (payload: unknown) => { recorded.push({ op: "insert", payload }); return Promise.resolve({ data: null, error: null }); };
+      b.then = (resolve: (v: unknown) => void) => resolve({ data: null, error: null });
+      return b;
+    };
+    return { client: { from } as unknown as SupabaseClient, recorded };
+  }
+
+  it("replaces marker ghosts with conditioning + the 70/30 packaging split on plan dates", async () => {
+    const { client, recorded } = scheduleStub(7);
+    await seedConversionChildSchedule(client, {
+      childBatchId: "child", recipeId: "r1", volumeBbl: 24, conversionDate: "2026-07-30",
+    });
+    expect(recorded[0]).toEqual({ op: "delete" });
+    const inserted = recorded[1].payload as Array<Record<string, unknown>>;
+    expect(inserted).toEqual([
+      expect.objectContaining({ stage: "conditioning", planned_start: "2026-07-30", planned_end: "2026-08-06", volume_bbl: 24, notes: CONVERSION_PLAN_SCHEDULE_NOTE }),
+      expect.objectContaining({ stage: "kegging", planned_start: "2026-08-06", volume_bbl: 16.8, notes: CONVERSION_PLAN_SCHEDULE_NOTE }),
+      expect.objectContaining({ stage: "canning", planned_start: "2026-08-06", volume_bbl: 7.2, notes: CONVERSION_PLAN_SCHEDULE_NOTE }),
+    ]);
+  });
+
+  it("collapses conditioning to a same-day span when the recipe has no brite time", async () => {
+    const { client, recorded } = scheduleStub(null);
+    await seedConversionChildSchedule(client, {
+      childBatchId: "child", recipeId: "r1", volumeBbl: 1, conversionDate: "2026-09-12",
+    });
+    const inserted = recorded[1].payload as Array<Record<string, unknown>>;
+    expect(inserted[0]).toEqual(expect.objectContaining({ planned_start: "2026-09-12", planned_end: "2026-09-12" }));
+    expect(inserted[1]).toEqual(expect.objectContaining({ volume_bbl: 0.7 }));
+    expect(inserted[2]).toEqual(expect.objectContaining({ volume_bbl: 0.3 }));
   });
 });
 

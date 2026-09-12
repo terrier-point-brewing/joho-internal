@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { reserveConversionAdditions } from "@/lib/production/conversionIngredients";
-import { createConversionTargetBatch, findExistingConversionChild } from "@/lib/production/conversionFinalizer";
+import { createConversionTargetBatch, findExistingConversionChild, seedConversionChildSchedule } from "@/lib/production/conversionFinalizer";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Source and target batch must be different." }, { status: 422 });
   }
 
+  let mintedNewChild = false;
   if (!target_batch_id && new_target?.recipe_id) {
     const { data: recipe } = await supabase
       .from("recipes").select("beer_name").eq("id", new_target.recipe_id).maybeSingle();
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
     if (existing) {
       target_batch_id = existing.id;
     } else {
+      mintedNewChild = true;
       try {
         target_batch_id = await createConversionTargetBatch(supabase, {
           sourceBatchId: source_batch_id,
@@ -157,6 +159,24 @@ export async function POST(req: NextRequest) {
     });
   } catch (reserveErr) {
     console.error("[batch-conversions] Reserving conversion additions failed (plan saved):", reserveErr);
+  }
+
+  // A freshly minted plan child gets its downstream schedule now — the
+  // conditioning span and the default packaging split — so the planned
+  // conversion's work shows on the Equipment Schedule from day one. Only for
+  // children this plan just created: an existing/reused target's schedule is
+  // already someone's plan, not ours to overwrite.
+  if (mintedNewChild && new_target?.recipe_id) {
+    try {
+      await seedConversionChildSchedule(supabase, {
+        childBatchId:   target_batch_id,
+        recipeId:       new_target.recipe_id,
+        volumeBbl:      Number(volume_bbl),
+        conversionDate: planned_date ?? new Date().toISOString().split("T")[0],
+      });
+    } catch (seedErr) {
+      console.error("[batch-conversions] Seeding child schedule failed (plan saved):", seedErr);
+    }
   }
 
   return NextResponse.json(data, { status: 201 });

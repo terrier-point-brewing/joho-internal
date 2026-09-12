@@ -3,8 +3,17 @@ import { checkAndCompleteBatch } from "./batchCompletion";
 import { releaseCommitments, upsertCommitments, upsertConversionCommitments } from "./commitments";
 import { resolveConversionBase } from "./conversionIngredients";
 import { seedBatchActivities, type RecipeActivityRow } from "./brewActivities";
+import { clawBackPlannedPackaging } from "./packagingClawback";
 import { createBatchSquareProject } from "@/lib/square/projects";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
+
+/**
+ * Marker stamped on schedule entries this module seeds for a PLANNED
+ * conversion's child. Doubles as the re-seed key: editing the plan deletes
+ * unstarted entries bearing this note and writes fresh ones, never touching
+ * entries a person created or a transfer has started.
+ */
+export const CONVERSION_PLAN_SCHEDULE_NOTE = "Auto-created for planned conversion";
 
 /** Batch status implied by the stage a batch occupies in a given equipment type. */
 export function conversionTargetStatus(
@@ -169,6 +178,54 @@ export async function createConversionTargetBatch(
   }
 
   return childId;
+}
+
+/**
+ * Seed (or re-seed) a plan-born child's schedule from its conversion plan: a
+ * conditioning span from the conversion day to the delivery date, plus the
+ * house-default 70/30 kegging/canning split on the delivery date — the same
+ * ghost shape a same-stage split branch gets. This is what puts a planned
+ * conversion's downstream work on the Equipment Schedule and in "Up Next"
+ * instead of it appearing from nowhere on conversion day.
+ *
+ * Idempotent by marker: only entries bearing CONVERSION_PLAN_SCHEDULE_NOTE
+ * that no transfer has started are replaced. Anything an operator scheduled
+ * by hand, or that has begun, is left alone.
+ */
+export async function seedConversionChildSchedule(
+  supabase: SupabaseClient,
+  { childBatchId, recipeId, volumeBbl, conversionDate }: {
+    childBatchId: string; recipeId: string; volumeBbl: number; conversionDate: string;
+  },
+): Promise<void> {
+  const deliveryDate = await deriveConversionDeliveryDate(supabase, recipeId, conversionDate);
+
+  await supabase
+    .from("batch_schedule_entries")
+    .delete()
+    .eq("batch_id", childBatchId)
+    .eq("notes", CONVERSION_PLAN_SCHEDULE_NOTE)
+    .is("actual_start", null);
+
+  const kegVol = Math.round(volumeBbl * 0.7 * 100) / 100;
+  const canVol = Math.round((volumeBbl - kegVol) * 100) / 100;
+  await supabase.from("batch_schedule_entries").insert([
+    {
+      batch_id: childBatchId, equipment_id: null, stage: "conditioning",
+      planned_start: conversionDate, planned_end: deliveryDate,
+      volume_bbl: volumeBbl, notes: CONVERSION_PLAN_SCHEDULE_NOTE,
+    },
+    {
+      batch_id: childBatchId, equipment_id: null, stage: "kegging",
+      planned_start: deliveryDate, planned_end: deliveryDate,
+      volume_bbl: kegVol, notes: CONVERSION_PLAN_SCHEDULE_NOTE,
+    },
+    {
+      batch_id: childBatchId, equipment_id: null, stage: "canning",
+      planned_start: deliveryDate, planned_end: deliveryDate,
+      volume_bbl: canVol, notes: CONVERSION_PLAN_SCHEDULE_NOTE,
+    },
+  ]);
 }
 
 /**
@@ -388,6 +445,10 @@ export async function finalizeConversion(
     }
 
     // 6. Stamp (or create) the target's schedule entry on the destination tank.
+    //    A plan-born child carries an equipment-less ghost for this stage
+    //    (seedConversionChildSchedule); claim it first — assigning the tank and
+    //    stamping the start — so execution lands ON the plan instead of leaving
+    //    the ghost open next to a duplicate.
     if (stage) {
       const { data: entry } = await supabase
         .from("batch_schedule_entries")
@@ -402,11 +463,27 @@ export async function finalizeConversion(
         if (row.actual_start == null) updates.actual_start = today;
         await supabase.from("batch_schedule_entries").update(updates).eq("id", row.id);
       } else {
-        await supabase.from("batch_schedule_entries").insert({
-          batch_id: targetBatchId, equipment_id: toTankId, stage,
-          planned_start: today, planned_end: today, actual_start: today,
-          volume_bbl: volumeBbl, notes: "Auto-created on conversion",
-        });
+        const { data: ghostRow } = await supabase
+          .from("batch_schedule_entries")
+          .select("id")
+          .eq("batch_id", targetBatchId).eq("stage", stage)
+          .is("equipment_id", null)
+          .eq("notes", CONVERSION_PLAN_SCHEDULE_NOTE)
+          .is("cancelled_at", null).is("actual_start", null)
+          .order("planned_start", { ascending: true }).limit(1)
+          .maybeSingle();
+        const ghost = ghostRow as { id: string } | null;
+        if (ghost) {
+          await supabase.from("batch_schedule_entries").update({
+            equipment_id: toTankId, actual_start: today, volume_bbl: volumeBbl,
+          }).eq("id", ghost.id);
+        } else {
+          await supabase.from("batch_schedule_entries").insert({
+            batch_id: targetBatchId, equipment_id: toTankId, stage,
+            planned_start: today, planned_end: today, actual_start: today,
+            volume_bbl: volumeBbl, notes: "Auto-created on conversion",
+          });
+        }
       }
     }
   }
@@ -442,6 +519,18 @@ export async function finalizeConversion(
     }
   }
 
-  // 8. Complete the source if fully exhausted (full conversion).
+  // 8. The converted volume will never be packaged under the SOURCE, so its
+  //    still-open kegging/canning plans were oversized by exactly this much.
+  //    Before this, a converted-away batch kept full-size packaging ghosts
+  //    advertising runs that could no longer happen.
+  try {
+    await clawBackPlannedPackaging(
+      supabase, sourceBatchId, volumeBbl, "Volume converted into another batch",
+    );
+  } catch (clawErr) {
+    console.error("[conversion] Source packaging clawback failed (conversion committed):", clawErr);
+  }
+
+  // 9. Complete the source if fully exhausted (full conversion).
   await checkAndCompleteBatch(supabase, sourceBatchId);
 }

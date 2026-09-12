@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { reserveConversionAdditions } from "@/lib/production/conversionIngredients";
-import { deriveConversionDeliveryDate } from "@/lib/production/conversionFinalizer";
+import { deriveConversionDeliveryDate, seedConversionChildSchedule } from "@/lib/production/conversionFinalizer";
 import { releaseCommitments, upsertCommitments } from "@/lib/production/commitments";
 import { cancelInvoice } from "@/lib/square/square-invoices";
 
@@ -115,6 +115,21 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
     if (Object.keys(childUpdates).length > 0) {
       await supabase.from("brew_batches").update(childUpdates).eq("id", target.id);
+    }
+
+    // Keep the seeded schedule in step with the edited plan — replaces only
+    // the marker-stamped, unstarted ghosts; anything begun or hand-made stays.
+    if ((updates.volume_bbl != null || updates.planned_date !== undefined) && target.recipe_id) {
+      try {
+        await seedConversionChildSchedule(supabase, {
+          childBatchId:   target.id,
+          recipeId:       target.recipe_id,
+          volumeBbl:      newVolume,
+          conversionDate: newDate ?? new Date().toISOString().split("T")[0],
+        });
+      } catch (seedErr) {
+        console.error("[batch-conversions] Re-seeding child schedule failed (plan updated):", seedErr);
+      }
     }
   }
 
