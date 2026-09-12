@@ -1088,6 +1088,28 @@ export async function POST(req: NextRequest) {
     } catch (completionErr) {
       console.error("[transfers] Batch completion check failed:", completionErr);
     }
+
+    // The child's own record of the run: one already-completed packaging entry
+    // on the station. Point-in-time, like every kegging/canning entry, and
+    // closed on arrival — so it never advertises work in "Up Next", it just
+    // stops the child's Equipment Schedule reading as if nothing ever happened
+    // to it. Best-effort: the run is committed either way.
+    if (to_tank_id) {
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        await supabase.from("batch_schedule_entries").insert({
+          batch_id:      childBatchId,
+          equipment_id:  to_tank_id,
+          stage:         transfer_type,
+          planned_start: today, planned_end: today,
+          actual_start:  today, actual_end: today,
+          volume_bbl:    totalVolumeForCapacityCheck,
+          notes:         "Auto: in-keg conversion run",
+        });
+      } catch (schedErr) {
+        console.error("[transfers] In-keg child schedule entry failed (run committed):", schedErr);
+      }
+    }
   } else {
     for (const line of lines) {
       try {

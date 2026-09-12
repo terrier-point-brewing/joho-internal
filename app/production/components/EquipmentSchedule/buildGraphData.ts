@@ -378,17 +378,21 @@ export function buildGraphData(
     let nextConvRow = 1 + branchNames.length;
 
     for (const cb of allBatches.filter(b => b.converted_from_batch_id === batch.id)) {
-      // Prefer an already-executed transfer (the conversion physically happened);
-      // otherwise fall back to the pending batch_conversions record.
-      const sourceTx = allTransfers
+      // Prefer already-executed transfers (the conversion physically happened);
+      // otherwise fall back to the pending batch_conversions record. A child
+      // can be fed by SEVERAL runs (B-063 took 0.5 then 4.67 bbl off B-056),
+      // so the node's volume is the SUM of every executed transfer — the first
+      // one only anchors where the node hangs.
+      const sourceTxs = allTransfers
         .filter(t => t.batch_id === batch.id && t.transfer_type === "conversion" && t.to_batch_id === cb.id)
-        .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime())[0];
+        .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime());
+      const sourceTx = sourceTxs[0];
 
       let sourceEquipmentId: string | null = null;
       let volumeBbl: number;
       if (sourceTx) {
         sourceEquipmentId = sourceTx.from_tank_id;
-        volumeBbl = Number(sourceTx.volume_bbl);
+        volumeBbl = sourceTxs.reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
       } else {
         const conv = allBatchConversions.find(c => c.source_batch_id === batch.id && c.target_batch_id === cb.id);
         if (!conv?.source_equipment_id) continue;
@@ -412,8 +416,10 @@ export function buildGraphData(
       convMap.set(sourceNodeId, (convMap.get(sourceNodeId) ?? 0) + volumeBbl);
 
       // Read the child batch's own current first schedule entry live — it is
-      // the single source of truth and may have been edited (date/equipment/
-      // volume) independently since the plan was created.
+      // the single source of truth for a PENDING plan and may have been edited
+      // (date/equipment/volume) independently since the plan was created. An
+      // EXECUTED conversion's volume is the delivered transfers, never the
+      // child's first entry — that entry is one kegging run, not the total.
       const childFirstEntry = allScheduleEntries
         .filter(e => e.batch_id === cb.id && !e.cancelled_at)
         .sort((a, b) => (a.planned_start ?? "").localeCompare(b.planned_start ?? ""))[0];
@@ -423,7 +429,7 @@ export function buildGraphData(
       const convId = `conv-${cb.id}`;
       addNode(convId, "conversionNode", sourceCol + 1, convRow, {
         toBatch: cb,
-        volumeBbl: childFirstEntry?.volume_bbl != null ? Number(childFirstEntry.volume_bbl) : volumeBbl,
+        volumeBbl: !sourceTx && childFirstEntry?.volume_bbl != null ? Number(childFirstEntry.volume_bbl) : volumeBbl,
         plannedDate: childFirstEntry?.planned_start ?? null,
         destinationEquipmentName: childFirstEntry?.equipment?.name ?? null,
         isExecuted: !!sourceTx,

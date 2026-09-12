@@ -145,3 +145,27 @@ describe("hasLedgerActivity — separates 'unknown' from 'known to be empty'", (
     expect(hasLedgerActivity("b1", drained)).toBe(true);
   });
 });
+
+describe("computeLocationBreakdown — in-keg conversion child", () => {
+  const STATION = "keg-station";
+  const types = { [STATION]: "kegging" };
+
+  it("counts the child's destination-less packaging rows as packaged volume", () => {
+    // The B-064 shape: inbound conversion into the station, own kegging row
+    // from the station to nowhere. Station nets zero by design; the finished
+    // goods must still be accounted for or the whole batch reads unbalanced.
+    const transfers = [
+      tx({ batch_id: "src", to_batch_id: "child", to_tank_id: STATION, volume_bbl: 0.49975, transfer_type: "conversion" }),
+      tx({ batch_id: "child", from_tank_id: STATION, to_tank_id: null, volume_bbl: 0.49975, transfer_type: "kegging", transferred_at: "2026-01-02T00:00:00Z" }),
+    ];
+    const bd = computeLocationBreakdown("child", 0.5, transfers, types, false);
+    expect(bd.packaging).toBeCloseTo(0.49975, 5);
+    const accounted = bd.backlog + bd.brewhouse + bd.fermenter + bd.brite + bd.packaging + bd.coldStorage + bd.exported + bd.converted + bd.shrinkage;
+    expect(Math.abs(accounted - 0.5)).toBeLessThan(0.01);
+  });
+
+  it("leaves dumps and ordinary transfers alone — only kegging/canning rows count", () => {
+    const dump = [tx({ batch_id: "b1", from_tank_id: STATION, to_tank_id: null, volume_bbl: 2, transfer_type: "transfer" })];
+    expect(computeLocationBreakdown("b1", 2, dump, types, false).packaging).toBe(0);
+  });
+});
