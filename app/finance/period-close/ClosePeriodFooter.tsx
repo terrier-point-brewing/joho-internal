@@ -183,33 +183,64 @@ export default function ClosePeriodFooter({
 
       {/* What closing asserts. Shown whether or not the button is available,
           because it is the answer to "is this month actually finished?" and
-          that question is not only for the person allowed to press it. */}
-      <p className="text-2xs text-faint">
-        {coverage.configured === 0
-          ? "No account has a balance source configured, so this month has nothing computed behind it."
-          : `${coverage.withBalance} of ${coverage.configured} configured account${coverage.configured === 1 ? "" : "s"} produced a balance for ${label}.`}
-        {coverage.missing.length > 0 && ` Nothing came through for ${coverage.missing.join(", ")}.`}
-      </p>
+          that question is not only for the person allowed to press it. The
+          accounts that produced nothing used to be one comma-joined sentence —
+          at 28 accounts that is a wall nobody reads — so the count stays on the
+          line and the names live behind a disclosure. */}
+      <div className="text-xs text-muted">
+        {coverage.configured === 0 ? (
+          "No account has a balance source configured, so this month has nothing computed behind it."
+        ) : (
+          <>
+            {coverage.withBalance} of {coverage.configured} configured account
+            {coverage.configured === 1 ? "" : "s"} produced a balance for {label}.
+            {coverage.missing.length > 0 && (
+              <details className="mt-0.5">
+                <summary className="cursor-pointer hover:text-secondary select-none">
+                  {coverage.missing.length} account{coverage.missing.length === 1 ? "" : "s"} produced nothing —
+                  usually because nothing has happened on them yet
+                </summary>
+                <ul className="mt-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-0.5 text-2xs text-faint">
+                  {coverage.missing.map((m) => (
+                    <li key={m}>{m}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </>
+        )}
+      </div>
 
       {preview && (
-        <p className="text-2xs">
+        <div className="rounded-md border border-line/60 bg-surface-mid/30 px-4 py-3">
           {preview.wouldCloseAtCents === null ? (
-            <span className="text-faint">Nothing would be computed for {label}.</span>
-          ) : preview.wouldCloseAtCents === 0 ? (
-            <span className="text-strong">
-              Closing now would land {label} at {formatBalanceCents(0)} — balanced.
-            </span>
+            <p className="text-xs text-secondary">Nothing would be computed for {label}.</p>
           ) : (
-            <span className="text-danger">
-              Closing now would land {label} at a balancing difference of {formatBalanceCents(preview.wouldCloseAtCents)}.
-            </span>
+            <div className="flex items-baseline justify-between gap-3 flex-wrap">
+              <span className="text-xs text-secondary">Closing now would land {label} at</span>
+              <span className="flex items-baseline gap-2">
+                <span
+                  className={`text-base sm:text-xl font-semibold font-mono tabular-nums ${
+                    preview.wouldCloseAtCents === 0 ? "text-success" : "text-danger"
+                  }`}
+                >
+                  {formatBalanceCents(preview.wouldCloseAtCents)}
+                </span>
+                {preview.wouldCloseAtCents === 0 ? (
+                  <Badge tone="success">Balanced</Badge>
+                ) : (
+                  <span className="text-xs text-danger">still unaccounted for</span>
+                )}
+              </span>
+            </div>
           )}
           {preview.errors.length > 0 && (
-            <span className="block text-danger mt-0.5">
-              The recalculation did not finish cleanly: {preview.errors.join("; ")}
-            </span>
+            <p className="text-xs text-danger mt-1.5">
+              The recalculation did not finish cleanly, so this figure is partial:{" "}
+              {preview.errors.join("; ")}
+            </p>
           )}
-        </p>
+        </div>
       )}
 
       {blockers.length > 0 && (
