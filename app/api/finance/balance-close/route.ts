@@ -37,6 +37,7 @@ import {
   type CloseTask,
 } from "@/lib/finance/balances/closeTasks";
 import { closePeriod, reopenPeriod, readPeriodClose, readPeriodCoverage } from "@/lib/finance/balances/periodClose";
+import { snapshotPeriod } from "@/lib/finance/balances/snapshot";
 
 export const dynamic = "force-dynamic";
 /** Closing runs a full recalculation, including live reads against Ramp, Plaid and Square. */
@@ -161,7 +162,9 @@ interface PostBody {
 }
 
 /**
- * Five write actions, all gated on financeTransactionsManage.
+ * Six actions, all gated on financeTransactionsManage (preview writes nothing,
+ * but it runs the same live recalculation the close does, so it carries the
+ * same gate rather than a cheaper one that would invite polling).
  *
  *   refresh       -- bring the checklist up to date on demand instead of
  *                    waiting for the nightly cron. Both halves are idempotent
@@ -169,6 +172,11 @@ interface PostBody {
  *                    call on every page load and is what makes the screen
  *                    truthful the first time an account is configured rather
  *                    than the morning after.
+ *   preview       -- the close's recalculation as a DRY RUN: the same
+ *                    snapshotPeriod the close runs, persisting nothing, so the
+ *                    panel can say what the month would land at before anybody
+ *                    commits to closing it (and reopening to check stops being
+ *                    part of the workflow).
  *   skip          -- "this account had no balance this month, and here is why".
  *   reopen        -- the inverse of a skip.
  *   close-period  -- a PERSON declares the month final. Recalculates, refuses
@@ -193,6 +201,20 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = (await req.json()) as PostBody;
+
+    if (body.action === "preview") {
+      if (!body.periodEnd || body.periodEnd !== monthEnd(body.periodEnd)) {
+        return NextResponse.json({ error: "periodEnd is required and must be a month end" }, { status: 400 });
+      }
+      const supabase = createSupabaseAdminClient();
+      const snapshot = await snapshotPeriod(supabase, body.periodEnd, { dryRun: true });
+      return NextResponse.json({
+        ok: true,
+        wouldCloseAtCents: snapshot.balancingDifferenceCents,
+        errors: snapshot.errors,
+        excluded: snapshot.excluded,
+      });
+    }
 
     if (body.action === "refresh") {
       if (!body.periodEnd || body.periodEnd !== monthEnd(body.periodEnd)) {
