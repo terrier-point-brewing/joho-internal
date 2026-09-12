@@ -30,7 +30,7 @@ import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import { formatPeriodLabel, type CloseTasksResponse } from "../closeTasks";
-import { fmtCents } from "@/lib/utils/formatting";
+import { formatBalanceCents } from "@/lib/format";
 
 /** What the dry-run recalculation came back with — see the preview button below. */
 interface PreviewResult {
@@ -197,11 +197,11 @@ export default function ClosePeriodFooter({
             <span className="text-faint">Nothing would be computed for {label}.</span>
           ) : preview.wouldCloseAtCents === 0 ? (
             <span className="text-strong">
-              Closing now would land {label} at {fmtCents(0)} — balanced.
+              Closing now would land {label} at {formatBalanceCents(0)} — balanced.
             </span>
           ) : (
             <span className="text-danger">
-              Closing now would land {label} at a balancing difference of {fmtCents(preview.wouldCloseAtCents)}.
+              Closing now would land {label} at a balancing difference of {formatBalanceCents(preview.wouldCloseAtCents)}.
             </span>
           )}
           {preview.errors.length > 0 && (
