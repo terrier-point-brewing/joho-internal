@@ -11,7 +11,12 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import { listParties } from "@/lib/tax/registry";
 import { buildRateMap, listTaxRates } from "@/lib/tax/rates";
-import { listRegistrations, resolveRequiredRegistrations, BASE_REQUIRED_REGISTRATIONS } from "@/lib/tax/registrations";
+import {
+  listRegistrations,
+  resolveRequiredRegistrations,
+  maskResolvedRegistrations,
+  BASE_REQUIRED_REGISTRATIONS,
+} from "@/lib/tax/registrations";
 import { buildFilingUrlMap } from "@/lib/tax/obligations";
 // Side-effect import: registers every party template before listParties() runs.
 import "@/lib/tax/parties";
@@ -41,9 +46,15 @@ export async function GET() {
       // worksheet header renders this order, and the party's own account and
       // permit numbers are what a filer looks for first. Any entry declaring
       // `identityOrder` is sorted ahead of the rest client-side.
-      requiredRegistrations: resolveRequiredRegistrations(
-        [...party.requiredRegistrations, ...BASE_REQUIRED_REGISTRATIONS],
-        registrations,
+      // Masked like the registrations GET: a `sensitive` registration (Wake
+      // County's PIN) leaves here as "present"/"absent" only — the worksheet
+      // header's Unmask control fetches the real digits from the admin-only
+      // reveal route.
+      requiredRegistrations: maskResolvedRegistrations(
+        resolveRequiredRegistrations(
+          [...party.requiredRegistrations, ...BASE_REQUIRED_REGISTRATIONS],
+          registrations,
+        ),
       ),
       referenceView: party.buildReferenceView(rateMap),
       recomputeLabel: party.recomputeLabel,
