@@ -922,6 +922,11 @@ export async function POST(req: NextRequest) {
   const transfers: Record<string, unknown>[] = [];
   const allScheduleUpdates: ScheduleUpdateEntry[] = [];
   const coldStorageErrors: string[] = [];
+  // The batch the conversion delivered into (in-keg child, plan child, reused
+  // child, or explicit target). Returned so the caller can hang follow-up
+  // writes — allocations, deposit coverage — on the right batch without
+  // re-deriving the server's resolution.
+  let conversionTargetBatchId: string | null = null;
 
   if (packagedAs) {
     // ── In-keg conversion: birth the child, then package under it ────────────
@@ -1098,6 +1103,8 @@ export async function POST(req: NextRequest) {
       console.error("[transfers] In-keg conversion additions failed (packaging committed):", additionsErr);
     }
 
+    conversionTargetBatchId = childBatchId;
+
     // The child is born fully packaged, so it completes on the spot — directly,
     // not via batch_exhaustion, whose 2dp headline volume can miss the view's
     // tolerance by rounding alone. The source completes when its own ledger
@@ -1191,6 +1198,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (targetBatchId) {
+      conversionTargetBatchId = targetBatchId;
       // A resolved target (existing batch, plan child, reused child) INHERITS
       // the operator's delivery date only when it has none of its own.
       const inheritDelivery = (body as { expected_delivery_date?: string | null }).expected_delivery_date
@@ -1273,6 +1281,7 @@ export async function POST(req: NextRequest) {
     {
       transfers,
       schedule_update: allScheduleUpdates,
+      ...(conversionTargetBatchId ? { conversion_target_batch_id: conversionTargetBatchId } : {}),
       ...(coldStorageErrors.length > 0 ? { cold_storage_errors: coldStorageErrors } : {}),
     },
     { status: 201 },

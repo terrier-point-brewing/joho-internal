@@ -11,6 +11,84 @@ import type { ScheduleEntry } from "../hooks/queries";
 import { format, parseISO } from "date-fns";
 import { baseMapOf, lineageDescendants } from "@/lib/production/recipeLineage";
 import ConversionTargetFields, { emptyConversionTarget, type ConversionTargetValue } from "./ConversionTargetFields";
+import ConversionAllocationPanel, { type ConversionAllocationPlanState } from "./ConversionAllocationPanel";
+import { classifySourceEdit } from "@/lib/production/conversionAllocationPlan";
+import { fmtUsd } from "@/lib/utils/formatting";
+
+/**
+ * Execute the reconciliation the operator defined in the allocation panel,
+ * AFTER the conversion transfer is committed. Composes the existing endpoints
+ * (PATCH, adjust-with-refund, invoice revision, allocation create, coverage
+ * transfer); nothing here can unmake the beer, so failures are collected and
+ * handed back for the operator to finish by hand in the Batch Log.
+ */
+async function executeAllocationPlan(
+  plan: ConversionAllocationPlanState,
+  childBatchId: string,
+): Promise<string[]> {
+  const errors: string[] = [];
+  const post = (url: string, body: unknown, method = "POST") =>
+    fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+  for (const a of plan.sourceAllocations) {
+    const newPct = plan.edits[a.id];
+    if (newPct == null || newPct === Number(a.percentage)) continue;
+    const consequence = classifySourceEdit(a, newPct);
+    const who = a.partner_name ?? a.channel;
+    try {
+      if (consequence.kind === "refund") {
+        const res = await post(`/api/production/allocations/${a.id}/adjust`, { new_percentage: newPct });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({} as { error?: string; moneyMoved?: boolean }));
+          const caution = body.moneyMoved !== false
+            ? " Do NOT retry before checking the Square dashboard for a refund on this payment."
+            : "";
+          throw new Error(`${body.error ?? "refund failed"}.${caution}`);
+        }
+      } else if (consequence.kind === "patch" || consequence.kind === "patch_and_revise") {
+        const res = await post(`/api/production/allocations/${a.id}`, { percentage: newPct }, "PATCH");
+        if (!res.ok) throw new Error((await res.json()).error ?? "percentage update failed");
+        if (consequence.kind === "patch_and_revise") {
+          const res2 = await post(`/api/production/allocations/${a.id}/invoice`, { action: "generate" });
+          if (!res2.ok) throw new Error(`percentage saved, but revising the deposit invoice failed: ${(await res2.json()).error ?? "unknown error"}`);
+        }
+      } else if (consequence.kind !== "unchanged") {
+        throw new Error(consequence.reason);
+      }
+    } catch (e) {
+      errors.push(`${who}: ${e instanceof Error ? e.message : "update failed"}`);
+    }
+  }
+
+  for (const d of plan.drafts) {
+    if (!(d.percentage > 0)) continue;
+    const who = d.partner_name ?? d.channel;
+    try {
+      const res = await post("/api/production/allocations", {
+        batch_id: childBatchId,
+        channel: d.channel,
+        percentage: d.percentage,
+        partner_id: d.partner_id,
+        contract_request_id: d.contract_request_id,
+        notes: "Auto: migrated by conversion reconciliation",
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "allocation create failed");
+    } catch (e) {
+      errors.push(`New batch allocation for ${who}: ${e instanceof Error ? e.message : "failed"}`);
+    }
+  }
+
+  for (const c of plan.validation.coverage) {
+    try {
+      const res = await post(`/api/production/allocations/${c.sourceAllocationId}/transfer-coverage`, { child_batch_id: childBatchId });
+      if (!res.ok) throw new Error((await res.json()).error ?? "coverage transfer failed");
+    } catch (e) {
+      errors.push(`Deposit coverage transfer: ${e instanceof Error ? e.message : "failed"}`);
+    }
+  }
+
+  return errors;
+}
 
 // Allowed destinations by source equipment type. Fermenters and brite tanks
 // are interchangeable for the fermenting→conditioning move (many breweries
@@ -209,6 +287,10 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
 
   const convertCandidates = batches.filter((b) => b.id !== batch.id && b.status !== "complete");
 
+  // The reconciliation the operator defined in the allocation panel. Null until
+  // the panel loads (or when the source has no allocations to reconcile).
+  const [allocPlan, setAllocPlan] = useState<ConversionAllocationPlanState | null>(null);
+
   const destTank = allTanks.find((t) => t.id === destId);
 
   // Recompute destTanks when mode changes — reset destId if current selection is invalid
@@ -309,6 +391,20 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         if (!usingExisting && !convert.newRecipeId) { alert("Select the beer the conversion produces."); return; }
         if (!(parseFloat(convert.volumeBbl) > 0)) { alert("Enter the volume to convert."); return; }
 
+        // The allocation plan gates the conversion: an impossible consequence
+        // (a refund with no payment on file) must be fixed BEFORE beer moves.
+        if (allocPlan && allocPlan.validation.blockers.length > 0) {
+          alert(`Fix the allocation plan first:\n\n${allocPlan.validation.blockers.join("\n")}`);
+          return;
+        }
+        // Refunds are real money — restate the exact amounts at the moment of consent.
+        if (allocPlan && allocPlan.validation.refunds.length > 0) {
+          const lines = allocPlan.validation.refunds
+            .map((r) => `• ${fmtUsd(r.refundCents / 100)} to ${r.partnerName ?? "partner"}`)
+            .join("\n");
+          if (!confirm(`Submitting will issue partial deposit refunds:\n\n${lines}\n\nContinue?`)) return;
+        }
+
         // The child's name IS the recipe's beer — nothing to type, nothing to typo.
         const newRecipeName = recipes.find((r) => r.id === convert.newRecipeId)?.beer_name ?? "Converted batch";
         const res = await fetch("/api/production/transfers", {
@@ -334,6 +430,27 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+        const convertResponse = await res.json();
+
+        // The beer has moved; now move the entitlement the operator defined.
+        // Failures here never unmake the transfer — they are handed back with
+        // exactly what is left to finish by hand.
+        const childBatchId: string | null = usingExisting
+          ? convert.targetBatchId
+          : (convertResponse?.conversion_target_batch_id ?? null);
+        if (allocPlan && childBatchId) {
+          const followUpErrors = await executeAllocationPlan(allocPlan, childBatchId);
+          if (followUpErrors.length > 0) {
+            alert(
+              "The conversion is recorded, but part of the allocation plan failed:\n\n"
+              + followUpErrors.map((m) => `• ${m}`).join("\n")
+              + "\n\nDo not re-submit the conversion. Finish the allocation changes in Brewing → Batch Log.",
+            );
+          }
+        } else if (allocPlan && !childBatchId) {
+          alert("The conversion is recorded, but the new batch could not be identified — apply the allocation plan by hand in Brewing → Batch Log.");
+        }
+
         await onDone();
         onClose();
         return;
@@ -701,6 +818,22 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               </div>
             )}
           </div>
+        )}
+
+        {/* ── Allocation & deposit reconciliation (convert mode only) ── */}
+        {mode === "convert" && (
+          <ConversionAllocationPanel
+            sourceBatchId={batch.id}
+            sourceBeerName={batch.beer_name}
+            sourceVolumeBbl={Number(batch.volume_bbl)}
+            convertVolumeBbl={drawBbl}
+            targetLabel={
+              convert.targetMode === "existing"
+                ? (convertCandidates.find((b) => b.id === convert.targetBatchId)?.beer_name ?? "New batch")
+                : (recipes.find((r) => r.id === convert.newRecipeId)?.beer_name ?? "New batch")
+            }
+            onPlanChange={setAllocPlan}
+          />
         )}
 
         {/* Volume summary + notes, side by side to save vertical space */}
