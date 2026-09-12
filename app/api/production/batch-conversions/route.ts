@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
           beerName:      (recipe as { beer_name: string | null }).beer_name ?? "Converted batch",
           recipeId:      new_target.recipe_id,
           volumeBbl:     Number(volume_bbl),
+          conversionDate: planned_date ?? null,
         });
       } catch (createErr) {
         return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });

@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
-import { finalizeConversion, createConversionTargetBatch, completeConversionChild, reconcileConvertedBatchVolume, findExistingConversionChild, priorConversionInflowBbl } from "@/lib/production/conversionFinalizer";
+import { finalizeConversion, createConversionTargetBatch, completeConversionChild, findPendingConversionPlan, reconcileConvertedBatchVolume, findExistingConversionChild, priorConversionInflowBbl } from "@/lib/production/conversionFinalizer";
 import { consumeConversionAdditions, isChargeableConversion } from "@/lib/production/conversionIngredients";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
@@ -926,25 +926,15 @@ export async function POST(req: NextRequest) {
     // A pre-planned in-keg conversion already has its child waiting: a pending
     // batch_conversions row whose target is a pre-brew batch of the packaged
     // recipe. Resolving onto it keeps the plan's identity (and releases what it
-    // reserved) instead of minting a duplicate child next to it. Oldest plan
-    // first, so two planned runs of the same beer resolve in order.
+    // reserved) instead of minting a duplicate child next to it.
     let childBatchId: string | null = null;
     let plannedConversionId: string | null = null;
-    {
-      const { data: pendingPlans } = await supabase
-        .from("batch_conversions")
-        .select("id, target_batch_id, target:brew_batches!target_batch_id(recipe_id, status)")
-        .eq("source_batch_id", batch_id)
-        .is("converted_at", null)
-        .order("created_at", { ascending: true });
-      for (const plan of pendingPlans ?? []) {
-        const target = plan.target as unknown as { recipe_id: string | null; status: string | null } | null;
-        if (target?.recipe_id === packagedAs && (target.status === "planning" || target.status === "backlog")) {
-          childBatchId = plan.target_batch_id as string;
-          plannedConversionId = plan.id as string;
-          break;
-        }
-      }
+    const pendingPlan = await findPendingConversionPlan(supabase, {
+      sourceBatchId: batch_id, recipeId: packagedAs,
+    });
+    if (pendingPlan) {
+      childBatchId = pendingPlan.targetBatchId;
+      plannedConversionId = pendingPlan.planId;
     }
 
     // No pending plan: an EXISTING child of the same source+recipe absorbs this
@@ -986,6 +976,8 @@ export async function POST(req: NextRequest) {
           beerName:      packagedRecipe?.beer_name ?? "Converted batch",
           recipeId:      packagedAs,
           volumeBbl:     totalVolumeForCapacityCheck,
+          conversionDate: new Date().toISOString().split("T")[0],
+          bornComplete:  true,
         });
       } catch (createErr) {
         return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
@@ -1143,11 +1135,24 @@ export async function POST(req: NextRequest) {
   if (transfer_type === "conversion" && (to_batch_id || new_batch) && transfers.length > 0) {
     const convertedVol = Number(body.volume_bbl ?? 0);
 
-    // Resolve the target batch: an existing one, or a brand-new batch created inline.
+    // Resolve the target batch: an existing one, a pending plan's waiting
+    // child, or a brand-new batch created inline. The pending-plan check
+    // mirrors the in-keg path: an operator who planned the conversion and then
+    // executes it as "new batch" means the planned child, not a duplicate
+    // minted next to it — the converted_at stamp below then closes the plan.
     let targetBatchId = to_batch_id ?? null;
     if (!targetBatchId && new_batch?.recipe_id) {
+      // Pending plan first — its waiting child carries the plan's identity and
+      // the converted_at stamp below closes it. Same order as the in-keg path.
+      const pendingPlan = await findPendingConversionPlan(supabase, {
+        sourceBatchId: batch_id, recipeId: new_batch.recipe_id,
+      });
+      if (pendingPlan) targetBatchId = pendingPlan.targetBatchId;
+    }
+    if (!targetBatchId && new_batch?.recipe_id) {
       // Same reuse rule as the in-keg path: an existing child of this
-      // source+recipe absorbs the run; only mint when none exists.
+      // source+recipe absorbs the run; only mint when none exists. The child's
+      // volume becomes prior inflows plus this run — an append, never a clobber.
       const existing = await findExistingConversionChild(supabase, batch_id, new_batch.recipe_id);
       if (existing) {
         const priorDelivered = await priorConversionInflowBbl(supabase, existing.id);
@@ -1167,6 +1172,7 @@ export async function POST(req: NextRequest) {
           beerName:      new_batch.beer_name,
           recipeId:      new_batch.recipe_id,
           volumeBbl:     convertedVol,
+          conversionDate: new Date().toISOString().split("T")[0],
         });
       } catch (createErr) {
         return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });

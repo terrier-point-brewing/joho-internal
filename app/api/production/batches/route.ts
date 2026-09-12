@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createSquareProject } from "@/lib/square/projects";
+import { createBatchSquareProject } from "@/lib/square/projects";
 import { upsertCommitments } from "@/lib/production/commitments";
 import { seedBatchActivities } from "@/lib/production/brewActivities";
 
@@ -120,46 +120,18 @@ export async function POST(req: NextRequest) {
     if (logErr) return NextResponse.json({ error: logErr.message }, { status: 500 });
   }
 
-  // Create a Square Invoice ("project") for this batch.
-  // Look up the recipe's partner to get their square_customer_id.
+  // Create a Square Invoice ("project") for this batch — shared with the
+  // conversion child factory so the two paths can never diverge. Non-blocking.
   let squareInvoiceId: string | null = null;
   if (resolvedDeliveryDate) {
-    try {
-      const { data: recipeRow } = await supabase
-        .from("recipes")
-        .select("partner_id")
-        .eq("id", recipe_id)
-        .single();
-
-      let squareCustomerId: string | null = null;
-      if (recipeRow?.partner_id) {
-        const { data: partner } = await supabase
-          .from("contract_brewing_partners")
-          .select("square_customer_id")
-          .eq("id", recipeRow.partner_id)
-          .single();
-        squareCustomerId = partner?.square_customer_id ?? null;
-      }
-
-      const result = await createSquareProject({
-        beerName: beer_name,
-        volumeBbl: volume_bbl,
-        plannedBrewDate: planned_brew_date,
-        expectedDeliveryDate: resolvedDeliveryDate,
-        squareCustomerId,
-      });
-
-      squareInvoiceId = result.invoiceId;
-
-      const { error: invIdErr } = await supabase
-        .from("brew_batches")
-        .update({ square_invoice_id: squareInvoiceId })
-        .eq("id", batch.id);
-      if (invIdErr) console.error("[Square] Failed to persist square_invoice_id:", invIdErr.message);
-    } catch (err) {
-      // Square invoice creation is non-blocking — log and continue
-      console.error("[Square] Failed to create project invoice:", err);
-    }
+    squareInvoiceId = await createBatchSquareProject(supabase, {
+      batchId: batch.id,
+      beerName: beer_name,
+      volumeBbl: volume_bbl,
+      plannedBrewDate: planned_brew_date,
+      expectedDeliveryDate: resolvedDeliveryDate,
+      recipeId: recipe_id,
+    });
   }
 
   const { data, error } = await supabase

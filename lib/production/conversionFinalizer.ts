@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkAndCompleteBatch } from "./batchCompletion";
 import { releaseCommitments, upsertCommitments, upsertConversionCommitments } from "./commitments";
 import { resolveConversionBase } from "./conversionIngredients";
+import { seedBatchActivities, type RecipeActivityRow } from "./brewActivities";
+import { createBatchSquareProject } from "@/lib/square/projects";
+import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 /** Batch status implied by the stage a batch occupies in a given equipment type. */
 export function conversionTargetStatus(
@@ -74,14 +77,45 @@ export async function priorConversionInflowBbl(
   return (data ?? []).reduce((s, r) => s + Number((r as { volume_bbl: number | null }).volume_bbl ?? 0), 0);
 }
 
+/**
+ * A conversion child's delivery date: the conversion day plus however long the
+ * derived beer still conditions. A conversion skips brewhouse and fermenting by
+ * definition, so only the recipe's brite time remains — and when the recipe
+ * declares none, the conversion day itself stands in, so the child always has a
+ * delivery date and never falls out of the demand calendar.
+ */
+export async function deriveConversionDeliveryDate(
+  supabase: SupabaseClient,
+  recipeId: string,
+  conversionDate: string,
+): Promise<string> {
+  const { data: recipe } = await supabase
+    .from("recipes").select("days_brite").eq("id", recipeId).maybeSingle();
+  const briteDays = Number((recipe as { days_brite: number | null } | null)?.days_brite ?? 0);
+  return briteDays > 0 ? addDaysStr(conversionDate, briteDays) : conversionDate;
+}
+
 export async function createConversionTargetBatch(
   supabase: SupabaseClient,
-  { sourceBatchId, beerName, recipeId, volumeBbl }: {
+  { sourceBatchId, beerName, recipeId, volumeBbl, conversionDate, bornComplete }: {
     sourceBatchId: string; beerName: string; recipeId: string; volumeBbl: number;
+    /**
+     * The day the conversion is planned to happen (or happened, for the
+     * execution paths). The child's timeline starts here — NOT at the parent's
+     * brew day, which could be months earlier and made converted batches sort
+     * and schedule as if they were as old as their parent.
+     */
+    conversionDate?: string | null;
+    /**
+     * In-keg/in-can child, completed within the same request. Skips the Square
+     * project invoice — it tracks an upcoming delivery, which a batch born
+     * fully packaged never has.
+     */
+    bornComplete?: boolean;
   },
 ): Promise<string> {
-  const { data: parent } = await supabase
-    .from("brew_batches").select("planned_brew_date").eq("id", sourceBatchId).single();
+  const brewDate = conversionDate || todayLocalDate();
+  const deliveryDate = await deriveConversionDeliveryDate(supabase, recipeId, brewDate);
 
   const { data: child, error } = await supabase
     .from("brew_batches")
@@ -90,7 +124,8 @@ export async function createConversionTargetBatch(
       recipe_id:               recipeId,
       volume_bbl:              volumeBbl,
       status:                  "planning",
-      planned_brew_date:       (parent as { planned_brew_date: string | null } | null)?.planned_brew_date ?? null,
+      planned_brew_date:       brewDate,
+      expected_delivery_date:  deliveryDate,
       converted_from_batch_id: sourceBatchId,
       converted_volume_bbl:    volumeBbl,
     })
@@ -98,7 +133,64 @@ export async function createConversionTargetBatch(
     .single();
 
   if (error || !child) throw new Error(error?.message ?? "Failed to create conversion target batch");
-  return (child as { id: string }).id;
+  const childId = (child as { id: string }).id;
+
+  // Parity with the Batch Log's batch factory, best-effort: the child exists
+  // and is the record that matters, so none of these may fail the creation.
+  try {
+    await supabase.from("batch_status_history").insert({
+      batch_id: childId, status: "planning", note: "Auto: created as conversion target",
+    });
+
+    const { data: templates } = await supabase
+      .from("brew_activities")
+      .select("sort_order, activity, time_label, temp, temp_unit, amount, amount_unit, vsp")
+      .eq("recipe_id", recipeId)
+      .order("sort_order");
+    if (templates && templates.length > 0) {
+      await supabase.from("brew_activities").insert(
+        seedBatchActivities(templates as RecipeActivityRow[], childId),
+      );
+    }
+
+    if (!bornComplete) {
+      await createBatchSquareProject(supabase, {
+        batchId: childId, beerName, volumeBbl,
+        plannedBrewDate: brewDate, expectedDeliveryDate: deliveryDate, recipeId,
+      });
+    }
+  } catch (extrasErr) {
+    console.error("[conversion] Child batch extras failed (batch created):", extrasErr);
+  }
+
+  return childId;
+}
+
+/**
+ * The oldest still-pending conversion plan from this source whose target is a
+ * waiting child of the given recipe — the plan an execution should resolve
+ * onto instead of minting a duplicate child next to it. Shared by the in-keg
+ * path and the tank path so the two can never disagree about what counts as
+ * "already planned". Oldest first, so two planned runs of the same beer
+ * resolve in order.
+ */
+export async function findPendingConversionPlan(
+  supabase: SupabaseClient,
+  { sourceBatchId, recipeId }: { sourceBatchId: string; recipeId: string },
+): Promise<{ planId: string; targetBatchId: string } | null> {
+  const { data: pendingPlans } = await supabase
+    .from("batch_conversions")
+    .select("id, target_batch_id, target:brew_batches!target_batch_id(recipe_id, status)")
+    .eq("source_batch_id", sourceBatchId)
+    .is("converted_at", null)
+    .order("created_at", { ascending: true });
+  for (const plan of pendingPlans ?? []) {
+    const target = plan.target as unknown as { recipe_id: string | null; status: string | null } | null;
+    if (target?.recipe_id === recipeId && (target.status === "planning" || target.status === "backlog")) {
+      return { planId: plan.id as string, targetBatchId: plan.target_batch_id as string };
+    }
+  }
+  return null;
 }
 
 /**
