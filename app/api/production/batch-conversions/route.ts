@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { reserveConversionAdditions } from "@/lib/production/conversionIngredients";
-import { createConversionTargetBatch } from "@/lib/production/conversionFinalizer";
+import { createConversionTargetBatch, findExistingConversionChild } from "@/lib/production/conversionFinalizer";
 
 export const dynamic = "force-dynamic";
 
@@ -76,15 +76,23 @@ export async function POST(req: NextRequest) {
     const { data: recipe } = await supabase
       .from("recipes").select("beer_name").eq("id", new_target.recipe_id).maybeSingle();
     if (!recipe) return NextResponse.json({ error: "That recipe does not exist." }, { status: 422 });
-    try {
-      target_batch_id = await createConversionTargetBatch(supabase, {
-        sourceBatchId: source_batch_id,
-        beerName:      (recipe as { beer_name: string | null }).beer_name ?? "Converted batch",
-        recipeId:      new_target.recipe_id,
-        volumeBbl:     Number(volume_bbl),
-      });
-    } catch (createErr) {
-      return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
+    // An existing conversion child of this source+recipe is the plan's target —
+    // minting a second child next to it is how split conversion batches happen.
+    // The unique (source, target) constraint below still rejects duplicate plans.
+    const existing = await findExistingConversionChild(supabase, source_batch_id, new_target.recipe_id);
+    if (existing) {
+      target_batch_id = existing.id;
+    } else {
+      try {
+        target_batch_id = await createConversionTargetBatch(supabase, {
+          sourceBatchId: source_batch_id,
+          beerName:      (recipe as { beer_name: string | null }).beer_name ?? "Converted batch",
+          recipeId:      new_target.recipe_id,
+          volumeBbl:     Number(volume_bbl),
+        });
+      } catch (createErr) {
+        return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
+      }
     }
   }
   if (!target_batch_id) {

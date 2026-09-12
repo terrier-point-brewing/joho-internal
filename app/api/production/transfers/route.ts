@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
-import { finalizeConversion, createConversionTargetBatch, completeConversionChild, reconcileConvertedBatchVolume } from "@/lib/production/conversionFinalizer";
+import { finalizeConversion, createConversionTargetBatch, completeConversionChild, reconcileConvertedBatchVolume, findExistingConversionChild, priorConversionInflowBbl } from "@/lib/production/conversionFinalizer";
 import { consumeConversionAdditions, isChargeableConversion } from "@/lib/production/conversionIngredients";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
@@ -947,18 +947,38 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // No pending plan: an EXISTING child of the same source+recipe absorbs this
+    // run instead of a duplicate sibling being minted next to it. One liquid
+    // converted to one recipe is one child batch, however many kegging runs it
+    // takes (B-056 → Orange Pilsner once split into B-063 + B-068 this way).
+    let reusedExistingChild = false;
+    if (!childBatchId) {
+      const existing = await findExistingConversionChild(supabase, batch_id, packagedAs);
+      if (existing) {
+        childBatchId = existing.id;
+        reusedExistingChild = true;
+      }
+    }
+
     if (childBatchId) {
-      // The plan's volume was an estimate; the filler's is the fact.
+      // The child's volume is what all its conversion runs delivered: prior
+      // inflows plus this run. For a plan-born child prior inflows are zero, so
+      // this is the old "the filler's volume is the fact" replace; for a reused
+      // executed child it is an append, never a clobber.
+      const priorDelivered = await priorConversionInflowBbl(supabase, childBatchId);
+      const newVolume = priorDelivered + totalVolumeForCapacityCheck;
       await supabase.from("brew_batches")
         .update({
-          volume_bbl:              totalVolumeForCapacityCheck,
-          converted_volume_bbl:    totalVolumeForCapacityCheck,
+          volume_bbl:              newVolume,
+          converted_volume_bbl:    newVolume,
           converted_from_batch_id: batch_id,
         })
         .eq("id", childBatchId);
-      await supabase.from("batch_conversions")
-        .update({ converted_at: new Date().toISOString() })
-        .eq("id", plannedConversionId!);
+      if (plannedConversionId) {
+        await supabase.from("batch_conversions")
+          .update({ converted_at: new Date().toISOString() })
+          .eq("id", plannedConversionId);
+      }
     } else {
       try {
         childBatchId = await createConversionTargetBatch(supabase, {
@@ -976,7 +996,19 @@ export async function POST(req: NextRequest) {
     // Best-effort once the child exists — a failed allocation must not unmake
     // the run; the operator can add it by hand exactly as for a tank conversion.
     if (inKegCommitment) {
-      const { error: allocErr } = await supabase.from("batch_allocations").insert({
+      // A reused child may already carry this commitment's allocation from a
+      // prior run — one allocation per commitment, never a duplicate row.
+      const { data: existingAlloc } = reusedExistingChild
+        ? await supabase.from("batch_allocations")
+            .select("id")
+            .eq("batch_id", childBatchId)
+            .eq("contract_request_id", inKegCommitment.id)
+            .limit(1)
+            .maybeSingle()
+        : { data: null };
+      const { error: allocErr } = existingAlloc
+        ? { error: null }
+        : await supabase.from("batch_allocations").insert({
         batch_id:            childBatchId,
         channel:             inKegCommitment.channel,
         percentage:          100,
@@ -1113,6 +1145,21 @@ export async function POST(req: NextRequest) {
 
     // Resolve the target batch: an existing one, or a brand-new batch created inline.
     let targetBatchId = to_batch_id ?? null;
+    if (!targetBatchId && new_batch?.recipe_id) {
+      // Same reuse rule as the in-keg path: an existing child of this
+      // source+recipe absorbs the run; only mint when none exists.
+      const existing = await findExistingConversionChild(supabase, batch_id, new_batch.recipe_id);
+      if (existing) {
+        const priorDelivered = await priorConversionInflowBbl(supabase, existing.id);
+        targetBatchId = existing.id;
+        await supabase.from("brew_batches")
+          .update({
+            volume_bbl:           priorDelivered + convertedVol,
+            converted_volume_bbl: priorDelivered + convertedVol,
+          })
+          .eq("id", targetBatchId);
+      }
+    }
     if (!targetBatchId && new_batch?.beer_name && new_batch?.recipe_id) {
       try {
         targetBatchId = await createConversionTargetBatch(supabase, {

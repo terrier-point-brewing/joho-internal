@@ -26,6 +26,54 @@ export function isForward(from: string | null | undefined, to: string): boolean 
   return toRank > fromRank;
 }
 
+/**
+ * Find an existing conversion-born child of `sourceBatchId` for `recipeId`.
+ *
+ * One liquid converted to one recipe is ONE child batch, however many runs it
+ * takes to package it. Every route that mints a conversion target must look
+ * here first — minting blindly is how B-056's Orange Pilsner split into B-063
+ * and B-068 (two children of the same source+recipe, ten days apart).
+ * Most recent child wins if history somehow holds more than one.
+ */
+export async function findExistingConversionChild(
+  supabase: SupabaseClient,
+  sourceBatchId: string,
+  recipeId: string,
+): Promise<{ id: string; volumeBbl: number; convertedVolumeBbl: number | null } | null> {
+  const { data } = await supabase
+    .from("brew_batches")
+    .select("id, volume_bbl, converted_volume_bbl")
+    .eq("converted_from_batch_id", sourceBatchId)
+    .eq("recipe_id", recipeId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as { id: string; volume_bbl: number | null; converted_volume_bbl: number | null };
+  return {
+    id: row.id,
+    volumeBbl: Number(row.volume_bbl ?? 0),
+    convertedVolumeBbl: row.converted_volume_bbl == null ? null : Number(row.converted_volume_bbl),
+  };
+}
+
+/**
+ * Sum the conversion volume already delivered INTO a child batch — the prior
+ * runs' inflow transfers. Used when a new conversion run lands on an existing
+ * child: the child's volume becomes prior + this run, never a blind replace.
+ */
+export async function priorConversionInflowBbl(
+  supabase: SupabaseClient,
+  targetBatchId: string,
+): Promise<number> {
+  const { data } = await supabase
+    .from("batch_transfers")
+    .select("volume_bbl")
+    .eq("to_batch_id", targetBatchId)
+    .eq("transfer_type", "conversion");
+  return (data ?? []).reduce((s, r) => s + Number((r as { volume_bbl: number | null }).volume_bbl ?? 0), 0);
+}
+
 export async function createConversionTargetBatch(
   supabase: SupabaseClient,
   { sourceBatchId, beerName, recipeId, volumeBbl }: {
