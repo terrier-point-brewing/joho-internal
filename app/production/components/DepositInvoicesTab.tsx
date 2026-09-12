@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchJson, useContractPartnersQuery } from "../hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import { fmtUsd } from "@/lib/utils/formatting";
+import { FULFILLMENT_TOLERANCE_BBL } from "@/lib/production/commitmentFulfillment";
 import Banner from "@/app/components/ui/Banner";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FilterSelect from "@/app/components/ui/FilterSelect";
@@ -20,6 +21,9 @@ interface DepositInvoiceListItem {
   total_cents: number; percentage: number | null;
   beer_name: string | null; batch_number: string | null; volume_bbl: number | null;
   generated_at: string | null; sent_at: string | null; paid_at: string | null;
+  refund_amount_cents: number | null; refunded_at: string | null;
+  projected_yield_bbl: number | null; packaged_bbl: number | null; in_tank_bbl: number | null;
+  packaging_yield_pct: number; guaranteed_bbl: number | null; fulfilled_bbl: number | null;
   breakdown: DepositBreakdownLine[];
 }
 
@@ -42,6 +46,7 @@ function fmt(iso: string) {
 function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
   const panelClass = "rounded border border-line bg-surface/40 p-3 space-y-2";
   const breakdownTotal = invoice.breakdown.reduce((s, l) => s + l.line_total_cents, 0);
+  const refundCents = invoice.refund_amount_cents ?? 0;
   return (
     <div className="px-4 pb-4 space-y-3">
       <div className={panelClass}>
@@ -52,11 +57,22 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
           <span className="text-muted">Batch</span>
           <span className="text-body">{invoice.beer_name ? `${invoice.batch_number != null ? `#${invoice.batch_number} ` : ""}${invoice.beer_name}` : "—"}</span>
           <span className="text-muted">Allocation</span>
-          <span className="text-body">{invoice.percentage != null ? `${invoice.percentage.toFixed(1)}%` : "—"}{invoice.volume_bbl != null ? ` of ${invoice.volume_bbl.toFixed(1)} bbl` : ""}</span>
+          <span className="text-body">{invoice.percentage != null ? `${invoice.percentage.toFixed(1)}%` : "—"}{invoice.volume_bbl != null ? ` of ${invoice.volume_bbl.toFixed(1)} bbl brewed` : ""}</span>
           <span className="text-muted">Generated</span>
           <span className="text-body">{invoice.generated_at ? fmt(invoice.generated_at) : "—"}</span>
           <span className="text-muted">Paid</span>
           <span className="text-body">{invoice.paid_at ? fmt(invoice.paid_at) : "—"}</span>
+          {refundCents > 0 && (
+            <React.Fragment>
+              <span className="text-muted">Refunded</span>
+              <span className="text-body">
+                <span className="text-danger font-medium">−{fmtUsd(refundCents / 100)}</span>
+                {invoice.refunded_at ? ` on ${fmt(invoice.refunded_at)}` : ""}
+              </span>
+              <span className="text-muted">Net Deposit</span>
+              <span className="text-strong font-medium">{fmtUsd((invoice.total_cents - refundCents) / 100)}</span>
+            </React.Fragment>
+          )}
           <span className="text-muted">Status</span>
           <span><span className={`px-1.5 py-0.5 rounded text-xs ${STATUS_BADGE[invoice.status] ?? STATUS_BADGE.unknown}`}>{STATUS_LABEL[invoice.status] ?? invoice.status}</span></span>
           {invoice.square_dashboard_url && (
@@ -67,6 +83,47 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
           )}
         </div>
       </div>
+
+      {invoice.percentage != null && (
+        <div className={panelClass}>
+          <p className="text-xs font-medium text-secondary uppercase tracking-wide mb-1">Allocation &amp; Fulfillment</p>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+            <span className="text-muted">Allocation</span>
+            <span className="text-strong">{invoice.percentage.toFixed(1)}%</span>
+            <span className="text-muted">Current Est. Yield</span>
+            <span className="text-body">
+              {invoice.projected_yield_bbl != null ? (
+                <React.Fragment>
+                  {invoice.projected_yield_bbl.toFixed(2)} bbl
+                  {(invoice.in_tank_bbl ?? 0) > 0.01 && (
+                    <span className="text-faint"> ({invoice.packaged_bbl?.toFixed(2)} packaged + {invoice.in_tank_bbl?.toFixed(2)} in tank at {invoice.packaging_yield_pct}%)</span>
+                  )}
+                </React.Fragment>
+              ) : "—"}
+            </span>
+            <span className="text-muted">Guaranteed by Deposit</span>
+            <span className="text-body">{invoice.guaranteed_bbl != null ? `${invoice.guaranteed_bbl.toFixed(2)} bbl` : "—"}</span>
+            <span className="text-muted">Fulfilled to Date</span>
+            <span className="text-body">
+              {invoice.fulfilled_bbl != null ? `${invoice.fulfilled_bbl.toFixed(2)} bbl` : "—"}
+              {invoice.fulfilled_bbl != null && invoice.guaranteed_bbl != null && invoice.guaranteed_bbl > 0 && (
+                invoice.fulfilled_bbl >= invoice.guaranteed_bbl - FULFILLMENT_TOLERANCE_BBL
+                  ? <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs bg-success-surface/40 text-success">Fulfilled</span>
+                  : <span className="text-faint"> of {invoice.guaranteed_bbl.toFixed(2)} bbl ({Math.min(100, (invoice.fulfilled_bbl / invoice.guaranteed_bbl) * 100).toFixed(0)}%)</span>
+              )}
+            </span>
+          </div>
+          {invoice.guaranteed_bbl != null && invoice.guaranteed_bbl > 0 && invoice.fulfilled_bbl != null && (
+            <div className="h-1.5 rounded bg-surface-mid overflow-hidden">
+              <div
+                className={`h-full rounded ${invoice.fulfilled_bbl >= invoice.guaranteed_bbl - FULFILLMENT_TOLERANCE_BBL ? "bg-success" : "bg-accent"}`}
+                style={{ width: `${Math.min(100, (invoice.fulfilled_bbl / invoice.guaranteed_bbl) * 100)}%` }}
+              />
+            </div>
+          )}
+          <p className="text-xs text-faint">Shipments credit this allocation in Export → Cold Storage.</p>
+        </div>
+      )}
 
       <div className={panelClass}>
         <p className="text-xs font-medium text-secondary uppercase tracking-wide mb-1">Frozen Ingredient Breakdown</p>
@@ -193,6 +250,7 @@ export default function DepositInvoicesTab() {
                 <th className="px-4 py-2.5 text-xs font-medium text-muted">Customer</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-muted">Batch</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-muted">Status</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Fulfilled</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Total</th>
               </tr>
             </thead>
@@ -207,12 +265,29 @@ export default function DepositInvoicesTab() {
                       <td className="px-4 py-2.5 text-secondary whitespace-nowrap">{inv.invoice_date ? fmt(inv.invoice_date) : "—"}</td>
                       <td className="px-4 py-2.5 text-body">{inv.partner_name ?? inv.customer_name ?? "—"}</td>
                       <td className="px-4 py-2.5 text-body">{inv.beer_name ?? "—"}</td>
-                      <td className="px-4 py-2.5"><span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[inv.status] ?? STATUS_BADGE.unknown}`}>{STATUS_LABEL[inv.status] ?? inv.status}</span></td>
-                      <td className="px-4 py-2.5 text-right text-strong font-medium tabular-nums">{fmtUsd(inv.total_cents / 100)}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[inv.status] ?? STATUS_BADGE.unknown}`}>{STATUS_LABEL[inv.status] ?? inv.status}</span>
+                        {(inv.refund_amount_cents ?? 0) > 0 && (
+                          <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded bg-danger-surface/40 text-danger">Partial Refund</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-secondary tabular-nums whitespace-nowrap">
+                        {inv.fulfilled_bbl != null && inv.guaranteed_bbl != null && inv.guaranteed_bbl > 0 ? (
+                          <span className={inv.fulfilled_bbl >= inv.guaranteed_bbl - FULFILLMENT_TOLERANCE_BBL ? "text-success" : undefined}>
+                            {inv.fulfilled_bbl.toFixed(1)} / {inv.guaranteed_bbl.toFixed(1)} bbl
+                          </span>
+                        ) : <span className="text-faint">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-strong font-medium tabular-nums">
+                        {fmtUsd(inv.total_cents / 100)}
+                        {(inv.refund_amount_cents ?? 0) > 0 && (
+                          <span className="block text-xs text-danger font-normal">−{fmtUsd((inv.refund_amount_cents ?? 0) / 100)} refunded</span>
+                        )}
+                      </td>
                     </tr>
                     {isExpanded && (
                       <tr className="border-b border-line bg-surface/20">
-                        <td colSpan={7} className="p-0"><ExpandedPanel invoice={inv} /></td>
+                        <td colSpan={8} className="p-0"><ExpandedPanel invoice={inv} /></td>
                       </tr>
                     )}
                   </React.Fragment>
