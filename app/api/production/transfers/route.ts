@@ -404,7 +404,7 @@ async function reconcileSchedule(
             batch_id, equipment_id: to_tank_id, stage: targetStage,
             planned_start: today, planned_end: newEnd,
             actual_start: today, actual_end: isPackagingStage ? today : null,
-            volume_bbl: isPackagingStage ? (volume_bbl ?? null) : null,
+            volume_bbl: volume_bbl ?? null,
             notes: isPackagingStage ? `Unscheduled additional ${targetStage}` : `Auto-created on transfer`,
           })
           .select("id")
