@@ -11,6 +11,8 @@ export interface LedgerTransfer {
   volume_bbl:    number;
   shrinkage_bbl: number;
   transferred_at: string;
+  /** Needed to recognise an in-keg child's destination-less packaging rows. */
+  transfer_type?: string | null;
   from_tank?: { type?: string | null } | null;
   to_tank?:   { type?: string | null } | null;
 }
@@ -140,11 +142,19 @@ export function computeLocationBreakdown(
   let shrinkage = 0;
   let exported  = 0;
   let converted = 0;
+  let packagedOut = 0;
   for (const t of batchTransfers) {
     shrinkage += Number(t.shrinkage_bbl ?? 0);
     if (t.to_batch_id) {
       // Volume moved to a sibling batch via conversion — no longer this batch's
       converted += Number(t.volume_bbl ?? 0);
+    } else if (!t.to_tank_id && (t.transfer_type === "kegging" || t.transfer_type === "canning")) {
+      // An in-keg conversion child's packaging rows: from the station, to
+      // nowhere — deliberately, so the station's net reads zero instead of
+      // beer parked there forever. The volume is real finished goods though,
+      // and counting it nowhere left every in-keg child's breakdown reading
+      // "unbalanced" by its whole volume (B-064 accounted for 0.00 of 0.50).
+      packagedOut += Number(t.volume_bbl ?? 0);
     } else {
       const destType = resolveType(t.to_tank_id, t.to_tank?.type, tankTypeById);
       if (destType === "export_bay" || destType === "loading_bay") {
@@ -155,7 +165,7 @@ export function computeLocationBreakdown(
 
   const result: LocationBreakdown = {
     backlog: 0, brewhouse: 0, fermenter: 0, brite: 0,
-    packaging: 0, coldStorage: 0, exported, converted, shrinkage,
+    packaging: packagedOut, coldStorage: 0, exported, converted, shrinkage,
   };
 
   if (batchTransfers.length === 0 && inboundConversions.length === 0) {
