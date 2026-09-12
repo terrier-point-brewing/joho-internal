@@ -17,7 +17,31 @@ import { registerProvider, sharedRead, __resetRegistry, type BalanceProvider } f
 import { getMethod } from "./methods/registry";
 
 type AdminClient = Parameters<typeof expandSources>[0];
-const supabase = {} as AdminClient;
+
+/**
+ * The one table expandSources itself reads: the stated-balance fallback for a
+ * historical month's excluded method (readStatedBalanceCents). Keyed by coaId;
+ * empty means nobody stated anything, which is every test's default.
+ */
+let statedBalances: Record<string, number>;
+const supabase = {
+  from(table: string) {
+    if (table !== "manual_entries") throw new Error(`unexpected table ${table}`);
+    let coa: string | null = null;
+    const api: Record<string, unknown> = {
+      select: () => api,
+      eq(col: string, v: string) {
+        if (col === "chart_of_accounts_id") coa = v;
+        return api;
+      },
+      maybeSingle: async () => ({
+        data: coa !== null && statedBalances[coa] !== undefined ? { amount_cents: statedBalances[coa] } : null,
+        error: null,
+      }),
+    };
+    return api;
+  },
+} as unknown as AdminClient;
 const PERIOD = "2026-07-31";
 const COA = "coa-2220";
 
@@ -41,6 +65,7 @@ beforeEach(() => {
   // Clears PROVIDERS only. Methods stay registered from the barrel import above,
   // so the real salesTaxPayable definition is what gets exercised.
   __resetRegistry();
+  statedBalances = {};
 });
 
 describe("expandSources", () => {
@@ -202,6 +227,21 @@ describe("expandSources", () => {
       // Not an error: declining to guess is a decision, and lumping it in with
       // failures trains a reader to ignore both.
       expect(out.errors).toEqual([]);
+    });
+
+    it("uses the operator's stated month-end balance instead of declining, when one exists", async () => {
+      registerProvider({ ...fake("openInvoiceAr", 982_188), dependsOnCurrentState: true });
+      // What the close checklist collected for exactly this period end. The
+      // exclusion refuses to GUESS; a stated figure is not a guess, and
+      // dropping it is how a completed close task and an unmoved snapshot
+      // came to coexist (GL 1040, May 2026).
+      statedBalances["coa-1100"] = 532_886;
+
+      const out = await expandSources(supabase, PERIOD, arSources(), true);
+
+      expect(out.excluded).toEqual([]);
+      expect(out.failedAccounts.has("coa-1100")).toBe(false);
+      expect(out.results.get("coa-1100:statedBalanceOverride")).toBe(532_886);
     });
 
     it("asks the same account normally when the month is not historical", async () => {

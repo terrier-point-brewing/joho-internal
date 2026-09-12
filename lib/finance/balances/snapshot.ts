@@ -31,6 +31,7 @@ import { getProvider, createSharedComputeCache } from "./registry";
 import type { BalanceContext } from "./registry";
 import { getMethod, runMethod } from "./methods/registry";
 import { STATED_BALANCE_KEY } from "./statedBalanceKey";
+import { readStatedBalanceCents } from "./providers/manualBalance";
 import { mostRecentlyEndedMonthEnd } from "./periods";
 import { readPeriodClose } from "./periodCloseState";
 
@@ -266,6 +267,16 @@ async function resolveDeclaredSource(
     if (method) {
       // Checked before the method runs, not after: the point is not to ask.
       if (historical && stepsDependOnCurrentState(method.steps.map((s) => s.providerKey))) {
+        // The exclusion refuses to GUESS about an older month; it must not
+        // also refuse an operator's stated month-end figure. The close
+        // checklist collects exactly these balances (a 1040 task for May asks
+        // for May 31's Square balance), and dropping the answer here is how a
+        // completed task and an unmoved snapshot came to coexist. Only the
+        // exact period end counts -- readStatedBalanceCents's own rule.
+        const stated = await readStatedBalanceCents(ctx.supabase, ctx.coaId, ctx.periodEnd);
+        if (stated !== null) {
+          return { kind: "steps", steps: [{ providerKey: STATED_BALANCE_KEY, cents: stated }] };
+        }
         return { kind: "excluded" };
       }
       const outcome = await runMethod(method, ctx);
@@ -287,7 +298,14 @@ async function resolveDeclaredSource(
         errors: [`Unknown balance method or provider "${source.providerKey}" for account ${source.coaId}`],
       };
     }
-    if (historical && provider.dependsOnCurrentState) return { kind: "excluded" };
+    if (historical && provider.dependsOnCurrentState) {
+      // Same stated-balance fallback as the method branch above.
+      const stated = await readStatedBalanceCents(ctx.supabase, ctx.coaId, ctx.periodEnd);
+      if (stated !== null) {
+        return { kind: "steps", steps: [{ providerKey: STATED_BALANCE_KEY, cents: stated }] };
+      }
+      return { kind: "excluded" };
+    }
 
     const value = await provider.compute(ctx);
     return { kind: "steps", steps: [{ providerKey: source.providerKey, cents: value }] };
