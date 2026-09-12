@@ -402,27 +402,9 @@ export async function calculateShippedIngredientDeposits(
       continue;
     }
 
-    // Packaged so far. 'brewing' and 'transfer' are tank movements and
-    // 'conversion' re-labels beer already counted — only these two are packaging.
-    const packagedBbl = round4(
-      ledger
-        .filter((t) => t.batch_id === batchId && (t.transfer_type === "canning" || t.transfer_type === "kegging"))
-        .reduce((sum, t) => sum + Number(t.volume_bbl ?? 0), 0),
-    );
-
-    // Still unpackaged — beer that will be packaged, and whose share of the bill
-    // therefore still belongs in the denominator. Excludes the packaging
-    // stations, cold storage and the export bay: that beer is already counted
-    // in packagedBbl.
     const nominalBbl = Number(batch.volume_bbl ?? 0);
-    const where = computeLocationBreakdown(batchId, nominalBbl, ledger, tankTypeById, true);
-    const inTankBbl = round4(where.backlog + where.brewhouse + where.fermenter + where.brite);
-
-    // That beer has its packaging loss ahead of it, so it joins the denominator
-    // at what it is expected to yield, not at what is in the tank today.
-    const expectedFromTankBbl = round4(inTankBbl * (packagingYieldPct / 100));
-
-    const projectedYieldBbl = round4(packagedBbl + expectedFromTankBbl);
+    const { packagedBbl, inTankBbl, expectedFromTankBbl, projectedYieldBbl } =
+      projectBatchYield(batchId, nominalBbl, ledger, tankTypeById, packagingYieldPct);
     if (projectedYieldBbl <= 0) {
       warnings.push(
         `${label} has no packaged volume and nothing left in tank, so there is nothing to divide its ingredient bill by — no deposit charged for its ${shippedBbl.toFixed(2)} bbl.`,
@@ -525,4 +507,55 @@ export function shippedDepositDescription(line: ShippedDepositLine): string {
 
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
+}
+
+export interface BatchYieldProjection {
+  /** bbl the batch has packaged so far (canning + kegging rows). */
+  packagedBbl: number;
+  /** bbl still unpackaged — in backlog, brewhouse, fermenter or brite. */
+  inTankBbl: number;
+  /** inTankBbl × packagingYieldPct — what that beer is expected to package out at. */
+  expectedFromTankBbl: number;
+  /** packagedBbl + expectedFromTankBbl — the deposit denominator. */
+  projectedYieldBbl: number;
+}
+
+/**
+ * The batch's projected yield: packaged so far plus what is still in tank,
+ * shrunk to the volume it is expected to actually package out at. The one
+ * formula behind both the shipped deposit's denominator and any screen that
+ * reports "current estimated yield" — see the module comment for why neither
+ * nominal volume nor packaged-to-date is the right number.
+ *
+ * "Unpackaged" is the backlog / brewhouse / fermenter / brite side of
+ * computeLocationBreakdown, NOT the sum of computeTankVolumes: a canning or
+ * kegging row credits its packaging-station tank, so summing every tank counts
+ * the packaged beer a second time.
+ */
+export function projectBatchYield(
+  batchId: string,
+  nominalBbl: number,
+  ledger: Array<LedgerTransfer & { transfer_type: string }>,
+  tankTypeById: Record<string, string>,
+  packagingYieldPct: number,
+): BatchYieldProjection {
+  const packagedBbl = round4(
+    ledger
+      .filter((t) => t.batch_id === batchId && (t.transfer_type === "canning" || t.transfer_type === "kegging"))
+      .reduce((sum, t) => sum + Number(t.volume_bbl ?? 0), 0),
+  );
+
+  const where = computeLocationBreakdown(batchId, nominalBbl, ledger, tankTypeById, true);
+  const inTankBbl = round4(where.backlog + where.brewhouse + where.fermenter + where.brite);
+
+  // That beer has its packaging loss ahead of it, so it joins the denominator
+  // at what it is expected to yield, not at what is in the tank today.
+  const expectedFromTankBbl = round4(inTankBbl * (packagingYieldPct / 100));
+
+  return {
+    packagedBbl,
+    inTankBbl,
+    expectedFromTankBbl,
+    projectedYieldBbl: round4(packagedBbl + expectedFromTankBbl),
+  };
 }
