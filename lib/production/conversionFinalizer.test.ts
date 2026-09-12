@@ -1,6 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { conversionTargetStatus, isForward, createConversionTargetBatch, finalizeConversion, reconcileConvertedBatchVolume } from "./conversionFinalizer";
+
+vi.mock("@/lib/square/projects", () => ({
+  createBatchSquareProject: vi.fn().mockResolvedValue(null),
+}));
+
+import { createBatchSquareProject } from "@/lib/square/projects";
+import { conversionTargetStatus, isForward, createConversionTargetBatch, deriveConversionDeliveryDate, findPendingConversionPlan, finalizeConversion, reconcileConvertedBatchVolume } from "./conversionFinalizer";
 
 describe("conversionTargetStatus", () => {
   it("maps brite → conditioning and fermenter → fermenting", () => {
@@ -27,17 +33,29 @@ describe("isForward", () => {
   });
 });
 
-function insertStub(newId: string, parentDate: string | null) {
+function insertStub(newId: string, opts?: {
+  briteDays?: number | null;
+  activityTemplates?: Array<Record<string, unknown>>;
+}) {
   const recorded: { table: string; payload: unknown }[] = [];
   const from = (table: string) => {
     const b: Record<string, unknown> = {};
     b.select = () => b;
     b.eq = () => b;
-    b.single = () => Promise.resolve({ data: table === "brew_batches" ? { planned_brew_date: parentDate } : null, error: null });
+    b.order = () => {
+      // brew_activities template read: `.select().eq().order()` awaited directly.
+      return Promise.resolve({ data: opts?.activityTemplates ?? [], error: null });
+    };
+    b.maybeSingle = () => Promise.resolve({
+      data: table === "recipes" ? { days_brite: opts?.briteDays ?? null } : null,
+      error: null,
+    });
+    b.single = () => Promise.resolve({ data: null, error: null });
     b.insert = (payload: unknown) => {
       recorded.push({ table, payload });
       return {
         select: () => ({ single: () => Promise.resolve({ data: { id: newId }, error: null }) }),
+        then: (resolve: (v: unknown) => void) => resolve({ data: null, error: null }),
       };
     };
     return b;
@@ -45,19 +63,95 @@ function insertStub(newId: string, parentDate: string | null) {
   return { client: { from } as unknown as SupabaseClient, recorded };
 }
 
+describe("deriveConversionDeliveryDate", () => {
+  it("adds the recipe's brite days to the conversion date", async () => {
+    const { client } = insertStub("x", { briteDays: 14 });
+    expect(await deriveConversionDeliveryDate(client, "r1", "2026-05-01")).toBe("2026-05-15");
+  });
+  it("falls back to the conversion date itself when the recipe declares no brite time", async () => {
+    const { client } = insertStub("x", { briteDays: null });
+    expect(await deriveConversionDeliveryDate(client, "r1", "2026-05-01")).toBe("2026-05-01");
+  });
+});
+
 describe("createConversionTargetBatch", () => {
-  it("inserts a planning child linked to the parent and returns its id", async () => {
-    const { client, recorded } = insertStub("child-1", "2026-05-21");
+  it("inserts a planning child dated at the CONVERSION day with a derived delivery date", async () => {
+    const { client, recorded } = insertStub("child-1", { briteDays: 10 });
     const id = await createConversionTargetBatch(client, {
       sourceBatchId: "S", beerName: "Pumpkin Ale", recipeId: "r1", volumeBbl: 24.5,
+      conversionDate: "2026-07-30",
     });
     expect(id).toBe("child-1");
     const ins = recorded.find(r => r.table === "brew_batches");
     expect(ins?.payload).toMatchObject({
       beer_name: "Pumpkin Ale", recipe_id: "r1", volume_bbl: 24.5,
       status: "planning", converted_from_batch_id: "S", converted_volume_bbl: 24.5,
-      planned_brew_date: "2026-05-21",
+      planned_brew_date: "2026-07-30",
+      expected_delivery_date: "2026-08-09",
     });
+  });
+
+  it("logs the initial status and seeds activities from the recipe's templates", async () => {
+    const { client, recorded } = insertStub("child-2", {
+      briteDays: 0,
+      activityTemplates: [{ sort_order: 0, activity: "Add puree", time_label: null, temp: null, amount: 40, amount_unit: "lb" }],
+    });
+    await createConversionTargetBatch(client, {
+      sourceBatchId: "S", beerName: "Orange Pilsner", recipeId: "r2", volumeBbl: 5,
+      conversionDate: "2026-08-04",
+    });
+    const history = recorded.find(r => r.table === "batch_status_history");
+    expect(history?.payload).toMatchObject({ batch_id: "child-2", status: "planning" });
+    const activities = recorded.find(r => r.table === "brew_activities");
+    expect(activities?.payload).toMatchObject([{ batch_id: "child-2", activity: "Add puree", amount: 40 }]);
+  });
+
+  it("creates the Square project for a plan/tank child but never for one born complete", async () => {
+    vi.mocked(createBatchSquareProject).mockClear();
+    const a = insertStub("child-3", { briteDays: 5 });
+    await createConversionTargetBatch(a.client, {
+      sourceBatchId: "S", beerName: "Mule", recipeId: "r3", volumeBbl: 24, conversionDate: "2026-07-30",
+    });
+    expect(createBatchSquareProject).toHaveBeenCalledWith(a.client, expect.objectContaining({
+      batchId: "child-3", plannedBrewDate: "2026-07-30", expectedDeliveryDate: "2026-08-04",
+    }));
+
+    vi.mocked(createBatchSquareProject).mockClear();
+    const b = insertStub("child-4", { briteDays: 5 });
+    await createConversionTargetBatch(b.client, {
+      sourceBatchId: "S", beerName: "Mule", recipeId: "r3", volumeBbl: 0.5,
+      conversionDate: "2026-07-30", bornComplete: true,
+    });
+    expect(createBatchSquareProject).not.toHaveBeenCalled();
+  });
+});
+
+describe("findPendingConversionPlan", () => {
+  function planStub(plans: Array<{ id: string; target_batch_id: string; target: { recipe_id: string | null; status: string | null } | null }>) {
+    const from = () => {
+      const b: Record<string, unknown> = {};
+      b.select = () => b; b.eq = () => b; b.is = () => b;
+      b.order = () => Promise.resolve({ data: plans, error: null });
+      return b;
+    };
+    return { from } as unknown as SupabaseClient;
+  }
+
+  it("returns the oldest pending plan whose waiting child matches the recipe", async () => {
+    const client = planStub([
+      { id: "p1", target_batch_id: "t1", target: { recipe_id: "other", status: "planning" } },
+      { id: "p2", target_batch_id: "t2", target: { recipe_id: "r1", status: "planning" } },
+      { id: "p3", target_batch_id: "t3", target: { recipe_id: "r1", status: "planning" } },
+    ]);
+    expect(await findPendingConversionPlan(client, { sourceBatchId: "S", recipeId: "r1" }))
+      .toEqual({ planId: "p2", targetBatchId: "t2" });
+  });
+
+  it("skips targets that already left planning/backlog, and misses cleanly", async () => {
+    const client = planStub([
+      { id: "p1", target_batch_id: "t1", target: { recipe_id: "r1", status: "conditioning" } },
+    ]);
+    expect(await findPendingConversionPlan(client, { sourceBatchId: "S", recipeId: "r1" })).toBeNull();
   });
 });
 

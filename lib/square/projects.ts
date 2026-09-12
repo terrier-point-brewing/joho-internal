@@ -17,6 +17,7 @@
  *   ALTER TABLE brew_batches ADD COLUMN IF NOT EXISTS square_invoice_id text;
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { squarePost, squareLocationId } from "./client";
 import crypto from "crypto";
 
@@ -113,6 +114,62 @@ export async function createSquareProject(
     invoiceId: invoiceResp.invoice.id,
     invoiceUrl: invoiceResp.invoice.public_url ?? null,
   };
+}
+
+/**
+ * Create the Square "project" invoice for a batch and persist its id on
+ * brew_batches.square_invoice_id — the partner lookup, Square calls, and
+ * persistence that every batch-creating path shares. Non-blocking by design:
+ * the batch is already committed by the time this runs, so a Square failure
+ * is logged and swallowed rather than unmaking the batch.
+ */
+export async function createBatchSquareProject(
+  supabase: SupabaseClient,
+  { batchId, beerName, volumeBbl, plannedBrewDate, expectedDeliveryDate, recipeId }: {
+    batchId: string;
+    beerName: string;
+    volumeBbl: number;
+    plannedBrewDate: string;
+    expectedDeliveryDate: string;
+    recipeId: string;
+  },
+): Promise<string | null> {
+  try {
+    const { data: recipeRow } = await supabase
+      .from("recipes")
+      .select("partner_id")
+      .eq("id", recipeId)
+      .single();
+
+    let squareCustomerId: string | null = null;
+    if (recipeRow?.partner_id) {
+      const { data: partner } = await supabase
+        .from("contract_brewing_partners")
+        .select("square_customer_id")
+        .eq("id", recipeRow.partner_id)
+        .single();
+      squareCustomerId = partner?.square_customer_id ?? null;
+    }
+
+    const result = await createSquareProject({
+      beerName,
+      volumeBbl,
+      plannedBrewDate,
+      expectedDeliveryDate,
+      squareCustomerId,
+    });
+
+    const { error: invIdErr } = await supabase
+      .from("brew_batches")
+      .update({ square_invoice_id: result.invoiceId })
+      .eq("id", batchId);
+    if (invIdErr) console.error("[Square] Failed to persist square_invoice_id:", invIdErr.message);
+
+    return result.invoiceId;
+  } catch (err) {
+    console.error("[Square] Failed to create project invoice:", err);
+    return null;
+  }
 }
 
 /** Retrieve a Square Invoice by ID. */
