@@ -96,6 +96,54 @@ export async function cascadeExportTransactionsStatus(
   return 0;
 }
 
+/**
+ * Settle (or release) ingredient deposits that were back-charged onto an export
+ * invoice instead of billed through their own deposit invoice
+ * (`batch_allocations.deposit_backcharged_invoice_id`).
+ *
+ *  - invoice paid   → stamp `invoice_paid_at` on each pointing allocation (the
+ *    Commitments cell flips to "Deposit paid") and lock the commitment.
+ *    `deposit_amount_paid_cents` is left untouched: it feeds the Square refund
+ *    flow, which needs a deposit payment id that a back-charge never has.
+ *  - invoice voided → clear the pointer on still-unpaid allocations, so the
+ *    deposit goes back to pending instead of waiting on a dead invoice.
+ *
+ * Shared by BOTH invoice-status writers (reconcileInvoiceStatus and the Square
+ * invoice sync), for the same reason cascadeExportTransactionsStatus is.
+ * Idempotent; returns how many allocations changed.
+ */
+export async function settleBackchargedDeposits(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  ledgerStatus: InvoiceStatus,
+  paidAt: string | null,
+): Promise<number> {
+  if (ledgerStatus === "paid") {
+    const { data, error } = await supabase
+      .from("batch_allocations")
+      .update({ invoice_paid_at: paidAt ?? new Date().toISOString() })
+      .eq("deposit_backcharged_invoice_id", invoiceId)
+      .is("invoice_paid_at", null)
+      .select("id, invoice_paid_at");
+    if (error) throw new Error(`back-charged deposit settle failed: ${error.message}`);
+    for (const a of data ?? []) {
+      await stampCommitmentLockedOn(supabase, a.id, a.invoice_paid_at as string);
+    }
+    return data?.length ?? 0;
+  }
+  if (ledgerStatus === "voided") {
+    const { data, error } = await supabase
+      .from("batch_allocations")
+      .update({ deposit_backcharged_invoice_id: null })
+      .eq("deposit_backcharged_invoice_id", invoiceId)
+      .is("invoice_paid_at", null)
+      .select("id");
+    if (error) throw new Error(`back-charged deposit release failed: ${error.message}`);
+    return data?.length ?? 0;
+  }
+  return 0;
+}
+
 export interface AllocationInvoiceState {
   invoice_sent_at: string | null;
   invoice_paid_at: string | null;
@@ -233,6 +281,9 @@ export async function reconcileInvoiceStatus(
   // and never regress a paid row. Only paid/open/partial produce a target.
   base.updatedExportTransactions = await cascadeExportTransactionsStatus(supabase, inv.id, ledgerStatus);
 
+  // Deposits back-charged onto this invoice settle (or release) with it.
+  await settleBackchargedDeposits(supabase, inv.id, ledgerStatus, sq.paidAt);
+
   // ── Deposit allocation (square_deposit_invoice_id) ───────────────────────────
   const { data: alloc } = await supabase
     .from("batch_allocations")
@@ -334,6 +385,9 @@ async function voidMissingInvoice(
   // and stopped, stranding the shipments on Unpaid against an invoice that no
   // longer existed anywhere.
   base.updatedExportTransactions = await cascadeExportTransactionsStatus(supabase, inv.id, "voided");
+
+  // A deleted invoice releases any deposits back-charged onto it.
+  await settleBackchargedDeposits(supabase, inv.id, "voided", null);
 
   // ── Deposit allocation ───────────────────────────────────────────────────────
   // A deleted deposit invoice reopens the allocation (same as CANCELED); no
