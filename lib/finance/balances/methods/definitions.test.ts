@@ -451,11 +451,14 @@ describe("correcting an account by hand", () => {
     }
   });
 
-  it("offers the stated-balance override to exactly the feed-relayed methods", () => {
+  it("offers the stated-balance override to exactly the feed-relayed and proxy-valued methods", () => {
     // Narrow on purpose. An accumulating account overridden for one month reads
     // fixed and is not: the next month re-sums the same history.
+    // accountsReceivable declares the override explicitly: openInvoiceAr is a
+    // "open TODAY" proxy, so the most recently ended month's figure melts as
+    // collections land, and only a stated month-end balance answers as-at.
     const overridable = listMethods().filter(acceptsStatedBalance).map((m) => m.key).sort();
-    expect(overridable).toEqual(["plaidBankBalance", "rampBalance", "rampCardBalance"]);
+    expect(overridable).toEqual(["accountsReceivable", "plaidBankBalance", "rampBalance", "rampCardBalance"]);
   });
 
   it("leaves the Square method to its own anchor", () => {
