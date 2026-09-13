@@ -31,6 +31,7 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
 import SortableTh from "@/app/components/ui/SortableTh";
+import DepositCoverageLine from "./DepositCoverageLine";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig, SortState } from "@/lib/table/types";
 
@@ -956,6 +957,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                       </span>
                     )}
                     <InvoiceStatusBadge allocation={a} />
+                    <DepositCoverageLine allocation={a} />
                   </div>
 
                   {/* Controls: % input + BBL + invoice + status + delete */}

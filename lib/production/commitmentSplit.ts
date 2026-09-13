@@ -55,6 +55,7 @@ export async function splitCommitmentForConversionChild(
       desired_delivery_date: deliveryDate ?? parent.desired_delivery_date,
       received_on:           parent.received_on,
       status:                "open",
+      split_from_commitment_id: parent.id,
       notes: `Auto-split from commitment ${parent.id.slice(0, 8)} — ${movedBbl} bbl converted into ${childLabel}.`,
     })
     .select("id")

@@ -64,7 +64,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   // A conversion-born batch's deposit charges only what the conversion added —
   // the drawn liquid's own bill was bought and deposit-billed against the
   // parent batch. Empty for a brewed batch, so nothing changes there.
-  const excludedRecipes = await conversionDepositExclusions(supabase, batchId);
+  const excludedRecipes = await conversionDepositExclusions(supabase, batchId, { partnerId: allocation.partner_id });
   const calculation = await calculateIngredientDeposit(supabase, batchId, percentage, {
     excludeRecipeIds: excludedRecipes.map((r) => r.recipeId),
   });
@@ -132,7 +132,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     }
 
     // Conversion-born batch → net the parent's bill out; see the GET handler.
-    const excludedRecipes = await conversionDepositExclusions(supabase, batch.id);
+    const excludedRecipes = await conversionDepositExclusions(supabase, batch.id, { partnerId: allocation.partner_id });
     const calculation = await calculateIngredientDeposit(supabase, batch.id, Number(allocation.percentage), {
       excludeRecipeIds: excludedRecipes.map((r) => r.recipeId),
     });
@@ -472,7 +472,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
 
     if (inv?.id) {
       try {
-        const excluded = await conversionDepositExclusions(supabase, batch.id);
+        const excluded = await conversionDepositExclusions(supabase, batch.id, { partnerId: allocation.partner_id });
         const calc = await calculateIngredientDeposit(supabase, batch.id, Number(allocation.percentage), {
           excludeRecipeIds: excluded.map((r) => r.recipeId),
         });

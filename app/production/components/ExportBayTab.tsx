@@ -15,6 +15,7 @@ import type { ControlsConfig } from "@/lib/table/types";
 import Card from "@/app/components/ui/Card";
 import { Modal } from "@/app/components/ui/Modal";
 import ColdStorageTransformModal from "./ColdStorageTransformModal";
+import DepositCoverageLine from "./DepositCoverageLine";
 
 function formatShipmentWarning(w: ShipmentWarning): string {
   switch (w.type) {
@@ -938,6 +939,7 @@ export default function ExportBayTab() {
                                       <span className="text-muted text-xs truncate">
                                         Due {fmtDate(a.commitments?.desired_delivery_date ?? null)}
                                       </span>
+                                      <DepositCoverageLine allocation={a} />
                                     </div>
                                     <div className="flex flex-col items-end gap-0.5 shrink-0">
                                       <span className="text-secondary tabular-nums text-xs">
