@@ -303,6 +303,11 @@ const accountsReceivable: BalanceMethod = {
   kind: "calculation",
   summary: "What customers still owe you on unpaid invoices.",
   appliesTo: isReceivable,
+  // openInvoiceAr answers "open TODAY", so the most recently ended month's
+  // figure melts as September collections land on August invoices. A stated
+  // month-end balance is the only true as-at answer until the month turns
+  // historical — declared here so it overrides year-round, not only after.
+  statedBalanceOverride: true,
   steps: [
     {
       providerKey: "openInvoiceAr",

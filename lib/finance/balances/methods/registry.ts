@@ -231,6 +231,20 @@ export interface BalanceMethod {
    * can be configured from.
    */
   setup?: SetupField[];
+  /**
+   * Explicitly declares whether an operator's stated month-end balance
+   * (manual_entries, entry_kind 'balance', exact period end) overrides this
+   * method's computed figure. Omitted, the answer is inferred: every step
+   * pointInTime (see acceptsStatedBalance).
+   *
+   * Declare TRUE on a method whose figure is a current-state PROXY for the
+   * month asked about — openInvoiceAr answers "open TODAY", so the most
+   * recently ended month's receivables silently melt as collections land,
+   * and only a stated month-end figure can say what Aug 31 actually held
+   * before October makes the month historical. Declare it, don't widen the
+   * inference: a method with a genuine as-at step should keep refusing.
+   */
+  statedBalanceOverride?: boolean;
 }
 
 /** The connection field a method declares, if it has one. At most one is meaningful. */
@@ -368,6 +382,8 @@ export { STATED_BALANCE_KEY };
  * failure than the unknown step.
  */
 export function acceptsStatedBalance(method: BalanceMethod): boolean {
+  // An explicit declaration wins over the inference — see the field's comment.
+  if (method.statedBalanceOverride !== undefined) return method.statedBalanceOverride;
   return method.steps.every((step) => getProvider(step.providerKey)?.pointInTime === true);
 }
 
