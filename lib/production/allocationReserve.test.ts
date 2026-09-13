@@ -460,3 +460,42 @@ describe("planCreditedWrites", () => {
     expect(writes.reduce((s, w) => s + w.qty, 0)).toBeCloseTo(20);
   });
 });
+
+describe("owed is capped at booked on an over-yielding batch (the #542 rule)", () => {
+  // The B-022 shape: 40 bbl batch over-yields to 29.10 produced; Argus booked
+  // 15 at 75%. Share = 21.83, but crediting stops at booked — 15 shipped IS
+  // the whole deal, and must read fulfilled.
+  it("allocationView: fulfilled once exported reaches min(share, booked)", () => {
+    const a = alloc({ percentage: 75, bookedBbl: 15, exportedBbl: 15 });
+    const b = batch({ producedBbl: 29.1, status: "complete", allocations: [a] });
+    expect(allocationView(a, b).fulfilled).toBe(true);
+  });
+
+  it("batchReserve: the surplus above booked is free to ship, not reserved", () => {
+    const a = alloc({ percentage: 75, bookedBbl: 15, exportedBbl: 15 });
+    const b = batch({ producedBbl: 29.1, totalExportedBbl: 19, status: "complete", allocations: [a] });
+    const r = batchReserve(b);
+    expect(r.reservedForContractBbl).toBeCloseTo(0);
+    expect(r.underCovered).toBe(false);
+  });
+
+  it("completionReconciliation: no phantom under-delivery beyond booked", () => {
+    const a = alloc({ percentage: 75, bookedBbl: 15, exportedBbl: 15 });
+    const b = batch({ producedBbl: 29.1, status: "complete", allocations: [a] });
+    const rec = completionReconciliation(a, b)!;
+    expect(rec.finalEntitlementBbl).toBeCloseTo(15);
+    expect(rec.underDeliveredBbl).toBeCloseTo(0);
+    expect(rec.overDeliveredBbl).toBeCloseTo(0);
+  });
+
+  // The Wiggo! shape: under-yield — booked 10, share 7.45. The cap must NOT
+  // bind; owed stays the share and the partner bears pro-rata shrinkage.
+  it("under-yield unchanged: owed = share, 0.48 still due at 6.97 shipped", () => {
+    const a = alloc({ percentage: 50, bookedBbl: 10, exportedBbl: 6.97 });
+    const b = batch({ producedBbl: 14.9, status: "complete", allocations: [a] });
+    expect(allocationView(a, b).fulfilled).toBe(false);
+    const rec = completionReconciliation(a, b)!;
+    expect(rec.finalEntitlementBbl).toBeCloseTo(7.45);
+    expect(rec.underDeliveredBbl).toBeCloseTo(0.48);
+  });
+});

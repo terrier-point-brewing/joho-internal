@@ -10,6 +10,7 @@ import {
   type AllocationInput,
   type BatchInput,
 } from "@/lib/production/allocationReserve";
+import { splitCommitmentForConversionChild } from "@/lib/production/commitmentSplit";
 
 export const dynamic = "force-dynamic";
 
@@ -213,10 +214,11 @@ export async function POST(req: NextRequest) {
   // rows on the ALLOCATION's channel, and deposit-backing is decided by it, so a
   // mismatch either strands the commitment (its shipments credit under a channel
   // it never books) or silently drops the deposit guarantee the partner paid for.
+  let resolvedCommitmentId: string | null = contract_request_id || null;
   if (contract_request_id) {
     const { data: commitment } = await supabase
       .from("commitments")
-      .select("channel")
+      .select("channel, recipe_id")
       .eq("id", contract_request_id)
       .maybeSingle();
     if (!commitment) {
@@ -229,6 +231,40 @@ export async function POST(req: NextRequest) {
         { status: 422 }
       );
     }
+
+    // A conversion child allocated against its PARENT beer's commitment splits
+    // the deal instead of borrowing it: the moved volume gets its own
+    // commitment for the child's recipe, and the original shrinks to match.
+    // Without this, both beers' deposit invoices bill against one commitment
+    // (B-056 and B-063 both hung off the same 28 bbl Pilsner deal).
+    const commitmentRecipeId = (commitment as { recipe_id: string | null }).recipe_id;
+    const { data: batchRow } = await supabase
+      .from("brew_batches")
+      .select("recipe_id, volume_bbl, expected_delivery_date, converted_from_batch_id, batch_number, beer_name")
+      .eq("id", batch_id)
+      .maybeSingle();
+    const batch = batchRow as {
+      recipe_id: string | null; volume_bbl: number | null; expected_delivery_date: string | null;
+      converted_from_batch_id: string | null; batch_number: string | null; beer_name: string | null;
+    } | null;
+    if (
+      batch?.converted_from_batch_id
+      && batch.recipe_id
+      && commitmentRecipeId
+      && commitmentRecipeId !== batch.recipe_id
+    ) {
+      try {
+        resolvedCommitmentId = await splitCommitmentForConversionChild(supabase, {
+          commitmentId:  contract_request_id,
+          childRecipeId: batch.recipe_id,
+          volumeBbl:     (Number(percentage) / 100) * Number(batch.volume_bbl ?? 0),
+          deliveryDate:  batch.expected_delivery_date,
+          childLabel:    `${batch.batch_number ? `#${batch.batch_number} ` : ""}${batch.beer_name ?? batch_id}`,
+        });
+      } catch (splitErr) {
+        return NextResponse.json({ error: (splitErr as Error).message }, { status: 500 });
+      }
+    }
   }
 
   const { data, error } = await supabase
@@ -238,7 +274,7 @@ export async function POST(req: NextRequest) {
       channel,
       percentage: pct,
       partner_id: partner_id || null,
-      contract_request_id: contract_request_id || null,
+      contract_request_id: resolvedCommitmentId,
       notes: notes || null,
     })
     .select(`

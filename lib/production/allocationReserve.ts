@@ -21,6 +21,20 @@ export function isDepositBacked(channel: AllocationChannel): boolean {
   return channel === "contract_brewing";
 }
 
+/**
+ * What a deposit-backed allocation is actually OWED out of `shareBbl`
+ * (percentage × produced): capped at the booked volume. On an over-yielding
+ * batch the share outgrows the deal — the partner bought `booked` bbl, not a
+ * percentage of the upside — and shipment crediting already stops at booked
+ * (planShipment), so an uncapped test could never be met: B-022 sat at 15/15
+ * shipped yet read unfulfilled against an uncapped 21.8 bbl share. Mirrors
+ * commitmentFulfillment's `min(shareBbl, bookedBbl)` exactly. Under-yield is
+ * unchanged: owed = share, the partner bears pro-rata shrinkage, no refund.
+ */
+export function owedOfShare(shareBbl: number, bookedBbl: number | null): number {
+  return bookedBbl != null && bookedBbl > 0 ? Math.min(shareBbl, bookedBbl) : shareBbl;
+}
+
 export interface AllocationInput {
   id: string;
   batchId: string;
@@ -65,7 +79,8 @@ export function allocationView(alloc: AllocationInput, batch: BatchInput): Alloc
   const fulfilled = writtenOff
     ? true
     : depositBacked
-      ? complete && finalEntitlementBbl != null && alloc.exportedBbl >= finalEntitlementBbl - EPS
+      ? complete && finalEntitlementBbl != null
+        && alloc.exportedBbl >= owedOfShare(finalEntitlementBbl, alloc.bookedBbl) - EPS
       : alloc.exportedBbl >= realizableBbl - EPS;
   return {
     bookedBbl: alloc.bookedBbl,
@@ -95,7 +110,10 @@ export function batchReserve(batch: BatchInput): BatchReserve {
   const contract = batch.allocations.filter((a) => isDepositBacked(a.channel) && !a.writtenOff);
   const reservedForContractBbl = contract.reduce((s, a) => {
     const realizable = (a.percentage / 100) * batch.producedBbl;
-    return s + Math.max(0, realizable - a.exportedBbl);
+    // Reserve only what is actually owed — the share capped at booked. An
+    // over-yielding batch's surplus above booked is free to ship, not held
+    // hostage by a deposit that shipment crediting can never draw past.
+    return s + Math.max(0, owedOfShare(realizable, a.bookedBbl) - a.exportedBbl);
   }, 0);
   const onHandBbl = Math.max(0, batch.producedBbl - batch.totalExportedBbl);
   const freeToShipBbl = Math.max(0, onHandBbl - reservedForContractBbl);
@@ -133,7 +151,10 @@ export interface CompletionReconciliation {
 export function completionReconciliation(alloc: AllocationInput, batch: BatchInput): CompletionReconciliation | null {
   if (!isDepositBacked(alloc.channel)) return null;
   if (batch.status !== "complete") return null;
-  const a = (alloc.percentage / 100) * batch.producedBbl;
+  // The actionable entitlement is capped at booked: an over-yielding batch's
+  // surplus is not owed to the partner, so it is neither under-delivery when
+  // unshipped nor a make-good target. (Under-yield unchanged: A = share.)
+  const a = owedOfShare((alloc.percentage / 100) * batch.producedBbl, alloc.bookedBbl);
   const e = alloc.exportedBbl;
   return {
     finalEntitlementBbl: round4(a),
