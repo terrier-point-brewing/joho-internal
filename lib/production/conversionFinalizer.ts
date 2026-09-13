@@ -229,6 +229,63 @@ export async function seedConversionChildSchedule(
 }
 
 /**
+ * Make the batch_conversions record match what the ledger says was delivered
+ * from `sourceBatchId` into `targetBatchId` — creating the record when the
+ * conversion was executed ad-hoc with no plan.
+ *
+ * The record is what the Allocation Plan's read-only conversion line, the
+ * allocation-completeness badge, and the Equipment Schedule's pending markers
+ * all read. Pre-planned conversions got stamped; ad-hoc ones left NOTHING,
+ * so B-025/B-056/B-057 all read "allocation incomplete" over beer that had
+ * simply become another batch. Idempotent: volume is re-derived as the pair's
+ * total delivered (a reused child's second run bumps it, never doubles it),
+ * and an existing converted_at is preserved.
+ */
+export async function recordExecutedConversion(
+  supabase: SupabaseClient,
+  { sourceBatchId, targetBatchId }: { sourceBatchId: string; targetBatchId: string },
+): Promise<void> {
+  const { data: rows } = await supabase
+    .from("batch_transfers")
+    .select("volume_bbl")
+    .eq("batch_id", sourceBatchId)
+    .eq("to_batch_id", targetBatchId)
+    .eq("transfer_type", "conversion");
+  const delivered = (rows ?? []).reduce(
+    (s, r) => s + Number((r as { volume_bbl: number | null }).volume_bbl ?? 0), 0,
+  );
+  if (!(delivered > 0)) return;
+
+  const { data: existingRow } = await supabase
+    .from("batch_conversions")
+    .select("id, converted_at")
+    .eq("source_batch_id", sourceBatchId)
+    .eq("target_batch_id", targetBatchId)
+    .maybeSingle();
+  const existing = existingRow as { id: string; converted_at: string | null } | null;
+
+  if (existing) {
+    await supabase
+      .from("batch_conversions")
+      .update({
+        volume_bbl:   delivered,
+        converted_at: existing.converted_at ?? new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+  } else {
+    const today = new Date().toISOString().split("T")[0];
+    await supabase.from("batch_conversions").insert({
+      source_batch_id: sourceBatchId,
+      target_batch_id: targetBatchId,
+      volume_bbl:      delivered,
+      planned_date:    today,
+      converted_at:    new Date().toISOString(),
+      notes:           "Auto: recorded on execution (no pre-plan)",
+    });
+  }
+}
+
+/**
  * The oldest still-pending conversion plan from this source whose target is a
  * waiting child of the given recipe — the plan an execution should resolve
  * onto instead of minting a duplicate child next to it. Shared by the in-keg
