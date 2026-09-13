@@ -1361,7 +1361,9 @@ function BatchTable({
                       const avail = (!hasTransfers && b.status === "complete")
                         ? 0
                         : bd.backlog + bd.brewhouse + bd.fermenter + bd.brite;
-                      return <span className={avail > 0 ? "text-success" : "text-disabled"}>{avail.toFixed(2)} BBL</span>;
+                      // Grey out anything that would render as 0.00 — ledger dust
+                      // can leave avail a hair above zero (e.g. 0.001 bbl).
+                      return <span className={avail >= 0.005 ? "text-success" : "text-disabled"}>{avail.toFixed(2)} BBL</span>;
                     })()}
                   </td>
                   <td className="px-4 py-2.5 text-secondary text-right">{b.turns}</td>

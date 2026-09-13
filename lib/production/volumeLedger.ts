@@ -45,7 +45,7 @@ export function hasLedgerActivity(batchId: string, allTransfers: LedgerTransfer[
  *     inbound conversion arrival (seeding would double-count).
  *  3. Credit each conversion inflow to its destination tank.
  *  4. Apply each own transfer as a ±delta.
- *  5. Drop entries ≤ 0.001 BBL (floating-point dust).
+ *  5. Drop entries ≤ 0.0015 BBL (floating-point dust).
  *
  * Returns {} when the batch has neither own transfers nor conversion inflows;
  * caller falls back to assignment-based volume.
@@ -99,7 +99,10 @@ export function computeTankVolumes(
     if (t.to_tank_id && !t.to_batch_id) vols[t.to_tank_id] = (vols[t.to_tank_id] ?? 0) + vol;
   }
 
-  return Object.fromEntries(Object.entries(vols).filter(([, v]) => v > 0.001));
+  // 0.0015, not 0.001: an exactly-0.001 remainder lands on either side of
+  // 0.001 depending on floating-point apply order (same-timestamp transfers
+  // sort unstably), so the boundary itself must count as dust.
+  return Object.fromEntries(Object.entries(vols).filter(([, v]) => v > 0.0015));
 }
 
 export interface LocationBreakdown {
