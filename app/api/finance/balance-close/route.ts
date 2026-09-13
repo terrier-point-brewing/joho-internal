@@ -23,7 +23,6 @@ import { requirePermission, CAP, getSessionUser } from "@/lib/auth";
 import { monthEnd } from "@/lib/finance/manualEntries";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
-import { todayLocalDate } from "@/lib/utils/datetime";
 import {
   listTasksForPeriod,
   everyTaskAnswered,
@@ -36,12 +35,9 @@ import {
   dueDateForPeriod,
   type CloseTask,
 } from "@/lib/finance/balances/closeTasks";
-import { closePeriod, reopenPeriod, readPeriodClose, readPeriodCoverage } from "@/lib/finance/balances/periodClose";
-import { snapshotPeriod } from "@/lib/finance/balances/snapshot";
+import { reopenPeriod, readPeriodClose, readPeriodCoverage } from "@/lib/finance/balances/periodClose";
 
 export const dynamic = "force-dynamic";
-/** Closing runs a full recalculation, including live reads against Ramp, Plaid and Square. */
-export const maxDuration = 60;
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -162,9 +158,7 @@ interface PostBody {
 }
 
 /**
- * Six actions, all gated on financeTransactionsManage (preview writes nothing,
- * but it runs the same live recalculation the close does, so it carries the
- * same gate rather than a cheaper one that would invite polling).
+ * Four actions, all gated on financeTransactionsManage.
  *
  *   refresh       -- bring the checklist up to date on demand instead of
  *                    waiting for the nightly cron. Both halves are idempotent
@@ -172,18 +166,14 @@ interface PostBody {
  *                    call on every page load and is what makes the screen
  *                    truthful the first time an account is configured rather
  *                    than the morning after.
- *   preview       -- the close's recalculation as a DRY RUN: the same
- *                    snapshotPeriod the close runs, persisting nothing, so the
- *                    panel can say what the month would land at before anybody
- *                    commits to closing it (and reopening to check stops being
- *                    part of the workflow).
  *   skip          -- "this account had no balance this month, and here is why".
  *   reopen        -- the inverse of a skip.
- *   close-period  -- a PERSON declares the month final. Recalculates, refuses
- *                    with reasons if anything is outstanding or the
- *                    recalculation did not finish cleanly, then freezes it with
- *                    their name on it.
- *   reopen-period -- the attributed inverse of that, reason required.
+ *   reopen-period -- takes back a close, attributed, reason required.
+ *
+ * "preview" and "close-period" — the two actions that run a FULL
+ * recalculation with live integration reads — live in ./recompute/route.ts,
+ * their own serverless function, so a minute-long recompute never occupies
+ * the instances these one-second interactions need (see that file's header).
  *
  * The last two replace an unattributed `unfreeze` action. Reopening was
  * reachable while closing was not, so the only way a period ever became final
@@ -201,20 +191,6 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = (await req.json()) as PostBody;
-
-    if (body.action === "preview") {
-      if (!body.periodEnd || body.periodEnd !== monthEnd(body.periodEnd)) {
-        return NextResponse.json({ error: "periodEnd is required and must be a month end" }, { status: 400 });
-      }
-      const supabase = createSupabaseAdminClient();
-      const snapshot = await snapshotPeriod(supabase, body.periodEnd, { dryRun: true });
-      return NextResponse.json({
-        ok: true,
-        wouldCloseAtCents: snapshot.balancingDifferenceCents,
-        errors: snapshot.errors,
-        excluded: snapshot.excluded,
-      });
-    }
 
     if (body.action === "refresh") {
       if (!body.periodEnd || body.periodEnd !== monthEnd(body.periodEnd)) {
@@ -254,9 +230,12 @@ export async function POST(req: NextRequest) {
           );
     }
 
-    if (body.action !== "close-period" && body.action !== "reopen-period") {
+    if (body.action !== "reopen-period") {
       return NextResponse.json(
-        { error: 'action must be "refresh", "skip", "reopen", "close-period" or "reopen-period"' },
+        {
+          error:
+            'action must be "refresh", "skip", "reopen" or "reopen-period" — "preview" and "close-period" moved to /api/finance/balance-close/recompute',
+        },
         { status: 400 },
       );
     }
@@ -264,34 +243,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "periodEnd is required and must be a month end" }, { status: 400 });
     }
 
-    // Both period actions are attributed, so both need a real signed-in user.
+    // Reopening is attributed, so it needs a real signed-in user.
     // requirePermission has already established there is one; this reads WHICH,
-    // and refuses rather than recording a close by nobody — an unattributed
-    // close is the thing being replaced, not a fallback for it.
+    // and refuses rather than recording an event by nobody.
     const session = await getSessionUser();
     if (!session) {
-      return NextResponse.json({ error: "Sign in again before closing or reopening a month." }, { status: 401 });
+      return NextResponse.json({ error: "Sign in again before reopening a month." }, { status: 401 });
     }
 
     const supabase = createSupabaseAdminClient();
-
-    if (body.action === "close-period") {
-      const result = await closePeriod(supabase, {
-        periodEnd: body.periodEnd,
-        actorId: session.user.id,
-        todayIso: todayLocalDate(),
-        // Optional, unlike reopen's: a clean month needs no explanation, but a
-        // month closed with a known, documented balancing difference deserves
-        // its decomposition on the record next to the closer's name.
-        reason: typeof body.reason === "string" ? body.reason : null,
-      });
-      // 409, not 400: the request was well formed and the answer is about the
-      // state of the books. The blockers are full sentences meant to be shown
-      // as they are.
-      return result.ok
-        ? NextResponse.json({ ok: true, close: result.state, snapshot: result.snapshot })
-        : NextResponse.json({ error: result.blockers.join(" "), blockers: result.blockers }, { status: 409 });
-    }
 
     if (typeof body.reason !== "string" || body.reason.trim() === "") {
       return NextResponse.json({ error: "Say why this month is being reopened." }, { status: 400 });

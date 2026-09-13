@@ -90,7 +90,7 @@ export default function ClosePeriodFooter({
     setPreviewing(true);
     setPreview(null);
     try {
-      const res = await fetch("/api/finance/balance-close", {
+      const res = await fetch("/api/finance/balance-close/recompute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "preview", periodEnd }),
@@ -112,7 +112,7 @@ export default function ClosePeriodFooter({
     setBlockers([]);
     setPreview(null);
     try {
-      const res = await fetch("/api/finance/balance-close", {
+      const res = await fetch("/api/finance/balance-close/recompute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "close-period", periodEnd, ...(reason.trim() ? { reason } : {}) }),
