@@ -27,10 +27,19 @@ function formatShipmentWarning(w: ShipmentWarning): string {
   }
 }
 
-// Progress denominator: contract allocations measure against their booked deposit;
-// soft allocations against their produced-so-far share. null = nothing produced yet.
+// Progress denominator: what the allocation is actually OWED. Contract
+// allocations measure against their produced share CAPPED at the booked
+// deposit — booked alone is a pre-shrinkage estimate, so a fully delivered
+// batch read forever-short by its shrinkage (Wiggo!: 6.97/10.00 shown when
+// the final entitlement was 7.45 and only 0.48 remained). Before anything is
+// produced the booked figure stands in as the target. Soft allocations
+// measure against their produced-so-far share. null = nothing to measure yet.
 function allocDenomBbl(a: BatchAllocation): number | null {
-  const d = a.deposit_backed ? a.booked_bbl : a.realizable_bbl;
+  const d = a.deposit_backed
+    ? (a.realizable_bbl > 0 && a.booked_bbl != null
+        ? Math.min(a.realizable_bbl, a.booked_bbl)
+        : a.booked_bbl)
+    : a.realizable_bbl;
   return d != null && d > 0 ? d : null;
 }
 
