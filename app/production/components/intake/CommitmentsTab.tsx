@@ -13,6 +13,7 @@ import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { Modal, Field, ModalActions } from "../shared";
 import { fetchJson, useRecipePackagingVariationsQuery } from "../../hooks/queries";
 import { DepositInvoiceModal } from "../DepositInvoiceModal";
+import DepositCoverageLine from "../DepositCoverageLine";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
 import { useTableControls } from "@/app/components/ui/useTableControls";
@@ -129,6 +130,7 @@ function InvoicingCell({
         <div key={a.id} className="flex items-center gap-1.5 flex-wrap">
           {a.brew_batches && <span className="text-[10px] text-muted whitespace-nowrap">#{a.brew_batches.batch_number}</span>}
           <InvoiceStatusBadge a={a} />
+          <DepositCoverageLine allocation={a} />
           {/* View in Square — available whenever an invoice exists, paid or not */}
           {a.square_deposit_invoice_id && (
             <button type="button" onClick={() => onViewInSquare(a.id)}

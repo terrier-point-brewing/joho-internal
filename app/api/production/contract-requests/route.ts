@@ -3,6 +3,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
 
 export const dynamic = "force-dynamic";
 
@@ -56,12 +57,36 @@ export async function GET(req: NextRequest) {
   const ids = withPrefs.map((c) => c.id);
   const { data: allocs } = await supabase
     .from("batch_allocations")
-    .select(`id, batch_id, contract_request_id, percentage, channel,
+    .select(`id, batch_id, partner_id, contract_request_id, percentage, channel,
       square_deposit_invoice_id, deposit_backcharged_invoice_id,
       invoice_generated_at, invoice_sent_at, invoice_paid_at,
-      brew_batches(id, beer_name, batch_number, volume_bbl),
+      refund_amount_cents, written_off_at,
+      brew_batches(id, beer_name, batch_number, volume_bbl, converted_from_batch_id),
       contract_brewing_partners(id, company_name)`)
     .in("contract_request_id", ids);
+
+  // Parent allocations for conversion children — the base half of the deposit
+  // coverage line lives on the batch the liquid was brewed in.
+  const parentIds = [...new Set(
+    (allocs ?? [])
+      .filter((a) => a.channel === "contract_brewing"
+        && (a.brew_batches as { converted_from_batch_id?: string | null } | null)?.converted_from_batch_id)
+      .map((a) => (a.brew_batches as unknown as { converted_from_batch_id: string }).converted_from_batch_id),
+  )];
+  const parentAllocByKey = new Map<string, Record<string, unknown>>();
+  const parentBatchNumberById = new Map<string, string | null>();
+  if (parentIds.length > 0) {
+    const [{ data: parentAllocs }, { data: parentBatches }] = await Promise.all([
+      supabase
+        .from("batch_allocations")
+        .select("batch_id, partner_id, invoice_paid_at, invoice_sent_at, invoice_generated_at, deposit_backcharged_invoice_id, square_deposit_invoice_id, refund_amount_cents, written_off_at")
+        .in("batch_id", parentIds)
+        .eq("channel", "contract_brewing"),
+      supabase.from("brew_batches").select("id, batch_number").in("id", parentIds),
+    ]);
+    for (const p of parentAllocs ?? []) parentAllocByKey.set(`${p.batch_id}:${p.partner_id ?? ""}`, p);
+    for (const b of parentBatches ?? []) parentBatchNumberById.set(b.id, (b as { batch_number: string | null }).batch_number ?? null);
+  }
 
   const committedById: Record<string, number> = {};
   const allocsById: Record<string, typeof allocs> = {};
@@ -76,12 +101,15 @@ export async function GET(req: NextRequest) {
 
   // Fetch invoice numbers for deposit invoices and for export invoices that
   // carry a back-charged deposit.
-  const squareDepositIds = (allocs ?? [])
-    .map((a) => a.square_deposit_invoice_id)
-    .filter((id): id is string => !!id);
-  const backchargeInvoiceIds = (allocs ?? [])
-    .map((a) => (a as { deposit_backcharged_invoice_id?: string | null }).deposit_backcharged_invoice_id)
-    .filter((id): id is string => !!id);
+  const parentAllocList = [...parentAllocByKey.values()];
+  const squareDepositIds = [
+    ...(allocs ?? []).map((a) => a.square_deposit_invoice_id),
+    ...parentAllocList.map((p) => p.square_deposit_invoice_id as string | null),
+  ].filter((id): id is string => !!id);
+  const backchargeInvoiceIds = [
+    ...(allocs ?? []).map((a) => (a as { deposit_backcharged_invoice_id?: string | null }).deposit_backcharged_invoice_id),
+    ...parentAllocList.map((p) => p.deposit_backcharged_invoice_id as string | null),
+  ].filter((id): id is string => !!id);
 
   const invoiceNumberBySquareId = new Map<string, string | null>();
   const invoiceNumberById = new Map<string, string | null>();
@@ -118,12 +146,45 @@ export async function GET(req: NextRequest) {
     committed_allocated_bbl: committedById[c.id] ?? 0,
     batch_allocations: (allocsById[c.id] ?? []).map((a) => {
       const backchargeId = (a as { deposit_backcharged_invoice_id?: string | null }).deposit_backcharged_invoice_id ?? null;
+
+      // Deposit coverage for conversion children: base = the parent batch's
+      // deposit state (chargeable again when refunded), additions = this
+      // allocation's own invoice or back-charge. Same classifiers as the
+      // allocations GET and the billing exclusions.
+      const parentBatchId = (a.brew_batches as { converted_from_batch_id?: string | null } | null)?.converted_from_batch_id ?? null;
+      const parent = parentBatchId
+        ? (parentAllocByKey.get(`${parentBatchId}:${(a as { partner_id?: string | null }).partner_id ?? ""}`) ?? null) as (CoverageAllocFields & { square_deposit_invoice_id: string | null }) | null
+        : null;
+      const additions = classifyAdditions(a as unknown as CoverageAllocFields);
+      const base = classifyBase(!!parentBatchId, parent);
+
       return {
         ...a,
         deposit_invoice_number: a.square_deposit_invoice_id
           ? (invoiceNumberBySquareId.get(a.square_deposit_invoice_id) ?? null)
           : null,
         backcharge_invoice_number: backchargeId ? (invoiceNumberById.get(backchargeId) ?? null) : null,
+        deposit_coverage: {
+          base: {
+            status: base.status,
+            parent_batch_number: parentBatchId ? (parentBatchNumberById.get(parentBatchId) ?? null) : null,
+            parent_refund_cents: base.parentRefundCents,
+            covered_by_invoice_number: parent
+              ? (parent.square_deposit_invoice_id
+                  ? (invoiceNumberBySquareId.get(parent.square_deposit_invoice_id) ?? null)
+                  : parent.deposit_backcharged_invoice_id
+                    ? (invoiceNumberById.get(parent.deposit_backcharged_invoice_id) ?? null)
+                    : null)
+              : null,
+          },
+          additions: {
+            status: additions.status,
+            via: additions.via,
+            invoice_number: backchargeId
+              ? (invoiceNumberById.get(backchargeId) ?? null)
+              : (a.square_deposit_invoice_id ? (invoiceNumberBySquareId.get(a.square_deposit_invoice_id) ?? null) : null),
+          },
+        },
       };
     }),
   }));
