@@ -447,6 +447,26 @@ export interface BatchAllocation {
   invoice_paid_at: string | null;
   /** Human-readable invoice number (e.g. "000019") from the linked invoices row; null if not yet synced. */
   deposit_invoice_number: string | null;
+  /**
+   * Conversion children only (contract): who has actually paid for the base
+   * bill (the parent's deposit — unless refunded, which makes it chargeable)
+   * and the additions (own invoice / back-charge). Computed by the allocations
+   * GET from lib/production/depositCoverage — the same classifiers that drive
+   * the billing exclusions.
+   */
+  deposit_coverage?: {
+    base: {
+      status: "not_conversion" | "covered" | "refunded_chargeable" | "pending_parent" | "uncovered";
+      parent_batch_number: string | null;
+      parent_refund_cents: number | null;
+      covered_by_invoice_number: string | null;
+    };
+    additions: {
+      status: "settled" | "pending_invoice" | "uncharged" | "written_off";
+      via: "backcharge" | "own_invoice" | null;
+      invoice_number: string | null;
+    };
+  } | null;
   // ── Refund tracking ──────────────────────────────────────────────────────
   square_payment_id: string | null;
   deposit_amount_paid_cents: number | null;

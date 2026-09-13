@@ -189,10 +189,17 @@ export interface RecipeRef {
  * Empty for a brewed batch, for a target with no recorded source, and for a
  * source whose recipe is not actually in the target's chain (a blend or one-off
  * experiment) — there the full bill stands, because nothing provably covers it.
+ *
+ * Also empty — the base becomes CHARGEABLE — when the parent batch's deposit
+ * for the same partner was REFUNDED (`opts.partnerId`): the money that covered
+ * that grain went back, so nothing covers it any more and the child's deposit
+ * must bill the full bill (rule agreed 2026-09-13; see depositCoverage.ts,
+ * which is the display-side twin of this decision).
  */
 export async function conversionDepositExclusions(
   supabase: SupabaseClient,
   batchId: string,
+  opts?: { partnerId?: string | null },
 ): Promise<RecipeRef[]> {
   const { data: batchRow } = await supabase
     .from("brew_batches")
@@ -201,6 +208,20 @@ export async function conversionDepositExclusions(
     .maybeSingle();
   const batch = batchRow as { recipe_id: string | null; converted_from_batch_id: string | null } | null;
   if (!batch?.recipe_id || !batch.converted_from_batch_id) return [];
+
+  if (opts?.partnerId) {
+    const { data: parentAllocRow } = await supabase
+      .from("batch_allocations")
+      .select("refund_amount_cents")
+      .eq("batch_id", batch.converted_from_batch_id)
+      .eq("channel", "contract_brewing")
+      .eq("partner_id", opts.partnerId)
+      .maybeSingle();
+    const parentRefund = Number(
+      (parentAllocRow as { refund_amount_cents: number | null } | null)?.refund_amount_cents ?? 0,
+    );
+    if (parentRefund > 0) return [];
+  }
 
   const { data: sourceRow } = await supabase
     .from("brew_batches")

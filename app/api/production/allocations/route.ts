@@ -11,6 +11,7 @@ import {
   type BatchInput,
 } from "@/lib/production/allocationReserve";
 import { splitCommitmentForConversionChild } from "@/lib/production/commitmentSplit";
+import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
     .from("batch_allocations")
     .select(`
       *,
-      brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id, status),
+      brew_batches(id, beer_name, batch_number, volume_bbl, recipe_id, status, converted_from_batch_id),
       contract_brewing_partners(id, company_name),
       commitments(id, volume_bbl, desired_delivery_date, received_on, created_at, channel)
     `)
@@ -165,7 +166,98 @@ export async function GET(req: NextRequest) {
       : null,
   }));
 
-  return NextResponse.json(withInvoiceNumbers);
+  // ── Deposit coverage (conversion children, contract only) ─────────────────
+  // Decomposes each child's deposit into BASE (paid where the liquid was
+  // brewed — the parent's deposit — unless refunded, which makes it chargeable
+  // again) and ADDITIONS (the child's own invoice or back-charge). One
+  // classifier (lib/production/depositCoverage) feeds this display AND the
+  // billing exclusions, so the card and the invoice can never disagree.
+  const admin2 = createSupabaseAdminClient();
+  const parentIds = [...new Set(
+    withInvoiceNumbers
+      .filter((a) => a.channel === "contract_brewing"
+        && (a.brew_batches as { converted_from_batch_id?: string | null } | null)?.converted_from_batch_id)
+      .map((a) => (a.brew_batches as { converted_from_batch_id: string }).converted_from_batch_id),
+  )];
+  const parentAllocByKey = new Map<string, Record<string, unknown>>();
+  const parentBatchNumberById = new Map<string, string | null>();
+  if (parentIds.length > 0) {
+    const [{ data: parentAllocs }, { data: parentBatches }] = await Promise.all([
+      supabase
+        .from("batch_allocations")
+        .select("batch_id, partner_id, invoice_paid_at, invoice_sent_at, invoice_generated_at, deposit_backcharged_invoice_id, square_deposit_invoice_id, refund_amount_cents, written_off_at")
+        .in("batch_id", parentIds)
+        .eq("channel", "contract_brewing"),
+      supabase.from("brew_batches").select("id, batch_number").in("id", parentIds),
+    ]);
+    for (const p of parentAllocs ?? []) {
+      parentAllocByKey.set(`${p.batch_id}:${p.partner_id ?? ""}`, p);
+    }
+    for (const b of parentBatches ?? []) {
+      parentBatchNumberById.set(b.id, (b as { batch_number: string | null }).batch_number ?? null);
+    }
+  }
+
+  // Invoice numbers for back-charged invoices (child or parent), by ledger id.
+  const backchargeIds = [...new Set([
+    ...withInvoiceNumbers.map((a) => a.deposit_backcharged_invoice_id).filter((id): id is string => !!id),
+    ...[...parentAllocByKey.values()].map((p) => p.deposit_backcharged_invoice_id as string | null).filter((id): id is string => !!id),
+  ])];
+  const invoiceNumberById = new Map<string, string | null>();
+  if (backchargeIds.length > 0) {
+    const { data: bcInvoices } = await admin2
+      .from("invoices").select("id, invoice_number").in("id", backchargeIds);
+    for (const inv of bcInvoices ?? []) invoiceNumberById.set(inv.id, inv.invoice_number ?? null);
+  }
+  // Parents' own deposit invoices are keyed by Square id, not ledger id.
+  const parentSquareIds = [...parentAllocByKey.values()]
+    .map((p) => p.square_deposit_invoice_id as string | null)
+    .filter((id): id is string => !!id && !invoiceNumberBySquareId.has(id));
+  if (parentSquareIds.length > 0) {
+    const { data: parentInvoices } = await admin2
+      .from("invoices").select("square_invoice_id, invoice_number")
+      .in("square_invoice_id", parentSquareIds).neq("status", "voided");
+    for (const inv of parentInvoices ?? []) {
+      if (inv.square_invoice_id) invoiceNumberBySquareId.set(inv.square_invoice_id, inv.invoice_number ?? null);
+    }
+  }
+
+  const withCoverage = withInvoiceNumbers.map((a) => {
+    if (a.channel !== "contract_brewing") return a;
+    const parentBatchId = (a.brew_batches as { converted_from_batch_id?: string | null } | null)?.converted_from_batch_id ?? null;
+    const parent = parentBatchId
+      ? (parentAllocByKey.get(`${parentBatchId}:${a.partner_id ?? ""}`) ?? null) as CoverageAllocFields | null
+      : null;
+    const additions = classifyAdditions(a as unknown as CoverageAllocFields);
+    const base = classifyBase(!!parentBatchId, parent);
+    const parentP = parent as (CoverageAllocFields & { square_deposit_invoice_id: string | null }) | null;
+    return {
+      ...a,
+      deposit_coverage: {
+        base: {
+          status: base.status,
+          parent_batch_number: parentBatchId ? (parentBatchNumberById.get(parentBatchId) ?? null) : null,
+          parent_refund_cents: base.parentRefundCents,
+          covered_by_invoice_number: parentP
+            ? (parentP.square_deposit_invoice_id
+                ? (invoiceNumberBySquareId.get(parentP.square_deposit_invoice_id) ?? null)
+                : parentP.deposit_backcharged_invoice_id
+                  ? (invoiceNumberById.get(parentP.deposit_backcharged_invoice_id) ?? null)
+                  : null)
+            : null,
+        },
+        additions: {
+          status: additions.status,
+          via: additions.via,
+          invoice_number: a.deposit_backcharged_invoice_id
+            ? (invoiceNumberById.get(a.deposit_backcharged_invoice_id) ?? null)
+            : (a.deposit_invoice_number ?? null),
+        },
+      },
+    };
+  });
+
+  return NextResponse.json(withCoverage);
 }
 
 // POST /api/production/allocations
