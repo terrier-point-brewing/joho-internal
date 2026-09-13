@@ -6,7 +6,7 @@ vi.mock("@/lib/square/projects", () => ({
 }));
 
 import { createBatchSquareProject } from "@/lib/square/projects";
-import { conversionTargetStatus, isForward, createConversionTargetBatch, deriveConversionDeliveryDate, findPendingConversionPlan, finalizeConversion, reconcileConvertedBatchVolume, seedConversionChildSchedule, CONVERSION_PLAN_SCHEDULE_NOTE } from "./conversionFinalizer";
+import { conversionTargetStatus, isForward, createConversionTargetBatch, deriveConversionDeliveryDate, findPendingConversionPlan, finalizeConversion, reconcileConvertedBatchVolume, seedConversionChildSchedule, recordExecutedConversion, CONVERSION_PLAN_SCHEDULE_NOTE } from "./conversionFinalizer";
 
 describe("conversionTargetStatus", () => {
   it("maps brite → conditioning and fermenter → fermenting", () => {
@@ -383,5 +383,54 @@ describe("reconcileConvertedBatchVolume", () => {
     const ups = recorded.find(r => r.table === "batch_ingredient_commitments" && r.op === "upsert");
     expect(ups).toBeTruthy();
     expect((ups?.payload as { committed_qty: number }[])[0]).toMatchObject({ batch_id: "T", ingredient_id: "i1", committed_qty: 4 });
+  });
+});
+
+describe("recordExecutedConversion", () => {
+  function recordStub(deliveredRows: Array<{ volume_bbl: number }>, existing: { id: string; converted_at: string | null } | null) {
+    const writes: Array<{ op: string; payload: Record<string, unknown> }> = [];
+    const from = (table: string) => {
+      const b: Record<string, unknown> = {};
+      b.select = () => b;
+      b.eq = () => b;
+      b.maybeSingle = () => Promise.resolve({ data: existing, error: null });
+      b.then = (resolve: (v: unknown) => void) => resolve({ data: deliveredRows, error: null });
+      b.insert = (payload: Record<string, unknown>) => { writes.push({ op: "insert", payload }); return Promise.resolve({ data: null, error: null }); };
+      b.update = (payload: Record<string, unknown>) => { writes.push({ op: "update", payload }); return { eq: () => Promise.resolve({ data: null, error: null }) }; };
+      void table;
+      return b;
+    };
+    return { client: { from } as unknown as SupabaseClient, writes };
+  }
+
+  it("creates an executed record for an ad-hoc conversion", async () => {
+    const { client, writes } = recordStub([{ volume_bbl: 24 }], null);
+    await recordExecutedConversion(client, { sourceBatchId: "S", targetBatchId: "T" });
+    expect(writes[0].op).toBe("insert");
+    expect(writes[0].payload).toMatchObject({
+      source_batch_id: "S", target_batch_id: "T", volume_bbl: 24,
+      notes: "Auto: recorded on execution (no pre-plan)",
+    });
+    expect(writes[0].payload.converted_at).toBeTruthy();
+  });
+
+  it("bumps an existing record to the pair's total delivered, keeping its converted_at", async () => {
+    const { client, writes } = recordStub([{ volume_bbl: 0.5 }, { volume_bbl: 4.67 }], { id: "bc1", converted_at: "2026-08-31T00:00:00Z" });
+    await recordExecutedConversion(client, { sourceBatchId: "S", targetBatchId: "T" });
+    expect(writes[0].op).toBe("update");
+    expect(writes[0].payload).toMatchObject({ volume_bbl: 5.17, converted_at: "2026-08-31T00:00:00Z" });
+  });
+
+  it("stamps converted_at on a pending plan the execution resolved", async () => {
+    const { client, writes } = recordStub([{ volume_bbl: 2 }], { id: "bc1", converted_at: null });
+    await recordExecutedConversion(client, { sourceBatchId: "S", targetBatchId: "T" });
+    expect(writes[0].op).toBe("update");
+    expect((writes[0].payload as { converted_at: string }).converted_at).toBeTruthy();
+  });
+
+  it("no-ops when nothing was delivered", async () => {
+    const { client, writes } = recordStub([], null);
+    await recordExecutedConversion(client, { sourceBatchId: "S", targetBatchId: "T" });
+    expect(writes).toEqual([]);
   });
 });

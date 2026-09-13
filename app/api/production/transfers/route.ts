@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
-import { finalizeConversion, createConversionTargetBatch, completeConversionChild, findPendingConversionPlan, reconcileConvertedBatchVolume, findExistingConversionChild, priorConversionInflowBbl } from "@/lib/production/conversionFinalizer";
+import { finalizeConversion, createConversionTargetBatch, completeConversionChild, findPendingConversionPlan, reconcileConvertedBatchVolume, findExistingConversionChild, priorConversionInflowBbl, recordExecutedConversion } from "@/lib/production/conversionFinalizer";
 import { consumeConversionAdditions, isChargeableConversion } from "@/lib/production/conversionIngredients";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
@@ -1032,6 +1032,16 @@ export async function POST(req: NextRequest) {
         .eq("id", conversionRowId);
     }
 
+    // Same standard as tank conversions: every executed conversion leaves a
+    // batch_conversions record. The pre-plan stamp above covers planned runs;
+    // this covers ad-hoc in-keg runs (and keeps a reused child's recorded
+    // volume equal to its total delivered across runs).
+    try {
+      await recordExecutedConversion(supabase, { sourceBatchId: batch_id, targetBatchId: childBatchId });
+    } catch (recordErr) {
+      console.error("[transfers] Recording executed in-keg conversion failed (run committed):", recordErr);
+    }
+
     // The packaging rows belong to the CHILD: cold storage, materials and the
     // Square push all key on it, which is what puts the finished goods under
     // the beer that actually came out of the filler. from = the packaging
@@ -1210,13 +1220,15 @@ export async function POST(req: NextRequest) {
       if (transferId) {
         await supabase.from("batch_transfers").update({ to_batch_id: targetBatchId }).eq("id", transferId);
       }
-      // Mark any pre-planned batch_conversions record as executed (no-op for ad-hoc new batches).
-      await supabase
-        .from("batch_conversions")
-        .update({ converted_at: new Date().toISOString() })
-        .eq("source_batch_id", batch_id)
-        .eq("target_batch_id", targetBatchId)
-        .is("converted_at", null);
+      // Keep the batch_conversions record in step with the ledger — stamping a
+      // pre-planned record executed, or CREATING one for an ad-hoc conversion.
+      // Ad-hoc conversions used to leave no record, which is what made their
+      // source batches read "allocation incomplete" over converted-away beer.
+      try {
+        await recordExecutedConversion(supabase, { sourceBatchId: batch_id, targetBatchId });
+      } catch (recordErr) {
+        console.error("[transfers] Recording executed conversion failed (transfer committed):", recordErr);
+      }
 
       // Reconcile the target's headline volume to what the conversion actually
       // delivered (planned − shrinkage), so its Volume Breakdown balances instead
