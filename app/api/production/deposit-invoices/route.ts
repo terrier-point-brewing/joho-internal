@@ -6,6 +6,7 @@ import {
   projectBatchYield,
 } from "@/lib/production/exportIngredientDeposit";
 import type { LedgerTransfer } from "@/lib/production/volumeLedger";
+import { sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,7 @@ export async function GET() {
 
   const tankTypeById: Record<string, string> = {};
   const ledgerByBatch = new Map<string, Array<LedgerTransfer & { transfer_type: string }>>();
-  const exportsByBatch = new Map<string, Array<{ channel: string | null; recipient_id: string | null; volume_bbl: number | null }>>();
+  const exportsByAllocation = new Map<string, number>();
   const bookedByCommitment = new Map<string, number>();
 
   if (batchIds.length > 0) {
@@ -82,8 +83,8 @@ export async function GET() {
           .or(`batch_id.in.(${batchIds.join(",")}),to_batch_id.in.(${batchIds.join(",")})`),
         supabase
           .from("export_transactions")
-          .select("batch_id, channel, recipient_id, volume_bbl")
-          .in("batch_id", batchIds),
+          .select("allocation_id, volume_bbl")
+          .in("allocation_id", allocations.map((a) => a.id)),
         commitmentIds.length > 0
           ? supabase.from("commitments").select("id, volume_bbl").in("id", commitmentIds)
           : Promise.resolve({ data: [] as Array<{ id: string; volume_bbl: number | null }> }),
@@ -100,12 +101,10 @@ export async function GET() {
         ledgerByBatch.set(id, list);
       }
     }
-    for (const e of exports_ ?? []) {
-      const id = e.batch_id as string | null;
-      if (!id) continue;
-      const list = exportsByBatch.get(id) ?? [];
-      list.push(e as { channel: string | null; recipient_id: string | null; volume_bbl: number | null });
-      exportsByBatch.set(id, list);
+    // Credited by allocation_id — the unit of record — never re-summed by
+    // batch + channel + partner.
+    for (const [id, bbl] of sumExportedByAllocation((exports_ ?? []) as ExportVolumeRow[])) {
+      exportsByAllocation.set(id, bbl);
     }
     for (const c of (commitments ?? []) as Array<{ id: string; volume_bbl: number | null }>) {
       bookedByCommitment.set(c.id, Number(c.volume_bbl ?? 0));
@@ -150,9 +149,7 @@ export async function GET() {
           : 0;
         guaranteedBbl = bookedBbl > 0 ? Math.min(shareBbl, bookedBbl) : shareBbl;
       }
-      fulfilledBbl = (exportsByBatch.get(alloc.batch_id) ?? [])
-        .filter((e) => e.channel === alloc.channel && e.recipient_id === alloc.partner_id)
-        .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
+      fulfilledBbl = exportsByAllocation.get(alloc.id) ?? 0;
     }
 
     return {

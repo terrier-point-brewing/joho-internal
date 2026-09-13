@@ -45,6 +45,20 @@ export async function splitCommitmentForConversionChild(
   const movedBbl = Math.round(Number(volumeBbl) * 100) / 100;
   if (!(movedBbl > 0)) return parent.id;
 
+  // The deal can only give up volume nobody has been shipped yet. B-056 was
+  // credited 24.39 bbl, then the split shrank its commitment to 22.83 — the
+  // allocation sat above its own booking with nothing saying so. Credited
+  // volume is read by allocation_id, the unit of record.
+  const creditedBbl = await creditedAgainstCommitment(supabase, parent.id);
+  const remainingAfter = Number(parent.volume_bbl ?? 0) - movedBbl;
+  if (creditedBbl > 0 && remainingAfter < creditedBbl - 0.01) {
+    const free = Math.max(0, Number(parent.volume_bbl ?? 0) - creditedBbl);
+    throw new Error(
+      `Can't move ${movedBbl.toFixed(2)} bbl off this commitment: ${creditedBbl.toFixed(2)} bbl has already shipped against it, ` +
+      `so only ${free.toFixed(2)} bbl is still uncommitted. Reduce the conversion volume or raise a separate commitment for ${childLabel}.`,
+    );
+  }
+
   const { data: child, error: insertErr } = await supabase
     .from("commitments")
     .insert({
@@ -70,4 +84,20 @@ export async function splitCommitmentForConversionChild(
     .eq("id", parent.id);
 
   return (child as { id: string }).id;
+}
+
+/** bbl already credited (shipped) against a commitment, summed over its allocations. */
+async function creditedAgainstCommitment(supabase: SupabaseClient, commitmentId: string): Promise<number> {
+  const { data: allocs } = await supabase
+    .from("batch_allocations")
+    .select("id")
+    .eq("contract_request_id", commitmentId);
+  const ids = ((allocs ?? []) as Array<{ id: string }>).map((a) => a.id);
+  if (ids.length === 0) return 0;
+  const { data: exports_ } = await supabase
+    .from("export_transactions")
+    .select("volume_bbl")
+    .in("allocation_id", ids);
+  return ((exports_ ?? []) as Array<{ volume_bbl: number | string | null }>)
+    .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
 }

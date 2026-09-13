@@ -334,7 +334,12 @@ export type AllocationRecurrence = "weekly" | "biweekly" | "monthly";
 
 export type AllocationStatus = "active" | "paused" | "fulfilled" | "cancelled";
 
+/** Stored human decision. in_progress/fulfilled are legacy cache values; see CommitmentStage. */
 export type ContractRequestStatus = "open" | "in_progress" | "fulfilled" | "cancelled";
+/** Derived from the allocations — what the operator sees. lib/production/commitmentStage. */
+export type CommitmentStage =
+  | "cancelled" | "unplanned" | "planned" | "brewing" | "packaged"
+  | "shipping" | "delivered" | "fulfilled" | "written_off";
 export type CommitmentChannel = "distribution" | "contract_brewing" | "wholesale";
 
 export interface CommitmentPackagingPreference {
@@ -363,6 +368,15 @@ export interface CommitmentAllocationSummary {
   backcharge_invoice_number?: string | null;
   /** Same shape as BatchAllocation.deposit_coverage — base vs additions, with covering invoice refs. */
   deposit_coverage?: BatchAllocation["deposit_coverage"];
+  /** Cents of deposit billed / paid on export invoices (back-charges). */
+  deposit_charged_cents?: number;
+  deposit_collected_cents?: number;
+  /** Delivery picture, credited by allocation_id. */
+  produced_bbl?: number;
+  exported_bbl?: number;
+  owed_bbl?: number;
+  batch_status?: string;
+  written_off_at?: string | null;
   channel?: string;
   brew_batches?: { id: string; beer_name: string; batch_number: string; volume_bbl: number } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
@@ -392,6 +406,13 @@ export interface Commitment {
   packaging_preferences?: CommitmentPackagingPreference[];
   /** Sum of (batch volume x allocated %) across all allocations referencing this commitment. */
   committed_allocated_bbl?: number;
+  /** Derived stage — where the deal actually is. */
+  stage?: CommitmentStage;
+  /** Rolled up over every allocation on the deal. */
+  produced_bbl?: number;
+  owed_bbl?: number;
+  exported_bbl?: number;
+  batch_numbers?: string[];
   /** Linked batch_allocations (channel=contract_brewing) for inline invoicing controls. */
   batch_allocations?: CommitmentAllocationSummary[];
 }
@@ -465,11 +486,16 @@ export interface BatchAllocation {
       covered_by_invoice_number: string | null;
     };
     additions: {
-      status: "settled" | "pending_invoice" | "uncharged" | "written_off";
+      status: "settled" | "pending_invoice" | "collecting" | "uncharged" | "written_off";
       via: "backcharge" | "own_invoice" | null;
+      charged_cents?: number;
+      collected_cents?: number;
       invoice_number: string | null;
     };
   } | null;
+  /** Cents of deposit billed / paid on export invoices (back-charges). */
+  deposit_charged_cents?: number;
+  deposit_collected_cents?: number;
   // ── Refund tracking ──────────────────────────────────────────────────────
   square_payment_id: string | null;
   deposit_amount_paid_cents: number | null;

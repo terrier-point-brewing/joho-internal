@@ -17,17 +17,28 @@ function fields(over: Partial<CoverageAllocFields> = {}): CoverageAllocFields {
 describe("classifyAdditions", () => {
   it("settled via back-charge: paid with a back-charge pointer (the Mule #000061 shape)", () => {
     expect(classifyAdditions(fields({ invoice_paid_at: "t", deposit_backcharged_invoice_id: "inv" })))
-      .toEqual({ status: "settled", via: "backcharge" });
+      .toMatchObject({ status: "settled", via: "backcharge" });
   });
   it("settled via own deposit invoice", () => {
     expect(classifyAdditions(fields({ invoice_paid_at: "t", square_deposit_invoice_id: "sq" })))
-      .toEqual({ status: "settled", via: "own_invoice" });
+      .toMatchObject({ status: "settled", via: "own_invoice" });
   });
   it("pending when invoiced (either way) but unpaid; uncharged when nothing exists", () => {
     expect(classifyAdditions(fields({ deposit_backcharged_invoice_id: "inv" })).status).toBe("pending_invoice");
     expect(classifyAdditions(fields({ invoice_sent_at: "t", square_deposit_invoice_id: "sq" })).status).toBe("pending_invoice");
-    expect(classifyAdditions(fields())).toEqual({ status: "uncharged", via: null });
+    expect(classifyAdditions(fields())).toEqual({ status: "uncharged", via: null, chargedCents: 0, collectedCents: 0 });
   });
+  it("back-charges collected per invoice: unpaid → pending, all paid but not settled → collecting", () => {
+    const pending = classifyAdditions(fields({ deposit_backcharged_invoice_id: "inv2" }), { chargedCents: 1000, collectedCents: 400, unpaidCount: 1 });
+    expect(pending).toEqual({ status: "pending_invoice", via: "backcharge", chargedCents: 1000, collectedCents: 400 });
+    const collecting = classifyAdditions(fields({ deposit_backcharged_invoice_id: "inv1" }), { chargedCents: 400, collectedCents: 400, unpaidCount: 0 });
+    expect(collecting.status).toBe("collecting");
+    expect(collecting.via).toBe("backcharge");
+    // The settle path stamps invoice_paid_at once the allocation is fully delivered.
+    expect(classifyAdditions(fields({ invoice_paid_at: "t" }), { chargedCents: 900, collectedCents: 900, unpaidCount: 0 }))
+      .toMatchObject({ status: "settled", via: "backcharge", collectedCents: 900 });
+  });
+
   it("written off wins over everything", () => {
     expect(classifyAdditions(fields({ written_off_at: "t", invoice_paid_at: "t" })).status).toBe("written_off");
   });

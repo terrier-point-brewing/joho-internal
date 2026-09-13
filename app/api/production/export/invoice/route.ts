@@ -46,6 +46,9 @@ interface PostBody {
   override_reason?: string;
   /** Customer-visible note carried onto the Square invoice (generate only). */
   customer_note?: string;
+  /** Which batch each Ingredient Deposit line covers — from the modal's
+   *  derivation — so the charge lands on the right allocation. */
+  depositLines?: Array<{ lineId: string; batchId: string; shippedBbl: number }>;
 }
 
 export async function POST(req: NextRequest) {
@@ -72,7 +75,7 @@ export async function POST(req: NextRequest) {
     .from("export_transactions")
     // recipe_id rides along for the post-send Square push: raising an invoice
     // changes what Square holds committed, which changes the push target.
-    .select("id, recipient_id, recipient_name, status, invoice_id, batch_id, channel, recipe_id, allocation_id")
+    .select("id, recipient_id, recipient_name, status, invoice_id, batch_id, channel, recipe_id, allocation_id, volume_bbl")
     .in("id", transactionIds);
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 });
   if (!txs || txs.length !== transactionIds.length) {
@@ -102,31 +105,90 @@ export async function POST(req: NextRequest) {
   const overrideReason = body.override_reason?.trim() || null;
 
   // When the invoice carries an Ingredient Deposit line (same detection the
-  // modal uses: a catalog-backed line whose description names it), point the
-  // shipped allocations' still-unpaid deposits at this invoice — that's what
-  // lets the paid/voided sync settle or release them later. Contract brewing
-  // only; never blocks the response.
+  // modal uses: a catalog-backed line whose description names it), record the
+  // charge against each shipped allocation and point the "latest" pointer at
+  // this invoice. A back-charge is collected per invoice as the beer ships — a
+  // 70% allocation delivered in three drops carries a share on all three — so
+  // the charges table is what settlement and the ledger read; the pointer is
+  // for badges. Contract brewing only; never blocks the response.
   async function recordDepositBackcharge(
     invoiceId: string,
-    lineItems: Array<{ description: string; squareCatalogVariationId?: string | null }> | undefined,
+    lineItems: Array<{ id?: string; description: string; quantity: number; unitPriceCents: number; squareCatalogVariationId?: string | null }> | undefined,
+    depositLines: Array<{ lineId: string; batchId: string; shippedBbl: number }> | undefined,
   ): Promise<void> {
     if (billedChannel !== "contract_brewing" || !lineItems?.length) return;
-    const hasDepositLine = lineItems.some(
-      (li) => li.squareCatalogVariationId != null && /ingredient deposit/i.test(li.description),
-    );
-    if (!hasDepositLine) return;
-    const allocationIds = [...new Set(
-      txs!.map((t) => (t as typeof t & { allocation_id: string | null }).allocation_id)
-        .filter((id): id is string => !!id)
-    )];
+    const isDepositLine = (li: { description: string; squareCatalogVariationId?: string | null }) =>
+      li.squareCatalogVariationId != null && /ingredient deposit/i.test(li.description);
+    const depositLineItems = lineItems.filter(isDepositLine);
+    if (depositLineItems.length === 0) return;
+
+    const shipped = txs! as Array<{ id: string; batch_id: string; allocation_id: string | null; volume_bbl?: number | null }>;
+    const allocationIds = [...new Set(shipped.map((t) => t.allocation_id).filter((id): id is string => !!id))];
     if (allocationIds.length === 0) return;
-    const { error } = await supabase
+
+    const { data: chargeable } = await supabase
       .from("batch_allocations")
-      .update({ deposit_backcharged_invoice_id: invoiceId })
+      .select("id, batch_id")
       .in("id", allocationIds)
       .eq("channel", "contract_brewing")
       .is("invoice_paid_at", null)
       .is("written_off_at", null);
+    const chargeableIds = new Set(((chargeable ?? []) as Array<{ id: string }>).map((a) => a.id));
+    if (chargeableIds.size === 0) return;
+
+    // Attribute each deposit line to the allocations it covers. The line is
+    // per BATCH (the modal's derivation says which); when the client did not
+    // say, fall back to the whole deposit total across every shipped
+    // allocation. Within a batch, split by shipped bbl.
+    const bblByAllocation = new Map<string, number>();
+    const batchOfAllocation = new Map<string, string>();
+    for (const t of shipped) {
+      if (!t.allocation_id || !chargeableIds.has(t.allocation_id)) continue;
+      bblByAllocation.set(t.allocation_id, (bblByAllocation.get(t.allocation_id) ?? 0) + Number(t.volume_bbl ?? 0));
+      batchOfAllocation.set(t.allocation_id, t.batch_id);
+    }
+    const centsByAllocation = new Map<string, number>();
+    const attribute = (cents: number, allocIds: string[]) => {
+      const total = allocIds.reduce((s, id) => s + (bblByAllocation.get(id) ?? 0), 0);
+      allocIds.forEach((id, i) => {
+        const share = total > 0
+          ? Math.round(cents * ((bblByAllocation.get(id) ?? 0) / total))
+          : (i === 0 ? cents : 0);
+        centsByAllocation.set(id, (centsByAllocation.get(id) ?? 0) + share);
+      });
+    };
+    const lineById = new Map(lineItems.filter((li) => li.id).map((li) => [li.id as string, li]));
+    const attributed = new Set<string>();
+    for (const dl of depositLines ?? []) {
+      const li = lineById.get(dl.lineId);
+      if (!li || !isDepositLine(li)) continue;
+      const allocIds = [...bblByAllocation.keys()].filter((id) => batchOfAllocation.get(id) === dl.batchId);
+      if (allocIds.length === 0) continue;
+      attribute(Math.round(li.quantity * li.unitPriceCents), allocIds);
+      attributed.add(dl.lineId);
+    }
+    const unattributed = depositLineItems.filter((li) => !li.id || !attributed.has(li.id));
+    if (unattributed.length > 0) {
+      attribute(unattributed.reduce((s, li) => s + Math.round(li.quantity * li.unitPriceCents), 0), [...bblByAllocation.keys()]);
+    }
+
+    const rows = [...centsByAllocation.entries()].map(([allocation_id, amount_cents]) => ({
+      allocation_id,
+      invoice_id: invoiceId,
+      amount_cents,
+      shipped_bbl: Math.round((bblByAllocation.get(allocation_id) ?? 0) * 10000) / 10000,
+    }));
+    if (rows.length > 0) {
+      const { error: chargeErr } = await supabase
+        .from("allocation_deposit_charges")
+        .upsert(rows, { onConflict: "allocation_id,invoice_id" });
+      if (chargeErr) console.error("[export-invoice] recording deposit charges failed:", chargeErr.message);
+    }
+
+    const { error } = await supabase
+      .from("batch_allocations")
+      .update({ deposit_backcharged_invoice_id: invoiceId })
+      .in("id", [...chargeableIds]);
     if (error) console.error("[export-invoice] recording deposit back-charge failed:", error.message);
   }
 
@@ -289,7 +351,7 @@ export async function POST(req: NextRequest) {
     }
 
     await snapshotMaterials(inv.id);
-    await recordDepositBackcharge(inv.id, lineItems);
+    await recordDepositBackcharge(inv.id, lineItems, body.depositLines);
 
     // Record any line billed against a borrowed Square item, so the send that
     // makes Square deduct stock it never held can credit those units back. The
@@ -526,6 +588,7 @@ export async function POST(req: NextRequest) {
       }
 
       await snapshotMaterials(inv.id);
+      await recordDepositBackcharge(inv.id, lineItems as InvoiceLineItemDraft[] | undefined, body.depositLines);
     }
 
     return NextResponse.json({ ok: true });

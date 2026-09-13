@@ -4,6 +4,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
+import { owedBbl, sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
+import { deriveCommitmentStage, type StageAllocation } from "@/lib/production/commitmentStage";
+import { loadDepositCharges } from "@/lib/production/depositCharges";
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +64,45 @@ export async function GET(req: NextRequest) {
       square_deposit_invoice_id, deposit_backcharged_invoice_id,
       invoice_generated_at, invoice_sent_at, invoice_paid_at,
       refund_amount_cents, written_off_at,
-      brew_batches(id, beer_name, batch_number, volume_bbl, converted_from_batch_id),
+      brew_batches(id, beer_name, batch_number, volume_bbl, status, converted_from_batch_id),
       contract_brewing_partners(id, company_name)`)
     .in("contract_request_id", ids);
+
+  // Delivery picture per allocation — produced (kegging + canning net fill),
+  // exported (credited by allocation_id, the unit of record) — so each row can
+  // say where the deal actually is, instead of what status happened to be
+  // written last. Charges: per-invoice back-charged deposits (admin client:
+  // invoices RLS cluster).
+  const allocIds = (allocs ?? []).map((a) => a.id);
+  const allocBatchIds = [...new Set((allocs ?? []).map((a) => a.batch_id as string))];
+  const adminForCharges = createSupabaseAdminClient();
+  const [{ data: producedRows }, { data: exportRows }, chargesById] = await Promise.all([
+    allocBatchIds.length > 0
+      ? supabase.from("batch_transfers").select("batch_id, volume_bbl").in("batch_id", allocBatchIds).in("transfer_type", ["kegging", "canning"])
+      : Promise.resolve({ data: [] as Array<{ batch_id: string; volume_bbl: number | null }> }),
+    allocIds.length > 0
+      ? supabase.from("export_transactions").select("allocation_id, volume_bbl").in("allocation_id", allocIds)
+      : Promise.resolve({ data: [] as ExportVolumeRow[] }),
+    loadDepositCharges(adminForCharges, (allocs ?? []).filter((a) => a.channel === "contract_brewing").map((a) => a.id)),
+  ]);
+  const producedByBatch = new Map<string, number>();
+  for (const t of (producedRows ?? []) as Array<{ batch_id: string; volume_bbl: number | null }>) {
+    producedByBatch.set(t.batch_id, (producedByBatch.get(t.batch_id) ?? 0) + Number(t.volume_bbl ?? 0));
+  }
+  const exportedByAllocation = sumExportedByAllocation((exportRows ?? []) as ExportVolumeRow[]);
+  const bookedById = new Map(withPrefs.map((c) => [c.id, Number(c.volume_bbl ?? 0)]));
+  const deliveryOf = (a: NonNullable<typeof allocs>[number]) => {
+    const producedBbl = producedByBatch.get(a.batch_id as string) ?? 0;
+    const exportedBbl = exportedByAllocation.get(a.id) ?? 0;
+    const booked = a.contract_request_id ? (bookedById.get(a.contract_request_id) ?? null) : null;
+    const owed = owedBbl({ channel: a.channel, percentage: Number(a.percentage), producedBbl, bookedBbl: booked && booked > 0 ? booked : null });
+    return {
+      produced_bbl: producedBbl,
+      exported_bbl: exportedBbl,
+      owed_bbl: owed,
+      batch_status: (a.brew_batches as { status?: string } | null)?.status ?? "",
+    };
+  };
 
   // Parent allocations for conversion children — the base half of the deposit
   // coverage line lives on the batch the liquid was brewed in.
@@ -90,6 +129,7 @@ export async function GET(req: NextRequest) {
 
   const committedById: Record<string, number> = {};
   const allocsById: Record<string, typeof allocs> = {};
+  const stageInputById: Record<string, StageAllocation[]> = {};
   for (const a of allocs ?? []) {
     if (!a.contract_request_id) continue;
     const vol = Number((a.brew_batches as { volume_bbl?: number } | null)?.volume_bbl ?? 0);
@@ -97,6 +137,14 @@ export async function GET(req: NextRequest) {
     if (a.channel === "contract_brewing") {
       (allocsById[a.contract_request_id] ??= []).push(a);
     }
+    const d = deliveryOf(a);
+    (stageInputById[a.contract_request_id] ??= []).push({
+      batchStatus: d.batch_status,
+      producedBbl: d.produced_bbl,
+      exportedBbl: d.exported_bbl,
+      owedBbl: d.owed_bbl,
+      writtenOff: !!(a as { written_off_at?: string | null }).written_off_at,
+    });
   }
 
   // Fetch invoice numbers for deposit invoices and for export invoices that
@@ -144,8 +192,20 @@ export async function GET(req: NextRequest) {
   const enriched = withPrefs.map((c) => ({
     ...c,
     committed_allocated_bbl: committedById[c.id] ?? 0,
+    stage: deriveCommitmentStage({ storedStatus: c.status, allocations: stageInputById[c.id] ?? [] }),
+    // Rolled up across every allocation on the deal (any channel), so the
+    // Commitments row can show booked → owed → shipped without a second screen.
+    produced_bbl: (stageInputById[c.id] ?? []).reduce((s, a) => s + a.producedBbl, 0),
+    owed_bbl: (stageInputById[c.id] ?? []).reduce((s, a) => s + a.owedBbl, 0),
+    exported_bbl: (stageInputById[c.id] ?? []).reduce((s, a) => s + a.exportedBbl, 0),
+    batch_numbers: (allocs ?? [])
+      .filter((a) => a.contract_request_id === c.id)
+      .map((a) => (a.brew_batches as { batch_number?: string | null } | null)?.batch_number ?? null)
+      .filter((n): n is string => !!n),
     batch_allocations: (allocsById[c.id] ?? []).map((a) => {
       const backchargeId = (a as { deposit_backcharged_invoice_id?: string | null }).deposit_backcharged_invoice_id ?? null;
+      const charges = chargesById.get(a.id) ?? null;
+      const delivery = deliveryOf(a);
 
       // Deposit coverage for conversion children: base = the parent batch's
       // deposit state (chargeable again when refunded), additions = this
@@ -155,11 +215,14 @@ export async function GET(req: NextRequest) {
       const parent = parentBatchId
         ? (parentAllocByKey.get(`${parentBatchId}:${(a as { partner_id?: string | null }).partner_id ?? ""}`) ?? null) as (CoverageAllocFields & { square_deposit_invoice_id: string | null }) | null
         : null;
-      const additions = classifyAdditions(a as unknown as CoverageAllocFields);
+      const additions = classifyAdditions(a as unknown as CoverageAllocFields, charges);
       const base = classifyBase(!!parentBatchId, parent);
 
       return {
         ...a,
+        ...delivery,
+        deposit_charged_cents: additions.chargedCents,
+        deposit_collected_cents: additions.collectedCents,
         deposit_invoice_number: a.square_deposit_invoice_id
           ? (invoiceNumberBySquareId.get(a.square_deposit_invoice_id) ?? null)
           : null,
@@ -180,6 +243,8 @@ export async function GET(req: NextRequest) {
           additions: {
             status: additions.status,
             via: additions.via,
+            charged_cents: additions.chargedCents,
+            collected_cents: additions.collectedCents,
             invoice_number: backchargeId
               ? (invoiceNumberById.get(backchargeId) ?? null)
               : (a.square_deposit_invoice_id ? (invoiceNumberBySquareId.get(a.square_deposit_invoice_id) ?? null) : null),
@@ -319,6 +384,25 @@ export async function DELETE(req: NextRequest) {
 
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  // A commitment with allocations is a deal in flight. Deleting it used to
+  // null the allocations' link, which silently dropped the booked cap on a
+  // paid contract allocation (owed jumped to the full share). The FK now
+  // refuses; explain and point at cancelling instead.
+  const { data: linked } = await supabase
+    .from("batch_allocations")
+    .select("id, brew_batches(batch_number)")
+    .eq("contract_request_id", id);
+  if ((linked ?? []).length > 0) {
+    const batches = (linked ?? [])
+      .map((a) => (a.brew_batches as { batch_number?: string | null } | null)?.batch_number)
+      .filter((n): n is string => !!n);
+    return NextResponse.json(
+      { error: `This commitment is allocated on ${batches.length ? batches.join(", ") : "a batch"}. Set its status to Cancelled instead, or remove the allocation from the batch first.` },
+      { status: 409 },
+    );
+  }
+
   const { error } = await supabase.from("commitments").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return new NextResponse(null, { status: 204 });

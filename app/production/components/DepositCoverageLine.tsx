@@ -46,6 +46,11 @@ function additionsCopy(additions: Coverage["additions"]): { text: string; cls: s
       return { text: `Additions ✓ paid ${how}${ref}`, cls: "text-emerald-500" };
     case "pending_invoice":
       return { text: `Additions — invoiced${ref}, unpaid`, cls: "text-muted" };
+    case "collecting":
+      return {
+        text: `Additions — $${((additions.collected_cents ?? 0) / 100).toFixed(2)} collected on export invoices, more due on the next shipment`,
+        cls: "text-muted",
+      };
     case "written_off":
       return { text: "Additions — written off", cls: "text-muted" };
     case "uncharged":
