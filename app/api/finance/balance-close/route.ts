@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP, getSessionUser } from "@/lib/auth";
 import { monthEnd } from "@/lib/finance/manualEntries";
+import { STATED_BALANCE_KEY } from "@/lib/finance/balances/statedBalanceKey";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
 import {
@@ -51,6 +52,10 @@ interface CloseTaskDetail extends CloseTask {
   enteredCents: number | null;
   /** The last balance recorded BEFORE this period — the figure to sanity-check against. */
   previousBalance: { asOfDate: string; cents: number } | null;
+  /** The feed's own derived figure for this period, when the snapshot holds one — the prefill. Null for accounts whose only figure is what an operator typed. */
+  computedCents: number | null;
+  /** When that figure was computed, for the "as of" caption. */
+  computedAt: string | null;
 }
 
 /**
@@ -65,7 +70,7 @@ async function describeTasks(supabase: AdminClient, tasks: CloseTask[], periodEn
   if (tasks.length === 0) return [];
   const coaIds = Array.from(new Set(tasks.map((t) => t.coaId)));
 
-  const [coaRes, entriesRes, responsibleEmails] = await Promise.all([
+  const [coaRes, entriesRes, responsibleEmails, snapshotRes] = await Promise.all([
     supabase.from("chart_of_accounts").select("id, account_name, account_number").in("id", coaIds),
     // Everything up to and including this period end, newest first. One query
     // answers both "what was entered for this month" and "what did it read
@@ -78,9 +83,38 @@ async function describeTasks(supabase: AdminClient, tasks: CloseTask[], periodEn
       .lte("as_of_date", periodEnd)
       .order("as_of_date", { ascending: false }),
     resolveResponsibleEmails(supabase, coaIds),
+    // The stored snapshot row, for the prefill: the nightly recompute already
+    // derived this period's figure for feed-reconstructed accounts (Square's
+    // anchor + payouts − sweeps), and asking a person to retype a number the
+    // system just computed is the chore the prefill removes. Read, never
+    // computed here — this GET stays light on purpose.
+    supabase
+      .from("gl_account_balances")
+      .select("chart_of_accounts_id, balance_cents, contributions, computed_at")
+      .in("chart_of_accounts_id", coaIds)
+      .eq("period_end", periodEnd),
   ]);
   if (coaRes.error) throw new Error(coaRes.error.message);
   if (entriesRes.error) throw new Error(entriesRes.error.message);
+  if (snapshotRes.error) throw new Error(snapshotRes.error.message);
+
+  // Only a genuinely DERIVED figure is worth suggesting. A row whose only
+  // contributions are the operator's own entries (manualBalance, or a stated
+  // override) would just echo back what somebody previously typed, which is
+  // the previousBalance line's job.
+  const computed = new Map<string, { cents: number; computedAt: string | null }>();
+  for (const row of (snapshotRes.data ?? []) as {
+    chart_of_accounts_id: string;
+    balance_cents: number | null;
+    contributions: Record<string, number> | null;
+    computed_at: string | null;
+  }[]) {
+    const keys = Object.keys(row.contributions ?? {});
+    const derived = keys.some((k) => k !== "manualBalance" && k !== STATED_BALANCE_KEY);
+    if (derived && row.balance_cents !== null) {
+      computed.set(row.chart_of_accounts_id, { cents: row.balance_cents, computedAt: row.computed_at });
+    }
+  }
 
   const coaById = new Map(
     ((coaRes.data ?? []) as { id: string; account_name: string; account_number: string | null }[]).map((r) => [r.id, r]),
@@ -106,6 +140,8 @@ async function describeTasks(supabase: AdminClient, tasks: CloseTask[], periodEn
     responsibleEmail: responsibleEmails.get(task.coaId) ?? null,
     enteredCents: entered.get(task.coaId) ?? null,
     previousBalance: previous.get(task.coaId) ?? null,
+    computedCents: computed.get(task.coaId)?.cents ?? null,
+    computedAt: computed.get(task.coaId)?.computedAt ?? null,
   }));
 }
 
