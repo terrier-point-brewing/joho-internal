@@ -366,6 +366,15 @@ export function buildGraphData(
 
     if (stillArriving) {
       partialFillLabelByUpstreamNodeId.set(upstreamNodeId, `+${gap.toFixed(2)} BBL more expected`);
+    } else if (upstreamEntry.actual_end == null) {
+      // Tank still open and downstream isn't mid-fill (it may not exist yet):
+      // whatever hasn't left the tank is still sitting in it, not lost. Only
+      // volume that departed and never landed anywhere downstream can be lost
+      // — for an open entry, arrivedVolume = remaining + departed, so the
+      // departed total is the difference.
+      const departedTotal = upstreamVol - Number(upstreamEntry.volume_bbl);
+      const lost = departedTotal - downstreamTotal;
+      if (lost > 0.01) shrinkageBblByNodeId.set(upstreamNodeId, lost);
     } else {
       shrinkageBblByNodeId.set(upstreamNodeId, gap);
     }
