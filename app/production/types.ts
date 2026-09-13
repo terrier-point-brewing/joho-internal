@@ -361,6 +361,9 @@ export interface CommitmentAllocationSummary {
   deposit_backcharged_invoice_id?: string | null;
   /** Invoice number of that export invoice, for the "On export invoice #N" badge. */
   backcharge_invoice_number?: string | null;
+  /** Same shape as BatchAllocation.deposit_coverage — base vs additions, with covering invoice refs. */
+  deposit_coverage?: BatchAllocation["deposit_coverage"];
+  channel?: string;
   brew_batches?: { id: string; beer_name: string; batch_number: string; volume_bbl: number } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
   /** Requested barrelage from the linked commitment — used to explain how % was derived. */

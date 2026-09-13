@@ -13,6 +13,12 @@ import type { BatchAllocation } from "../types";
 
 type Coverage = NonNullable<BatchAllocation["deposit_coverage"]>;
 
+/** Minimal shape — both BatchAllocation and CommitmentAllocationSummary satisfy it. */
+interface CoverageBearer {
+  channel?: string;
+  deposit_coverage?: Coverage | null;
+}
+
 function baseCopy(base: Coverage["base"]): { text: string; cls: string } | null {
   const from = base.parent_batch_number ? ` (${base.parent_batch_number}${base.covered_by_invoice_number ? ` · #${base.covered_by_invoice_number}` : ""})` : "";
   switch (base.status) {
@@ -47,9 +53,9 @@ function additionsCopy(additions: Coverage["additions"]): { text: string; cls: s
   }
 }
 
-export default function DepositCoverageLine({ allocation }: { allocation: BatchAllocation }) {
+export default function DepositCoverageLine({ allocation }: { allocation: CoverageBearer }) {
   const coverage = allocation.deposit_coverage;
-  if (!coverage || allocation.channel !== "contract_brewing") return null;
+  if (!coverage || (allocation.channel != null && allocation.channel !== "contract_brewing")) return null;
   const base = baseCopy(coverage.base);
   const additions = base ? additionsCopy(coverage.additions) : null;
   // Only conversion children get the decomposed line — a brewed batch's
