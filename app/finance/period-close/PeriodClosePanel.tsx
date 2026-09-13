@@ -199,7 +199,11 @@ export default function PeriodClosePanel({
   });
 
   async function refresh() {
-    await qc.invalidateQueries({ queryKey: ["finance", "balance-close"] });
+    // Scoped to THIS period. The broad ["finance","balance-close"] prefix also
+    // matched the index page's six per-period queries, so every saved balance
+    // refetched six periods' checklists at once — a real part of why the
+    // screen felt slow to save.
+    await qc.invalidateQueries({ queryKey: queryKeys.finance.balanceClose(periodEnd) });
     await qc.invalidateQueries({ queryKey: ["finance", "manual-entries"] });
   }
 
