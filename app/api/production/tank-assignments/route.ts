@@ -89,10 +89,21 @@ export async function POST(req: NextRequest) {
       // recorded even when the batch status stays "brewing" (turn 2+).
       // For other equipment types only write on actual status transitions.
       const turnsCompleted = Number(batch?.turns_completed ?? 0);
+      // One brewhouse assignment registers the whole brew: every turn the
+      // backlog declared that hasn't been brewed yet. The brewer assigns once
+      // for a 2-turn batch and both turns' ingredients, ledger rows and the
+      // turn counter land together — assigning twice was the only way to
+      // register turn 2 before, and the UI made that impossible once turn 1
+      // reached a fermenter (B-062 lost its second turn exactly this way).
+      const totalTurns     = Math.max(1, Number(batch?.turns ?? 1));
+      const remainingTurns = tank.type === "brewhouse" ? Math.max(0, totalTurns - turnsCompleted) : 0;
       const shouldWriteHistory = batch?.status !== newStatus || tank.type === "brewhouse";
       if (shouldWriteHistory) {
+        const turnLabel = remainingTurns > 1
+          ? `turns ${turnsCompleted + 1}–${totalTurns}`
+          : `turn ${Math.min(turnsCompleted + 1, totalTurns)}`;
         const note = tank.type === "brewhouse" && batch?.status === newStatus
-          ? `Auto: brewhouse turn ${turnsCompleted + 1}`
+          ? `Auto: brewhouse ${turnLabel}`
           : `Auto: assigned to ${tank.type}`;
         const { error: histErr } = await supabase.from("batch_status_history").insert({
           batch_id,
@@ -155,9 +166,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Deduct one turn's worth of ingredients when a brew turn starts.
-      if (tank.type === "brewhouse" && batch?.recipe_id) {
-        // One turn consumes the recipe's per-turn quantities as entered. Do not
+      // Deduct the remaining turns' worth of ingredients when the brew starts.
+      // remainingTurns is 0 for a fully-brewed batch being re-assigned (e.g. an
+      // admin correction), in which case nothing is consumed again.
+      if (tank.type === "brewhouse" && batch?.recipe_id && remainingTurns > 0) {
+        // Each turn consumes the recipe's per-turn quantities as entered. Do not
         // re-derive them from quantity_per_bbl × volume: that rate is the bill
         // divided by expected_yield_bbl, so a recipe yielding under its turn
         // size would deduct more grain than the brewer actually weighed out.
@@ -185,8 +198,11 @@ export async function POST(req: NextRequest) {
 
         if (recipeIngredients?.length) {
           type IngMeta = { cost_per_unit_usd: number | null; unit: string | null };
+          const turnNote = remainingTurns > 1
+            ? `Turns ${turnsCompleted + 1}–${totalTurns} start`
+            : `Turn start`;
           const adjustments = recipeIngredients.map((ri) => {
-            const qty     = Number(ri.quantity_per_turn);
+            const qty     = Number(ri.quantity_per_turn) * remainingTurns;
             const ingMeta = (ri.ingredients as unknown as IngMeta | null);
             const costPU  = ingMeta?.cost_per_unit_usd ?? null;
             const unit    = ingMeta?.unit ?? null;
@@ -194,7 +210,7 @@ export async function POST(req: NextRequest) {
               ingredient_id:      ri.ingredient_id,
               quantity:           -qty,
               type:               "batch_use" as const,
-              note:               `Turn start — ${batchRow?.batch_number ?? batch_id}: ${batchRow?.beer_name ?? ""}`,
+              note:               `${turnNote} — ${batchRow?.batch_number ?? batch_id}: ${batchRow?.beer_name ?? ""}`,
               batch_id,
               cost_per_unit_usd:      costPU,
               total_value_change_usd: costPU != null ? -qty * costPU : null,
@@ -207,13 +223,13 @@ export async function POST(req: NextRequest) {
 
           const { error: turnsErr } = await supabase
             .from("brew_batches")
-            .update({ turns_completed: Number(batch.turns_completed ?? 0) + 1 })
+            .update({ turns_completed: turnsCompleted + remainingTurns })
             .eq("id", batch_id);
           if (turnsErr) return NextResponse.json({ error: turnsErr.message }, { status: 500 });
 
           // Atomically decrement each ingredient via RPC (no TOCTOU race).
           for (const ri of recipeIngredients) {
-            const delta = Number(ri.quantity_per_turn);
+            const delta = Number(ri.quantity_per_turn) * remainingTurns;
             const { error: rpcErr } = await supabase.rpc("adjust_ingredient_stock", {
               p_id:    ri.ingredient_id,
               p_delta: -delta,
@@ -243,7 +259,6 @@ export async function POST(req: NextRequest) {
       if (tank.type === "brewhouse") {
         try {
           const totalVol = Number(batch?.volume_bbl ?? 0);
-          const turns    = Math.max(1, Number(batch?.turns ?? 1));
 
           // Cap at the volume not yet on the ledger, so a re-assigned turn or a
           // batch whose brews were backfilled by hand can never over-credit.
@@ -252,20 +267,29 @@ export async function POST(req: NextRequest) {
             .select("volume_bbl")
             .eq("batch_id", batch_id)
             .eq("transfer_type", "brewing");
-          const alreadyRecorded = (priorOrigins ?? []).reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0);
-          const turnVolume = Math.min(totalVol / turns, totalVol - alreadyRecorded);
+          let alreadyRecorded = (priorOrigins ?? []).reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0);
 
-          if (turnVolume > 0.001) {
-            await supabase.from("batch_transfers").insert({
+          // One origin row per turn being registered, so the batch log reads as
+          // the fills that actually happen at the kettle (turn 2's row exists
+          // even though the brewer only assigned once).
+          const originRows: Record<string, unknown>[] = [];
+          for (let turn = turnsCompleted + 1; turn <= totalTurns; turn++) {
+            const turnVolume = Math.min(totalVol / totalTurns, totalVol - alreadyRecorded);
+            if (turnVolume <= 0.001) break;
+            alreadyRecorded += turnVolume;
+            originRows.push({
               batch_id,
               from_tank_id:  null,
               to_tank_id:    tank_id,
               volume_bbl:    turnVolume,
               shrinkage_bbl: 0,
               transfer_type: "brewing",
-              notes:         `Turn ${turnsCompleted + 1} — brew turn start`,
+              notes:         `Turn ${turn} — brew turn start`,
               created_by:    currentUser?.id ?? null,
             });
+          }
+          if (originRows.length > 0) {
+            await supabase.from("batch_transfers").insert(originRows);
           }
         } catch (originErr) {
           console.error("[tank-assignments] Ledger origin row failed (turn committed):", originErr);
