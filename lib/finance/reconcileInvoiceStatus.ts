@@ -3,6 +3,7 @@ import { getInvoiceStatus, getOrderPayment } from "@/lib/square/square-invoices"
 import { isSquareNotFound } from "@/lib/square/client";
 import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
 import type { InvoiceStatus } from "@/types/finance";
+import { stampCommitmentLockedOn } from "@/lib/production/commitmentFulfillment";
 
 /**
  * Synthetic Square status recorded when an invoice was deleted directly in the
@@ -267,6 +268,11 @@ export async function reconcileInvoiceStatus(
       const { error: allocErr } = await supabase.from("batch_allocations").update(patch).eq("id", alloc.id);
       if (allocErr) throw new Error(`allocation update failed: ${allocErr.message}`);
       base.updatedAllocation = true;
+    }
+
+    // Deposit paid locks the backing commitment (fills locked_on if empty).
+    if (newlyPaid) {
+      await stampCommitmentLockedOn(supabase, alloc.id, (patch.invoice_paid_at as string) ?? now);
     }
   }
 

@@ -11,6 +11,7 @@ import {
   getInvoiceStatus,
 } from "@/lib/square/square-invoices";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
+import { stampCommitmentLockedOn } from "@/lib/production/commitmentFulfillment";
 import { snapshotDepositBreakdown, type BreakdownInput } from "@/lib/production/depositBreakdown";
 import { fetchOrdersByIds } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
@@ -432,6 +433,9 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
       .single();
 
     if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+    // Deposit paid locks the backing commitment (fills locked_on if empty).
+    await stampCommitmentLockedOn(supabase, id, paidAt);
 
     const pct = Number(allocation.percentage);
     const { data: inv } = await adminSupabase

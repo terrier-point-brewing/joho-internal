@@ -44,6 +44,9 @@ const CHANNEL_OPTIONS = [
   { value: "wholesale", label: CHANNEL_META.wholesale.label, className: CC.amber },
 ];
 
+/** Active work first, then fulfilled, then cancelled. */
+const STATUS_SORT_RANK: Record<string, number> = { open: 0, in_progress: 1, fulfilled: 2, cancelled: 3 };
+
 const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
   filters: [
     { param: "channel", accessor: (r) => r.channel },
@@ -51,7 +54,10 @@ const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
     { param: "partner", accessor: (r) => r.partner_id ?? "" },
   ],
   sort: {
+    default: { key: "default_order", dir: "asc" },
     columns: [
+      // Composite default: status rank, then channel, then received date.
+      { key: "default_order", accessor: (r) => `${STATUS_SORT_RANK[r.status] ?? 9}|${r.channel}|${r.received_on ?? "9999"}` },
       { key: "channel", accessor: (r) => r.channel },
       { key: "status", accessor: (r) => r.status },
       { key: "recipe_name", accessor: (r) => r.recipe_name },
