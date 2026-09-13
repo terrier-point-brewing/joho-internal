@@ -97,6 +97,23 @@ export interface InvoicePreviewResult {
    * their agreement, not a fact about the row.
    */
   adHoc: boolean;
+  /**
+   * Contract-brewing allocations behind the selected shipments whose ingredient
+   * deposit is still UNPAID (not paid, not written off, not already back-charged
+   * on another invoice). Non-empty only when billing as contract_brewing. The
+   * modal auto-adds the ingredient-deposit line for these — the deposit was
+   * never collected, so the export invoice is where it gets charged.
+   */
+  unpaidDepositAllocations: UnpaidDepositAllocation[];
+}
+
+/** One shipped allocation whose deposit hasn't been collected. */
+export interface UnpaidDepositAllocation {
+  allocationId: string;
+  batchNumber: string | null;
+  /** A standing deposit invoice was SENT and is awaiting payment — back-charging
+   *  on top of it double-bills unless the operator cancels it. */
+  depositInvoiceSent: boolean;
 }
 
 /** A Packaging Materials line's derivation, plus the recipe it belongs to. */
@@ -128,6 +145,8 @@ interface ExportTxRow {
   packaging_loss_pct: number | null;
   /** Shipped ad-hoc from the Export Bay, with no commitment behind it. */
   is_ad_hoc: boolean | null;
+  /** The batch_allocation this shipment was credited to; null for ad-hoc/over-delivery rows. */
+  allocation_id: string | null;
 }
 
 /**
@@ -455,7 +474,7 @@ export async function computeMaterialBreakdownsForTransactions(
   if (transactionIds.length === 0) return [];
   const { data: txs, error } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc, allocation_id")
     .in("id", transactionIds);
   if (error || !txs?.length) return [];
 
@@ -556,7 +575,7 @@ export async function buildInvoicePreview(
   // ── 1. Load transactions + validate same-customer, invoice_required ───────
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc, allocation_id")
     .in("id", transactionIds);
   if (txErr) throw new Error(txErr.message);
   if (!txs || txs.length !== transactionIds.length) {
@@ -769,6 +788,31 @@ export async function buildInvoicePreview(
     throw new Error(`Unsupported invoice channel: ${channel}`);
   }
 
+  // ── Unpaid ingredient deposits behind these shipments ─────────────────────
+  // Only when billing contract_brewing: that's the only channel that charges a
+  // deposit at all, and the export invoice is where an uncollected one lands.
+  let unpaidDepositAllocations: UnpaidDepositAllocation[] = [];
+  if (channel === "contract_brewing") {
+    const allocationIds = [...new Set(rows.map((r) => r.allocation_id).filter((id): id is string => !!id))];
+    if (allocationIds.length > 0) {
+      const { data: allocs } = await supabase
+        .from("batch_allocations")
+        .select("id, channel, invoice_paid_at, invoice_sent_at, written_off_at, deposit_backcharged_invoice_id, brew_batches(batch_number)")
+        .in("id", allocationIds);
+      unpaidDepositAllocations = (allocs ?? [])
+        .filter((a) =>
+          a.channel === "contract_brewing" &&
+          !a.invoice_paid_at &&
+          !a.written_off_at &&
+          !a.deposit_backcharged_invoice_id)
+        .map((a) => ({
+          allocationId: a.id,
+          batchNumber: (a.brew_batches as { batch_number?: string } | null)?.batch_number ?? null,
+          depositInvoiceSent: !!a.invoice_sent_at,
+        }));
+    }
+  }
+
   return {
     customerId,
     customerName: partner.company_name,
@@ -780,5 +824,6 @@ export async function buildInvoicePreview(
     warnings,
     materialBreakdowns,
     adHoc: rows.some((r) => r.is_ad_hoc === true),
+    unpaidDepositAllocations,
   };
 }

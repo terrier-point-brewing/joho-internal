@@ -137,6 +137,31 @@ export async function recheckCommitmentFulfillment(
 }
 
 /**
+ * Stamps the backing commitment's `locked_on` when its deposit invoice is
+ * paid — payment is the moment the request stops being negotiable. Only fills
+ * an empty locked_on (a manually entered date wins); no-op for allocations
+ * without a commitment. Never throws — locking is bookkeeping on top of a
+ * payment that has already happened.
+ */
+export async function stampCommitmentLockedOn(
+  supabase: SupabaseClient,
+  allocationId: string,
+  paidAt: string,
+): Promise<void> {
+  const { data: allocation } = await supabase
+    .from("batch_allocations")
+    .select("contract_request_id")
+    .eq("id", allocationId)
+    .single();
+  if (!allocation?.contract_request_id) return;
+  await supabase
+    .from("commitments")
+    .update({ locked_on: paidAt.slice(0, 10) })
+    .eq("id", allocation.contract_request_id)
+    .is("locked_on", null);
+}
+
+/**
  * Re-evaluates every commitment-backed allocation on a batch. Fulfillment is
  * gated on the batch being "complete", so exports written while the batch was
  * still brewing never trigger a check — this runs the moment the batch turns

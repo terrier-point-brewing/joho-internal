@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchSquareInvoices, fetchInvoiceOrders, fetchSquareInvoiceById, fetchOrdersByIds } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
-import { cascadeExportTransactionsStatus } from "@/lib/finance/reconcileInvoiceStatus";
+import { cascadeExportTransactionsStatus, settleBackchargedDeposits } from "@/lib/finance/reconcileInvoiceStatus";
 import type { CatalogItem, Order, SquareInvoice } from "@/types/square";
 import {
   buildLineItemIndexes,
@@ -139,6 +139,14 @@ async function upsertInvoiceWithLines(
     await cascadeExportTransactionsStatus(supabase, invRow.id, status);
   } catch (err) {
     errors.push(`Export transaction cascade for ${inv.invoice_number ?? inv.id}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Same both-writers rule for deposits back-charged onto an export invoice:
+  // an invoice that reaches "paid" only through this sync must still settle them.
+  try {
+    await settleBackchargedDeposits(supabase, invRow.id, status, null);
+  } catch (err) {
+    errors.push(`Back-charged deposit settle for ${inv.invoice_number ?? inv.id}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Load existing CoA mappings so a re-sync never wipes a manual/auto-mapped

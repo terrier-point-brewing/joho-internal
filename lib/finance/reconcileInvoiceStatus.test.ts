@@ -234,10 +234,12 @@ function voidPathStub(opts: {
           opts.updates.push({ table, payload });
           const error = opts.updateError ? { message: opts.updateError } : null;
           // `invoices` and `batch_allocations` end at a single .eq(); the
-          // export_transactions release chains .eq().eq().select(). Thenable so
-          // both shapes resolve off the same object.
+          // export_transactions release chains .eq().eq().select(); the
+          // back-charged-deposit release chains .eq().is().select(). Thenable so
+          // every shape resolves off the same object.
           const chain = {
             eq: () => chain,
+            is: () => chain,
             select: () => Promise.resolve({ data: [], error }),
             then: (resolve: (v: { error: unknown }) => unknown) => Promise.resolve({ error }).then(resolve),
           };

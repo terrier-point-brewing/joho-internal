@@ -357,6 +357,10 @@ export interface CommitmentAllocationSummary {
   invoice_paid_at: string | null;
   /** Human-readable invoice number (e.g. "000003") from the linked invoices row; null if not yet synced. */
   deposit_invoice_number: string | null;
+  /** Export invoice carrying this allocation's back-charged deposit; null when the deposit bills through its own invoice. */
+  deposit_backcharged_invoice_id?: string | null;
+  /** Invoice number of that export invoice, for the "On export invoice #N" badge. */
+  backcharge_invoice_number?: string | null;
   brew_batches?: { id: string; beer_name: string; batch_number: string; volume_bbl: number } | null;
   contract_brewing_partners?: { id: string; company_name: string } | null;
   /** Requested barrelage from the linked commitment — used to explain how % was derived. */

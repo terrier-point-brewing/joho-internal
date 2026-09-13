@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "./shared";
 import Banner from "@/app/components/ui/Banner";
 import ToggleChip from "@/app/components/ui/ToggleChip";
@@ -169,6 +169,21 @@ export default function InvoicePreviewModal({
   const hasDepositLine = effectiveLineItems.some((li) =>
     li.squareCatalogVariationId != null && /ingredient deposit/i.test(li.description)
   );
+
+  // Allocations behind these shipments whose deposit was never collected — the
+  // preview computed this from invoice_paid_at, so unlike the ad-hoc notice it
+  // is a fact, not a judgment: the deposit line gets added automatically (still
+  // removable). Runs once per preview load; a removed line stays removed.
+  const unpaidDeposits = data?.unpaidDepositAllocations ?? [];
+  const autoDepositRan = useRef(false);
+  useEffect(() => {
+    if (autoDepositRan.current) return;
+    if (!data || data.channel !== "contract_brewing") return;
+    if (unpaidDeposits.length === 0 || hasDepositLine) return;
+    autoDepositRan.current = true;
+    void loadIngredientDeposit(excludedByBatch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once when the preview lands.
+  }, [data]);
 
   function excludeParam(exclusions: Record<string, string[]>): string {
     const pairs = Object.entries(exclusions).flatMap(([batchId, recipeIds]) =>
@@ -431,6 +446,29 @@ export default function InvoicePreviewModal({
               {channel === "contract_brewing"
                 ? " Add one below if the batch's ingredients are this partner's to pay for."
                 : " Bill as Contract Brewing if the batch's ingredients are this partner's to pay for."}
+            </Banner>
+          )}
+
+          {/* ── Unpaid-deposit back-charge notice ─────────────────────────────
+              These allocations' ingredient deposit was never paid, so it is
+              collected here instead. The line was auto-added; on generate the
+              allocations are pointed at this invoice, and when it is paid the
+              commitment's deposit is marked paid automatically. */}
+          {channel === "contract_brewing" && unpaidDeposits.length > 0 && (
+            <Banner tone={unpaidDeposits.some((d) => d.depositInvoiceSent) ? "danger" : "accent"}>
+              The ingredient deposit for{" "}
+              <span className="font-medium">
+                {unpaidDeposits.map((d) => (d.batchNumber ? `#${d.batchNumber}` : "a shipped batch")).join(", ")}
+              </span>{" "}
+              is unpaid — {hasDepositLine
+                ? "an Ingredient Deposit line has been added to collect it on this invoice."
+                : "add the Ingredient Deposit line below to collect it on this invoice."}{" "}
+              When this invoice is paid, the commitment&rsquo;s deposit is marked paid automatically.
+              {unpaidDeposits.some((d) => d.depositInvoiceSent) && (
+                <> A standing deposit invoice was already <span className="font-medium">sent</span> for
+                {" "}{unpaidDeposits.filter((d) => d.depositInvoiceSent).map((d) => d.batchNumber ? `#${d.batchNumber}` : "one batch").join(", ")} —
+                cancel it from the Commitments tab before sending this one, or the partner is billed twice.</>
+              )}
             </Banner>
           )}
 

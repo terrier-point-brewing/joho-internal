@@ -44,6 +44,9 @@ const CHANNEL_OPTIONS = [
   { value: "wholesale", label: CHANNEL_META.wholesale.label, className: CC.amber },
 ];
 
+/** Active work first, then fulfilled, then cancelled. */
+const STATUS_SORT_RANK: Record<string, number> = { open: 0, in_progress: 1, fulfilled: 2, cancelled: 3 };
+
 const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
   filters: [
     { param: "channel", accessor: (r) => r.channel },
@@ -51,7 +54,10 @@ const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
     { param: "partner", accessor: (r) => r.partner_id ?? "" },
   ],
   sort: {
+    default: { key: "default_order", dir: "asc" },
     columns: [
+      // Composite default: status rank, then channel, then received date.
+      { key: "default_order", accessor: (r) => `${STATUS_SORT_RANK[r.status] ?? 9}|${r.channel}|${r.received_on ?? "9999"}` },
       { key: "channel", accessor: (r) => r.channel },
       { key: "status", accessor: (r) => r.status },
       { key: "recipe_name", accessor: (r) => r.recipe_name },
@@ -82,6 +88,14 @@ function InvoiceStatusBadge({ a }: { a: CommitmentAllocationSummary }) {
     : null;
   if (a.invoice_paid_at) {
     return <span className="inline-flex items-center gap-1 text-[10px] text-success bg-success-surface/30 border border-success-border/40 rounded px-1.5 py-0.5">✓ Deposit paid{numSuffix}</span>;
+  }
+  if (a.deposit_backcharged_invoice_id) {
+    // The deposit is being collected as a line on an export invoice instead of
+    // its own deposit invoice; it flips to "Deposit paid" when that invoice pays.
+    const exportNum = a.backcharge_invoice_number
+      ? <span className="ml-1 font-mono opacity-70">#{a.backcharge_invoice_number}</span>
+      : null;
+    return <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent-muted/30 border border-accent-border/40 rounded px-1.5 py-0.5">● On export invoice{exportNum}</span>;
   }
   if (a.invoice_sent_at) {
     return <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent-muted/30 border border-accent-border/40 rounded px-1.5 py-0.5">● Invoice sent{numSuffix}</span>;
@@ -123,10 +137,13 @@ function InvoicingCell({
               View in Square ↗
             </button>
           )}
-          {/* Action buttons only for unpaid allocations */}
+          {/* Action buttons only for unpaid allocations. A back-charged deposit
+              is being collected on an export invoice, so a NEW deposit invoice
+              must not be raised — but a standing one can still be deleted to
+              avoid double-billing. */}
           {!a.invoice_paid_at && (
             <>
-              {!a.invoice_generated_at && (
+              {!a.invoice_generated_at && !a.deposit_backcharged_invoice_id && (
                 <button type="button"
                   onClick={() => onPreview({ ...a, commitments: { volume_bbl: commitment.volume_bbl } })}
                   disabled={actionLoading === a.id}
@@ -136,10 +153,12 @@ function InvoicingCell({
               )}
               {a.invoice_generated_at && !a.invoice_sent_at && (
                 <>
-                  <button type="button" onClick={() => onSend(a.id)} disabled={actionLoading === a.id}
-                    className="btn-primary btn-xxs whitespace-nowrap">
-                    {actionLoading === a.id ? "Sending…" : "Send Invoice"}
-                  </button>
+                  {!a.deposit_backcharged_invoice_id && (
+                    <button type="button" onClick={() => onSend(a.id)} disabled={actionLoading === a.id}
+                      className="btn-primary btn-xxs whitespace-nowrap">
+                      {actionLoading === a.id ? "Sending…" : "Send Invoice"}
+                    </button>
+                  )}
                   <button type="button" onClick={() => onDelete(a.id, false)} disabled={actionLoading === a.id}
                     className="btn-danger btn-xxs whitespace-nowrap">
                     Delete

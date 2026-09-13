@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
     .from("export_transactions")
     // recipe_id rides along for the post-send Square push: raising an invoice
     // changes what Square holds committed, which changes the push target.
-    .select("id, recipient_id, recipient_name, status, invoice_id, batch_id, channel, recipe_id")
+    .select("id, recipient_id, recipient_name, status, invoice_id, batch_id, channel, recipe_id, allocation_id")
     .in("id", transactionIds);
   if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 });
   if (!txs || txs.length !== transactionIds.length) {
@@ -100,6 +100,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "override_reason is required when billing under a different channel" }, { status: 400 });
   }
   const overrideReason = body.override_reason?.trim() || null;
+
+  // When the invoice carries an Ingredient Deposit line (same detection the
+  // modal uses: a catalog-backed line whose description names it), point the
+  // shipped allocations' still-unpaid deposits at this invoice — that's what
+  // lets the paid/voided sync settle or release them later. Contract brewing
+  // only; never blocks the response.
+  async function recordDepositBackcharge(
+    invoiceId: string,
+    lineItems: Array<{ description: string; squareCatalogVariationId?: string | null }> | undefined,
+  ): Promise<void> {
+    if (billedChannel !== "contract_brewing" || !lineItems?.length) return;
+    const hasDepositLine = lineItems.some(
+      (li) => li.squareCatalogVariationId != null && /ingredient deposit/i.test(li.description),
+    );
+    if (!hasDepositLine) return;
+    const allocationIds = [...new Set(
+      txs!.map((t) => (t as typeof t & { allocation_id: string | null }).allocation_id)
+        .filter((id): id is string => !!id)
+    )];
+    if (allocationIds.length === 0) return;
+    const { error } = await supabase
+      .from("batch_allocations")
+      .update({ deposit_backcharged_invoice_id: invoiceId })
+      .in("id", allocationIds)
+      .eq("channel", "contract_brewing")
+      .is("invoice_paid_at", null)
+      .is("written_off_at", null);
+    if (error) console.error("[export-invoice] recording deposit back-charge failed:", error.message);
+  }
 
   // Freeze the Packaging Materials cost derivation onto the invoice. Contract
   // brewing only — no other channel bills materials. Never blocks the response:
@@ -260,6 +289,7 @@ export async function POST(req: NextRequest) {
     }
 
     await snapshotMaterials(inv.id);
+    await recordDepositBackcharge(inv.id, lineItems);
 
     // Record any line billed against a borrowed Square item, so the send that
     // makes Square deduct stock it never held can credit those units back. The
