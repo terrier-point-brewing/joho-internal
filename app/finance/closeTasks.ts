@@ -26,6 +26,10 @@ export interface CloseTaskDetail {
   enteredCents: number | null;
   /** The last balance recorded before this period, to sanity-check against. */
   previousBalance: { asOfDate: string; cents: number } | null;
+  /** The feed's own derived figure for this period, when the snapshot holds one — prefilled so confirming is one save. */
+  computedCents: number | null;
+  /** When that figure was computed, for the "as of" caption. */
+  computedAt: string | null;
 }
 
 /** Who called this month final (or took it back), and when. */

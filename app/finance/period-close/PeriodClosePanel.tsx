@@ -89,7 +89,12 @@ function OutstandingRow({
   onSkip: () => void;
   onError: (message: string) => void;
 }) {
-  const [amount, setAmount] = useState("");
+  // Prefilled with the feed's own derived figure when the snapshot holds one
+  // (Square's anchor + payouts − sweeps): the task is a RATIFICATION — each
+  // confirmed month-end becomes the next drift-resetting anchor — so the
+  // number the system computed should be one Save away, not retyped. Still an
+  // ordinary editable input: correcting it is exactly as easy as confirming.
+  const [amount, setAmount] = useState(task.computedCents !== null ? (task.computedCents / 100).toFixed(2) : "");
   const [busy, setBusy] = useState(false);
   const due = dueLabel(task.dueDate, todayIso);
 
@@ -145,6 +150,13 @@ function OutstandingRow({
       </div>
 
       <p className="text-2xs text-faint">
+        {task.computedCents !== null && (
+          <>
+            The feed computes {formatBalanceCents(task.computedCents)}
+            {task.computedAt ? ` (as of ${fmtDate(task.computedAt.slice(0, 10))})` : ""} — save to confirm it, or
+            correct it first.{" "}
+          </>
+        )}
         {task.previousBalance
           ? `Last entered ${formatBalanceCents(task.previousBalance.cents)} as at ${fmtDate(task.previousBalance.asOfDate)}.`
           : "No balance has ever been entered for this account."}
