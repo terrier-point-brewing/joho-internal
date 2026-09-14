@@ -22,10 +22,11 @@ import type { CommitmentStage } from "@/lib/production/commitmentStage";
 import { fmtUsd } from "@/lib/utils/formatting";
 import { fmtDate } from "@/lib/utils/formatting";
 import FilterBar from "@/app/components/ui/FilterBar";
-import FilterChips from "@/app/components/ui/FilterChips";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import Banner from "@/app/components/ui/Banner";
 import { CHANNEL_COLOR } from "../lib/categoryColors";
+import { attentionRank, commitmentAttention, type Attention } from "@/lib/production/ledgerAttention";
 import { useQueryClient } from "@tanstack/react-query";
 import InvoicePreviewModal from "./InvoicePreviewModal";
 
@@ -80,6 +81,53 @@ const STAGE_META: Record<CommitmentStage, { label: string; cls: string }> = {
 };
 const STAGE_ORDER: CommitmentStage[] = ["unplanned", "planned", "brewing", "packaged", "shipping", "delivered", "fulfilled", "written_off", "cancelled"];
 const OPEN_STAGES = new Set<CommitmentStage>(["unplanned", "planned", "brewing", "packaged", "shipping", "delivered"]);
+
+const ATTENTION_CLS: Record<Attention["kind"], string> = {
+  not_invoiced:      "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
+  deposit_uncharged: "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
+  deposit_unpaid:    "bg-accent-muted/40 text-accent border-accent-border",
+  over_shipped:      "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
+  overdue:           "bg-danger-surface/40 text-danger border-danger-border",
+  needs_batch:       "bg-info-surface/40 text-info border-info-border",
+  amount_unrecorded: "bg-surface-mid text-secondary border-line-strong",
+};
+
+function AttentionChips({ flags }: { flags: Attention[] }) {
+  if (flags.length === 0) return <span className="text-faint text-xs">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {flags.map((f) => (
+        <span key={f.kind} className={`text-xs px-1.5 py-0.5 rounded border whitespace-nowrap ${ATTENTION_CLS[f.kind]}`}>{f.label}</span>
+      ))}
+    </div>
+  );
+}
+
+/** Shipped ÷ owed as one glance: number, bar, and what is left. */
+function DeliveryCell({ c }: { c: LedgerCommitment }) {
+  const t = c.totals;
+  if (c.allocations.length === 0) return <span className="text-faint text-xs">no batch yet</span>;
+  const owed = t.owed_bbl;
+  const pct = owed > 0 ? Math.min(100, (t.shipped_bbl / owed) * 100) : 0;
+  const over = owed > 0 && t.shipped_bbl > owed + 0.01;
+  const closed = c.stage === "fulfilled" || c.stage === "written_off" || c.stage === "cancelled";
+  return (
+    <div className="min-w-[150px]">
+      <div className="text-xs tabular-nums font-mono">
+        <span className={over ? "text-[var(--cat-amber-fg)] font-medium" : "text-body"}>{bbl(t.shipped_bbl)}</span>
+        <span className="text-faint"> / </span>
+        <span className="text-body">{owed > 0 ? bbl(owed) : `${bbl(c.booked_bbl)} booked`}</span>
+        {!closed && owed > 0 && t.remaining_bbl > 0.005 && <span className="text-muted"> · {bbl(t.remaining_bbl)} to go</span>}
+      </div>
+      <div className="mt-1 h-1 rounded-full bg-surface-mid overflow-hidden">
+        <div className={`h-full rounded-full ${over ? "bg-[var(--cat-amber-fg)]" : pct >= 99.5 ? "bg-success-emphasis" : "bg-info-emphasis"}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="text-xs text-muted mt-0.5 whitespace-nowrap">
+        {c.allocations.map((a) => `#${a.batch_number ?? "?"} ${a.percentage.toFixed(0)}%`).join(", ")}
+      </div>
+    </div>
+  );
+}
 
 const INVOICE_BADGE: Record<string, string> = {
   draft: "bg-surface-mid text-secondary",
@@ -296,6 +344,10 @@ function CommitmentPanel({ c, onOpenInvoice, onChanged }: { c: LedgerCommitment;
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
+type View = "attention" | "open" | "all";
+
+const COLUMNS = 8; // expand, beer, stage, attention, delivery, deposit, invoiced, due
+
 export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateToInvoice: (invoiceId: string) => void }) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: queryKeys.production.partnerLedger() });
@@ -304,35 +356,52 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
     queryFn: () => fetchJson<LedgerPartner[]>("/api/production/partner-ledger"),
   });
 
+  const today = new Date().toISOString().slice(0, 10);
+  const [view, setView] = useState<View>("attention");
   const [partnerFilter, setPartnerFilter] = useState<string[]>([]);
-  const [stageFilter, setStageFilter] = useState<string[]>(["open"]);
+  const [stageFilter, setStageFilter] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // Billing starts from the row that shows what is unbilled: the same preview
   // modal the Shipments tab uses, fed the deal's uninvoiced shipment ids.
   const [invoiceFor, setInvoiceFor] = useState<string[] | null>(null);
 
-  const stageKeep = (stage: CommitmentStage) =>
-    stageFilter.length === 0 || stageFilter.includes("open") ? (stageFilter.includes("open") ? OPEN_STAGES.has(stage) : true) : stageFilter.includes(stage);
-
-  const visible = useMemo(() => ledger
-    .filter((p) => partnerFilter.length === 0 || partnerFilter.includes(p.partner_id))
-    .map((p) => ({ ...p, commitments: p.commitments.filter((c) => stageKeep(c.stage)) }))
-    .filter((p) => p.commitments.length > 0 || (p.unallocated.length > 0 && stageFilter.includes("open"))),
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- stageKeep is a pure closure over stageFilter.
-  [ledger, partnerFilter, stageFilter]);
+  // One flat list, then grouped by partner for the header rows — so every
+  // partner shares one table and one set of column widths.
+  const groups = useMemo(() => {
+    type Row = { c: LedgerCommitment; flags: Attention[]; rank: number };
+    const out: Array<{ partner: LedgerPartner; rows: Row[]; rank: number }> = [];
+    for (const p of ledger) {
+      if (partnerFilter.length > 0 && !partnerFilter.includes(p.partner_id)) continue;
+      const rows = p.commitments
+        .filter((c) => stageFilter.length === 0 || stageFilter.includes(c.stage))
+        .map((c) => ({ c, flags: commitmentAttention(c, today), rank: attentionRank(c, today) }))
+        .filter((r) => view === "all" ? true : view === "open" ? OPEN_STAGES.has(r.c.stage) || r.rank < 99 : r.rank < 99)
+        .sort((x, y) => x.rank - y.rank || (x.c.desired_delivery_date ?? "9999").localeCompare(y.c.desired_delivery_date ?? "9999"));
+      const showUnallocated = view !== "attention" ? p.unallocated.length > 0 : p.unallocated_uninvoiced_transaction_ids.length > 0;
+      if (rows.length === 0 && !showUnallocated) continue;
+      const rank = Math.min(...rows.map((r) => r.rank), p.unallocated_uninvoiced_transaction_ids.length > 0 ? 1 : 99);
+      out.push({ partner: p, rows, rank });
+    }
+    return out.sort((a, b) => a.rank - b.rank || a.partner.company_name.localeCompare(b.partner.company_name));
+  }, [ledger, partnerFilter, stageFilter, view, today]);
 
   const summary = useMemo(() => {
-    const all = visible.flatMap((p) => p.commitments);
+    const all = ledger.flatMap((p) => p.commitments);
+    const attention = all.filter((c) => attentionRank(c, today) < 99).length
+      + ledger.filter((p) => p.unallocated_uninvoiced_transaction_ids.length > 0).length;
+    const uninvoiced = all.reduce((s, c) => s + c.totals.uninvoiced_bbl, 0)
+      + ledger.reduce((s, p) => s + p.unallocated.filter((u) => !u.invoice).reduce((x, u) => x + u.volume_bbl, 0), 0);
     return {
-      commitments: all.length,
+      attention,
       remainingBbl: all.filter((c) => OPEN_STAGES.has(c.stage)).reduce((s, c) => s + c.totals.remaining_bbl, 0),
-      uninvoicedBbl: all.reduce((s, c) => s + c.totals.uninvoiced_bbl, 0) + visible.reduce((s, p) => s + p.unallocated.filter((u) => !u.invoice).reduce((x, u) => x + u.volume_bbl, 0), 0),
-      depositOutstanding: all.reduce((s, c) => s + Math.max(0, c.totals.deposit_billed_cents - c.totals.deposit_paid_cents), 0),
-      exportOutstanding: all.reduce((s, c) => s + Math.max(0, c.totals.export_billed_cents - c.totals.export_paid_cents), 0),
+      uninvoicedBbl: uninvoiced,
+      outstandingCents: all.reduce((s, c) =>
+        s + Math.max(0, c.totals.deposit_billed_cents - c.totals.deposit_paid_cents)
+          + Math.max(0, c.totals.export_billed_cents - c.totals.export_paid_cents), 0),
     };
-  }, [visible]);
+  }, [ledger, today]);
 
-  const filterActiveCount = (partnerFilter.length ? 1 : 0) + (stageFilter.length && !(stageFilter.length === 1 && stageFilter[0] === "open") ? 1 : 0);
+  const filterActiveCount = (partnerFilter.length ? 1 : 0) + (stageFilter.length ? 1 : 0) + (view !== "attention" ? 1 : 0);
 
   return (
     <div className="space-y-4">
@@ -343,140 +412,144 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
           onCreated={() => { setInvoiceFor(null); refresh(); }}
         />
       )}
-      <FilterBar activeCount={filterActiveCount} onClear={() => { setPartnerFilter([]); setStageFilter(["open"]); }}>
+      <FilterBar activeCount={filterActiveCount} onClear={() => { setPartnerFilter([]); setStageFilter([]); setView("attention"); }}>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs text-muted mr-0.5">Show:</span>
+          {([
+            ["attention", summary.attention > 0 ? `Needs attention (${summary.attention})` : "Needs attention"],
+            ["open", "Open deals"],
+            ["all", "Everything"],
+          ] as Array<[View, string]>).map(([v, label]) => (
+            <ToggleChip key={v} active={view === v} onClick={() => setView(v)}>{label}</ToggleChip>
+          ))}
+        </div>
         <FilterSelect label="Partner" options={ledger.map((p) => ({ value: p.partner_id, label: p.company_name }))}
           value={partnerFilter} onChange={setPartnerFilter} allLabel="All Partners" />
-        <FilterChips label="Stage"
-          options={[{ value: "open", label: "Open" }, ...STAGE_ORDER.map((s) => ({ value: s, label: STAGE_META[s].label }))]}
-          value={stageFilter} onChange={(v) => setStageFilter(v)} allLabel="Everything" />
+        <FilterSelect label="Stage" options={STAGE_ORDER.map((s) => ({ value: s, label: STAGE_META[s].label }))}
+          value={stageFilter} onChange={setStageFilter} allLabel="Any stage" />
       </FilterBar>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
-        <span className="text-secondary">{summary.commitments} commitment{summary.commitments !== 1 ? "s" : ""}</span>
-        <span className="text-muted">|</span>
-        <span className="text-secondary"><span className="text-strong font-medium tabular-nums">{bbl(summary.remainingBbl)}</span> bbl still to deliver</span>
-        <span className="text-muted">|</span>
         <span className="text-secondary"><span className={`font-medium tabular-nums ${summary.uninvoicedBbl > 0.005 ? "text-[var(--cat-amber-fg)]" : "text-strong"}`}>{bbl(summary.uninvoicedBbl)}</span> bbl shipped, not invoiced</span>
         <span className="text-muted">|</span>
-        <span className="text-secondary"><span className="text-accent-soft font-medium tabular-nums">{fmtUsd(summary.depositOutstanding / 100)}</span> deposits outstanding</span>
+        <span className="text-secondary"><span className="text-accent-soft font-medium tabular-nums">{fmtUsd(summary.outstandingCents / 100)}</span> invoiced, unpaid</span>
         <span className="text-muted">|</span>
-        <span className="text-secondary"><span className="text-accent-soft font-medium tabular-nums">{fmtUsd(summary.exportOutstanding / 100)}</span> export invoices outstanding</span>
+        <span className="text-secondary"><span className="text-strong font-medium tabular-nums">{bbl(summary.remainingBbl)}</span> bbl still to deliver</span>
       </div>
 
       {error ? (
         <Banner>Could not load the ledger: {error instanceof Error ? error.message : "unknown error"}</Banner>
-      ) : visible.length === 0 ? (
-        <p className="text-sm text-faint">{isPending ? "Loading the ledger…" : "No commitments match the current filters."}</p>
-      ) : visible.map((p) => (
-        <section key={p.partner_id} className="rounded-lg border border-line overflow-hidden">
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-2.5 bg-surface/50 border-b border-line">
-            <h3 className="text-sm font-semibold text-strong">{p.company_name}</h3>
-            <span className="text-xs text-muted tabular-nums">
-              {bbl(p.totals.shipped_bbl)} / {bbl(p.totals.owed_bbl)} bbl shipped
-              {p.totals.remaining_bbl > 0.005 && <> · <span className="text-secondary">{bbl(p.totals.remaining_bbl)} to go</span></>}
-              {p.unallocated_bbl > 0.005 && <> · <span className="text-[var(--cat-amber-fg)]">{bbl(p.unallocated_bbl)} outside any commitment</span></>}
-            </span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line text-left">
-                  <th className="px-4 py-2 w-6" aria-label="Expand" />
-                  <th className="px-4 py-2 text-xs font-medium text-muted">Beer</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted">Channel</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted">Stage</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted text-right">Booked</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted">Batch</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted text-right">Owed</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted text-right">Shipped</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted text-right">Remaining</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted">Deposit</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted">Invoiced</th>
-                  <th className="px-4 py-2 text-xs font-medium text-muted">Due</th>
-                </tr>
-              </thead>
-              <tbody>
-                {p.commitments.map((c) => {
-                  const open = expandedId === c.id;
-                  const over = c.totals.owed_bbl > 0 && c.totals.shipped_bbl > c.totals.owed_bbl + 0.01;
-                  return (
-                    <React.Fragment key={c.id}>
-                      <tr className="border-b border-line/60 hover:bg-surface/30 cursor-pointer transition-colors" onClick={() => setExpandedId(open ? null : c.id)}>
-                        <td className="px-4 py-2 text-muted text-xs">{open ? "▾" : "▸"}</td>
-                        <td className="px-4 py-2 text-primary font-medium whitespace-nowrap">
-                          {c.recipe_name ?? "—"}
-                          {c.is_split && <span className="ml-1.5 text-xs text-muted font-normal">split</span>}
-                        </td>
-                        <td className="px-4 py-2"><ChannelBadge channel={c.channel} /></td>
-                        <td className="px-4 py-2"><StageBadge stage={c.stage} /></td>
-                        <td className="px-4 py-2 text-right font-mono tabular-nums text-body">{bbl(c.booked_bbl)}</td>
-                        <td className="px-4 py-2 text-secondary text-xs whitespace-nowrap">
-                          {c.allocations.length === 0 ? <span className="text-faint">—</span>
-                            : c.allocations.map((a) => `#${a.batch_number ?? "?"} ${a.percentage.toFixed(1)}%`).join(", ")}
-                        </td>
-                        <td className="px-4 py-2 text-right font-mono tabular-nums text-body">{c.totals.owed_bbl > 0 ? bbl(c.totals.owed_bbl) : <span className="text-faint">—</span>}</td>
-                        <td className={`px-4 py-2 text-right font-mono tabular-nums ${over ? "text-[var(--cat-amber-fg)] font-medium" : "text-body"}`}>{bbl(c.totals.shipped_bbl)}</td>
-                        <td className="px-4 py-2 text-right font-mono tabular-nums">
-                          {c.stage === "fulfilled" || c.stage === "written_off" || c.stage === "cancelled"
-                            ? <span className="text-faint">—</span>
-                            : <span className={c.totals.remaining_bbl > 0.005 ? "text-strong" : "text-success"}>{bbl(c.totals.remaining_bbl)}</span>}
-                        </td>
-                        <td className="px-4 py-2"><DepositCell c={c} /></td>
-                        <td className="px-4 py-2 text-xs leading-4">
-                          {c.export_invoices.length === 0 && c.totals.uninvoiced_bbl <= 0.005
-                            ? <span className="text-faint">—</span>
-                            : (
-                              <>
-                                <div className="tabular-nums">
-                                  <span className={c.totals.export_paid_cents >= c.totals.export_billed_cents ? "text-success" : "text-body"}>{fmtUsd(c.totals.export_paid_cents / 100)}</span>
-                                  {c.totals.export_billed_cents > c.totals.export_paid_cents && <span className="text-muted"> of {fmtUsd(c.totals.export_billed_cents / 100)}</span>}
-                                </div>
-                                {c.totals.uninvoiced_bbl > 0.005
-                                  ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-[var(--cat-amber-fg)]">{bbl(c.totals.uninvoiced_bbl)} bbl not invoiced</span>
-                                      {(c.totals.uninvoiced_transaction_ids?.length ?? 0) > 0 && (
-                                        <button type="button" className="btn-primary btn-xxs"
-                                          onClick={(e) => { e.stopPropagation(); setInvoiceFor(c.totals.uninvoiced_transaction_ids ?? []); }}>
-                                          Generate invoice
-                                        </button>
-                                      )}
-                                    </div>
-                                  )
-                                  : <div className="text-muted">{c.export_invoices.length} invoice{c.export_invoices.length !== 1 ? "s" : ""}</div>}
-                              </>
-                            )}
-                        </td>
-                        <td className="px-4 py-2 text-xs text-muted whitespace-nowrap">{c.desired_delivery_date ? fmtDate(c.desired_delivery_date) : "—"}</td>
-                      </tr>
-                      {open && (
-                        <tr className="border-b border-line bg-surface/20">
-                          <td colSpan={12} className="p-0"><CommitmentPanel c={c} onOpenInvoice={onNavigateToInvoice} onChanged={refresh} /></td>
+      ) : groups.length === 0 ? (
+        <p className="text-sm text-faint">
+          {isPending ? "Loading the ledger…" : view === "attention" ? "Nothing needs attention." : "No commitments match the current filters."}
+        </p>
+      ) : (
+        <div className="rounded-lg border border-line overflow-x-auto">
+          <table className="w-full text-sm">
+            <colgroup>
+              <col className="w-8" />
+              <col className="w-[18%]" />
+              <col className="w-[10%]" />
+              <col className="w-[20%]" />
+              <col className="w-[16%]" />
+              <col className="w-[13%]" />
+              <col className="w-[13%]" />
+              <col className="w-[8%]" />
+            </colgroup>
+            <thead>
+              <tr className="border-b border-line bg-surface/50 text-left">
+                <th className="px-3 py-2" aria-label="Expand" />
+                <th className="px-3 py-2 text-xs font-medium text-muted">Beer</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted">Stage</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted">Needs</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted">Shipped / owed</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted">Deposit</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted">Invoiced</th>
+                <th className="px-3 py-2 text-xs font-medium text-muted">Due</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map(({ partner: p, rows }) => (
+                <React.Fragment key={p.partner_id}>
+                  <tr className="bg-surface/40 border-b border-line">
+                    <td colSpan={COLUMNS} className="px-3 py-2">
+                      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                        <h3 className="text-sm font-semibold text-strong">{p.company_name}</h3>
+                        <span className="text-xs text-muted tabular-nums">
+                          {bbl(p.totals.shipped_bbl)} / {bbl(p.totals.owed_bbl)} bbl shipped
+                          {p.totals.remaining_bbl > 0.005 && <> · {bbl(p.totals.remaining_bbl)} to go</>}
+                          {p.unallocated_bbl > 0.005 && <> · <span className="text-[var(--cat-amber-fg)]">{bbl(p.unallocated_bbl)} outside any commitment</span></>}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                  {rows.map(({ c, flags }) => {
+                    const open = expandedId === c.id;
+                    return (
+                      <React.Fragment key={c.id}>
+                        <tr className="border-b border-line/60 hover:bg-surface/30 cursor-pointer transition-colors align-top" onClick={() => setExpandedId(open ? null : c.id)}>
+                          <td className="px-3 py-2.5 text-muted text-xs">{open ? "▾" : "▸"}</td>
+                          <td className="px-3 py-2.5">
+                            <div className="text-primary font-medium">{c.recipe_name ?? "—"}{c.is_split && <span className="ml-1.5 text-xs text-muted font-normal">split</span>}</div>
+                            <div className="mt-0.5"><ChannelBadge channel={c.channel} /></div>
+                          </td>
+                          <td className="px-3 py-2.5"><StageBadge stage={c.stage} /></td>
+                          <td className="px-3 py-2.5"><AttentionChips flags={flags} /></td>
+                          <td className="px-3 py-2.5"><DeliveryCell c={c} /></td>
+                          <td className="px-3 py-2.5"><DepositCell c={c} /></td>
+                          <td className="px-3 py-2.5 text-xs leading-4">
+                            {c.export_invoices.length === 0 && c.totals.uninvoiced_bbl <= 0.005
+                              ? <span className="text-faint">—</span>
+                              : (
+                                <>
+                                  <div className="tabular-nums">
+                                    <span className={c.totals.export_paid_cents >= c.totals.export_billed_cents ? "text-success" : "text-body"}>{fmtUsd(c.totals.export_paid_cents / 100)}</span>
+                                    {c.totals.export_billed_cents > c.totals.export_paid_cents && <span className="text-muted"> of {fmtUsd(c.totals.export_billed_cents / 100)}</span>}
+                                  </div>
+                                  {(c.totals.uninvoiced_transaction_ids?.length ?? 0) > 0
+                                    ? (
+                                      <button type="button" className="btn-primary btn-xxs mt-0.5"
+                                        onClick={(e) => { e.stopPropagation(); setInvoiceFor(c.totals.uninvoiced_transaction_ids ?? []); }}>
+                                        Generate invoice
+                                      </button>
+                                    )
+                                    : <div className="text-muted">{c.export_invoices.length} invoice{c.export_invoices.length !== 1 ? "s" : ""}</div>}
+                                </>
+                              )}
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-muted whitespace-nowrap">{c.desired_delivery_date ? fmtDate(c.desired_delivery_date) : "—"}</td>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {p.unallocated.length > 0 && stageFilter.includes("open") && (
-            <div className="px-4 py-3 border-t border-line bg-surface/20">
-              <div className="flex items-center gap-3 mb-1.5">
-                <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                  Outside any commitment <span className="font-normal normal-case tracking-normal text-muted">— over-delivery and ad-hoc drops, {bbl(p.unallocated_bbl)} bbl</span>
-                </div>
-                {p.unallocated_uninvoiced_transaction_ids.length > 0 && (
-                  <button type="button" className="btn-primary btn-xxs" onClick={() => setInvoiceFor(p.unallocated_uninvoiced_transaction_ids)}>
-                    Generate invoice
-                  </button>
-                )}
-              </div>
-              <ShipmentRows shipments={p.unallocated} onOpenInvoice={onNavigateToInvoice} />
-            </div>
-          )}
-        </section>
-      ))}
+                        {open && (
+                          <tr className="border-b border-line bg-surface/20">
+                            <td colSpan={COLUMNS} className="p-0"><CommitmentPanel c={c} onOpenInvoice={onNavigateToInvoice} onChanged={refresh} /></td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                  {(view !== "attention" ? p.unallocated.length > 0 : p.unallocated_uninvoiced_transaction_ids.length > 0) && (
+                    <tr className="border-b border-line bg-surface/20">
+                      <td colSpan={COLUMNS} className="px-4 py-3">
+                        <div className="flex items-center gap-3 mb-1.5">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                            Outside any commitment <span className="font-normal normal-case tracking-normal text-muted">— over-delivery and ad-hoc drops, {bbl(p.unallocated_bbl)} bbl</span>
+                          </div>
+                          {p.unallocated_uninvoiced_transaction_ids.length > 0 && (
+                            <button type="button" className="btn-primary btn-xxs" onClick={() => setInvoiceFor(p.unallocated_uninvoiced_transaction_ids)}>
+                              Generate invoice
+                            </button>
+                          )}
+                        </div>
+                        <ShipmentRows shipments={view !== "attention" ? p.unallocated : p.unallocated.filter((u) => !u.invoice)} onOpenInvoice={onNavigateToInvoice} />
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
