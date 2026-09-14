@@ -1,5 +1,6 @@
 "use client";
 
+import PartnerLedgerTab from "./PartnerLedgerTab";
 import ExportBayTab from "./ExportBayTab";
 import ShipmentsTab from "./ShipmentsTab";
 import ExportInvoicesTab from "./ExportInvoicesTab";
@@ -17,6 +18,7 @@ export default function ExportTab({
 }) {
   return (
     <>
+      {tab === "ledger" && <PartnerLedgerTab onNavigateToInvoice={onNavigateToInvoice} />}
       {tab === "export_bay" && <ExportBayTab />}
       {tab === "shipments" && <ShipmentsTab onNavigateToInvoice={onNavigateToInvoice} />}
       {tab === "export_invoices" && <ExportInvoicesTab highlightInvoiceId={highlightInvoiceId} />}
