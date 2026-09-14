@@ -150,6 +150,9 @@ export interface LedgerAllocation {
     state: AdditionsStatus;
     via: "backcharge" | "own_invoice" | null;
     invoice: LedgerInvoiceRef | null;
+    /** When the deposit was marked paid. Survives a later write-off of the
+     *  remaining VOLUME — that forgives beer, not the money already taken. */
+    paid_at: string | null;
     paid_cents: number;
     refunded_cents: number;
     charged_cents: number;
@@ -331,6 +334,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
               state: additions.status,
               via: additions.via,
               invoice: invoiceRef(depositInvoice),
+              paid_at: a.invoice_paid_at ?? null,
               paid_cents: Number(a.deposit_amount_paid_cents ?? 0),
               refunded_cents: Number(a.refund_amount_cents ?? 0),
               charged_cents: additions.chargedCents,
