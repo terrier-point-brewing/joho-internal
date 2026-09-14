@@ -16,7 +16,8 @@ import { recheckCommitmentFulfillment } from "./commitmentFulfillment";
  *   Δpct     = bbl ÷ basis × 100      basis = produced (once packaged) else planned
  *   source   −Δpct   (unless the source is the unallocated remainder)
  *   target   +Δpct
- *   booking  +bbl    (the commitment's volume_bbl, so owed's cap rises with it)
+ *   booking  +bbl    (the commitment's volume_bbl, so owed's cap rises with it;
+ *                     not when the target's own share already covered it)
  * and, when re-homing rows that already shipped, those rows are credited to
  * the target instead of standing as over-delivery.
  */
@@ -246,8 +247,12 @@ export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs):
     if (tErr) throw new Error(tErr.message);
   }
 
+  // The booking rises only when share is actually taken from somewhere. If
+  // the target's own share already covered the beer ("self"), the deal was
+  // sized right all along — bumping it would invent volume the partner never
+  // asked for (B-063 read 5.67 booked after a 0.50 self re-home; it was 5.17).
   let bookedBbl: number | null = null;
-  if (target.contract_request_id) {
+  if (target.contract_request_id && source.kind !== "self") {
     const current = Number((target.commitments as unknown as { volume_bbl?: number | null } | null)?.volume_bbl ?? 0);
     bookedBbl = round2(current + Number(args.bbl));
     const { error } = await supabase.from("commitments").update({ volume_bbl: bookedBbl }).eq("id", target.contract_request_id);
