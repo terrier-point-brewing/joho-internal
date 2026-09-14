@@ -7,9 +7,12 @@ import TabBar, { type TabDef } from "@/app/components/TabBar";
 import { PRODUCTION_NAV } from "@/app/production/nav-config";
 import ExportTab from "@/app/production/components/ExportTab";
 
-export type ExportTopTab = "export_bay" | "shipments" | "export_invoices" | "adjustments";
+export type ExportTopTab = "ledger" | "export_bay" | "shipments" | "export_invoices" | "adjustments";
 
 const TOP_TABS: TabDef<ExportTopTab>[] = [
+  // The ledger answers "what have we committed to, and where is it?" for every
+  // partner before anyone touches the bay — it leads.
+  { key: "ledger", label: "Partner Ledger" },
   { key: "export_bay", label: "Export Bay" },
   { key: "shipments", label: "Shipments" },
   { key: "export_invoices", label: "Export Invoices" },
@@ -20,7 +23,7 @@ const TOP_TABS: TabDef<ExportTopTab>[] = [
 ];
 
 export default function ExportPage() {
-  const [tab, setTab] = useState<ExportTopTab>("export_bay");
+  const [tab, setTab] = useState<ExportTopTab>("ledger");
   const [highlightInvoiceId, setHighlightInvoiceId] = useState<string | undefined>();
 
   function navigateToInvoice(invoiceId: string) {

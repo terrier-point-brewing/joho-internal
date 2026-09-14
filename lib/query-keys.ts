@@ -82,6 +82,7 @@ export const queryKeys = {
     depositPackagingYield: () => ["production", "deposit-packaging-yield"] as const,
     exportInvoices:        () => ["production", "export-invoices"] as const,
     depositInvoices:       () => ["production", "deposit-invoices"] as const,
+    partnerLedger:         () => ["production", "partner-ledger"] as const,
     phantomAlerts:         () => ["production", "phantom-alerts"] as const,
   },
 
