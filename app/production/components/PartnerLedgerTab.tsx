@@ -209,8 +209,11 @@ function DeliveryCell({ c }: { c: LedgerCommitment }) {
   const inTank = c.stage === "open" ? t.in_tank_bbl : 0;
   const over = owed > 0 && t.shipped_bbl > owed + 0.01;
   const closed = c.stage !== "open";
-  // One scale for the bar: everything this deal will end up with.
-  const scale = Math.max(t.shipped_bbl, owed + inTank, c.booked_bbl, 0.0001);
+  // One scale for the bar: everything this deal will end up with — what is
+  // owed so far plus what is still in tank, or what shipped if that is more.
+  // NOT the booking: owed is capped at what the batch produced, so on an
+  // under-yielding batch a fully delivered deal would never fill the bar.
+  const scale = Math.max(t.shipped_bbl, owed + inTank, 0.0001);
   const w = (v: number) => `${Math.max(0, Math.min(100, (v / scale) * 100))}%`;
   const packagedUnshipped = Math.max(0, owed - t.shipped_bbl);
   return (
