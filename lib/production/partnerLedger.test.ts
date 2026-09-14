@@ -32,6 +32,7 @@ function base(over: Partial<LedgerInput> = {}): LedgerInput {
     allocations: [alloc({ invoice_paid_at: "2026-07-20", square_deposit_invoice_id: "sq-35", deposit_amount_paid_cents: 238328 })],
     producedByBatch: new Map([["b1", 32.56]]),
     allocatedPctByBatch: new Map([["b1", 100]]),
+    inTankByBatch: new Map([["b1", 4]]),
     exports: [
       exp({ id: "e1", shipment_id: "s1", volume_bbl: 7.59, invoice_id: "inv-x1" }),
       exp({ id: "e2", shipment_id: "s2", volume_bbl: 4, invoice_id: null, status: "invoice_required", created_at: "2026-09-01T00:00:00Z" }),
@@ -52,7 +53,8 @@ describe("buildPartnerLedger", () => {
     const c = argus.commitments[0];
     expect(c.stage).toBe("open");
     expect(c.booked_bbl).toBe(30);
-    expect(c.allocations[0]).toMatchObject({ batch_number: "B-034", percentage: 75, produced_bbl: 32.56, owed_bbl: 24.42, exported_bbl: 11.59, remaining_bbl: 12.83, batch_unallocated_pct: 0 });
+    expect(c.allocations[0]).toMatchObject({ batch_number: "B-034", percentage: 75, produced_bbl: 32.56, owed_bbl: 24.42, exported_bbl: 11.59, remaining_bbl: 12.83, batch_unallocated_pct: 0, in_tank_bbl: 3 });
+    expect(c.totals.in_tank_bbl).toBe(3);
     expect(c.allocations[0].deposit).toMatchObject({ state: "settled", via: "own_invoice", paid_cents: 238328 });
     expect(c.allocations[0].deposit.invoice?.invoice_number).toBe("000035");
     expect(c.totals).toMatchObject({ owed_bbl: 24.42, shipped_bbl: 11.59, remaining_bbl: 12.83, uninvoiced_bbl: 4, deposit_paid_cents: 238328, export_billed_cents: 91000, export_paid_cents: 0 });

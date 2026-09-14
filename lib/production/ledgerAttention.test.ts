@@ -6,7 +6,7 @@ function alloc(over: Partial<LedgerAllocation> = {}, deposit: Partial<LedgerAllo
   return {
     id: "a", batch_number: "B-056", batch_status: "fermenting", beer_name: "Pilsner", percentage: 70,
     batch_planned_bbl: 40, batch_unallocated_pct: 0, produced_bbl: 28.16, owed_bbl: 19.71, exported_bbl: 24.39,
-    remaining_bbl: 0, written_off_bbl: null, write_off_note: null,
+    remaining_bbl: 0, in_tank_bbl: 0, written_off_bbl: null, write_off_note: null,
     deposit: { state: "uncharged", via: null, invoice: null, paid_at: null, paid_cents: 0, refunded_cents: 0, charged_cents: 0, collected_cents: 0, backcharge_invoices: [], ...deposit },
     ...over,
   };
@@ -17,7 +17,7 @@ function commitment(over: Partial<LedgerCommitment> = {}, totals: Partial<Ledger
     id: "c", recipe_name: "Pilsner", channel: "contract_brewing", stage: "closed", booked_bbl: 22.83,
     desired_delivery_date: "2026-09-20", received_on: null, locked_on: null, is_split: false, notes: null,
     allocations: [alloc()], shipments: [], export_invoices: [],
-    totals: { owed_bbl: 19.71, shipped_bbl: 24.39, remaining_bbl: 0, uninvoiced_bbl: 19.89, deposit_billed_cents: 0, deposit_paid_cents: 0, deposit_refunded_cents: 0, export_billed_cents: 0, export_paid_cents: 0, ...totals },
+    totals: { owed_bbl: 19.71, shipped_bbl: 24.39, remaining_bbl: 0, in_tank_bbl: 0, uninvoiced_bbl: 19.89, deposit_billed_cents: 0, deposit_paid_cents: 0, deposit_refunded_cents: 0, export_billed_cents: 0, export_paid_cents: 0, ...totals },
     ...over,
   };
 }

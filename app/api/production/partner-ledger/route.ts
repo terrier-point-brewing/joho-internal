@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadDepositCharges } from "@/lib/production/depositCharges";
+import { loadPackagingYieldPct, projectBatchYield } from "@/lib/production/exportIngredientDeposit";
+import type { LedgerTransfer } from "@/lib/production/volumeLedger";
 import {
   buildPartnerLedger,
   type LedgerAllocationRow,
@@ -42,19 +44,39 @@ export async function GET() {
   }>;
   const batchIds = [...new Set(allocRows.map((a) => a.batch_id))];
 
-  const [{ data: transfers }, chargesByAllocation, { data: invoices }] = await Promise.all([
+  const [{ data: transfers }, chargesByAllocation, { data: invoices }, { data: equipment }, packagingYieldPct] = await Promise.all([
+    // The full ledger (every transfer type, both sides of a conversion), so
+    // in-tank volume can be projected the same way the deposit invoice does.
     batchIds.length > 0
-      ? admin.from("batch_transfers").select("batch_id, volume_bbl").in("batch_id", batchIds).in("transfer_type", ["kegging", "canning"])
-      : Promise.resolve({ data: [] as Array<{ batch_id: string; volume_bbl: number | null }> }),
+      ? admin.from("batch_transfers")
+          .select("batch_id, from_tank_id, to_tank_id, to_batch_id, volume_bbl, shrinkage_bbl, transferred_at, transfer_type")
+          .or(`batch_id.in.(${batchIds.join(",")}),to_batch_id.in.(${batchIds.join(",")})`)
+      : Promise.resolve({ data: [] as Array<LedgerTransfer & { transfer_type: string }> }),
     loadDepositCharges(admin, allocRows.filter((a) => a.channel === "contract_brewing").map((a) => a.id)),
     admin.from("invoices")
       .select("id, invoice_number, invoice_date, status, source, invoice_type, total_cents, square_invoice_id, allocation_id")
       .in("invoice_type", ["allocation_deposit", "export_invoice"]),
+    admin.from("equipment").select("id, type"),
+    loadPackagingYieldPct(admin),
   ]);
 
+  const ledgerRows = (transfers ?? []) as Array<LedgerTransfer & { transfer_type: string }>;
   const producedByBatch = new Map<string, number>();
-  for (const t of (transfers ?? []) as Array<{ batch_id: string; volume_bbl: number | null }>) {
+  for (const t of ledgerRows) {
+    if (t.transfer_type !== "kegging" && t.transfer_type !== "canning") continue;
     producedByBatch.set(t.batch_id, (producedByBatch.get(t.batch_id) ?? 0) + Number(t.volume_bbl ?? 0));
+  }
+  // What each batch is still expected to package: in-tank volume at the house
+  // packaging yield. Zero once complete — nothing more is coming.
+  const tankTypeById: Record<string, string> = {};
+  for (const e of (equipment ?? []) as Array<{ id: string; type: string }>) tankTypeById[e.id] = e.type;
+  const inTankByBatch = new Map<string, number>();
+  for (const a of allocRows) {
+    if (inTankByBatch.has(a.batch_id)) continue;
+    if (a.brew_batches?.status === "complete") { inTankByBatch.set(a.batch_id, 0); continue; }
+    const ledger = ledgerRows.filter((t) => t.batch_id === a.batch_id || t.to_batch_id === a.batch_id);
+    const proj = projectBatchYield(a.batch_id, Number(a.brew_batches?.volume_bbl ?? 0), ledger, tankTypeById, packagingYieldPct);
+    inTankByBatch.set(a.batch_id, Math.max(0, proj.projectedYieldBbl - proj.packagedBbl));
   }
   const allocatedPctByBatch = new Map<string, number>();
   for (const a of allocRows) {
@@ -74,6 +96,7 @@ export async function GET() {
     })),
     producedByBatch,
     allocatedPctByBatch,
+    inTankByBatch,
     exports: ((exports_ ?? []) as unknown as Array<Omit<LedgerExportRow, "batch_number" | "recipe_name"> & {
       brew_batches: { batch_number: string | null } | null;
       recipes: { beer_name: string } | null;

@@ -100,6 +100,11 @@ export interface LedgerInput {
   producedByBatch: Map<string, number>;
   /** sum of allocation percentages per batch id (any channel) */
   allocatedPctByBatch: Map<string, number>;
+  /**
+   * bbl still in tank per batch, counted at the expected packaging yield —
+   * what the batch is still going to produce. 0 once a batch is complete.
+   */
+  inTankByBatch: Map<string, number>;
   /** every non-taproom export row for these partners (credited or not) */
   exports: LedgerExportRow[];
   /** invoices referenced by those exports or by the allocations' deposits */
@@ -148,6 +153,8 @@ export interface LedgerAllocation {
   owed_bbl: number;
   exported_bbl: number;
   remaining_bbl: number;
+  /** This allocation's share of what the batch is still expected to package. */
+  in_tank_bbl: number;
   written_off_bbl: number | null;
   write_off_note: string | null;
   deposit: {
@@ -188,6 +195,8 @@ export interface LedgerCommitmentTotals {
   owed_bbl: number;
   shipped_bbl: number;
   remaining_bbl: number;
+  /** Share of beer still in tank, expected to package for this deal. */
+  in_tank_bbl: number;
   uninvoiced_bbl: number;
   deposit_billed_cents: number;
   deposit_paid_cents: number;
@@ -271,7 +280,7 @@ export function groupShipments(rows: LedgerExportRow[], invoiceById: Map<string,
 
 function emptyTotals(): LedgerCommitmentTotals {
   return {
-    owed_bbl: 0, shipped_bbl: 0, remaining_bbl: 0, uninvoiced_bbl: 0,
+    owed_bbl: 0, shipped_bbl: 0, remaining_bbl: 0, in_tank_bbl: 0, uninvoiced_bbl: 0,
     deposit_billed_cents: 0, deposit_paid_cents: 0, deposit_refunded_cents: 0,
     export_billed_cents: 0, export_paid_cents: 0,
   };
@@ -336,6 +345,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
             owed_bbl: r2(owed),
             exported_bbl: r2(exported),
             remaining_bbl: r2(Math.max(0, owed - exported)),
+            in_tank_bbl: r2((pct / 100) * (input.inTankByBatch.get(a.batch_id) ?? 0)),
             written_off_bbl: a.written_off_bbl != null ? Number(a.written_off_bbl) : null,
             write_off_note: a.write_off_note,
             deposit: {
@@ -364,6 +374,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
         totals.owed_bbl = r2(allocs.reduce((s, a) => s + a.owed_bbl, 0));
         totals.shipped_bbl = r2(allocs.reduce((s, a) => s + a.exported_bbl, 0));
         totals.remaining_bbl = r2(allocs.filter((a) => a.written_off_bbl == null).reduce((s, a) => s + a.remaining_bbl, 0));
+        totals.in_tank_bbl = r2(allocs.filter((a) => a.written_off_bbl == null).reduce((s, a) => s + a.in_tank_bbl, 0));
         const uninvoicedRows = rows.filter((r) => !r.invoice_id && r.status === "invoice_required");
         totals.uninvoiced_bbl = r2(rows.filter((r) => !r.invoice_id).reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0));
         totals.uninvoiced_transaction_ids = uninvoicedRows.map((r) => r.id);

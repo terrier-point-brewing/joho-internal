@@ -196,14 +196,23 @@ function AttentionChips({ flags }: { flags: Attention[] }) {
   );
 }
 
-/** Shipped ÷ owed as one glance: number, bar, and what is left. */
+/**
+ * Shipped ÷ owed as one glance: number, bar, and what is left. The bar is
+ * three segments on one scale — shipped, packaged-but-unshipped, and the
+ * deal's share of what is still in tank — so it also says how much more the
+ * batch is going to produce for this partner.
+ */
 function DeliveryCell({ c }: { c: LedgerCommitment }) {
   const t = c.totals;
   if (c.allocations.length === 0) return <span className="text-faint text-xs">no batch yet</span>;
   const owed = t.owed_bbl;
-  const pct = owed > 0 ? Math.min(100, (t.shipped_bbl / owed) * 100) : 0;
+  const inTank = c.stage === "open" ? t.in_tank_bbl : 0;
   const over = owed > 0 && t.shipped_bbl > owed + 0.01;
   const closed = c.stage !== "open";
+  // One scale for the bar: everything this deal will end up with.
+  const scale = Math.max(t.shipped_bbl, owed + inTank, c.booked_bbl, 0.0001);
+  const w = (v: number) => `${Math.max(0, Math.min(100, (v / scale) * 100))}%`;
+  const packagedUnshipped = Math.max(0, owed - t.shipped_bbl);
   return (
     <div className="min-w-[150px]">
       <div className="text-xs tabular-nums font-mono">
@@ -211,9 +220,14 @@ function DeliveryCell({ c }: { c: LedgerCommitment }) {
         <span className="text-faint"> / </span>
         <span className="text-body">{owed > 0 ? bbl(owed) : `${bbl(c.booked_bbl)} booked`}</span>
         {!closed && owed > 0 && t.remaining_bbl > 0.005 && <span className="text-muted"> · {bbl(t.remaining_bbl)} to go</span>}
+        {inTank > 0.005 && <span className="text-muted"> · {bbl(inTank)} in tank</span>}
       </div>
-      <div className="mt-1 h-1 rounded-full bg-surface-mid overflow-hidden">
-        <div className={`h-full rounded-full ${over ? "bg-[var(--cat-amber-fg)]" : pct >= 99.5 ? "bg-success-emphasis" : "bg-info-emphasis"}`} style={{ width: `${pct}%` }} />
+      <div className="mt-1 h-1.5 rounded-full bg-surface-mid overflow-hidden flex" title={`${bbl(t.shipped_bbl)} shipped · ${bbl(packagedUnshipped)} packaged, not shipped · ${bbl(inTank)} still in tank`}>
+        <div className={`h-full ${over ? "bg-[var(--cat-amber-fg)]" : "bg-success-emphasis"}`} style={{ width: w(Math.min(t.shipped_bbl, over ? t.shipped_bbl : owed)) }} />
+        {!over && packagedUnshipped > 0.005 && <div className="h-full bg-info-emphasis" style={{ width: w(packagedUnshipped) }} />}
+        {inTank > 0.005 && (
+          <div className="h-full bg-[repeating-linear-gradient(45deg,var(--color-line-subtle)_0_3px,transparent_3px_6px)]" style={{ width: w(inTank) }} />
+        )}
       </div>
       <div className="text-xs text-muted mt-0.5 whitespace-nowrap">
         {c.allocations.map((a) => `#${a.batch_number ?? "?"} ${a.percentage.toFixed(0)}%`).join(", ")}
@@ -471,9 +485,9 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
       if (partnerFilter.length > 0 && !partnerFilter.includes(p.partner_id)) continue;
       const rows = p.commitments
         .map((c) => ({ c, flags: commitmentAttention(c), rank: attentionRank(c) }))
-        .filter((r) => view === "all" ? true : view === "open" ? r.c.stage === "open" || r.rank < 99 : r.rank < 99)
+        .filter((r) => view === "all" ? true : view === "open" ? r.c.stage === "open" : r.rank < 99)
         .sort((x, y) => x.rank - y.rank || (x.c.desired_delivery_date ?? "9999").localeCompare(y.c.desired_delivery_date ?? "9999"));
-      const showUnallocated = p.unallocated_bbl > 0.0001;
+      const showUnallocated = view !== "open" && p.unallocated_bbl > 0.0001;
       if (rows.length === 0 && !showUnallocated) continue;
       const rank = Math.min(...rows.map((r) => r.rank), p.unallocated_bbl > 0.0001 ? 1 : 99);
       out.push({ partner: p, rows, rank });
@@ -625,7 +639,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
                       </React.Fragment>
                     );
                   })}
-                  {p.unallocated_bbl > 0.0001 && (
+                  {view !== "open" && p.unallocated_bbl > 0.0001 && (
                     <tr className="border-b border-line bg-surface/20">
                       <td colSpan={COLUMNS} className="px-4 py-3">
                         <div className="flex items-center gap-3 mb-1.5">
