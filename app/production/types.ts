@@ -336,10 +336,8 @@ export type AllocationStatus = "active" | "paused" | "fulfilled" | "cancelled";
 
 /** Stored human decision. in_progress/fulfilled are legacy cache values; see CommitmentStage. */
 export type ContractRequestStatus = "open" | "in_progress" | "fulfilled" | "cancelled";
-/** Derived from the allocations — what the operator sees. lib/production/commitmentStage. */
-export type CommitmentStage =
-  | "cancelled" | "unplanned" | "planned" | "brewing" | "packaged"
-  | "shipping" | "delivered" | "fulfilled" | "written_off";
+/** Derived from the allocations: is beer still owed? lib/production/commitmentStage. */
+export type CommitmentStage = "open" | "closed" | "cancelled";
 export type CommitmentChannel = "distribution" | "contract_brewing" | "wholesale";
 
 export interface CommitmentPackagingPreference {

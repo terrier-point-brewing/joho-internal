@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
 
   const committedById: Record<string, number> = {};
   const allocsById: Record<string, typeof allocs> = {};
-  const stageInputById: Record<string, StageAllocation[]> = {};
+  const stageInputById: Record<string, Array<StageAllocation & { producedBbl: number }>> = {};
   for (const a of allocs ?? []) {
     if (!a.contract_request_id) continue;
     const vol = Number((a.brew_batches as { volume_bbl?: number } | null)?.volume_bbl ?? 0);
@@ -117,11 +117,11 @@ export async function GET(req: NextRequest) {
     }
     const d = deliveryOf(a);
     (stageInputById[a.contract_request_id] ??= []).push({
-      batchStatus: d.batch_status,
-      producedBbl: d.produced_bbl,
       exportedBbl: d.exported_bbl,
       owedBbl: d.owed_bbl,
       writtenOff: !!(a as { written_off_at?: string | null }).written_off_at,
+      // kept for the rollups below
+      producedBbl: d.produced_bbl,
     });
   }
 

@@ -50,7 +50,7 @@ describe("buildPartnerLedger", () => {
     const [argus] = buildPartnerLedger(base());
     expect(argus.company_name).toBe("Argus Beverage Ventures LLC");
     const c = argus.commitments[0];
-    expect(c.stage).toBe("shipping");
+    expect(c.stage).toBe("open");
     expect(c.booked_bbl).toBe(30);
     expect(c.allocations[0]).toMatchObject({ batch_number: "B-034", percentage: 75, produced_bbl: 32.56, owed_bbl: 24.42, exported_bbl: 11.59, remaining_bbl: 12.83, batch_unallocated_pct: 0 });
     expect(c.allocations[0].deposit).toMatchObject({ state: "settled", via: "own_invoice", paid_cents: 238328 });
@@ -92,7 +92,7 @@ describe("buildPartnerLedger", () => {
   it("partners with nothing are omitted; a commitment with no allocation still lists as needing a batch", () => {
     const out = buildPartnerLedger(base({ allocations: [], exports: [] }));
     expect(out).toHaveLength(1);
-    expect(out[0].commitments[0].stage).toBe("unplanned");
+    expect(out[0].commitments[0].stage).toBe("open");
     expect(out[0].commitments[0].totals.owed_bbl).toBe(0);
   });
 
