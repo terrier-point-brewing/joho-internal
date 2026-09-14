@@ -498,11 +498,11 @@ export function EquipmentScheduleSection({
           <div className="flex gap-2">
             <button type="button" onClick={saveEdit}
               disabled={editSaving || !editForm.planned_start || !editForm.planned_end}
-              className="px-3 py-1.5 text-xs bg-accent-emphasis hover:bg-accent disabled:opacity-50 text-white rounded font-medium">
+              className="btn-primary">
               {editSaving ? "Saving…" : "Save changes"}
             </button>
             <button type="button" onClick={() => removeEntry(editing.id)}
-              className="px-3 py-1.5 text-xs bg-surface-high hover:bg-danger-surface text-body rounded">Delete</button>
+              className="btn-danger">Delete</button>
             <button type="button" onClick={() => setEditing(null)}
               className="px-3 py-1.5 text-xs text-muted hover:text-body">Cancel</button>
           </div>
