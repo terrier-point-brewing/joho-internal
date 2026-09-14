@@ -32,6 +32,7 @@ function base(over: Partial<LedgerInput> = {}): LedgerInput {
     allocations: [alloc({ invoice_paid_at: "2026-07-20", square_deposit_invoice_id: "sq-35", deposit_amount_paid_cents: 238328 })],
     producedByBatch: new Map([["b1", 32.56]]),
     allocatedPctByBatch: new Map([["b1", 100]]),
+    convertedByBatch: new Map(),
     inTankByBatch: new Map([["b1", 4]]),
     exports: [
       exp({ id: "e1", shipment_id: "s1", volume_bbl: 7.59, invoice_id: "inv-x1" }),
@@ -98,9 +99,15 @@ describe("buildPartnerLedger", () => {
     expect(out[0].commitments[0].totals.owed_bbl).toBe(0);
   });
 
-  it("flags the unallocated share of a batch on the allocation line", () => {
+  it("flags the unallocated share of a batch on the allocation line; converted share is not unallocated", () => {
     const [argus] = buildPartnerLedger(base({ allocatedPctByBatch: new Map([["b1", 40]]) }));
     expect(argus.commitments[0].allocations[0].batch_unallocated_pct).toBe(60);
+    // B-057: 97.92% allocated + 2.08% converted to Transfusion Pilsner = spoken for.
+    const [mule] = buildPartnerLedger(base({
+      allocatedPctByBatch: new Map([["b1", 97.92]]),
+      convertedByBatch: new Map([["b1", { pct: 2.08, targets: ["Transfusion Pilsner #B-064"] }]]),
+    }));
+    expect(mule.commitments[0].allocations[0]).toMatchObject({ batch_unallocated_pct: 0, batch_converted_pct: 2.08, batch_converted_to: ["Transfusion Pilsner #B-064"] });
   });
 });
 

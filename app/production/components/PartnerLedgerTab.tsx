@@ -327,6 +327,9 @@ function ShareExplainer({ a, booked, channel }: { a: LedgerAllocation; booked: n
         {a.batch_planned_bbl > 0 && (
           <> — {bbl(booked)} bbl booked ÷ {bbl(a.batch_planned_bbl)} bbl planned</>
         )}
+        {a.batch_converted_pct > 0.05 && (
+          <span className="text-muted"> · {a.batch_converted_pct.toFixed(1)}% converted to {a.batch_converted_to.join(", ") || "another beer"}</span>
+        )}
         {a.batch_unallocated_pct > 0.05 && (
           <span className="text-[var(--cat-amber-fg)]"> · {a.batch_unallocated_pct.toFixed(1)}% of this batch is unallocated</span>
         )}

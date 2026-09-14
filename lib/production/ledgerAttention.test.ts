@@ -5,7 +5,7 @@ import type { LedgerAllocation, LedgerCommitment } from "./partnerLedger";
 function alloc(over: Partial<LedgerAllocation> = {}, deposit: Partial<LedgerAllocation["deposit"]> = {}): LedgerAllocation {
   return {
     id: "a", batch_number: "B-056", batch_status: "fermenting", beer_name: "Pilsner", percentage: 70,
-    batch_planned_bbl: 40, batch_unallocated_pct: 0, produced_bbl: 28.16, owed_bbl: 19.71, exported_bbl: 24.39,
+    batch_planned_bbl: 40, batch_unallocated_pct: 0, batch_converted_pct: 0, batch_converted_to: [], produced_bbl: 28.16, owed_bbl: 19.71, exported_bbl: 24.39,
     remaining_bbl: 0, in_tank_bbl: 0, written_off_bbl: null, write_off_note: null,
     deposit: { state: "uncharged", via: null, invoice: null, paid_at: null, paid_cents: 0, refunded_cents: 0, charged_cents: 0, collected_cents: 0, backcharge_invoices: [], ...deposit },
     ...over,

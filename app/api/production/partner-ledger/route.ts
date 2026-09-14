@@ -44,7 +44,7 @@ export async function GET() {
   }>;
   const batchIds = [...new Set(allocRows.map((a) => a.batch_id))];
 
-  const [{ data: transfers }, chargesByAllocation, { data: invoices }, { data: equipment }, packagingYieldPct] = await Promise.all([
+  const [{ data: transfers }, chargesByAllocation, { data: invoices }, { data: equipment }, packagingYieldPct, { data: conversions }] = await Promise.all([
     // The full ledger (every transfer type, both sides of a conversion), so
     // in-tank volume can be projected the same way the deposit invoice does.
     batchIds.length > 0
@@ -58,6 +58,9 @@ export async function GET() {
       .in("invoice_type", ["allocation_deposit", "export_invoice"]),
     admin.from("equipment").select("id, type"),
     loadPackagingYieldPct(admin),
+    batchIds.length > 0
+      ? admin.from("batch_conversions").select("source_batch_id, volume_bbl, target:brew_batches!target_batch_id(beer_name, batch_number)").in("source_batch_id", batchIds)
+      : Promise.resolve({ data: [] as Array<{ source_batch_id: string; volume_bbl: number | null; target: unknown }> }),
   ]);
 
   const ledgerRows = (transfers ?? []) as Array<LedgerTransfer & { transfer_type: string }>;
@@ -82,6 +85,19 @@ export async function GET() {
   for (const a of allocRows) {
     allocatedPctByBatch.set(a.batch_id, (allocatedPctByBatch.get(a.batch_id) ?? 0) + Number(a.percentage));
   }
+  // Converted liquid is allocated share too — the same reading Batch Log's
+  // allocation bar gives (conversion volume ÷ planned volume).
+  const plannedByBatch = new Map(allocRows.map((a) => [a.batch_id, Number(a.brew_batches?.volume_bbl ?? 0)]));
+  const convertedByBatch = new Map<string, { pct: number; targets: string[] }>();
+  for (const c of (conversions ?? []) as Array<{ source_batch_id: string; volume_bbl: number | null; target: { beer_name: string | null; batch_number: string | null } | { beer_name: string | null; batch_number: string | null }[] | null }>) {
+    const planned = plannedByBatch.get(c.source_batch_id) ?? 0;
+    if (planned <= 0) continue;
+    const t = Array.isArray(c.target) ? c.target[0] : c.target;
+    const entry = convertedByBatch.get(c.source_batch_id) ?? { pct: 0, targets: [] };
+    entry.pct += (Number(c.volume_bbl ?? 0) / planned) * 100;
+    if (t?.beer_name) entry.targets.push(`${t.beer_name}${t.batch_number ? ` #${t.batch_number}` : ""}`);
+    convertedByBatch.set(c.source_batch_id, entry);
+  }
 
   const ledger = buildPartnerLedger({
     partners: (partners ?? []) as Array<{ id: string; company_name: string }>,
@@ -96,6 +112,7 @@ export async function GET() {
     })),
     producedByBatch,
     allocatedPctByBatch,
+    convertedByBatch,
     inTankByBatch,
     exports: ((exports_ ?? []) as unknown as Array<Omit<LedgerExportRow, "batch_number" | "recipe_name"> & {
       brew_batches: { batch_number: string | null } | null;
