@@ -101,6 +101,12 @@ export interface LedgerInput {
   /** sum of allocation percentages per batch id (any channel) */
   allocatedPctByBatch: Map<string, number>;
   /**
+   * Share of each batch that was (or is planned to be) converted into another
+   * beer, as % of planned volume, with the target beers. Converted liquid is
+   * not unallocated — it left for a batch with its own allocations.
+   */
+  convertedByBatch: Map<string, { pct: number; targets: string[] }>;
+  /**
    * bbl still in tank per batch, counted at the expected packaging yield —
    * what the batch is still going to produce. 0 once a batch is complete.
    */
@@ -147,8 +153,11 @@ export interface LedgerAllocation {
   percentage: number;
   /** How the % was derived: booked ÷ planned batch volume. */
   batch_planned_bbl: number;
-  /** Share of the batch nobody has claimed (100 − Σ allocations), in % and bbl of planned. */
+  /** Share of the batch nobody has claimed (100 − Σ allocations − converted), in %. */
   batch_unallocated_pct: number;
+  /** Share of the batch converted into other beers, and which. */
+  batch_converted_pct: number;
+  batch_converted_to: string[];
   produced_bbl: number;
   owed_bbl: number;
   exported_bbl: number;
@@ -340,7 +349,9 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
             beer_name: a.beer_name,
             percentage: pct,
             batch_planned_bbl: a.batch_planned_bbl,
-            batch_unallocated_pct: r2(Math.max(0, 100 - (input.allocatedPctByBatch.get(a.batch_id) ?? 0))),
+            batch_unallocated_pct: r2(Math.max(0, 100 - (input.allocatedPctByBatch.get(a.batch_id) ?? 0) - (input.convertedByBatch.get(a.batch_id)?.pct ?? 0))),
+            batch_converted_pct: r2(input.convertedByBatch.get(a.batch_id)?.pct ?? 0),
+            batch_converted_to: input.convertedByBatch.get(a.batch_id)?.targets ?? [],
             produced_bbl: r2(produced),
             owed_bbl: r2(owed),
             exported_bbl: r2(exported),

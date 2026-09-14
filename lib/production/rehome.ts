@@ -120,13 +120,14 @@ export async function listHomes(
   supabase: SupabaseClient,
   { batchId, targetAllocationId }: { batchId: string; targetAllocationId: string | null },
 ): Promise<HomesForBatch> {
-  const [{ data: batch }, { data: allocs }, { data: transfers }, { data: exports_ }] = await Promise.all([
+  const [{ data: batch }, { data: allocs }, { data: transfers }, { data: exports_ }, { data: conversions }] = await Promise.all([
     supabase.from("brew_batches").select("id, batch_number, volume_bbl").eq("id", batchId).maybeSingle(),
     supabase.from("batch_allocations")
       .select("id, batch_id, channel, partner_id, contract_request_id, percentage, invoice_paid_at, invoice_generated_at, invoice_sent_at, written_off_at, contract_brewing_partners(company_name)")
       .eq("batch_id", batchId),
     supabase.from("batch_transfers").select("volume_bbl").eq("batch_id", batchId).in("transfer_type", ["kegging", "canning"]),
     supabase.from("export_transactions").select("allocation_id, volume_bbl").eq("batch_id", batchId).not("allocation_id", "is", null),
+    supabase.from("batch_conversions").select("volume_bbl").eq("source_batch_id", batchId),
   ]);
   const producedBbl = (transfers ?? []).reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
   const plannedBbl = Number((batch as { volume_bbl?: number | null } | null)?.volume_bbl ?? 0);
@@ -141,7 +142,12 @@ export async function listHomes(
   // total, never list it as a source.
   const allRows = (allocs ?? []) as unknown as AllocRow[];
   const rows = allRows.filter((a) => !a.written_off_at);
-  const totalPct = allRows.reduce((s, a) => s + Number(a.percentage), 0);
+  // Liquid converted into another beer is spoken for (that batch has its own
+  // allocations); it is never free share here.
+  const convertedPct = plannedBbl > EPS
+    ? ((conversions ?? []) as Array<{ volume_bbl: number | null }>).reduce((s, c) => s + Number(c.volume_bbl ?? 0), 0) / plannedBbl * 100
+    : 0;
+  const totalPct = allRows.reduce((s, a) => s + Number(a.percentage), 0) + convertedPct;
   const unallocatedBbl = round2(Math.max(0, (100 - totalPct) / 100) * basisBbl);
 
   const sources: HomeSource[] = [];
