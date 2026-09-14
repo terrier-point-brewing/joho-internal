@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { LineEdit } from "@/lib/production/invoiceLineEdits";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { cancelInvoice, createExportInvoice } from "@/lib/square/square-invoices";
@@ -44,7 +45,10 @@ interface EditBody {
   unit_price_cents?: number;
 }
 
-type PatchBody = AddBody | RemoveBody | EditBody;
+type PatchBody = (AddBody | RemoveBody | EditBody) & {
+  /** Why the generated line is being changed. Recorded on the invoice with the edit. */
+  reason?: string;
+};
 
 export async function PATCH(
   req: NextRequest,
@@ -64,13 +68,17 @@ export async function PATCH(
   if (!["add", "remove", "edit"].includes(body.action)) {
     return NextResponse.json({ error: "action must be add, remove, or edit" }, { status: 400 });
   }
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  if (!reason) {
+    return NextResponse.json({ error: "A reason is required to change a generated invoice line — it is recorded on the invoice." }, { status: 400 });
+  }
 
   const supabase = createSupabaseAdminClient();
 
   // Load invoice — must be draft and have a Square ID.
   const { data: inv, error: invErr } = await supabase
     .from("invoices")
-    .select("id, status, square_invoice_id, partner_id, total_cents")
+    .select("id, status, square_invoice_id, partner_id, total_cents, line_edits, line_edit_reason")
     .eq("id", invoiceId)
     .single();
   if (invErr || !inv) {
@@ -115,6 +123,7 @@ export async function PATCH(
   };
 
   let updatedItems: StoredItem[] = currentItems ?? [];
+  let edit: LineEdit | null = null;
 
   if (body.action === "add") {
     if (body.quantity <= 0 || body.unit_price_cents < 0 || isNaN(body.quantity) || isNaN(body.unit_price_cents)) {
@@ -132,6 +141,7 @@ export async function PATCH(
       square_catalog_variation_id: body.square_catalog_variation_id ?? null,
     };
     updatedItems = [...updatedItems, newItem];
+    edit = { kind: "added", description: body.note ?? "", before: null, after: { quantity: newItem.quantity, unitPriceCents: newItem.unit_price_cents, description: body.note ?? "" } };
   } else if (body.action === "edit") {
     const target = updatedItems.find((item) => item.id === body.line_item_id);
     if (!target) {
@@ -142,6 +152,12 @@ export async function PATCH(
     if (nextQty <= 0 || nextPrice < 0 || isNaN(nextQty) || isNaN(nextPrice)) {
       return NextResponse.json({ error: "quantity must be a positive number and unit_price_cents must be non-negative" }, { status: 400 });
     }
+    edit = {
+      kind: "changed",
+      description: target.note ?? "",
+      before: { quantity: target.quantity, unitPriceCents: target.unit_price_cents, description: target.note ?? "" },
+      after: { quantity: nextQty, unitPriceCents: nextPrice, description: body.note ?? target.note ?? "" },
+    };
     updatedItems = updatedItems.map((item) =>
       item.id === body.line_item_id
         ? {
@@ -154,10 +170,12 @@ export async function PATCH(
         : item
     );
   } else {
+    const removed = updatedItems.find((item) => item.id === body.line_item_id);
     updatedItems = updatedItems.filter((item) => item.id !== body.line_item_id);
-    if (updatedItems.length === (currentItems ?? []).length) {
+    if (!removed) {
       return NextResponse.json({ error: "Line item not found" }, { status: 404 });
     }
+    edit = { kind: "removed", description: removed.note ?? "", before: { quantity: removed.quantity, unitPriceCents: removed.unit_price_cents, description: removed.note ?? "" }, after: null };
   }
 
   if (updatedItems.length === 0) {
@@ -216,6 +234,9 @@ export async function PATCH(
       total_cents: newTotal,
       invoice_date: draftDate,
       due_date: dueDate,
+      // Append this edit to the invoice's record of hand changes, with the reason.
+      line_edits: [...((inv.line_edits as LineEdit[] | null) ?? []), ...(edit ? [edit] : [])],
+      line_edit_reason: [inv.line_edit_reason, reason].filter(Boolean).join(" · "),
     })
     .eq("id", invoiceId);
   if (invUpdateErr) return NextResponse.json({ error: invUpdateErr.message }, { status: 500 });

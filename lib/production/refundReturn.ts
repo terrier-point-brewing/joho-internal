@@ -22,6 +22,7 @@
  */
 
 import crypto from "crypto";
+import { recheckCommitmentFulfillment } from "./commitmentFulfillment";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveShippedVariationId, type ShippedVariationRef } from "@/lib/production/resolveShippedVariation";
 import { upsertColdStorageInventory } from "@/lib/production/coldStorageUpsert";
@@ -217,6 +218,14 @@ export async function writeRefundReturn(
       quantity: qty,
     });
     result.restocked.push({ batchId: tx.batch_id, quantity: qty });
+  }
+
+  // Beer came back, so the allocations those rows credited are owed again —
+  // re-judge each one (the batch itself never un-completes: recheck
+  // commitments, not batch status).
+  const touched = [...new Set(txs.map((r) => r.allocation_id).filter((id): id is string => !!id))];
+  for (const allocationId of touched) {
+    await recheckCommitmentFulfillment(supabase, allocationId);
   }
 
   return result;

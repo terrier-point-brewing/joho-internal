@@ -41,6 +41,28 @@ export async function PATCH(
     .eq("id", id)
     .single();
 
+  // The planned volume is the denominator of every allocation's percentage
+  // (booked ÷ planned) and of every deposit invoice's description. Once a
+  // deposit has been drafted or paid on this batch, restating the volume
+  // silently restates what the partner bought. Refuse; the allocation and its
+  // invoice are the things to change.
+  const volumeChanged = "volume_bbl" in updates
+    && Number(updates.volume_bbl) !== Number(current?.volume_bbl ?? NaN);
+  if (volumeChanged) {
+    const { data: deposited } = await supabase
+      .from("batch_allocations")
+      .select("id, invoice_paid_at, invoice_generated_at, deposit_backcharged_invoice_id")
+      .eq("batch_id", id)
+      .eq("channel", "contract_brewing")
+      .or("invoice_paid_at.not.is.null,invoice_generated_at.not.is.null,deposit_backcharged_invoice_id.not.is.null");
+    if ((deposited ?? []).length > 0) {
+      return NextResponse.json(
+        { error: "This batch has a contract allocation whose deposit has been drafted or paid, so its planned volume is locked. Adjust the allocation (or refund part of the deposit) instead of restating the batch." },
+        { status: 422 },
+      );
+    }
+  }
+
   const { error } = await supabase
     .from("brew_batches")
     .update(updates)
@@ -50,6 +72,11 @@ export async function PATCH(
 
   const newStatus: string | undefined = body.status;
   const statusChanged = newStatus && current?.status !== newStatus;
+
+  // Owed = percentage × produced, capped at booked — produced does not move
+  // here, but a volume change moves the booked ÷ planned reading everywhere;
+  // re-judge the batch's commitments so nothing sits on a stale figure.
+  if (volumeChanged) await recheckBatchCommitments(supabase, id);
 
   // Log status change
   if (statusChanged) {
@@ -122,6 +149,24 @@ export async function DELETE(
 
   const supabase = await createSupabaseServerClient();
   const { id } = await params;
+
+  // Deleting a batch cascades to its allocations AND its export rows — one
+  // call could erase shipped beer, excise history and a paid deposit. A batch
+  // with any of those is a record, not a draft: refuse and say what holds it.
+  const [{ count: shipments }, { data: paidAllocs }] = await Promise.all([
+    supabase.from("export_transactions").select("id", { count: "exact", head: true }).eq("batch_id", id),
+    supabase.from("batch_allocations").select("id").eq("batch_id", id).not("invoice_paid_at", "is", null),
+  ]);
+  const holds: string[] = [];
+  if ((shipments ?? 0) > 0) holds.push(`${shipments} shipment${shipments === 1 ? "" : "s"}`);
+  if ((paidAllocs ?? []).length > 0) holds.push(`${paidAllocs!.length} paid deposit${paidAllocs!.length === 1 ? "" : "s"}`);
+  if (holds.length > 0) {
+    return NextResponse.json(
+      { error: `This batch has ${holds.join(" and ")} on record and cannot be deleted. Complete it, or reverse the shipments and refund the deposits first.` },
+      { status: 409 },
+    );
+  }
+
   const { error } = await supabase.from("brew_batches").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return new NextResponse(null, { status: 204 });

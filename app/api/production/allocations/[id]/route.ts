@@ -60,6 +60,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Shipments credited to this allocation carry the partner they went to. Re-
+  // pointing the allocation at another partner would make the two disagree
+  // about who received the beer.
+  if (body.partner_id !== undefined && (body.partner_id || null) !== (current.partner_id ?? null)) {
+    const { count: shipped } = await supabase
+      .from("export_transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("allocation_id", id);
+    if ((shipped ?? 0) > 0) {
+      return NextResponse.json(
+        { error: `${shipped} shipment${shipped === 1 ? " is" : "s are"} credited to this allocation, so its partner cannot change. Reverse the shipments first.` },
+        { status: 409 },
+      );
+    }
+  }
+
   // Build update payload — only allow safe fields to be updated
   const update: Record<string, unknown> = {};
   if (body.percentage != null) update.percentage = Number(body.percentage);

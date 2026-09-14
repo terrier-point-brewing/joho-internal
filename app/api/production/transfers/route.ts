@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
@@ -986,8 +987,8 @@ export async function POST(req: NextRequest) {
             .limit(1)
             .maybeSingle()
         : { data: null };
-      const { error: allocErr } = existingAlloc
-        ? { error: null }
+      const { data: insertedAlloc, error: allocErr } = existingAlloc
+        ? { data: null, error: null }
         : await supabase.from("batch_allocations").insert({
         batch_id:            childBatchId,
         channel:             inKegCommitment.channel,
@@ -995,7 +996,8 @@ export async function POST(req: NextRequest) {
         partner_id:          inKegCommitment.partner_id,
         contract_request_id: inKegCommitment.id,
         notes:               "Auto: in-keg conversion packaged for this commitment",
-      });
+      }).select("id").single();
+      if (insertedAlloc?.id) await recheckCommitmentFulfillment(supabase, insertedAlloc.id);
       if (allocErr) {
         console.error("[transfers] In-keg conversion allocation failed (run continues):", allocErr);
       }

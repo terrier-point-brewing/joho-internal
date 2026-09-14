@@ -4,7 +4,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createExportInvoice, publishInvoice, getInvoiceStatus } from "@/lib/square/square-invoices";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
-import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
+import { reconcileInvoiceStatus, cascadeExportTransactionsStatus, settleBackchargedDeposits } from "@/lib/finance/reconcileInvoiceStatus";
 import { fetchOrdersByIds } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import {
@@ -539,12 +539,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "All selected transactions must be in Invoice Required status" }, { status: 400 });
     }
 
-    const { error: updateErr } = await supabase
-      .from("export_transactions")
-      .update({ status: "unpaid" })
-      .in("id", transactionIds);
-    if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
-
     const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
     const dbSource = source as "quickbooks" | "other";
     const { data: inv, error: invErr } = await supabase
@@ -610,6 +604,9 @@ export async function POST(req: NextRequest) {
 
       await snapshotMaterials(inv.id);
       await recordDepositBackcharge(inv.id, lineItems as InvoiceLineItemDraft[] | undefined, body.depositLines);
+      // The shared cascade, not a bespoke update — the same code a Square sync
+      // runs, so a QuickBooks invoice's shipments read exactly like a Square one's.
+      await cascadeExportTransactionsStatus(supabase, inv.id, "open");
     }
 
     return NextResponse.json({ ok: true });
@@ -633,12 +630,7 @@ export async function POST(req: NextRequest) {
     if (txs.some((t) => t.status !== "invoice_required")) {
       return NextResponse.json({ error: "All selected transactions must be in Invoice Required status" }, { status: 400 });
     }
-
-    const { error: updateErr } = await supabase
-      .from("export_transactions")
-      .update({ status: "paid" })
-      .in("id", transactionIds);
-    if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+    const paidLineItems = body.lineItems as InvoiceLineItemDraft[] | undefined;
 
     const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
     const { data: inv, error: invErr } = await supabase
@@ -656,6 +648,10 @@ export async function POST(req: NextRequest) {
           subtotal_cents: totalCents,
           tax_cents:      0,
           total_cents:    totalCents,
+          shipped_channel: shippedChannel,
+          billed_channel:  billedChannel,
+          override_reason: overrideReason,
+          ...lineEditColumns,
           notes:          "QB backfill — export invoice",
         },
         { onConflict: "source,external_id", ignoreDuplicates: false }
@@ -685,6 +681,12 @@ export async function POST(req: NextRequest) {
       }
 
       await snapshotMaterials(inv.id);
+      await recordDepositBackcharge(inv.id, paidLineItems, body.depositLines);
+      // Paid outside Square: run the same cascade and deposit settlement a paid
+      // Square invoice gets, or the shipments and the back-charged deposit stay
+      // stuck at "invoice required" / "collecting" forever.
+      await cascadeExportTransactionsStatus(supabase, inv.id, "paid");
+      await settleBackchargedDeposits(supabase, inv.id, "paid", paidAt);
     }
 
     return NextResponse.json({ ok: true });

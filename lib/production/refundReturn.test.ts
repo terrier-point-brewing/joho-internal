@@ -1,6 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { writeRefundReturn } from "./refundReturn";
+
+// A return re-judges the allocations it credited back; that engine has its own
+// tests, and the table stub here only knows the shipment tables.
+vi.mock("./commitmentFulfillment", () => ({ recheckCommitmentFulfillment: async () => {} }));
 
 /**
  * The one export transaction behind prod invoice 000042: 30 cases of Pumpkin
