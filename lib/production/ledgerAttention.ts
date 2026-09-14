@@ -6,14 +6,14 @@ import type { LedgerCommitment } from "./partnerLedger";
  * The ledger used to show every number for every deal and leave the reader
  * to work out which ones mattered. This is the rule instead: one ordered list
  * of flags per commitment, most expensive first, so the table can sort on it
- * and the row can say it in words. Money before volume, volume before dates.
+ * and the row can say it in words. Money before volume. Due dates are shown,
+ * never flagged — a desired delivery date is a wish, not a deadline.
  */
 export type AttentionKind =
   | "not_invoiced"        // beer left, no export invoice
   | "deposit_uncharged"   // contract deal shipping/packaged with no deposit raised
   | "deposit_unpaid"      // deposit invoiced (or being collected) but money not in
   | "over_shipped"        // shipped more than owed
-  | "overdue"             // due date passed, not delivered
   | "needs_batch"         // no allocation yet
   | "amount_unrecorded";  // deposit paid, $ never written down
 
@@ -29,14 +29,13 @@ const SEVERITY: Record<AttentionKind, number> = {
   deposit_uncharged: 2,
   deposit_unpaid: 3,
   over_shipped: 4,
-  overdue: 5,
-  needs_batch: 6,
-  amount_unrecorded: 7,
+  needs_batch: 5,
+  amount_unrecorded: 6,
 };
 
 const CLOSED = new Set(["fulfilled", "written_off", "cancelled"]);
 
-export function commitmentAttention(c: LedgerCommitment, today: string): Attention[] {
+export function commitmentAttention(c: LedgerCommitment): Attention[] {
   const out: Attention[] = [];
   const t = c.totals;
   const contract = c.channel === "contract_brewing";
@@ -57,9 +56,6 @@ export function commitmentAttention(c: LedgerCommitment, today: string): Attenti
   if (!closed && t.owed_bbl > 0 && t.shipped_bbl > t.owed_bbl + 0.01) {
     out.push({ kind: "over_shipped", severity: SEVERITY.over_shipped, label: `${(t.shipped_bbl - t.owed_bbl).toFixed(2)} bbl over` });
   }
-  if (!closed && c.stage !== "delivered" && c.desired_delivery_date && c.desired_delivery_date < today) {
-    out.push({ kind: "overdue", severity: SEVERITY.overdue, label: "past due date" });
-  }
   if (c.stage === "unplanned") {
     out.push({ kind: "needs_batch", severity: SEVERITY.needs_batch, label: "needs a batch" });
   }
@@ -69,8 +65,8 @@ export function commitmentAttention(c: LedgerCommitment, today: string): Attenti
   return out.sort((a, b) => a.severity - b.severity);
 }
 
-/** Sort key: most urgent flag first, then soonest due date. 99 = nothing to do. */
-export function attentionRank(c: LedgerCommitment, today: string): number {
-  const a = commitmentAttention(c, today);
+/** Sort key: most urgent flag first (the caller breaks ties on due date). 99 = nothing to do. */
+export function attentionRank(c: LedgerCommitment): number {
+  const a = commitmentAttention(c);
   return a.length ? a[0].severity : 99;
 }

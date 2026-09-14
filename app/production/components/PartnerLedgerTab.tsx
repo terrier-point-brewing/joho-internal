@@ -87,7 +87,6 @@ const ATTENTION_CLS: Record<Attention["kind"], string> = {
   deposit_uncharged: "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
   deposit_unpaid:    "bg-accent-muted/40 text-accent border-accent-border",
   over_shipped:      "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
-  overdue:           "bg-danger-surface/40 text-danger border-danger-border",
   needs_batch:       "bg-info-surface/40 text-info border-info-border",
   amount_unrecorded: "bg-surface-mid text-secondary border-line-strong",
 };
@@ -356,7 +355,6 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
     queryFn: () => fetchJson<LedgerPartner[]>("/api/production/partner-ledger"),
   });
 
-  const today = new Date().toISOString().slice(0, 10);
   const [view, setView] = useState<View>("attention");
   const [partnerFilter, setPartnerFilter] = useState<string[]>([]);
   const [stageFilter, setStageFilter] = useState<string[]>([]);
@@ -374,7 +372,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
       if (partnerFilter.length > 0 && !partnerFilter.includes(p.partner_id)) continue;
       const rows = p.commitments
         .filter((c) => stageFilter.length === 0 || stageFilter.includes(c.stage))
-        .map((c) => ({ c, flags: commitmentAttention(c, today), rank: attentionRank(c, today) }))
+        .map((c) => ({ c, flags: commitmentAttention(c), rank: attentionRank(c) }))
         .filter((r) => view === "all" ? true : view === "open" ? OPEN_STAGES.has(r.c.stage) || r.rank < 99 : r.rank < 99)
         .sort((x, y) => x.rank - y.rank || (x.c.desired_delivery_date ?? "9999").localeCompare(y.c.desired_delivery_date ?? "9999"));
       const showUnallocated = view !== "attention" ? p.unallocated.length > 0 : p.unallocated_uninvoiced_transaction_ids.length > 0;
@@ -383,11 +381,11 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
       out.push({ partner: p, rows, rank });
     }
     return out.sort((a, b) => a.rank - b.rank || a.partner.company_name.localeCompare(b.partner.company_name));
-  }, [ledger, partnerFilter, stageFilter, view, today]);
+  }, [ledger, partnerFilter, stageFilter, view]);
 
   const summary = useMemo(() => {
     const all = ledger.flatMap((p) => p.commitments);
-    const attention = all.filter((c) => attentionRank(c, today) < 99).length
+    const attention = all.filter((c) => attentionRank(c) < 99).length
       + ledger.filter((p) => p.unallocated_uninvoiced_transaction_ids.length > 0).length;
     const uninvoiced = all.reduce((s, c) => s + c.totals.uninvoiced_bbl, 0)
       + ledger.reduce((s, p) => s + p.unallocated.filter((u) => !u.invoice).reduce((x, u) => x + u.volume_bbl, 0), 0);
@@ -399,7 +397,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
         s + Math.max(0, c.totals.deposit_billed_cents - c.totals.deposit_paid_cents)
           + Math.max(0, c.totals.export_billed_cents - c.totals.export_paid_cents), 0),
     };
-  }, [ledger, today]);
+  }, [ledger]);
 
   const filterActiveCount = (partnerFilter.length ? 1 : 0) + (stageFilter.length ? 1 : 0) + (view !== "attention" ? 1 : 0);
 

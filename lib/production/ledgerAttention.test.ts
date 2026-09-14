@@ -23,30 +23,29 @@ function commitment(over: Partial<LedgerCommitment> = {}, totals: Partial<Ledger
 
 describe("commitmentAttention", () => {
   it("B-056 today: unbilled beer first, then the uncharged deposit, then the over-shipment", () => {
-    const flags = commitmentAttention(commitment(), "2026-09-13").map((f) => f.kind);
+    const flags = commitmentAttention(commitment()).map((f) => f.kind);
     expect(flags).toEqual(["not_invoiced", "deposit_uncharged", "over_shipped"]);
-    expect(attentionRank(commitment(), "2026-09-13")).toBe(1);
+    expect(attentionRank(commitment())).toBe(1);
   });
 
   it("a fulfilled deal with everything billed and paid needs nothing", () => {
     const c = commitment({ stage: "fulfilled", allocations: [alloc({ state: "settled", paid_at: "2026-05-01", paid_cents: 100000 })] }, { uninvoiced_bbl: 0, shipped_bbl: 19.71 });
-    expect(commitmentAttention(c, "2026-09-13")).toEqual([]);
-    expect(attentionRank(c, "2026-09-13")).toBe(99);
+    expect(commitmentAttention(c)).toEqual([]);
+    expect(attentionRank(c)).toBe(99);
   });
 
-  it("past due only counts while the deal is still open and undelivered", () => {
+  it("a due date in the past is never a flag — it is a wish, not a deadline", () => {
     const late = commitment({ stage: "shipping", desired_delivery_date: "2026-08-01", allocations: [alloc({ state: "settled", paid_at: "t", paid_cents: 1 })] }, { uninvoiced_bbl: 0, shipped_bbl: 10 });
-    expect(commitmentAttention(late, "2026-09-13").map((f) => f.kind)).toEqual(["overdue"]);
-    expect(commitmentAttention({ ...late, stage: "delivered" }, "2026-09-13")).toEqual([]);
+    expect(commitmentAttention(late)).toEqual([]);
   });
 
   it("a paid-then-written-off deposit with no amount is the lowest-priority flag", () => {
     const c = commitment({ stage: "written_off", allocations: [alloc({ state: "written_off", paid_at: "2026-05-08" })] }, { uninvoiced_bbl: 0, shipped_bbl: 9, owed_bbl: 13.75 });
-    expect(commitmentAttention(c, "2026-09-13").map((f) => f.kind)).toEqual(["amount_unrecorded"]);
+    expect(commitmentAttention(c).map((f) => f.kind)).toEqual(["amount_unrecorded"]);
   });
 
   it("an unplanned deal needs a batch; distribution deals never get deposit flags", () => {
-    expect(commitmentAttention(commitment({ stage: "unplanned", allocations: [] }, { uninvoiced_bbl: 0, shipped_bbl: 0, owed_bbl: 0 }), "2026-09-13").map((f) => f.kind)).toEqual(["needs_batch"]);
-    expect(commitmentAttention(commitment({ channel: "distribution", stage: "shipping" }, { uninvoiced_bbl: 0, shipped_bbl: 5, owed_bbl: 10 }), "2026-09-13")).toEqual([]);
+    expect(commitmentAttention(commitment({ stage: "unplanned", allocations: [] }, { uninvoiced_bbl: 0, shipped_bbl: 0, owed_bbl: 0 })).map((f) => f.kind)).toEqual(["needs_batch"]);
+    expect(commitmentAttention(commitment({ channel: "distribution", stage: "shipping" }, { uninvoiced_bbl: 0, shipped_bbl: 5, owed_bbl: 10 }))).toEqual([]);
   });
 });
