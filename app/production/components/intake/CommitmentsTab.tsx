@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
   Recipe, ContractBrewingPartner, ContractBrewingRequest,
-  ContractRequestStatus, CommitmentChannel, CommitmentAllocationSummary,
+  ContractRequestStatus, CommitmentStage, CommitmentChannel, CommitmentAllocationSummary,
   PackagingVariation,
 } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
@@ -24,11 +24,31 @@ import SortableTh from "@/app/components/ui/SortableTh";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig } from "@/lib/table/types";
 
-const STATUS_META: Record<ContractRequestStatus, { label: string; cls: string }> = {
-  open:        { label: "Open",        cls: "bg-accent-muted/50 text-accent border-accent-border" },
-  in_progress: { label: "In Progress", cls: "bg-info-surface/50 text-info border-info-border" },
-  fulfilled:   { label: "Fulfilled",   cls: "bg-success-surface/50 text-success border-success-border" },
-  cancelled:   { label: "Cancelled",   cls: "bg-danger-surface/40 text-danger border-danger-border" },
+// The stage is DERIVED from the deal's allocations (lib/production/
+// commitmentStage) — where it actually is, not what status was last written.
+// The stored status only carries the human decision (open / cancelled).
+const STAGE_META: Record<CommitmentStage, { label: string; cls: string }> = {
+  unplanned:   { label: "Needs a batch", cls: "bg-accent-muted/50 text-accent border-accent-border" },
+  planned:     { label: "Planned",       cls: "bg-surface-mid text-secondary border-line-strong" },
+  brewing:     { label: "Brewing",       cls: "bg-info-surface/50 text-info border-info-border" },
+  packaged:    { label: "Packaged",      cls: "bg-info-surface/50 text-info border-info-border" },
+  shipping:    { label: "Shipping",      cls: "bg-info-surface/50 text-info border-info-border" },
+  delivered:   { label: "Delivered",     cls: "bg-success-surface/30 text-success border-success-border" },
+  fulfilled:   { label: "Fulfilled",     cls: "bg-success-surface/50 text-success border-success-border" },
+  written_off: { label: "Written off",   cls: "bg-surface-mid text-muted border-line-strong" },
+  cancelled:   { label: "Cancelled",     cls: "bg-danger-surface/40 text-danger border-danger-border" },
+};
+
+/** Legacy rows from before the stage existed — map the stored status straight across. */
+function stageOf(q: ContractBrewingRequest): CommitmentStage {
+  if (q.stage) return q.stage;
+  if (q.status === "cancelled") return "cancelled";
+  if (q.status === "fulfilled") return "fulfilled";
+  return (q.batch_allocations?.length ?? 0) > 0 ? "planned" : "unplanned";
+}
+
+const STATUS_LABEL: Record<ContractRequestStatus, string> = {
+  open: "Open", in_progress: "In Progress (legacy)", fulfilled: "Fulfilled (legacy)", cancelled: "Cancelled",
 };
 
 const CHANNEL_META: Record<CommitmentChannel, { label: string; cls: string }> = {
@@ -45,12 +65,17 @@ const CHANNEL_OPTIONS = [
   { value: "wholesale", label: CHANNEL_META.wholesale.label, className: CC.amber },
 ];
 
-/** Active work first, then fulfilled, then cancelled. */
-const STATUS_SORT_RANK: Record<string, number> = { open: 0, in_progress: 1, fulfilled: 2, cancelled: 3 };
+/** Active work first, in pipeline order; then closed deals. */
+const STAGE_SORT_RANK: Record<CommitmentStage, number> = {
+  unplanned: 0, planned: 1, brewing: 2, packaged: 3, shipping: 4, delivered: 5, fulfilled: 6, written_off: 7, cancelled: 8,
+};
+
+const STAGE_OPTIONS = (Object.keys(STAGE_META) as CommitmentStage[]).map((k) => ({ value: k, label: STAGE_META[k].label }));
 
 const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
   filters: [
     { param: "channel", accessor: (r) => r.channel },
+    { param: "stage", accessor: (r) => r.stage_key },
     { param: "recipe", accessor: (r) => r.recipe_name },
     { param: "partner", accessor: (r) => r.partner_id ?? "" },
   ],
@@ -58,9 +83,10 @@ const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
     default: { key: "default_order", dir: "asc" },
     columns: [
       // Composite default: status rank, then channel, then received date.
-      { key: "default_order", accessor: (r) => `${STATUS_SORT_RANK[r.status] ?? 9}|${r.channel}|${r.received_on ?? "9999"}` },
+      { key: "default_order", accessor: (r) => `${STAGE_SORT_RANK[r.stage_key] ?? 9}|${r.channel}|${r.received_on ?? "9999"}` },
       { key: "channel", accessor: (r) => r.channel },
-      { key: "status", accessor: (r) => r.status },
+      { key: "status", accessor: (r) => STAGE_SORT_RANK[r.stage_key] ?? 9 },
+      { key: "progress", accessor: (r) => r.progress_sort },
       { key: "recipe_name", accessor: (r) => r.recipe_name },
       { key: "partner_name", accessor: (r) => r.partner_name },
       { key: "volume_bbl", accessor: (r) => r.volume_bbl },
@@ -73,9 +99,30 @@ const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
   },
 };
 
-function StatusBadge({ status }: { status: ContractRequestStatus }) {
-  const m = STATUS_META[status] ?? STATUS_META.open;
+function StageBadge({ stage }: { stage: CommitmentStage }) {
+  const m = STAGE_META[stage] ?? STAGE_META.unplanned;
   return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium whitespace-nowrap ${m.cls}`}>{m.label}</span>;
+}
+
+/** Shipped ÷ owed in bbl, with the batches the deal sits on. Owed is the
+ *  allocation's share of what the batch has produced, capped at booked. */
+function ProgressCell({ q }: { q: ContractBrewingRequest }) {
+  const batches = q.batch_numbers ?? [];
+  if (batches.length === 0) return <span className="text-faint text-xs">—</span>;
+  const owed = q.owed_bbl ?? 0;
+  const shipped = q.exported_bbl ?? 0;
+  const over = owed > 0 && shipped > owed + 0.01;
+  return (
+    <div className="text-xs leading-4">
+      <div className="tabular-nums">
+        <span className={over ? "text-[var(--cat-amber-fg)] font-medium" : "text-body"}>{shipped.toFixed(2)}</span>
+        <span className="text-faint"> / </span>
+        <span className="text-body">{owed > 0 ? owed.toFixed(2) : "—"}</span>
+        <span className="text-faint"> bbl</span>
+      </div>
+      <div className="text-muted">{batches.map((b) => `#${b}`).join(", ")}</div>
+    </div>
+  );
 }
 
 function ChannelBadge({ channel }: { channel: CommitmentChannel }) {
@@ -454,8 +501,8 @@ function CommitmentModal({
         <div className="grid grid-cols-2 gap-3">
           <Field label="Status">
             <select className="inp" value={form.status} onChange={(e) => set("status", e.target.value as ContractRequestStatus)}>
-              {(["open", "in_progress", "fulfilled", "cancelled"] as ContractRequestStatus[]).map((s) => (
-                <option key={s} value={s}>{STATUS_META[s].label}</option>
+              {(["open", "cancelled", ...(form.status === "open" || form.status === "cancelled" ? [] : [form.status])] as ContractRequestStatus[]).map((s) => (
+                <option key={s} value={s}>{STATUS_LABEL[s]}</option>
               ))}
             </select>
           </Field>
@@ -484,6 +531,8 @@ function CommitmentModal({
 // ─── Sortable row shape ──────────────────────────────────────────────────────
 
 interface SortableRow extends ContractBrewingRequest {
+  stage_key: CommitmentStage;
+  progress_sort: number;
   partner_name: string;
   packaging_total_bbl: number;
   schedule_sort: string;
@@ -628,10 +677,17 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Delete this commitment?")) return;
-    const r = await fetch(`/api/production/contract-requests?id=${id}`, { method: "DELETE" });
-    if (r.ok) load();
+  async function handleDelete(q: ContractBrewingRequest) {
+    const batches = q.batch_numbers ?? [];
+    if (batches.length > 0) {
+      alert(`This commitment is allocated on ${batches.map((b) => `#${b}`).join(", ")}. Set its status to Cancelled instead, or remove the allocation from the batch first.`);
+      return;
+    }
+    if (!confirm("Delete this commitment? Nothing is allocated against it.")) return;
+    const r = await fetch(`/api/production/contract-requests?id=${q.id}`, { method: "DELETE" });
+    if (r.ok) { load(); return; }
+    const body = await r.json().catch(() => ({}));
+    alert(body.error ?? "Couldn't delete this commitment");
   }
 
   function pkgLabel(q: ContractBrewingRequest): React.ReactNode {
@@ -670,6 +726,8 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
   const sortableRows: SortableRow[] = useMemo(
     () => rows.map((q) => ({
       ...q,
+      stage_key: stageOf(q),
+      progress_sort: (q.owed_bbl ?? 0) > 0 ? (q.exported_bbl ?? 0) / (q.owed_bbl ?? 1) : -1,
       partner_name: q.contract_brewing_partners?.company_name ?? "",
       packaging_total_bbl: packagingTotalBbl(q),
       schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
@@ -688,6 +746,8 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
         <FilterBar activeCount={activeCount} onClear={reset}>
           <FilterChips label="Channel" options={CHANNEL_OPTIONS}
             value={filters.channel ?? []} onChange={(v) => setFilter("channel", v)} />
+          <FilterChips label="Stage" options={STAGE_OPTIONS}
+            value={filters.stage ?? []} onChange={(v) => setFilter("stage", v)} />
           <FilterSelect label="Recipe"
             options={uniqueRecipes.map((s) => ({ value: s, label: s }))}
             value={filters.recipe ?? []} onChange={(v) => setFilter("recipe", v)} />
@@ -706,10 +766,11 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
             <thead>
               <tr className="border-b border-line bg-surface/50 text-left">
                 <SortableTh label="Channel" sortKey="channel" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
-                <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
+                <SortableTh label="Stage" sortKey="status" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Recipe" sortKey="recipe_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Partner" sortKey="partner_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Volume (BBL)" sortKey="volume_bbl" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
+                <SortableTh label="Shipped / Owed" sortKey="progress" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
                 <SortableTh label="Packaging" sortKey="packaging_total_bbl" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Delivery" sortKey="schedule_sort" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Received" sortKey="received_on" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
@@ -724,10 +785,11 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
               {displayRows.map((q, i) => (
                 <tr key={q.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
                   <td className="px-4 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
-                  <td className="px-4 py-2.5"><StatusBadge status={q.status} /></td>
+                  <td className="px-4 py-2.5"><StageBadge stage={stageOf(q)} /></td>
                   <td className="px-4 py-2.5 text-primary font-medium">{q.recipe_name || "—"}</td>
                   <td className="px-4 py-2.5 text-body">{q.contract_brewing_partners?.company_name ?? "—"}</td>
                   <td className="px-4 py-2.5 text-body tabular-nums">{Number(q.volume_bbl)}</td>
+                  <td className="px-4 py-2.5"><ProgressCell q={q} /></td>
                   <td className="px-4 py-2.5 text-secondary text-xs">{pkgLabel(q)}</td>
                   <td className="px-4 py-2.5 text-secondary text-xs whitespace-nowrap">{scheduleLabel(q)}</td>
                   <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">{q.received_on ? fmtDateLong(q.received_on) : "—"}</td>
@@ -750,7 +812,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1 whitespace-nowrap">
                       <button onClick={() => setEditing(q)} className="btn-secondary btn-xxs">Edit</button>
-                      <button onClick={() => handleDelete(q.id)} className="btn-danger btn-xxs">Delete</button>
+                      <button onClick={() => handleDelete(q)} className="btn-danger btn-xxs">Delete</button>
                     </div>
                   </td>
                 </tr>

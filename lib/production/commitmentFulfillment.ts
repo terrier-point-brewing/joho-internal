@@ -1,4 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
 
 /**
  * exportedBbl and allocatedBbl arrive by different arithmetic paths (summed
@@ -60,13 +61,14 @@ async function loadFulfillmentState(
   if (producedBbl <= 0) return null;
   const shareBbl = (Number(allocation.percentage) / 100) * producedBbl;
 
+  // Credited to THIS allocation. The old batch + channel + recipient sum folded
+  // over-delivery rows into whichever allocation shared the key and could not
+  // tell a split commitment's two allocations apart.
   const { data: exports_ } = await supabase
     .from("export_transactions")
-    .select("volume_bbl")
-    .eq("batch_id", allocation.batch_id)
-    .eq("channel", allocation.channel)
-    .eq("recipient_id", allocation.partner_id);
-  const exportedBbl = (exports_ ?? []).reduce((s, e) => s + Number(e.volume_bbl), 0);
+    .select("allocation_id, volume_bbl")
+    .eq("allocation_id", allocationId);
+  const exportedBbl = sumExportedByAllocation((exports_ ?? []) as ExportVolumeRow[]).get(allocationId) ?? 0;
 
   const { data: commitment } = await supabase
     .from("commitments")

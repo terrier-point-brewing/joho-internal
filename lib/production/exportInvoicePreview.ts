@@ -99,21 +99,25 @@ export interface InvoicePreviewResult {
   adHoc: boolean;
   /**
    * Contract-brewing allocations behind the selected shipments whose ingredient
-   * deposit is still UNPAID (not paid, not written off, not already back-charged
-   * on another invoice). Non-empty only when billing as contract_brewing. The
-   * modal auto-adds the ingredient-deposit line for these — the deposit was
-   * never collected, so the export invoice is where it gets charged.
+   * deposit is not settled (not paid up front, not written off). Non-empty only
+   * when billing as contract_brewing. The modal auto-adds the ingredient-deposit
+   * line for these: each drop's invoice carries that drop's share, until the
+   * allocation is fully delivered — an earlier back-charge on another invoice
+   * does NOT exclude it, or a three-drop delivery would pay deposit on drop one.
    */
   unpaidDepositAllocations: UnpaidDepositAllocation[];
 }
 
-/** One shipped allocation whose deposit hasn't been collected. */
+/** One shipped allocation whose deposit hasn't been collected in full. */
 export interface UnpaidDepositAllocation {
   allocationId: string;
   batchNumber: string | null;
   /** A standing deposit invoice was SENT and is awaiting payment — back-charging
    *  on top of it double-bills unless the operator cancels it. */
   depositInvoiceSent: boolean;
+  /** Earlier shipments of this allocation already carried a deposit share on
+   *  another export invoice; this invoice adds the share for THESE shipments. */
+  previouslyBackcharged: boolean;
 }
 
 /** A Packaging Materials line's derivation, plus the recipe it belongs to. */
@@ -803,12 +807,12 @@ export async function buildInvoicePreview(
         .filter((a) =>
           a.channel === "contract_brewing" &&
           !a.invoice_paid_at &&
-          !a.written_off_at &&
-          !a.deposit_backcharged_invoice_id)
+          !a.written_off_at)
         .map((a) => ({
           allocationId: a.id,
           batchNumber: (a.brew_batches as { batch_number?: string } | null)?.batch_number ?? null,
           depositInvoiceSent: !!a.invoice_sent_at,
+          previouslyBackcharged: !!a.deposit_backcharged_invoice_id,
         }));
     }
   }

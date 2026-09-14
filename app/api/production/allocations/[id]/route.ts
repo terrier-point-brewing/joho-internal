@@ -129,6 +129,20 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "Cannot delete an allocation with a paid invoice." }, { status: 422 });
   }
 
+  // Shipments are credited to the allocation. Deleting it used to null them
+  // out, turning delivered beer into unallocated over-delivery with no record
+  // of who it was for. The FK now refuses; say why before it does.
+  const { count: shipped } = await supabase
+    .from("export_transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("allocation_id", id);
+  if ((shipped ?? 0) > 0) {
+    return NextResponse.json(
+      { error: `${shipped} shipment${shipped === 1 ? " is" : "s are"} credited to this allocation. Revise or reverse those shipments first, or write the allocation off instead of deleting it.` },
+      { status: 409 },
+    );
+  }
+
   const { error } = await supabase.from("batch_allocations").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

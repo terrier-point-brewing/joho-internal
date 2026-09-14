@@ -319,6 +319,11 @@ export default function InvoicePreviewModal({
             action: "generate",
             transactionIds,
             lineItems: effectiveLineItems,
+            // Which batch each deposit line covers, so the charge is recorded
+            // against the right allocation (per invoice, per drop).
+            depositLines: effectiveLineItems
+              .filter((li) => depositBreakdowns[li.id])
+              .map((li) => ({ lineId: li.id, batchId: depositBreakdowns[li.id].batchId, shippedBbl: depositBreakdowns[li.id].shippedBbl })),
             bill_as_channel: billAsChannel ?? undefined,
             override_reason: isOverride ? overrideReason.trim() : undefined,
             customer_note: customerNote.trim() || undefined,
@@ -337,6 +342,9 @@ export default function InvoicePreviewModal({
             invoice_date: manualDate,
             total_cents: subtotalCents,
             lineItems: effectiveLineItems,
+            depositLines: effectiveLineItems
+              .filter((li) => depositBreakdowns[li.id])
+              .map((li) => ({ lineId: li.id, batchId: depositBreakdowns[li.id].batchId, shippedBbl: depositBreakdowns[li.id].shippedBbl })),
             bill_as_channel: billAsChannel ?? undefined,
             override_reason: isOverride ? overrideReason.trim() : undefined,
           }),
@@ -460,10 +468,13 @@ export default function InvoicePreviewModal({
               <span className="font-medium">
                 {unpaidDeposits.map((d) => (d.batchNumber ? `#${d.batchNumber}` : "a shipped batch")).join(", ")}
               </span>{" "}
-              is unpaid — {hasDepositLine
-                ? "an Ingredient Deposit line has been added to collect it on this invoice."
-                : "add the Ingredient Deposit line below to collect it on this invoice."}{" "}
-              When this invoice is paid, the commitment&rsquo;s deposit is marked paid automatically.
+              {unpaidDeposits.every((d) => d.previouslyBackcharged)
+                ? "is being collected shipment by shipment"
+                : "is unpaid"} — {hasDepositLine
+                ? "an Ingredient Deposit line has been added for these shipments\u2019 share."
+                : "add the Ingredient Deposit line below to collect these shipments\u2019 share."}{" "}
+              Each drop&rsquo;s invoice carries its own share; once the allocation is fully delivered and the
+              last one is paid, the commitment&rsquo;s deposit is marked paid automatically.
               {unpaidDeposits.some((d) => d.depositInvoiceSent) && (
                 <> A standing deposit invoice was already <span className="font-medium">sent</span> for
                 {" "}{unpaidDeposits.filter((d) => d.depositInvoiceSent).map((d) => d.batchNumber ? `#${d.batchNumber}` : "one batch").join(", ")} —

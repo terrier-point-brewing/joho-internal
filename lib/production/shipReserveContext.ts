@@ -5,6 +5,7 @@ import {
   type BatchInput,
   type ShipmentCandidate,
 } from "./allocationReserve";
+import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 
@@ -65,17 +66,17 @@ export async function loadShipReserveContext(
     producedByBatch[t.batch_id] = (producedByBatch[t.batch_id] ?? 0) + Number(t.volume_bbl);
   }
 
+  // Credited volume is read by allocation_id — the unit of record. Rows with
+  // no allocation (over-delivery, ad-hoc) still count against the batch total.
   const { data: priorExports } = await supabase
     .from("export_transactions")
-    .select("batch_id, channel, recipient_id, volume_bbl")
+    .select("batch_id, allocation_id, volume_bbl")
     .in("batch_id", inList);
   const totalExportedByBatch: Record<string, number> = {};
-  const exportedByKey: Record<string, number> = {};
   for (const e of priorExports ?? []) {
     totalExportedByBatch[e.batch_id] = (totalExportedByBatch[e.batch_id] ?? 0) + Number(e.volume_bbl);
-    const key = `${e.batch_id}:${e.channel}:${e.recipient_id ?? ""}`;
-    exportedByKey[key] = (exportedByKey[key] ?? 0) + Number(e.volume_bbl);
   }
+  const exportedByAllocation = sumExportedByAllocation((priorExports ?? []) as ExportVolumeRow[]);
 
   const { data: batchRows } = await supabase.from("brew_batches").select("id, status").in("id", inList);
   const statusById = new Map((batchRows ?? []).map((b) => [b.id as string, b.status as string]));
@@ -83,14 +84,13 @@ export async function loadShipReserveContext(
   type ReserveAllocRow = { id: string; batch_id: string; channel: string; partner_id: string | null; percentage: number; written_off_at: string | null; commitments: { volume_bbl: number } | null };
   const allocInput = (r: ReserveAllocRow): AllocationInput => {
     const channel = r.channel as AllocationChannel;
-    const key = `${r.batch_id}:${r.channel}:${r.partner_id ?? ""}`;
     return {
       id: r.id,
       batchId: r.batch_id,
       channel,
       percentage: Number(r.percentage),
       bookedBbl: channel === "contract_brewing" ? (r.commitments?.volume_bbl ?? null) : null,
-      exportedBbl: exportedByKey[key] ?? 0,
+      exportedBbl: exportedByAllocation.get(r.id) ?? 0,
       writtenOff: !!r.written_off_at,
     };
   };
@@ -114,7 +114,7 @@ export async function loadShipReserveContext(
     .filter((a) => !a.written_off_at)
     .map((a) => {
       const channel = a.channel as AllocationChannel;
-      const exported = exportedByKey[`${a.batch_id}:${a.channel}:${partnerId}`] ?? 0;
+      const exported = exportedByAllocation.get(a.id) ?? 0;
       const booked = channel === "contract_brewing" ? (a.commitments?.volume_bbl ?? 0) : null;
       const bookedRemainingBbl = channel === "contract_brewing" ? Math.max(0, (booked ?? 0) - exported) : null;
       // What the batch has actually made for this allocation, less what already

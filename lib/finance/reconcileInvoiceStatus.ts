@@ -4,6 +4,7 @@ import { isSquareNotFound } from "@/lib/square/client";
 import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
 import type { InvoiceStatus } from "@/types/finance";
 import { stampCommitmentLockedOn } from "@/lib/production/commitmentFulfillment";
+import { isFullyDelivered, loadAllocationDelivery } from "@/lib/production/allocationDelivery";
 
 /**
  * Synthetic Square status recorded when an invoice was deleted directly in the
@@ -98,15 +99,25 @@ export async function cascadeExportTransactionsStatus(
 
 /**
  * Settle (or release) ingredient deposits that were back-charged onto an export
- * invoice instead of billed through their own deposit invoice
- * (`batch_allocations.deposit_backcharged_invoice_id`).
+ * invoice instead of billed through their own deposit invoice.
  *
- *  - invoice paid   → stamp `invoice_paid_at` on each pointing allocation (the
- *    Commitments cell flips to "Deposit paid") and lock the commitment.
- *    `deposit_amount_paid_cents` is left untouched: it feeds the Square refund
- *    flow, which needs a deposit payment id that a back-charge never has.
- *  - invoice voided → clear the pointer on still-unpaid allocations, so the
- *    deposit goes back to pending instead of waiting on a dead invoice.
+ * A back-charge is collected per invoice as the beer ships
+ * (`allocation_deposit_charges`), so one paid invoice does not by itself mean
+ * the deposit is settled:
+ *
+ *  - invoice paid   → lock the commitment (money has moved), and stamp
+ *    `invoice_paid_at` only when the allocation is fully delivered (or the
+ *    batch is complete): every share it will ever owe has now been billed and
+ *    paid. Before that the coverage reads "collecting", and the next
+ *    shipment's invoice carries another share. `deposit_amount_paid_cents` is
+ *    left untouched: it feeds the Square refund flow, which needs a deposit
+ *    payment id that a back-charge never has.
+ *  - invoice voided → clear the "latest" pointer on still-unpaid allocations,
+ *    so the badge stops naming a dead invoice. The charge row is not deleted;
+ *    it reads as voided through the invoice and stops counting.
+ *
+ * Allocations are found through the charges table AND the legacy pointer, so
+ * back-charges recorded before the table existed still settle.
  *
  * Shared by BOTH invoice-status writers (reconcileInvoiceStatus and the Square
  * invoice sync), for the same reason cascadeExportTransactionsStatus is.
@@ -119,17 +130,38 @@ export async function settleBackchargedDeposits(
   paidAt: string | null,
 ): Promise<number> {
   if (ledgerStatus === "paid") {
-    const { data, error } = await supabase
-      .from("batch_allocations")
-      .update({ invoice_paid_at: paidAt ?? new Date().toISOString() })
-      .eq("deposit_backcharged_invoice_id", invoiceId)
-      .is("invoice_paid_at", null)
-      .select("id, invoice_paid_at");
-    if (error) throw new Error(`back-charged deposit settle failed: ${error.message}`);
-    for (const a of data ?? []) {
-      await stampCommitmentLockedOn(supabase, a.id, a.invoice_paid_at as string);
+    const [{ data: charged }, { data: pointed }] = await Promise.all([
+      supabase.from("allocation_deposit_charges").select("allocation_id").eq("invoice_id", invoiceId),
+      supabase.from("batch_allocations").select("id").eq("deposit_backcharged_invoice_id", invoiceId),
+    ]);
+    const allocationIds = [...new Set([
+      ...((charged ?? []) as Array<{ allocation_id: string }>).map((c) => c.allocation_id),
+      ...((pointed ?? []) as Array<{ id: string }>).map((p) => p.id),
+    ])];
+    const stamp = paidAt ?? new Date().toISOString();
+    let changed = 0;
+    for (const allocationId of allocationIds) {
+      // Payment is the moment the deal stops being negotiable — lock now,
+      // whether or not this was the last share.
+      await stampCommitmentLockedOn(supabase, allocationId, stamp);
+
+      const delivery = await loadAllocationDelivery(supabase, allocationId);
+      if (!delivery) continue;
+      const done = delivery.writtenOff
+        || delivery.batchStatus === "complete"
+        || isFullyDelivered(delivery.exportedBbl, delivery.owedBbl);
+      if (!done) continue;
+
+      const { data, error } = await supabase
+        .from("batch_allocations")
+        .update({ invoice_paid_at: stamp })
+        .eq("id", allocationId)
+        .is("invoice_paid_at", null)
+        .select("id");
+      if (error) throw new Error(`back-charged deposit settle failed: ${error.message}`);
+      changed += data?.length ?? 0;
     }
-    return data?.length ?? 0;
+    return changed;
   }
   if (ledgerStatus === "voided") {
     const { data, error } = await supabase

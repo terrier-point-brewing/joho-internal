@@ -12,6 +12,8 @@ import {
 } from "@/lib/production/allocationReserve";
 import { splitCommitmentForConversionChild } from "@/lib/production/commitmentSplit";
 import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
+import { sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
+import { loadDepositCharges } from "@/lib/production/depositCharges";
 
 export const dynamic = "force-dynamic";
 
@@ -58,18 +60,18 @@ export async function GET(req: NextRequest) {
     producedByBatch[t.batch_id] = (producedByBatch[t.batch_id] ?? 0) + net;
   }
 
-  // Fetch exports grouped by batch_id + channel + recipient_id for fulfillment
+  // Exports credited to each allocation (the unit of record), plus per-batch
+  // totals for the reserve. Rows with no allocation — over-delivery, ad-hoc —
+  // count toward the batch total only; they used to be folded into whichever
+  // allocation shared batch + channel + partner.
   const { data: exports_ } = await supabase
     .from("export_transactions")
-    .select("batch_id, channel, recipient_id, volume_bbl")
+    .select("batch_id, allocation_id, volume_bbl")
     .in("batch_id", batchIds);
 
-  // Build fulfillment lookup (per allocation) and per-batch totals (for reserve).
-  const exportedMap: Record<string, number> = {};
+  const exportedByAllocation = sumExportedByAllocation((exports_ ?? []) as ExportVolumeRow[]);
   const totalExportedByBatch: Record<string, number> = {};
   for (const e of exports_ ?? []) {
-    const key = `${e.batch_id}:${e.channel}:${e.recipient_id ?? ""}`;
-    exportedMap[key] = (exportedMap[key] ?? 0) + (e.volume_bbl ?? 0);
     totalExportedByBatch[e.batch_id] = (totalExportedByBatch[e.batch_id] ?? 0) + (Number(e.volume_bbl) || 0);
   }
 
@@ -83,7 +85,7 @@ export async function GET(req: NextRequest) {
       channel,
       percentage: Number(a.percentage),
       bookedBbl: channel === "contract_brewing" ? booked : null,
-      exportedBbl: exportedMap[`${a.batch_id}:${a.channel}:${a.partner_id ?? ""}`] ?? 0,
+      exportedBbl: exportedByAllocation.get(a.id) ?? 0,
       writtenOff: !!a.written_off_at,
     };
   };
@@ -222,17 +224,27 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Per-invoice back-charges (admin: invoices RLS cluster), so "collected $X of
+  // $Y" is a fact on the card and "collecting" is distinguishable from "paid".
+  const chargesById = await loadDepositCharges(
+    admin2,
+    withInvoiceNumbers.filter((a) => a.channel === "contract_brewing").map((a) => a.id),
+  );
+
   const withCoverage = withInvoiceNumbers.map((a) => {
     if (a.channel !== "contract_brewing") return a;
+    const charges = chargesById.get(a.id) ?? null;
     const parentBatchId = (a.brew_batches as { converted_from_batch_id?: string | null } | null)?.converted_from_batch_id ?? null;
     const parent = parentBatchId
       ? (parentAllocByKey.get(`${parentBatchId}:${a.partner_id ?? ""}`) ?? null) as CoverageAllocFields | null
       : null;
-    const additions = classifyAdditions(a as unknown as CoverageAllocFields);
+    const additions = classifyAdditions(a as unknown as CoverageAllocFields, charges);
     const base = classifyBase(!!parentBatchId, parent);
     const parentP = parent as (CoverageAllocFields & { square_deposit_invoice_id: string | null }) | null;
     return {
       ...a,
+      deposit_charged_cents: additions.chargedCents,
+      deposit_collected_cents: additions.collectedCents,
       deposit_coverage: {
         base: {
           status: base.status,
@@ -249,6 +261,8 @@ export async function GET(req: NextRequest) {
         additions: {
           status: additions.status,
           via: additions.via,
+          charged_cents: additions.chargedCents,
+          collected_cents: additions.collectedCents,
           invoice_number: a.deposit_backcharged_invoice_id
             ? (invoiceNumberById.get(a.deposit_backcharged_invoice_id) ?? null)
             : (a.deposit_invoice_number ?? null),

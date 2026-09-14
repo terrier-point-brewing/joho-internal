@@ -41,10 +41,9 @@ function stub(t: Tables): { client: SupabaseClient; recorded: Recorded[] } {
       return Promise.resolve({ data: data ?? null, error: null });
     };
     b.update = (payload: unknown) => { isUpdate = true; recorded.push({ table, op: "update", payload }); return b; };
-    // export_transactions read terminates on the third .eq.
+    // export_transactions read is keyed on allocation_id — one .eq terminates it.
     if (table === "export_transactions") {
-      let eqCount = 0;
-      b.eq = () => { eqCount += 1; return eqCount >= 3 ? Promise.resolve({ data: t.exports ?? [], error: null }) : b; };
+      b.eq = () => Promise.resolve({ data: t.exports ?? [], error: null });
     } else {
       // For the commitments table .eq serves both the read (→ .single()) and the
       // write (update().eq() terminal); resolve to success after an update.
@@ -103,7 +102,7 @@ describe("checkAndFulfillCommitment", () => {
         { volume_bbl: 10, shrinkage_bbl: 0, transfer_type: "kegging" },
         { volume_bbl: 10, shrinkage_bbl: 0, transfer_type: "canning" },
       ],
-      exports: [{ volume_bbl: 9 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 9 }],
       commitment: { status: "pending" },
     });
     await checkAndFulfillCommitment(client, "a1");
@@ -120,7 +119,7 @@ describe("checkAndFulfillCommitment", () => {
         { volume_bbl: 12, shrinkage_bbl: 2, transfer_type: "kegging" },
         { volume_bbl: 8, shrinkage_bbl: 1, transfer_type: "canning" },
       ],
-      exports: [{ volume_bbl: 6 }, { volume_bbl: 4 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 6 }, { allocation_id: "a1", volume_bbl: 4 }],
       commitment: { status: "pending" },
     });
     await checkAndFulfillCommitment(client, "a1");
@@ -136,7 +135,7 @@ describe("checkAndFulfillCommitment", () => {
       allocation: fullAllocation,
       batch: { status: "complete" },
       transfers: [{ volume_bbl: 20, shrinkage_bbl: 5, transfer_type: "kegging" }],
-      exports: [{ volume_bbl: 10 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 10 }],
       commitment: { status: "pending" },
     });
     await checkAndFulfillCommitment(client, "a1");
@@ -148,7 +147,7 @@ describe("checkAndFulfillCommitment", () => {
       allocation: fullAllocation,
       batch: { status: "complete" },
       transfers: [{ volume_bbl: 20, shrinkage_bbl: 0, transfer_type: "kegging" }],
-      exports: [{ volume_bbl: 20 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 20 }],
       commitment: { status: "fulfilled" },
     });
     await checkAndFulfillCommitment(client, "a1");
@@ -162,7 +161,7 @@ describe("checkAndFulfillCommitment", () => {
       allocation: { ...fullAllocation, percentage: 75 },
       batch: { status: "complete" },
       transfers: [{ volume_bbl: 29.1, transfer_type: "kegging" }],
-      exports: [{ volume_bbl: 15 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 15 }],
       commitment: { status: "open", volume_bbl: 15 },
     });
     await checkAndFulfillCommitment(client, "a1");
@@ -177,7 +176,7 @@ describe("checkAndFulfillCommitment", () => {
       allocation: fullAllocation,
       batch: { status: "complete" },
       transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
-      exports: [{ volume_bbl: 10 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 10 }],
       commitment: { status: "pending" },
     });
     await checkAndFulfillCommitment(client, "a1");
@@ -197,7 +196,7 @@ describe("recheckCommitmentFulfillment", () => {
       allocation: fullAllocation,
       batch: { status: "complete" },
       transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
-      exports: [{ volume_bbl: 4 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 4 }],
       commitment: { status: "fulfilled" },
     });
     await recheckCommitmentFulfillment(client, "a1");
@@ -211,7 +210,7 @@ describe("recheckCommitmentFulfillment", () => {
       allocation: fullAllocation,
       batch: { status: "complete" },
       transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
-      exports: [{ volume_bbl: 4 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 4 }],
       commitment: { status: "open" },
     });
     await recheckCommitmentFulfillment(client, "a1");
@@ -223,7 +222,7 @@ describe("recheckCommitmentFulfillment", () => {
       allocation: fullAllocation,
       batch: { status: "complete" },
       transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
-      exports: [{ volume_bbl: 10 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 10 }],
       commitment: { status: "fulfilled" },
     });
     await recheckCommitmentFulfillment(client, "a1");
@@ -235,7 +234,7 @@ describe("recheckCommitmentFulfillment", () => {
       allocation: fullAllocation,
       batch: { status: "complete" },
       transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
-      exports: [{ volume_bbl: 10 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 10 }],
       commitment: { status: "open" },
     });
     await recheckCommitmentFulfillment(client, "a1");
@@ -251,7 +250,7 @@ describe("recheckCommitmentFulfillment", () => {
       allocation: fullAllocation,
       batch: { status: "packaging" },
       transfers: [{ volume_bbl: 20, transfer_type: "kegging" }],
-      exports: [{ volume_bbl: 0 }],
+      exports: [{ allocation_id: "a1", volume_bbl: 0 }],
       commitment: { status: "fulfilled" },
     });
     await recheckCommitmentFulfillment(client, "a1");

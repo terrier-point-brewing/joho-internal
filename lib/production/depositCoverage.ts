@@ -28,13 +28,24 @@ export interface CoverageAllocFields {
   written_off_at?: string | null;
 }
 
-export type AdditionsStatus = "settled" | "pending_invoice" | "uncharged" | "written_off";
+export type AdditionsStatus = "settled" | "pending_invoice" | "collecting" | "uncharged" | "written_off";
 export type BaseStatus = "not_conversion" | "covered" | "refunded_chargeable" | "pending_parent" | "uncovered";
 
 export interface AdditionsCoverage {
   status: AdditionsStatus;
   /** How the settled/pending charge is carried. */
   via: "backcharge" | "own_invoice" | null;
+  /** Cents billed on export invoices so far (non-voided); 0 when none. */
+  chargedCents: number;
+  /** Cents of that actually paid. */
+  collectedCents: number;
+}
+
+/** Per-invoice back-charges, from lib/production/depositCharges. */
+export interface CoverageCharges {
+  chargedCents: number;
+  collectedCents: number;
+  unpaidCount: number;
 }
 
 export interface BaseCoverage {
@@ -43,17 +54,37 @@ export interface BaseCoverage {
   parentRefundCents: number | null;
 }
 
-/** The child allocation's own (additions-only) deposit state. */
-export function classifyAdditions(a: CoverageAllocFields): AdditionsCoverage {
-  if (a.written_off_at) return { status: "written_off", via: null };
-  const via: AdditionsCoverage["via"] = a.deposit_backcharged_invoice_id
+/**
+ * The allocation's own deposit state.
+ *
+ * A back-charged deposit is collected per export invoice as the beer ships,
+ * so "paid" is not one event: `collecting` means every charge raised so far
+ * has been paid but the allocation is not fully delivered, so the next
+ * shipment's invoice will carry another share. `invoice_paid_at` is the
+ * settled mark — set by a paid deposit invoice, or by the settle path once
+ * the last back-charge is paid on a fully delivered allocation.
+ */
+export function classifyAdditions(a: CoverageAllocFields, charges?: CoverageCharges | null): AdditionsCoverage {
+  const chargedCents = charges?.chargedCents ?? 0;
+  const collectedCents = charges?.collectedCents ?? 0;
+  const backcharged = !!a.deposit_backcharged_invoice_id || chargedCents > 0;
+  if (a.written_off_at) return { status: "written_off", via: null, chargedCents, collectedCents };
+  const via: AdditionsCoverage["via"] = backcharged
     ? "backcharge"
     : a.square_deposit_invoice_id ? "own_invoice" : null;
-  if (a.invoice_paid_at) return { status: "settled", via };
-  if (a.deposit_backcharged_invoice_id || a.invoice_sent_at || a.invoice_generated_at) {
-    return { status: "pending_invoice", via };
+  if (a.invoice_paid_at) return { status: "settled", via, chargedCents, collectedCents };
+  if (chargedCents > 0) {
+    return {
+      status: (charges?.unpaidCount ?? 0) > 0 ? "pending_invoice" : "collecting",
+      via: "backcharge",
+      chargedCents,
+      collectedCents,
+    };
   }
-  return { status: "uncharged", via: null };
+  if (a.deposit_backcharged_invoice_id || a.invoice_sent_at || a.invoice_generated_at) {
+    return { status: "pending_invoice", via, chargedCents, collectedCents };
+  }
+  return { status: "uncharged", via: null, chargedCents, collectedCents };
 }
 
 /**
