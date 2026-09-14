@@ -29,6 +29,105 @@ import { CHANNEL_COLOR } from "../lib/categoryColors";
 import { attentionRank, commitmentAttention, type Attention } from "@/lib/production/ledgerAttention";
 import { useQueryClient } from "@tanstack/react-query";
 import InvoicePreviewModal from "./InvoicePreviewModal";
+import type { HomesForBatch } from "@/lib/production/rehome";
+import { Modal } from "./shared";
+
+/**
+ * Give a stray shipment (over-delivery or old ad-hoc) a home: pick the
+ * partner's allocation on that batch and where its extra share comes from.
+ * Same rules and endpoint as the Ship modal uses before shipping.
+ */
+function RehomeModal({ partner, shipment, onClose, onDone }: {
+  partner: LedgerPartner; shipment: LedgerShipment; onClose: () => void; onDone: () => void;
+}) {
+  const targets = shipment.batch_id ? (partner.allocations_by_batch[shipment.batch_id] ?? []) : [];
+  const [targetId, setTargetId] = useState<string>(targets[0]?.allocation_id ?? "");
+  const [homes, setHomes] = useState<HomesForBatch | null>(null);
+  const [source, setSource] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const bblNeeded = shipment.volume_bbl;
+
+  React.useEffect(() => {
+    if (!shipment.batch_id || !targetId) return;
+    let live = true;
+    fetchJson<HomesForBatch>(`/api/production/allocations/rehome?batch_id=${shipment.batch_id}&target_allocation_id=${targetId}`)
+      .then((h) => { if (live) setHomes(h); })
+      .catch((e) => { if (live) setErr(e instanceof Error ? e.message : "Couldn't load options"); });
+    return () => { live = false; };
+  }, [shipment.batch_id, targetId]);
+
+  const chosen = homes?.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === source) ?? null;
+  const ok = !!chosen && chosen.requires !== "refund" && chosen.freeBbl + 0.0001 >= bblNeeded && !!targetId;
+
+  async function save() {
+    if (!chosen) return;
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch("/api/production/allocations/rehome", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_allocation_id: targetId,
+          source: chosen.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocation_id: chosen.allocationId },
+          bbl: bblNeeded,
+          transaction_ids: shipment.transaction_ids,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Couldn't re-home");
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Error"); } finally { setBusy(false); }
+  }
+
+  return (
+    <Modal title={`Give ${bbl(bblNeeded)} bbl a home`} onClose={onClose}>
+      <div className="space-y-3 text-sm">
+        <p className="text-xs text-secondary">
+          Shipped {fmtDate(shipment.date)} to {partner.company_name} from #{shipment.batch_number ?? "?"} with no commitment behind it.
+          Pick the commitment it belongs to; its booking rises by {bbl(bblNeeded)} bbl and the share comes from the source you choose.
+        </p>
+        {targets.length === 0 ? (
+          <p className="text-xs text-danger">{partner.company_name} has no allocation on this batch. Add one in Batch Log (against their commitment) first, then come back.</p>
+        ) : (
+          <label className="block text-xs text-secondary">Commitment
+            <select className="inp w-full mt-1" value={targetId} onChange={(e) => { setTargetId(e.target.value); setHomes(null); setSource(""); }}>
+              {targets.map((t) => <option key={t.allocation_id} value={t.allocation_id}>{t.recipe_name ?? "—"} · #{t.batch_number ?? "?"}</option>)}
+            </select>
+          </label>
+        )}
+        {homes && (
+          <div className="space-y-1">
+            <div className="text-xs text-secondary">Share comes from</div>
+            {homes.sources.length === 0 && <p className="text-xs text-danger">Nothing on this batch can give up share.</p>}
+            {homes.sources.map((h) => {
+              const key = h.kind === "unallocated" ? "unallocated" : (h.allocationId ?? "");
+              const enough = h.freeBbl + 0.0001 >= bblNeeded;
+              const disabled = h.requires === "refund" || !enough;
+              const who = h.kind === "unallocated" ? "Unallocated share of the batch"
+                : h.kind === "self" ? "This commitment's own unshipped share (nothing moves; the booking rises)"
+                : h.partnerName ?? (h.channel === "taproom" ? "Taproom" : h.channel === "safety_stock" ? "Safety stock" : h.channel ?? "");
+              return (
+                <label key={key} className={`flex items-start gap-2 text-xs ${disabled ? "text-faint" : "text-body cursor-pointer"}`}>
+                  <input type="radio" name="rehome-source" className="mt-0.5" disabled={disabled} checked={source === key} onChange={() => setSource(key)} />
+                  <span>
+                    {who} · {h.freeBbl.toFixed(2)} bbl free
+                    {h.requires === "refund" && " — deposit paid; refund part of it in Batch Log first"}
+                    {h.requires === "regenerate_deposit" && " — their draft deposit invoice will need regenerating"}
+                    {!enough && h.requires !== "refund" && " — not enough"}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+        {err && <p className="text-xs text-danger">{err}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn-primary" disabled={!ok || busy} onClick={save}>{busy ? "Saving…" : "Give it a home"}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 /**
  * The one write on this screen: a deposit marked paid with no amount on
@@ -231,7 +330,7 @@ function ShareExplainer({ a, booked, channel }: { a: LedgerAllocation; booked: n
   );
 }
 
-function ShipmentRows({ shipments, onOpenInvoice }: { shipments: LedgerShipment[]; onOpenInvoice: (id: string) => void }) {
+function ShipmentRows({ shipments, onOpenInvoice, onRehome }: { shipments: LedgerShipment[]; onOpenInvoice: (id: string) => void; onRehome?: (s: LedgerShipment) => void }) {
   if (shipments.length === 0) return <p className="text-xs text-faint">Nothing shipped yet.</p>;
   return (
     <table className="w-full text-xs">
@@ -264,9 +363,14 @@ function ShipmentRows({ shipments, onOpenInvoice }: { shipments: LedgerShipment[
             </td>
             <td className="py-1 pr-3 text-right font-mono tabular-nums text-body">{bbl(s.volume_bbl)}</td>
             <td className="py-1">
-              {s.invoice
-                ? <InvoiceChip inv={s.invoice} onOpen={onOpenInvoice} />
-                : <span className="text-[var(--cat-amber-fg)]">not invoiced</span>}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {s.invoice
+                  ? <InvoiceChip inv={s.invoice} onOpen={onOpenInvoice} />
+                  : <span className="text-[var(--cat-amber-fg)]">not invoiced</span>}
+                {onRehome && s.volume_bbl > 0.0001 && (
+                  <button type="button" className="btn-primary btn-xxs" onClick={(e) => { e.stopPropagation(); onRehome(s); }}>Give it a home</button>
+                )}
+              </div>
             </td>
           </tr>
         ))}
@@ -356,6 +460,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
   // Billing starts from the row that shows what is unbilled: the same preview
   // modal the Shipments tab uses, fed the deal's uninvoiced shipment ids.
   const [invoiceFor, setInvoiceFor] = useState<string[] | null>(null);
+  const [rehome, setRehome] = useState<{ partner: LedgerPartner; shipment: LedgerShipment } | null>(null);
 
   // One flat list, then grouped by partner for the header rows — so every
   // partner shares one table and one set of column widths.
@@ -368,9 +473,9 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
         .map((c) => ({ c, flags: commitmentAttention(c), rank: attentionRank(c) }))
         .filter((r) => view === "all" ? true : view === "open" ? r.c.stage === "open" || r.rank < 99 : r.rank < 99)
         .sort((x, y) => x.rank - y.rank || (x.c.desired_delivery_date ?? "9999").localeCompare(y.c.desired_delivery_date ?? "9999"));
-      const showUnallocated = view !== "attention" ? p.unallocated.length > 0 : p.unallocated_uninvoiced_transaction_ids.length > 0;
+      const showUnallocated = p.unallocated_bbl > 0.0001;
       if (rows.length === 0 && !showUnallocated) continue;
-      const rank = Math.min(...rows.map((r) => r.rank), p.unallocated_uninvoiced_transaction_ids.length > 0 ? 1 : 99);
+      const rank = Math.min(...rows.map((r) => r.rank), p.unallocated_bbl > 0.0001 ? 1 : 99);
       out.push({ partner: p, rows, rank });
     }
     return out.sort((a, b) => a.rank - b.rank || a.partner.company_name.localeCompare(b.partner.company_name));
@@ -379,7 +484,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
   const summary = useMemo(() => {
     const all = ledger.flatMap((p) => p.commitments);
     const attention = all.filter((c) => attentionRank(c) < 99).length
-      + ledger.filter((p) => p.unallocated_uninvoiced_transaction_ids.length > 0).length;
+      + ledger.filter((p) => p.unallocated_bbl > 0.0001).length;
     const uninvoiced = all.reduce((s, c) => s + c.totals.uninvoiced_bbl, 0)
       + ledger.reduce((s, p) => s + p.unallocated.filter((u) => !u.invoice).reduce((x, u) => x + u.volume_bbl, 0), 0);
     return {
@@ -396,6 +501,9 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
 
   return (
     <div className="space-y-4">
+      {rehome && (
+        <RehomeModal partner={rehome.partner} shipment={rehome.shipment} onClose={() => setRehome(null)} onDone={() => { setRehome(null); refresh(); }} />
+      )}
       {invoiceFor && (
         <InvoicePreviewModal
           transactionIds={invoiceFor}
@@ -468,7 +576,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
                         <span className="text-xs text-muted tabular-nums">
                           {bbl(p.totals.shipped_bbl)} / {bbl(p.totals.owed_bbl)} bbl shipped
                           {p.totals.remaining_bbl > 0.005 && <> · {bbl(p.totals.remaining_bbl)} to go</>}
-                          {p.unallocated_bbl > 0.005 && <> · <span className="text-[var(--cat-amber-fg)]">{bbl(p.unallocated_bbl)} outside any commitment</span></>}
+                          {p.unallocated_bbl > 0.005 && <> · <span className="text-[var(--cat-amber-fg)]">{bbl(p.unallocated_bbl)} shipped without a commitment</span></>}
                         </span>
                       </div>
                     </td>
@@ -517,12 +625,12 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
                       </React.Fragment>
                     );
                   })}
-                  {(view !== "attention" ? p.unallocated.length > 0 : p.unallocated_uninvoiced_transaction_ids.length > 0) && (
+                  {p.unallocated_bbl > 0.0001 && (
                     <tr className="border-b border-line bg-surface/20">
                       <td colSpan={COLUMNS} className="px-4 py-3">
                         <div className="flex items-center gap-3 mb-1.5">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                            Outside any commitment <span className="font-normal normal-case tracking-normal text-muted">— over-delivery and ad-hoc drops, {bbl(p.unallocated_bbl)} bbl</span>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--cat-amber-fg)]">
+                            Shipped without a commitment <span className="font-normal normal-case tracking-normal text-muted">— {bbl(p.unallocated_bbl)} bbl that needs a home</span>
                           </div>
                           {p.unallocated_uninvoiced_transaction_ids.length > 0 && (
                             <button type="button" className="btn-primary btn-xxs" onClick={() => setInvoiceFor(p.unallocated_uninvoiced_transaction_ids)}>
@@ -530,7 +638,11 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
                             </button>
                           )}
                         </div>
-                        <ShipmentRows shipments={view !== "attention" ? p.unallocated : p.unallocated.filter((u) => !u.invoice)} onOpenInvoice={onNavigateToInvoice} />
+                        <ShipmentRows
+                          shipments={p.unallocated}
+                          onOpenInvoice={onNavigateToInvoice}
+                          onRehome={(shipment) => setRehome({ partner: p, shipment })}
+                        />
                       </td>
                     </tr>
                   )}

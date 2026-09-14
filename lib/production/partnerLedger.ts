@@ -122,6 +122,10 @@ export interface LedgerShipment {
   shipment_id: string | null;
   date: string;
   batch_number: string | null;
+  /** The (logical) batch the rows sit on — one per shipment in practice. */
+  batch_id: string | null;
+  /** export_transactions ids in this shipment, for re-homing. */
+  transaction_ids: string[];
   lines: Array<{ variant_label: string | null; quantity: number; volume_bbl: number; over_allocation: boolean; is_ad_hoc: boolean; shipped_before_deposit: boolean }>;
   volume_bbl: number;
   status: string;
@@ -195,6 +199,8 @@ export interface LedgerCommitmentTotals {
 export interface LedgerPartner {
   partner_id: string;
   company_name: string;
+  /** This partner's allocations by batch id — the targets a stray shipment can be re-homed to. */
+  allocations_by_batch: Record<string, { allocation_id: string; commitment_id: string; recipe_name: string | null; batch_number: string | null }[]>;
   commitments: LedgerCommitment[];
   /** Shipped with no commitment behind it: over-delivery and ad-hoc drops. */
   unallocated: LedgerShipment[];
@@ -242,6 +248,8 @@ export function groupShipments(rows: LedgerExportRow[], invoiceById: Map<string,
         shipment_id: first.shipment_id ?? null,
         date: group.reduce((d, g) => (g.created_at < d ? g.created_at : d), first.created_at),
         batch_number: [...new Set(group.map((g) => g.batch_number).filter(Boolean))].join(", ") || null,
+        batch_id: first.batch_id ?? null,
+        transaction_ids: group.map((g) => g.id),
         lines: group.map((g) => ({
           variant_label: g.variant_label,
           quantity: Number(g.quantity ?? 0),
@@ -397,9 +405,18 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
     for (const c of commitments) addTotals(totals, c.totals);
 
     if (commitments.length === 0 && unallocated.length === 0) continue;
+    const allocationsByBatch: LedgerPartner["allocations_by_batch"] = {};
+    for (const c of commitments) {
+      for (const a of c.allocations) {
+        const row = input.allocations.find((r) => r.id === a.id);
+        if (!row) continue;
+        (allocationsByBatch[row.batch_id] ??= []).push({ allocation_id: a.id, commitment_id: c.id, recipe_name: c.recipe_name, batch_number: a.batch_number });
+      }
+    }
     partners.push({
       partner_id: p.id,
       company_name: p.company_name,
+      allocations_by_batch: allocationsByBatch,
       commitments,
       unallocated,
       unallocated_bbl: r2(unallocatedRows.reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0)),

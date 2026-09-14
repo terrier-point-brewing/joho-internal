@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { BBL_TO_FL_OZ } from "@/lib/constants/production";
-import { planShipment } from "@/lib/production/allocationReserve";
-import { loadShipReserveContext, simulateColdStorageDraw } from "@/lib/production/shipReserveContext";
+import { simulateShipment, type SimulatedShipment } from "@/lib/production/shipReserveContext";
 import { normalizeShipLines, type ShipLinesInput } from "@/lib/production/shipLines";
 
 export const dynamic = "force-dynamic";
@@ -11,14 +9,6 @@ export const dynamic = "force-dynamic";
 interface PreviewRequest extends ShipLinesInput {
   partner_id: string;
   recipe_id: string;
-}
-
-/** Per-line availability, so the modal can point at the offending row. */
-interface LineAvailability {
-  variation_id: string;
-  requested: number;
-  available: number;
-  insufficient: boolean;
 }
 
 // POST /api/production/export-bay/ship/preview
@@ -46,48 +36,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ warnings: [], insufficientStock: false, available: 0, lines: [] });
   }
 
-  const { data: variations, error: varErr } = await supabase
-    .from("packaging_variations")
-    .select("id, total_volume_fl_oz")
-    .in("id", lines.map((l) => l.variation_id));
-  if (varErr) return NextResponse.json({ error: varErr.message }, { status: 500 });
-  const volumeById = new Map((variations ?? []).map((v) => [v.id, Number(v.total_volume_fl_oz)]));
-
-  let requestedBbl = 0;
-  const mergedDraw = new Map<string, number>();
-  const lineAvailability: LineAvailability[] = [];
-
-  for (const line of lines) {
-    const totalFlOz = volumeById.get(line.variation_id);
-    if (totalFlOz == null) {
-      return NextResponse.json({ error: "Variation not found." }, { status: 404 });
-    }
-    const bblPerUnit = totalFlOz / BBL_TO_FL_OZ;
-    requestedBbl += line.quantity * bblPerUnit;
-
-    const { perBatchDrawBbl, availableUnits } = await simulateColdStorageDraw(supabase, {
-      recipeId: recipe_id, variationId: line.variation_id, quantity: line.quantity, bblPerUnit,
-    });
-    for (const d of perBatchDrawBbl) {
-      mergedDraw.set(d.batchId, (mergedDraw.get(d.batchId) ?? 0) + d.drawBbl);
-    }
-    lineAvailability.push({
-      variation_id: line.variation_id,
-      requested: line.quantity,
-      available: availableUnits,
-      insufficient: line.quantity > availableUnits,
-    });
+  let sim: SimulatedShipment;
+  try {
+    sim = await simulateShipment(supabase, { recipeId: recipe_id, partnerId: partner_id, lines });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Preview failed" }, { status: 404 });
   }
-
-  const perBatchDrawBbl = [...mergedDraw].map(([batchId, drawBbl]) => ({ batchId, drawBbl }));
-
-  const { candidates, batches } = await loadShipReserveContext(supabase, {
-    recipeId: recipe_id,
-    partnerId: partner_id,
-    drawnBatchIds: perBatchDrawBbl.map((d) => d.batchId),
-  });
-
-  const plan = planShipment({ requestedBbl, candidates, perBatchDrawBbl, batches });
+  const { plan, candidates, lines: lineAvailability } = sim;
 
   // Contract allocations this shipment would credit on credit (deposit unpaid).
   // The real ship refuses these without an acknowledgement — say so first.
@@ -99,6 +54,9 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     unpaidDepositBatches: unpaid.map((c) => ({ batchId: c.batchId, batchNumber: numberById.get(c.batchId) ?? null, allocationId: c.allocationId })),
+    // Beer beyond the booking must be given a home before it ships.
+    noCommitment: sim.noCommitment,
+    over: sim.over,
     warnings: plan.warnings,
     insufficientStock: lineAvailability.some((l) => l.insufficient),
     // Single-line callers still read `available` as a bare number.

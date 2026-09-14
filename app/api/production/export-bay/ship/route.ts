@@ -6,7 +6,8 @@ import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
 import type { ShipmentWarning } from "@/lib/production/allocationReserve";
 import { normalizeShipLines, dedupeWarnings, type ShipLinesInput } from "@/lib/production/shipLines";
 import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
-import { unpaidDepositBatches } from "@/lib/production/shipReserveContext";
+import { unpaidDepositBatches, simulateShipment, type SimulatedShipment } from "@/lib/production/shipReserveContext";
+import { executeRehome } from "@/lib/production/rehome";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,13 @@ interface ShipRequest extends ShipLinesInput {
    * decision rather than something nobody noticed.
    */
   acknowledge_unpaid_deposit?: boolean;
+  /**
+   * Where beer beyond the partner's booking takes its share from, decided in
+   * the Ship modal from the preview's `over.homes`. Required whenever the
+   * plan would over-deliver; the move happens before the shipment is written,
+   * so the credit lands inside the commitment instead of as over-delivery.
+   */
+  home?: { target_allocation_id: string; source: { kind: "unallocated" } | { kind: "allocation"; allocation_id: string }; bbl: number };
 }
 
 // POST /api/production/export-bay/ship
@@ -63,6 +71,45 @@ export async function POST(req: NextRequest) {
         { error: `Insufficient cold storage inventory — requested ${line.quantity}, available ${available}` },
         { status: 422 }
       );
+    }
+  }
+
+  // A partner shipment lives inside a commitment. No allocation for this beer
+  // means no home for the credit, the deposit or the ledger row — refuse.
+  let sim: SimulatedShipment;
+  try {
+    sim = await simulateShipment(supabase, { recipeId: recipe_id, partnerId: partner_id, lines });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Could not plan the shipment" }, { status: 422 });
+  }
+  if (sim.noCommitment) {
+    return NextResponse.json(
+      { error: "This partner has no commitment for this beer. Create one on Intake → Commitments and allocate it to the batch, then ship from that card." },
+      { status: 409 },
+    );
+  }
+  // Beer beyond the booking must be given a home first: take its share from
+  // somewhere on the batch and raise the booking, so the credit is inside the
+  // commitment and the deposit / ledger / warnings all see it.
+  if (sim.overBbl > 1e-4) {
+    const home = body.home;
+    if (!home || !home.target_allocation_id || !home.source || !(Number(home.bbl) >= sim.overBbl - 0.01)) {
+      return NextResponse.json(
+        {
+          error: `${sim.overBbl.toFixed(2)} bbl of this shipment is beyond the partner's booking. Choose where that share comes from before shipping.`,
+          over: sim.over,
+        },
+        { status: 409 },
+      );
+    }
+    try {
+      await executeRehome(supabase, {
+        targetAllocationId: home.target_allocation_id,
+        source: home.source.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocationId: home.source.allocation_id },
+        bbl: Number(home.bbl),
+      });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Could not re-home the extra beer" }, { status: 422 });
     }
   }
 
