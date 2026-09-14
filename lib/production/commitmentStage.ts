@@ -71,3 +71,30 @@ export function deriveCommitmentStage(input: {
 export const ACTIVE_STAGES: ReadonlySet<CommitmentStage> = new Set([
   "unplanned", "planned", "brewing", "packaged", "shipping", "delivered",
 ]);
+
+/**
+ * What the operator sees. The nine-way stage above is how the deal is
+ * derived; the reader of a ledger only needs to know whether beer is still
+ * owed. Delivered, fulfilled and written off are all "closed": nothing more
+ * ships, and whether the money is right is the Needs column's job.
+ */
+export type CommitmentBucket = "open" | "closed" | "cancelled";
+
+export function stageBucket(stage: CommitmentStage): CommitmentBucket {
+  if (stage === "cancelled") return "cancelled";
+  if (stage === "delivered" || stage === "fulfilled" || stage === "written_off") return "closed";
+  return "open";
+}
+
+/** One line of plain language for the expanded row. */
+export const STAGE_EXPLANATION: Record<CommitmentStage, string> = {
+  unplanned:   "No batch has been allocated to this commitment yet.",
+  planned:     "Allocated on a batch that has not been brewed.",
+  brewing:     "The batch is in the brewhouse or a tank; nothing packaged yet.",
+  packaged:    "Beer is in kegs or cans; nothing has shipped yet.",
+  shipping:    "Some of the owed beer has shipped.",
+  delivered:   "Everything owed has shipped. The batch is not marked complete, so owed could still move if more beer is packaged.",
+  fulfilled:   "Everything owed has shipped and the batch is complete.",
+  written_off: "The remaining owed beer was forgiven; nothing more ships.",
+  cancelled:   "Cancelled by hand.",
+};

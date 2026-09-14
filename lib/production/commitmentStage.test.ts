@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveCommitmentStage, type StageAllocation } from "./commitmentStage";
+import { deriveCommitmentStage, stageBucket, type StageAllocation } from "./commitmentStage";
 
 function alloc(over: Partial<StageAllocation> = {}): StageAllocation {
   return { batchStatus: "planning", producedBbl: 0, exportedBbl: 0, owedBbl: 0, writtenOff: false, ...over };
@@ -71,5 +71,13 @@ describe("deriveCommitmentStage", () => {
         alloc({ batchStatus: "fermenting" }),
       ],
     })).toBe("shipping");
+  });
+});
+
+describe("stageBucket", () => {
+  it("collapses nine stages to open / closed / cancelled", () => {
+    expect(["unplanned", "planned", "brewing", "packaged", "shipping"].map((s) => stageBucket(s as never))).toEqual(["open", "open", "open", "open", "open"]);
+    expect(["delivered", "fulfilled", "written_off"].map((s) => stageBucket(s as never))).toEqual(["closed", "closed", "closed"]);
+    expect(stageBucket("cancelled")).toBe("cancelled");
   });
 });
