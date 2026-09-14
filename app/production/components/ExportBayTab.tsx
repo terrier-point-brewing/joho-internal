@@ -5,6 +5,7 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
 import type { AvailableInventoryLine, BatchAllocation, ExportChannel } from "../types";
 import { assessWriteOff, type ShipmentWarning } from "@/lib/production/allocationReserve";
+import type { HomesForBatch } from "@/lib/production/rehome";
 import { queryKeys } from "@/lib/query-keys";
 import { CHANNEL_COLOR, KEG_TAG_BADGE } from "../lib/categoryColors";
 import FilterBar from "@/app/components/ui/FilterBar";
@@ -1383,7 +1384,16 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
     available: number;
     lines?: { variation_id: string; requested: number; available: number; insufficient: boolean }[];
     unpaidDepositBatches?: { batchId: string; batchNumber: string | null; allocationId: string }[];
+    noCommitment?: boolean;
+    over?: { bbl: number; targetAllocationId: string | null; homes: HomesForBatch } | null;
   } | null>(null);
+  // Beer beyond the booking has to take its share from somewhere on the
+  // batch before it ships; the operator picks the source here.
+  const [homeSource, setHomeSource] = useState<string>(""); // "unallocated" | allocation id
+  const over = preview?.over ?? null;
+  const overNeedsHome = !!over && over.bbl > 0.0001;
+  const chosenHome = over?.homes.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === homeSource) ?? null;
+  const homeOk = !overNeedsHome || (!!chosenHome && chosenHome.requires !== "refund" && chosenHome.freeBbl + 0.0001 >= (over?.bbl ?? 0) && !!over?.targetAllocationId);
   // Shipping before the deposit is paid is allowed, but it is a decision the
   // operator makes on purpose: the route refuses without this, and the row
   // records that the beer left on credit.
@@ -1431,6 +1441,13 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           lines:      filledLines,
           notes:      notes || null,
           acknowledge_unpaid_deposit: unpaidDeposit.length > 0 ? ackUnpaidDeposit : undefined,
+          home: overNeedsHome && chosenHome && over?.targetAllocationId
+            ? {
+                target_allocation_id: over.targetAllocationId,
+                source: chosenHome.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocation_id: chosenHome.allocationId },
+                bbl: over.bbl,
+              }
+            : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1517,6 +1534,49 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <label className="text-xs text-secondary block mb-1">Notes</label>
             <input className="inp w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
+          {preview?.noCommitment && (
+            <div className="rounded border border-danger-border bg-danger-surface/30 px-3 py-2">
+              <p className="text-xs font-medium text-danger">No commitment for this beer</p>
+              <p className="text-xs text-secondary">
+                A partner shipment always sits inside a commitment. Create one on Intake → Commitments, allocate it to the batch, and ship from that card.
+              </p>
+            </div>
+          )}
+          {overNeedsHome && over && (
+            <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1.5">
+              <p className="text-xs font-medium text-accent-soft">
+                {over.bbl.toFixed(2)} bbl of this shipment is beyond the booking
+              </p>
+              <p className="text-xs text-secondary">
+                It needs a home on #{over.homes.batchNumber ?? "?"} before it ships. The booking rises by {over.bbl.toFixed(2)} bbl and the share comes from:
+              </p>
+              {!over.targetAllocationId && (
+                <p className="text-xs text-danger">This partner has no allocation on the drawn batch to grow — add one in Batch Log first.</p>
+              )}
+              <div className="space-y-1">
+                {over.homes.sources.map((h) => {
+                  const key = h.kind === "unallocated" ? "unallocated" : (h.allocationId ?? "");
+                  const enough = h.freeBbl + 0.0001 >= over.bbl;
+                  const disabled = h.requires === "refund" || !enough;
+                  const who = h.kind === "unallocated" ? "Unallocated share of the batch"
+                    : h.kind === "self" ? "This commitment's own unshipped share (nothing moves; the booking rises)"
+                    : h.partnerName ?? (h.channel === "taproom" ? "Taproom" : h.channel === "safety_stock" ? "Safety stock" : h.channel ?? "");
+                  return (
+                    <label key={key} className={`flex items-start gap-2 text-xs ${disabled ? "text-faint" : "text-body cursor-pointer"}`}>
+                      <input type="radio" name="home" className="mt-0.5" disabled={disabled} checked={homeSource === key} onChange={() => setHomeSource(key)} />
+                      <span>
+                        {who} · {h.freeBbl.toFixed(2)} bbl free
+                        {h.requires === "refund" && " — deposit paid; refund part of it in Batch Log first"}
+                        {h.requires === "regenerate_deposit" && " — their draft deposit invoice will need regenerating"}
+                        {!enough && h.requires !== "refund" && " — not enough"}
+                      </span>
+                    </label>
+                  );
+                })}
+                {over.homes.sources.length === 0 && <p className="text-xs text-danger">Nothing on this batch can give up share.</p>}
+              </div>
+            </div>
+          )}
           {unpaidDeposit.length > 0 && (
             <div className="rounded border border-danger-border bg-danger-surface/30 px-3 py-2 space-y-1.5">
               <p className="text-xs font-medium text-danger">
@@ -1547,10 +1607,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button
               type="submit"
-              disabled={submitting || inventoryLines.length === 0 || filledLines.length === 0 || preview?.insufficientStock || (unpaidDeposit.length > 0 && !ackUnpaidDeposit)}
+              disabled={submitting || inventoryLines.length === 0 || filledLines.length === 0 || preview?.insufficientStock || (unpaidDeposit.length > 0 && !ackUnpaidDeposit) || preview?.noCommitment || !homeOk}
               className="btn-primary"
             >
-              {submitting ? "Shipping…" : unpaidDeposit.length > 0 ? "Ship before deposit" : "Ship"}
+              {submitting ? "Shipping…" : overNeedsHome ? `Re-home ${over!.bbl.toFixed(2)} bbl and ship` : unpaidDeposit.length > 0 ? "Ship before deposit" : "Ship"}
             </button>
           </div>
         </form>
@@ -1627,10 +1687,11 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
             <label className="text-xs text-secondary block mb-1">Channel</label>
             <select className="inp w-full" value={channel} onChange={(e) => setChannel(e.target.value as ExportChannel)}>
               <option value="taproom">Taproom</option>
-              <option value="distribution">Distribution</option>
-              <option value="contract_brewing">Contract Brewing</option>
-              <option value="wholesale">Wholesale</option>
             </select>
+            <p className="text-xs text-faint mt-1">
+              Partner shipments always go through the partner&rsquo;s allocation card, so they sit inside a commitment.
+              No commitment for this beer yet? Create one on Intake → Commitments and allocate it to the batch.
+            </p>
           </div>
           {channel !== "taproom" && (
             <div>

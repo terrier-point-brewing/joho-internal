@@ -6,6 +6,9 @@ import {
   type ShipmentCandidate,
 } from "./allocationReserve";
 import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
+import { planShipment, type ShipmentPlan } from "./allocationReserve";
+import { BBL_TO_FL_OZ } from "@/lib/constants/production";
+import { listHomes, type HomesForBatch } from "./rehome";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 
@@ -190,4 +193,97 @@ export async function unpaidDepositBatches(
     .in("id", unpaid.map((c) => c.batchId));
   const numberById = new Map(((batches ?? []) as Array<{ id: string; batch_number: string | null }>).map((b) => [b.id, b.batch_number]));
   return unpaid.map((c) => ({ batchId: c.batchId, batchNumber: numberById.get(c.batchId) ?? null, allocationId: c.allocationId }));
+}
+
+export interface SimulatedShipment {
+  plan: ShipmentPlan;
+  candidates: ShipmentCandidate[];
+  batches: BatchInput[];
+  perBatchDrawBbl: { batchId: string; drawBbl: number }[];
+  requestedBbl: number;
+  lines: { variation_id: string; requested: number; available: number; insufficient: boolean }[];
+  /** bbl the plan could not credit to any of the partner's allocations. */
+  overBbl: number;
+  /** The partner has no creditable allocation for this beer at all. */
+  noCommitment: boolean;
+  /**
+   * Where the over-delivered bbl could take its share from, on the batch the
+   * partner's contract allocation sits on (first contract candidate, else the
+   * first drawn batch). Null when nothing is over.
+   */
+  over: { bbl: number; targetAllocationId: string | null; homes: HomesForBatch } | null;
+}
+
+/**
+ * Plan a prospective shipment end to end WITHOUT writing: availability per
+ * line, the simulated FIFO draw, the credit plan, and — when the partner
+ * would be shipped more than they are booked for — where that beer could be
+ * given a home. Shared by the ship preview and the ship route so the two
+ * can never disagree about whether a shipment needs a home first.
+ */
+export async function simulateShipment(
+  supabase: SupabaseClient,
+  { recipeId, partnerId, lines }: { recipeId: string; partnerId: string; lines: { variation_id: string; quantity: number }[] },
+): Promise<SimulatedShipment> {
+  const { data: variations } = await supabase
+    .from("packaging_variations")
+    .select("id, total_volume_fl_oz")
+    .in("id", lines.map((l) => l.variation_id));
+  const volumeById = new Map((variations ?? []).map((v) => [v.id as string, Number(v.total_volume_fl_oz)]));
+
+  let requestedBbl = 0;
+  const mergedDraw = new Map<string, number>();
+  const lineAvailability: SimulatedShipment["lines"] = [];
+  for (const line of lines) {
+    const totalFlOz = volumeById.get(line.variation_id);
+    if (totalFlOz == null) throw new Error("Variation not found.");
+    const bblPerUnit = totalFlOz / BBL_TO_FL_OZ;
+    requestedBbl += line.quantity * bblPerUnit;
+    const { perBatchDrawBbl, availableUnits } = await simulateColdStorageDraw(supabase, {
+      recipeId, variationId: line.variation_id, quantity: line.quantity, bblPerUnit,
+    });
+    for (const d of perBatchDrawBbl) mergedDraw.set(d.batchId, (mergedDraw.get(d.batchId) ?? 0) + d.drawBbl);
+    lineAvailability.push({ variation_id: line.variation_id, requested: line.quantity, available: availableUnits, insufficient: line.quantity > availableUnits });
+  }
+  const perBatchDrawBbl = [...mergedDraw].map(([batchId, drawBbl]) => ({ batchId, drawBbl }));
+
+  const { candidates, batches } = await loadShipReserveContext(supabase, {
+    recipeId, partnerId, drawnBatchIds: perBatchDrawBbl.map((d) => d.batchId),
+  });
+  const plan = planShipment({ requestedBbl, candidates, perBatchDrawBbl, batches });
+  const overBbl = Math.round(plan.credits.filter((c) => c.allocationId == null).reduce((s, c) => s + c.bbl, 0) * 10000) / 10000;
+
+  // "No commitment" means no allocation of any creditable channel for this
+  // partner + recipe, not merely none with credit left.
+  const { count } = await supabase
+    .from("batch_allocations")
+    .select("id, brew_batches!inner(recipe_id)", { count: "exact", head: true })
+    .eq("partner_id", partnerId)
+    .in("channel", ["contract_brewing", "distribution", "wholesale"])
+    .eq("brew_batches.recipe_id", recipeId);
+  const noCommitment = (count ?? 0) === 0;
+
+  let over: SimulatedShipment["over"] = null;
+  if (overBbl > 1e-4 && !noCommitment) {
+    const target = candidates.find((c) => c.channel === "contract_brewing") ?? candidates[0] ?? null;
+    let targetAllocationId: string | null = target?.allocationId ?? null;
+    let batchId: string | null = target?.batchId ?? perBatchDrawBbl[0]?.batchId ?? null;
+    if (!target) {
+      // Every allocation is fully credited; pick the partner's allocation on the drawn batch.
+      const { data: onBatch } = await supabase
+        .from("batch_allocations")
+        .select("id, batch_id")
+        .eq("partner_id", partnerId)
+        .in("channel", ["contract_brewing", "distribution", "wholesale"])
+        .in("batch_id", perBatchDrawBbl.map((d) => d.batchId))
+        .limit(1);
+      const row = (onBatch ?? [])[0] as { id: string; batch_id: string } | undefined;
+      if (row) { targetAllocationId = row.id; batchId = row.batch_id; }
+    }
+    if (batchId) {
+      over = { bbl: overBbl, targetAllocationId, homes: await listHomes(supabase, { batchId, targetAllocationId }) };
+    }
+  }
+
+  return { plan, candidates, batches, perBatchDrawBbl, requestedBbl, lines: lineAvailability, overBbl, noCommitment, over };
 }
