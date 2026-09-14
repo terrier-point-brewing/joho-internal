@@ -136,8 +136,12 @@ export async function listHomes(
     const id = e.allocation_id as string;
     exportedByAlloc.set(id, (exportedByAlloc.get(id) ?? 0) + Number(e.volume_bbl ?? 0));
   }
-  const rows = ((allocs ?? []) as unknown as AllocRow[]).filter((a) => !a.written_off_at);
-  const totalPct = rows.reduce((s, a) => s + Number(a.percentage), 0);
+  // A written-off allocation still holds its share of the batch (its beer
+  // shipped or was forgiven); it just cannot give any up. Count it in the
+  // total, never list it as a source.
+  const allRows = (allocs ?? []) as unknown as AllocRow[];
+  const rows = allRows.filter((a) => !a.written_off_at);
+  const totalPct = allRows.reduce((s, a) => s + Number(a.percentage), 0);
   const unallocatedBbl = round2(Math.max(0, (100 - totalPct) / 100) * basisBbl);
 
   const sources: HomeSource[] = [];

@@ -156,10 +156,11 @@ export async function writeRefundReturn(
         shipment_id: result.shipmentId,
         batch_id: tx.batch_id,
         recipe_id: tx.recipe_id,
-        // Deliberately NOT stamped with the original allocation. Releasing
-        // allocation credit is a separate decision (see shipmentEdit's G-rules)
-        // and a return should not silently hand a partner their entitlement back.
-        allocation_id: null,
+        // The return reverses a credited shipment, so it carries the same
+        // allocation: the partner is owed that beer again, and the fulfilment
+        // recheck below judges it. A row with no allocation sat in the ledger
+        // as "shipped without a commitment" forever (B-038's -0.77 did).
+        allocation_id: tx.allocation_id ?? null,
         packaging_item_id: tx.packaging_item_id,
         variation_id: tx.variation_id,
         variant_label: tx.variant_label,

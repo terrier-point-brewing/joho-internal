@@ -142,9 +142,10 @@ describe("writeRefundReturn", () => {
     expect(row.channel).toBe("contract_brewing");
     expect(row.status).toBe("paid");
     expect(row.source_ref).toBe("refund:r1");
-    // A return must not hand the partner their allocation entitlement back —
-    // that is a separate decision, made in the shipment editor.
-    expect(row.allocation_id).toBeNull();
+    // The return stays inside the commitment it reverses: the partner is owed
+    // that beer again and the fulfilment recheck judges it. A null here left
+    // the row stranded in the ledger as "shipped without a commitment".
+    expect(row.allocation_id).toBe("alloc1");
     expect(result.unitsReturned).toBe(8);
   });
 
