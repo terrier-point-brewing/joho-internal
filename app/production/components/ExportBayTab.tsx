@@ -1592,22 +1592,8 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
     e.preventDefault();
     setError(null);
 
-    if (channel !== "taproom" && partnerId) {
-      try {
-        const check = await fetchJson<{ hasActiveAllocation: boolean }>(
-          `/api/production/export-bay/active-allocation-check?partner_id=${partnerId}&recipe_id=${recipeId}`
-        );
-        if (check.hasActiveAllocation) {
-          const proceed = window.confirm(
-            "This customer already has an active allocation for this recipe — are you sure you want to ship ad-hoc instead of crediting that allocation?"
-          );
-          if (!proceed) return;
-        }
-      } catch {
-        // Advisory check failing should never block the actual shipment.
-      }
-    }
-
+    // A partner with an allocation for this beer is refused by the route (409)
+    // and told to ship from the allocation card; the message lands in `error`.
     setSubmitting(true);
     try {
       const res = await fetch("/api/production/export-bay/ship-adhoc", {

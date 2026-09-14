@@ -27,6 +27,7 @@ import FilterSelect from "@/app/components/ui/FilterSelect";
 import Banner from "@/app/components/ui/Banner";
 import { CHANNEL_COLOR } from "../lib/categoryColors";
 import { useQueryClient } from "@tanstack/react-query";
+import InvoicePreviewModal from "./InvoicePreviewModal";
 
 /**
  * The one write on this screen: a deposit marked paid with no amount on
@@ -302,6 +303,9 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
   const [partnerFilter, setPartnerFilter] = useState<string[]>([]);
   const [stageFilter, setStageFilter] = useState<string[]>(["open"]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Billing starts from the row that shows what is unbilled: the same preview
+  // modal the Shipments tab uses, fed the deal's uninvoiced shipment ids.
+  const [invoiceFor, setInvoiceFor] = useState<string[] | null>(null);
 
   const stageKeep = (stage: CommitmentStage) =>
     stageFilter.length === 0 || stageFilter.includes("open") ? (stageFilter.includes("open") ? OPEN_STAGES.has(stage) : true) : stageFilter.includes(stage);
@@ -328,6 +332,13 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
 
   return (
     <div className="space-y-4">
+      {invoiceFor && (
+        <InvoicePreviewModal
+          transactionIds={invoiceFor}
+          onClose={() => setInvoiceFor(null)}
+          onCreated={() => { setInvoiceFor(null); refresh(); }}
+        />
+      )}
       <FilterBar activeCount={filterActiveCount} onClear={() => { setPartnerFilter([]); setStageFilter(["open"]); }}>
         <FilterSelect label="Partner" options={ledger.map((p) => ({ value: p.partner_id, label: p.company_name }))}
           value={partnerFilter} onChange={setPartnerFilter} allLabel="All Partners" />
@@ -417,7 +428,17 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
                                   {c.totals.export_billed_cents > c.totals.export_paid_cents && <span className="text-muted"> of {fmtUsd(c.totals.export_billed_cents / 100)}</span>}
                                 </div>
                                 {c.totals.uninvoiced_bbl > 0.005
-                                  ? <div className="text-[var(--cat-amber-fg)]">{bbl(c.totals.uninvoiced_bbl)} bbl not invoiced</div>
+                                  ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[var(--cat-amber-fg)]">{bbl(c.totals.uninvoiced_bbl)} bbl not invoiced</span>
+                                      {(c.totals.uninvoiced_transaction_ids?.length ?? 0) > 0 && (
+                                        <button type="button" className="btn-primary btn-xxs"
+                                          onClick={(e) => { e.stopPropagation(); setInvoiceFor(c.totals.uninvoiced_transaction_ids ?? []); }}>
+                                          Generate invoice
+                                        </button>
+                                      )}
+                                    </div>
+                                  )
                                   : <div className="text-muted">{c.export_invoices.length} invoice{c.export_invoices.length !== 1 ? "s" : ""}</div>}
                               </>
                             )}
@@ -437,8 +458,15 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
           </div>
           {p.unallocated.length > 0 && stageFilter.includes("open") && (
             <div className="px-4 py-3 border-t border-line bg-surface/20">
-              <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1.5">
-                Outside any commitment <span className="font-normal normal-case tracking-normal text-muted">— over-delivery and ad-hoc drops, {bbl(p.unallocated_bbl)} bbl</span>
+              <div className="flex items-center gap-3 mb-1.5">
+                <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                  Outside any commitment <span className="font-normal normal-case tracking-normal text-muted">— over-delivery and ad-hoc drops, {bbl(p.unallocated_bbl)} bbl</span>
+                </div>
+                {p.unallocated_uninvoiced_transaction_ids.length > 0 && (
+                  <button type="button" className="btn-primary btn-xxs" onClick={() => setInvoiceFor(p.unallocated_uninvoiced_transaction_ids)}>
+                    Generate invoice
+                  </button>
+                )}
               </div>
               <ShipmentRows shipments={p.unallocated} onOpenInvoice={onNavigateToInvoice} />
             </div>
