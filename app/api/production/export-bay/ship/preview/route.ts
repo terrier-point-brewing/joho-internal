@@ -89,7 +89,16 @@ export async function POST(req: NextRequest) {
 
   const plan = planShipment({ requestedBbl, candidates, perBatchDrawBbl, batches });
 
+  // Contract allocations this shipment would credit on credit (deposit unpaid).
+  // The real ship refuses these without an acknowledgement — say so first.
+  const unpaid = candidates.filter((c) => c.channel === "contract_brewing" && c.depositSettled === false);
+  const { data: unpaidBatchRows } = unpaid.length > 0
+    ? await supabase.from("brew_batches").select("id, batch_number").in("id", unpaid.map((c) => c.batchId))
+    : { data: [] as Array<{ id: string; batch_number: string | null }> };
+  const numberById = new Map(((unpaidBatchRows ?? []) as Array<{ id: string; batch_number: string | null }>).map((b) => [b.id, b.batch_number]));
+
   return NextResponse.json({
+    unpaidDepositBatches: unpaid.map((c) => ({ batchId: c.batchId, batchNumber: numberById.get(c.batchId) ?? null, allocationId: c.allocationId })),
     warnings: plan.warnings,
     insufficientStock: lineAvailability.some((l) => l.insufficient),
     // Single-line callers still read `available` as a bare number.

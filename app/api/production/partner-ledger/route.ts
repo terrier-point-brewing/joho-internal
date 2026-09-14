@@ -33,7 +33,7 @@ export async function GET() {
         deposit_amount_paid_cents, refund_amount_cents, refunded_at, written_off_at, written_off_bbl, write_off_note,
         brew_batches(batch_number, status, volume_bbl, beer_name)`),
     admin.from("export_transactions")
-      .select("id, shipment_id, batch_id, recipe_id, allocation_id, channel, recipient_id, variant_label, quantity, volume_bbl, status, invoice_id, is_ad_hoc, over_allocation, is_phantom, source_ref, created_at, brew_batches(batch_number), recipes(beer_name), packaging_variations!variation_id(name)")
+      .select("id, shipment_id, batch_id, recipe_id, allocation_id, channel, recipient_id, variant_label, quantity, volume_bbl, status, invoice_id, is_ad_hoc, over_allocation, is_phantom, source_ref, created_at, shipped_before_deposit, brew_batches(batch_number), recipes(beer_name), packaging_variations!variation_id(name)")
       .neq("channel", "taproom"),
   ]);
 

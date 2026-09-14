@@ -164,6 +164,7 @@ export async function writeColdStorageShipment(
       bbl: (d.depletedQty * variation.total_volume_fl_oz) / BBL_TO_FL_OZ,
       qty: d.depletedQty,
       overAllocation: false,
+      shippedBeforeDeposit: false,
     }));
   }
 
@@ -193,6 +194,7 @@ export async function writeColdStorageShipment(
       overAllocation: w.overAllocation,
       packagingLossPct: lossPctByBatch.get(w.batchId) ?? 0,
       isAdHoc: adHoc && !w.allocationId,
+      shippedBeforeDeposit: w.shippedBeforeDeposit,
     });
 
     if (!completedBatches.has(w.batchId)) {

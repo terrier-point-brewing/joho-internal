@@ -185,6 +185,12 @@ export interface ShipmentCandidate {
   // against that lets one batch absorb another batch's beer. Undefined on
   // legacy callers → this term does not cap. Soft channels: null (uncapped).
   realizableRemainingBbl?: number | null;
+  /**
+   * Contract only: the allocation's ingredient deposit has been paid (or the
+   * allocation written off). False means the beer is leaving on credit — the
+   * ship route makes the operator say so, and the row records it.
+   */
+  depositSettled?: boolean;
 }
 
 export interface ShipmentPlanInput {
@@ -292,6 +298,8 @@ export interface PlannedWrite {
   bbl: number;
   qty: number;
   overAllocation: boolean;
+  /** Credited a contract allocation whose deposit was not yet paid. */
+  shippedBeforeDeposit: boolean;
 }
 
 /**
@@ -319,12 +327,15 @@ export function planCreditedWrites(
     if (cr.allocationId) {
       const cand = candById.get(cr.allocationId);
       if (!cand) continue;
-      writes.push({ batchId: cand.batchId, allocationId: cr.allocationId, channel: cand.channel, bbl: cr.bbl, qty: 0, overAllocation: false });
+      writes.push({
+        batchId: cand.batchId, allocationId: cr.allocationId, channel: cand.channel, bbl: cr.bbl, qty: 0, overAllocation: false,
+        shippedBeforeDeposit: isDepositBacked(cand.channel) && cand.depositSettled === false,
+      });
     } else if (totalDrawQty > 0) {
       for (const d of depleted) {
         const portion = cr.bbl * (d.depletedQty / totalDrawQty);
         if (portion <= EPS) continue;
-        writes.push({ batchId: d.batchId, allocationId: null, channel: overDeliveryChannel, bbl: round4(portion), qty: 0, overAllocation: cr.overAllocation });
+        writes.push({ batchId: d.batchId, allocationId: null, channel: overDeliveryChannel, bbl: round4(portion), qty: 0, overAllocation: cr.overAllocation, shippedBeforeDeposit: false });
       }
     }
   }

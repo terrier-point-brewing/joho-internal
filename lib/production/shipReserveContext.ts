@@ -35,7 +35,7 @@ export async function loadShipReserveContext(
   const { data: allocRows } = await supabase
     .from("batch_allocations")
     .select(`
-      id, batch_id, channel, partner_id, percentage, contract_request_id, written_off_at,
+      id, batch_id, channel, partner_id, percentage, contract_request_id, written_off_at, invoice_paid_at,
       commitments(volume_bbl),
       brew_batches!inner(id, recipe_id, created_at, status)
     `)
@@ -108,7 +108,7 @@ export async function loadShipReserveContext(
     allocations: allocsByBatch.get(bid) ?? [],
   }));
 
-  type CandRow = { id: string; batch_id: string; channel: string; percentage: number; written_off_at: string | null; commitments: { volume_bbl: number } | null; brew_batches: { created_at: string } };
+  type CandRow = { id: string; batch_id: string; channel: string; percentage: number; written_off_at: string | null; invoice_paid_at: string | null; commitments: { volume_bbl: number } | null; brew_batches: { created_at: string } };
   const candidates: ShipmentCandidate[] = ((allocRows ?? []) as unknown as CandRow[])
     // A written-off allocation is closed — never credit new shipments to it.
     .filter((a) => !a.written_off_at)
@@ -122,7 +122,8 @@ export async function loadShipReserveContext(
       // its booked estimate (shrinkage) cannot keep absorbing other batches' beer.
       const realizable = (Number(a.percentage) / 100) * (producedByBatch[a.batch_id] ?? 0);
       const realizableRemainingBbl = channel === "contract_brewing" ? Math.max(0, realizable - exported) : null;
-      return { allocationId: a.id, batchId: a.batch_id, channel, bookedRemainingBbl, realizableRemainingBbl, _createdAt: a.brew_batches.created_at };
+      const depositSettled = channel === "contract_brewing" ? !!a.invoice_paid_at : undefined;
+      return { allocationId: a.id, batchId: a.batch_id, channel, bookedRemainingBbl, realizableRemainingBbl, depositSettled, _createdAt: a.brew_batches.created_at };
     })
     // Drop contract allocations with nothing left to credit — on either cap.
     .filter((c) =>
@@ -136,7 +137,7 @@ export async function loadShipReserveContext(
       if (cx !== cy) return cx - cy;
       return new Date(x._createdAt).getTime() - new Date(y._createdAt).getTime();
     })
-    .map(({ allocationId, batchId, channel, bookedRemainingBbl, realizableRemainingBbl }) => ({ allocationId, batchId, channel, bookedRemainingBbl, realizableRemainingBbl }));
+    .map(({ allocationId, batchId, channel, bookedRemainingBbl, realizableRemainingBbl, depositSettled }) => ({ allocationId, batchId, channel, bookedRemainingBbl, realizableRemainingBbl, depositSettled }));
 
   return { candidates, batches };
 }
@@ -169,4 +170,24 @@ export async function simulateColdStorageDraw(
   }
   const perBatchDrawBbl = Object.entries(drawByBatch).map(([batchId, units]) => ({ batchId, drawBbl: units * bblPerUnit }));
   return { perBatchDrawBbl, availableUnits };
+}
+
+/**
+ * Contract allocations of this partner + recipe that a shipment would credit
+ * (something still owed) whose ingredient deposit has not been paid. The ship
+ * route refuses without an acknowledgement; the preview shows them up front.
+ */
+export async function unpaidDepositBatches(
+  supabase: SupabaseClient,
+  { recipeId, partnerId }: { recipeId: string; partnerId: string },
+): Promise<Array<{ batchId: string; batchNumber: string | null; allocationId: string }>> {
+  const { candidates } = await loadShipReserveContext(supabase, { recipeId, partnerId, drawnBatchIds: [] });
+  const unpaid = candidates.filter((c) => c.channel === "contract_brewing" && c.depositSettled === false);
+  if (unpaid.length === 0) return [];
+  const { data: batches } = await supabase
+    .from("brew_batches")
+    .select("id, batch_number")
+    .in("id", unpaid.map((c) => c.batchId));
+  const numberById = new Map(((batches ?? []) as Array<{ id: string; batch_number: string | null }>).map((b) => [b.id, b.batch_number]));
+  return unpaid.map((c) => ({ batchId: c.batchId, batchNumber: numberById.get(c.batchId) ?? null, allocationId: c.allocationId }));
 }

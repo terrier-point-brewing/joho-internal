@@ -24,6 +24,7 @@ import {
 } from "@/lib/production/invoiceSkuSubstitutions";
 import type { CatalogItem } from "@/types/square";
 import { getNetTermsDays } from "@/lib/production/invoiceTerms";
+import { summarizeLineEdits, type LineEdit } from "@/lib/production/invoiceLineEdits";
 import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
@@ -49,6 +50,10 @@ interface PostBody {
   /** Which batch each Ingredient Deposit line covers — from the modal's
    *  derivation — so the charge lands on the right allocation. */
   depositLines?: Array<{ lineId: string; batchId: string; shippedBbl: number }>;
+  /** Hand edits against the generated preview (lib/production/invoiceLineEdits)
+   *  and why. Reason is required whenever there are edits. */
+  line_edits?: LineEdit[];
+  line_edit_reason?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -103,6 +108,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "override_reason is required when billing under a different channel" }, { status: 400 });
   }
   const overrideReason = body.override_reason?.trim() || null;
+
+  // Hand-edited lines are recorded with a reason, so an invoice that differs
+  // from what the system computed says why. Applies to generate and record.
+  const lineEdits = Array.isArray(body.line_edits) ? body.line_edits.filter((e) => e && typeof e === "object") : [];
+  const lineEditReason = body.line_edit_reason?.trim() || null;
+  if ((action === "generate" || action === "record") && lineEdits.length > 0 && !lineEditReason) {
+    return NextResponse.json(
+      { error: `${summarizeLineEdits(lineEdits)} — a reason is required when the generated lines are edited` },
+      { status: 400 },
+    );
+  }
+  const lineEditColumns = lineEdits.length > 0
+    ? { line_edits: lineEdits, line_edit_reason: lineEditReason }
+    : { line_edits: null, line_edit_reason: null };
 
   // When the invoice carries an Ingredient Deposit line (same detection the
   // modal uses: a catalog-backed line whose description names it), record the
@@ -281,6 +300,7 @@ export async function POST(req: NextRequest) {
           shipped_channel: shippedChannel,
           billed_channel: billedChannel,
           override_reason: overrideReason,
+          ...lineEditColumns,
         },
         { onConflict: "source,external_id", ignoreDuplicates: false }
       )
@@ -545,6 +565,7 @@ export async function POST(req: NextRequest) {
           shipped_channel: shippedChannel,
           billed_channel:  billedChannel,
           override_reason: overrideReason,
+          ...lineEditColumns,
           notes:          "Manually created export invoice",
         },
         { onConflict: "source,external_id", ignoreDuplicates: false }

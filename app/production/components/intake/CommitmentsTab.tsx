@@ -16,6 +16,7 @@ import { DepositInvoiceModal } from "../DepositInvoiceModal";
 import DepositCoverageLine from "../DepositCoverageLine";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
+import { lockedFieldsChanged } from "@/lib/production/commitmentLock";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
@@ -329,6 +330,17 @@ function CommitmentModal({
   const isDistribution = form.channel === "distribution";
   const isRecurring = isDistribution && form.cadence === "recurring";
 
+  // A locked deal (deposit paid) can still change beer, partner, channel or
+  // volume — with a reason the server keeps on the notes.
+  const [unlockReason, setUnlockReason] = useState("");
+  const lockedChanges = existing?.locked_on
+    ? lockedFieldsChanged(
+        { recipe_id: existing.recipe_id, partner_id: existing.partner_id, channel: existing.channel, volume_bbl: existing.volume_bbl },
+        { recipe_id: form.recipe_id, partner_id: form.partner_id || null, channel: form.channel, volume_bbl: form.volume_bbl },
+      )
+    : [];
+  const needsUnlockReason = lockedChanges.length > 0 && !unlockReason.trim();
+
   function setPackagingRow(i: number, patch: Partial<PackagingRow>) {
     setForm((f) => ({ ...f, packaging: f.packaging.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) }));
   }
@@ -350,6 +362,7 @@ function CommitmentModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.recipe_id) { alert("Please select a recipe."); return; }
+    if (needsUnlockReason) { alert("This commitment is locked — give a reason for the change."); return; }
     setSubmitting(true);
     try {
       const packagingPayload = form.packaging
@@ -370,6 +383,7 @@ function CommitmentModal({
         notes: form.notes || null,
         received_on: form.received_on || null,
         locked_on: form.locked_on || null,
+        unlock_reason: lockedChanges.length > 0 ? unlockReason.trim() : undefined,
       };
       const url = isEdit ? `/api/production/contract-requests?id=${existing!.id}` : "/api/production/contract-requests";
       const res = await fetch(url, { method: isEdit ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -497,6 +511,19 @@ function CommitmentModal({
             + Add another preference
           </button>
         </div>
+
+        {lockedChanges.length > 0 && (
+          <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1.5">
+            <p className="text-xs text-accent-soft">
+              This commitment locked on {existing?.locked_on ? fmtDateLong(existing.locked_on) : "deposit payment"}. You are changing its{" "}
+              {lockedChanges.map((f) => ({ recipe_id: "recipe", partner_id: "partner", channel: "channel", volume_bbl: "volume" })[f]).join(", ")}.
+            </p>
+            <Field label="Reason" required>
+              <input className="inp" value={unlockReason} onChange={(e) => setUnlockReason(e.target.value)}
+                placeholder="e.g. partner asked for 2 fewer bbl; deposit difference refunded" />
+            </Field>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Status">

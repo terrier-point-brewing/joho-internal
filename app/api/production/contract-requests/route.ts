@@ -7,6 +7,8 @@ import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib
 import { owedBbl, sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
 import { deriveCommitmentStage, type StageAllocation } from "@/lib/production/commitmentStage";
 import { loadDepositCharges } from "@/lib/production/depositCharges";
+import { lockedFieldsChanged, unlockNote } from "@/lib/production/commitmentLock";
+import { todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -314,6 +316,28 @@ export async function PATCH(req: NextRequest) {
   if (Object.keys(patch).length === 0 && !prefs) return NextResponse.json({ error: "no fields to update" }, { status: 400 });
 
   if (Object.keys(patch).length > 0) {
+    // A locked deal (deposit paid) does not quietly change beer, partner,
+    // channel or volume. It can — with a reason, kept on the notes.
+    const { data: current } = await supabase
+      .from("commitments")
+      .select("locked_on, notes, recipe_id, partner_id, channel, volume_bbl")
+      .eq("id", id)
+      .maybeSingle();
+    if (current?.locked_on) {
+      const changed = lockedFieldsChanged(current, patch);
+      if (changed.length > 0) {
+        const reason = typeof b.unlock_reason === "string" ? b.unlock_reason.trim() : "";
+        if (!reason) {
+          return NextResponse.json(
+            { error: `This commitment locked on ${current.locked_on} when its deposit was paid. Changing its ${changed.join(", ").replace(/_id|_bbl/g, "")} needs a reason.`, locked_fields: changed },
+            { status: 422 },
+          );
+        }
+        const note = unlockNote(todayLocalDate(), changed, reason);
+        const existingNotes = typeof patch.notes === "string" ? patch.notes : (current.notes ?? "");
+        patch.notes = existingNotes ? `${note} ${existingNotes}` : note;
+      }
+    }
     patch.last_edited_on = new Date().toISOString();
     const { error } = await supabase.from("commitments").update(patch).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

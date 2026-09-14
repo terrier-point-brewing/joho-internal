@@ -425,7 +425,7 @@ describe("planShipment", () => {
 describe("planCreditedWrites", () => {
   it("attributes an allocation credit to its batch and assigns full quantity", () => {
     const candidates = [{ allocationId: "A", batchId: "b1", channel: "contract_brewing" as const, bookedRemainingBbl: 15 }];
-    const plan = { credits: [{ allocationId: "A", bbl: 12, overAllocation: false }], warnings: [] };
+    const plan = { credits: [{ allocationId: "A", bbl: 12, overAllocation: false, shippedBeforeDeposit: false }], warnings: [] };
     const writes = planCreditedWrites(plan, {
       candidates,
       depleted: [{ batchId: "b1", depletedQty: 12 }],
@@ -433,7 +433,7 @@ describe("planCreditedWrites", () => {
       overDeliveryChannel: "distribution",
     });
     expect(writes).toEqual([
-      { batchId: "b1", allocationId: "A", channel: "contract_brewing", bbl: 12, qty: 12, overAllocation: false },
+      { batchId: "b1", allocationId: "A", channel: "contract_brewing", bbl: 12, qty: 12, overAllocation: false, shippedBeforeDeposit: false },
     ]);
   });
 

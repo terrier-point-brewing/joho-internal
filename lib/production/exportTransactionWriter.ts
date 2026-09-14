@@ -68,6 +68,8 @@ export async function writeExportTransaction(
      * what tells an invoice that no ingredient deposit was collected up front.
      */
     isAdHoc?: boolean;
+    /** Credited a contract allocation whose deposit was not yet paid at ship time. */
+    shippedBeforeDeposit?: boolean;
   }
 ): Promise<string> {
   const taxBreakdown = await computeExciseTaxBreakdown(supabase, params.volumeBbl);
@@ -100,6 +102,7 @@ export async function writeExportTransaction(
       phantom_origin: params.phantomOrigin ?? null,
       packaging_loss_pct: params.packagingLossPct ?? 0,
       is_ad_hoc: params.isAdHoc ?? false,
+      shipped_before_deposit: params.shippedBeforeDeposit ?? false,
     })
     .select("id")
     .single();
