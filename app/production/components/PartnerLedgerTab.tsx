@@ -26,6 +26,45 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import Banner from "@/app/components/ui/Banner";
 import { CHANNEL_COLOR } from "../lib/categoryColors";
+import { useQueryClient } from "@tanstack/react-query";
+
+/**
+ * The one write on this screen: a deposit marked paid with no amount on
+ * record (the spring-cohort backfills) can have its amount entered here,
+ * because the fact lives nowhere else and the ledger is where its absence
+ * shows. Everything else stays on the screens that own it.
+ */
+function RecordPaidAmount({ allocationId, onDone }: { allocationId: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!open) {
+    return <button type="button" className="btn-secondary btn-xxs" onClick={(e) => { e.stopPropagation(); setOpen(true); }}>Record amount</button>;
+  }
+  async function save(e: React.FormEvent) {
+    e.preventDefault(); e.stopPropagation();
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch(`/api/production/allocations/${allocationId}/invoice`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "record_paid_amount", amount_cents: Math.round(Number(amount) * 100), external_ref: ref }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Couldn't record the amount");
+      setOpen(false); onDone();
+    } catch (x) { setErr(x instanceof Error ? x.message : "Error"); } finally { setBusy(false); }
+  }
+  return (
+    <form onSubmit={save} onClick={(e) => e.stopPropagation()} className="flex flex-wrap items-center gap-1.5 text-xs">
+      <input className="inp-sm w-24" type="number" step="0.01" min="0.01" placeholder="$ paid" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+      <input className="inp-sm w-40" placeholder="invoice / payment ref" value={ref} onChange={(e) => setRef(e.target.value)} required />
+      <button type="submit" className="btn-primary btn-xxs" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+      <button type="button" className="btn-secondary btn-xxs" onClick={() => setOpen(false)}>Cancel</button>
+      {err && <span className="text-danger">{err}</span>}
+    </form>
+  );
+}
 
 const STAGE_META: Record<CommitmentStage, { label: string; cls: string }> = {
   unplanned:   { label: "Needs a batch", cls: "bg-accent-muted/50 text-accent border-accent-border" },
@@ -175,6 +214,7 @@ function ShipmentRows({ shipments, onOpenInvoice }: { shipments: LedgerShipment[
                   {l.quantity} × {l.variant_label ?? "—"}
                   {l.over_allocation && <span className="ml-1 text-[var(--cat-amber-fg)]">over-delivery</span>}
                   {l.is_ad_hoc && <span className="ml-1 text-[var(--cat-amber-fg)]">ad-hoc</span>}
+                  {l.shipped_before_deposit && <span className="ml-1 text-[var(--cat-amber-fg)]" title="The deposit was unpaid when this left; it back-charges on the export invoice">before deposit</span>}
                 </div>
               ))}
             </td>
@@ -191,7 +231,7 @@ function ShipmentRows({ shipments, onOpenInvoice }: { shipments: LedgerShipment[
   );
 }
 
-function CommitmentPanel({ c, onOpenInvoice }: { c: LedgerCommitment; onOpenInvoice: (id: string) => void }) {
+function CommitmentPanel({ c, onOpenInvoice, onChanged }: { c: LedgerCommitment; onOpenInvoice: (id: string) => void; onChanged: () => void }) {
   return (
     <div className="px-6 py-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="space-y-4">
@@ -207,12 +247,18 @@ function CommitmentPanel({ c, onOpenInvoice }: { c: LedgerCommitment; onOpenInvo
                     <span className="text-muted">Deposit:</span>
                     {a.deposit.invoice && <InvoiceChip inv={a.deposit.invoice} />}
                     {a.deposit.backcharge_invoices.map((inv) => <InvoiceChip key={inv.id} inv={inv} onOpen={onOpenInvoice} />)}
-                    {!a.deposit.invoice && a.deposit.backcharge_invoices.length === 0 && (
+                    {!a.deposit.invoice && a.deposit.backcharge_invoices.length === 0 && a.deposit.state !== "settled" && (
                       <span className={a.deposit.state === "written_off" ? "text-muted" : "text-[var(--cat-amber-fg)]"}>
                         {a.deposit.state === "written_off" ? "written off" : "not charged — will be back-charged on the export invoice"}
                       </span>
                     )}
                     {a.deposit.paid_cents > 0 && <span className="text-muted">· {fmtUsd(a.deposit.paid_cents / 100)} paid</span>}
+                    {a.deposit.state === "settled" && a.deposit.paid_cents === 0 && a.deposit.collected_cents === 0 && (
+                      <>
+                        <span className="text-[var(--cat-amber-fg)]">· paid, amount not recorded</span>
+                        <RecordPaidAmount allocationId={a.id} onDone={onChanged} />
+                      </>
+                    )}
                     {a.deposit.collected_cents > 0 && <span className="text-muted">· {fmtUsd(a.deposit.collected_cents / 100)} collected on export invoices</span>}
                     {a.deposit.refunded_cents > 0 && <span className="text-danger">· {fmtUsd(a.deposit.refunded_cents / 100)} refunded</span>}
                   </div>
@@ -246,6 +292,8 @@ function CommitmentPanel({ c, onOpenInvoice }: { c: LedgerCommitment; onOpenInvo
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateToInvoice: (invoiceId: string) => void }) {
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: queryKeys.production.partnerLedger() });
   const { data: ledger = [], isPending, error } = useQuery({
     queryKey: queryKeys.production.partnerLedger(),
     queryFn: () => fetchJson<LedgerPartner[]>("/api/production/partner-ledger"),
@@ -378,7 +426,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
                       </tr>
                       {open && (
                         <tr className="border-b border-line bg-surface/20">
-                          <td colSpan={12} className="p-0"><CommitmentPanel c={c} onOpenInvoice={onNavigateToInvoice} /></td>
+                          <td colSpan={12} className="p-0"><CommitmentPanel c={c} onOpenInvoice={onNavigateToInvoice} onChanged={refresh} /></td>
                         </tr>
                       )}
                     </React.Fragment>

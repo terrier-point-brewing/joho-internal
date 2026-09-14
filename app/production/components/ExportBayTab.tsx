@@ -1382,7 +1382,13 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
     insufficientStock: boolean;
     available: number;
     lines?: { variation_id: string; requested: number; available: number; insufficient: boolean }[];
+    unpaidDepositBatches?: { batchId: string; batchNumber: string | null; allocationId: string }[];
   } | null>(null);
+  // Shipping before the deposit is paid is allowed, but it is a decision the
+  // operator makes on purpose: the route refuses without this, and the row
+  // records that the beer left on credit.
+  const [ackUnpaidDeposit, setAckUnpaidDeposit] = useState(false);
+  const unpaidDeposit = preview?.unpaidDepositBatches ?? [];
 
   // Only complete lines are worth previewing or submitting.
   const filledLines = shipLines
@@ -1424,6 +1430,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           recipe_id:  group.recipeId,
           lines:      filledLines,
           notes:      notes || null,
+          acknowledge_unpaid_deposit: unpaidDeposit.length > 0 ? ackUnpaidDeposit : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1510,6 +1517,21 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <label className="text-xs text-secondary block mb-1">Notes</label>
             <input className="inp w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
+          {unpaidDeposit.length > 0 && (
+            <div className="rounded border border-danger-border bg-danger-surface/30 px-3 py-2 space-y-1.5">
+              <p className="text-xs font-medium text-danger">
+                Deposit not paid — {unpaidDeposit.map((u) => `#${u.batchNumber ?? u.batchId.slice(0, 8)}`).join(", ")}
+              </p>
+              <p className="text-xs text-secondary">
+                This shipment credits a contract allocation whose ingredient deposit has not been paid.
+                Ship anyway and the deposit is back-charged on the export invoice; the shipment is recorded as shipped before deposit.
+              </p>
+              <label className="flex items-start gap-2 text-xs text-body cursor-pointer">
+                <input type="checkbox" className="mt-0.5" checked={ackUnpaidDeposit} onChange={(e) => setAckUnpaidDeposit(e.target.checked)} />
+                <span>Ship before the deposit is paid</span>
+              </label>
+            </div>
+          )}
           {preview && preview.warnings.length > 0 && (
             <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1">
               <p className="text-xs font-medium text-accent-soft">Heads up</p>
@@ -1525,10 +1547,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button
               type="submit"
-              disabled={submitting || inventoryLines.length === 0 || filledLines.length === 0 || preview?.insufficientStock}
+              disabled={submitting || inventoryLines.length === 0 || filledLines.length === 0 || preview?.insufficientStock || (unpaidDeposit.length > 0 && !ackUnpaidDeposit)}
               className="btn-primary"
             >
-              {submitting ? "Shipping…" : "Ship"}
+              {submitting ? "Shipping…" : unpaidDeposit.length > 0 ? "Ship before deposit" : "Ship"}
             </button>
           </div>
         </form>

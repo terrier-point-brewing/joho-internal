@@ -11,6 +11,7 @@ import { useInvoicePreview, useExportSquareCatalogQuery } from "../hooks/queries
 import type { SquareCatalogOptions } from "../types";
 import type { ConversionDepositOption, ShippedDepositLine } from "@/lib/production/exportIngredientDeposit";
 import { fmtUsd } from "@/lib/utils/formatting";
+import { diffInvoiceLines, summarizeLineEdits } from "@/lib/production/invoiceLineEdits";
 import { crossesExciseTreatmentBoundary } from "@/lib/tax/parties/ncDorBeerExcise/rates";
 
 // Channels an export invoice can be billed under (taproom is not invoiceable
@@ -100,6 +101,8 @@ export default function InvoicePreviewModal({
   const [customerNote, setCustomerNote] = useState("");
 
   const effectiveLineItems = lineItems ?? data?.lineItems ?? [];
+  // Why the generated lines were edited — required whenever they were.
+  const [lineEditReason, setLineEditReason] = useState("");
   const materialBreakdowns = data?.materialBreakdowns ?? {};
   const openBreakdown = breakdownLineId ? materialBreakdowns[breakdownLineId] : undefined;
   const channel = data?.channel ?? null;
@@ -175,15 +178,35 @@ export default function InvoicePreviewModal({
   // is a fact, not a judgment: the deposit line gets added automatically (still
   // removable). Runs once per preview load; a removed line stays removed.
   const unpaidDeposits = data?.unpaidDepositAllocations ?? [];
+  // Beer shipped beyond every booked deposit on a contract invoice. There is no
+  // product line to price it, so it would go out for packaging fees alone;
+  // when no wider deposit line already covers these rows, add one for exactly
+  // them.
+  const overDeliveryIds = data?.overDeliveryTransactionIds ?? [];
+  const overDeliveryBbl = data?.overDeliveryBbl ?? 0;
+  const overDeliveryOnly = overDeliveryIds.length > 0 && unpaidDeposits.length === 0;
   const autoDepositRan = useRef(false);
   useEffect(() => {
     if (autoDepositRan.current) return;
     if (!data || data.channel !== "contract_brewing") return;
-    if (unpaidDeposits.length === 0 || hasDepositLine) return;
-    autoDepositRan.current = true;
-    void loadIngredientDeposit(excludedByBatch);
+    if (hasDepositLine) return;
+    if (unpaidDeposits.length > 0) {
+      autoDepositRan.current = true;
+      void loadIngredientDeposit(excludedByBatch);
+    } else if (overDeliveryIds.length > 0) {
+      autoDepositRan.current = true;
+      void loadIngredientDeposit(excludedByBatch, overDeliveryIds);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once when the preview lands.
   }, [data]);
+
+  // Hand edits against what the system generated. Deposit lines this modal
+  // added itself are not edits.
+  const lineEdits = useMemo(
+    () => (data ? diffInvoiceLines(data.lineItems, lineItems ?? data.lineItems, new Set(depositLineIds)) : []),
+    [data, lineItems, depositLineIds],
+  );
+  const needsLineEditReason = lineEdits.length > 0 && !lineEditReason.trim();
 
   function excludeParam(exclusions: Record<string, string[]>): string {
     const pairs = Object.entries(exclusions).flatMap(([batchId, recipeIds]) =>
@@ -192,12 +215,13 @@ export default function InvoicePreviewModal({
     return pairs.length ? `&exclude=${pairs.join(",")}` : "";
   }
 
-  async function loadIngredientDeposit(exclusions: Record<string, string[]>) {
+  async function loadIngredientDeposit(exclusions: Record<string, string[]>, onlyIds?: string[]) {
     setDepositPending(true);
     setDepositError(null);
     try {
+      const ids = onlyIds && onlyIds.length > 0 ? onlyIds : transactionIds;
       const res = await fetch(
-        `/api/production/export/ingredient-deposit?ids=${transactionIds.join(",")}${excludeParam(exclusions)}`
+        `/api/production/export/ingredient-deposit?ids=${ids.join(",")}${excludeParam(exclusions)}`
       );
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Couldn't compute the ingredient deposit");
@@ -327,6 +351,8 @@ export default function InvoicePreviewModal({
             bill_as_channel: billAsChannel ?? undefined,
             override_reason: isOverride ? overrideReason.trim() : undefined,
             customer_note: customerNote.trim() || undefined,
+            line_edits: lineEdits.length > 0 ? lineEdits : undefined,
+            line_edit_reason: lineEdits.length > 0 ? lineEditReason.trim() : undefined,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "Failed to create invoice");
@@ -347,6 +373,8 @@ export default function InvoicePreviewModal({
               .map((li) => ({ lineId: li.id, batchId: depositBreakdowns[li.id].batchId, shippedBbl: depositBreakdowns[li.id].shippedBbl })),
             bill_as_channel: billAsChannel ?? undefined,
             override_reason: isOverride ? overrideReason.trim() : undefined,
+            line_edits: lineEdits.length > 0 ? lineEdits : undefined,
+            line_edit_reason: lineEdits.length > 0 ? lineEditReason.trim() : undefined,
           }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "Failed to record invoice");
@@ -481,6 +509,34 @@ export default function InvoicePreviewModal({
                 cancel it from the Commitments tab before sending this one, or the partner is billed twice.</>
               )}
             </Banner>
+          )}
+
+          {channel === "contract_brewing" && overDeliveryOnly && (
+            <Banner tone="accent">
+              <span className="font-medium">{overDeliveryBbl.toFixed(2)} bbl</span> of this shipment is beyond the partner&rsquo;s booked
+              deposit, so nothing has paid for that beer&rsquo;s ingredients — {hasDepositLine
+                ? "an Ingredient Deposit line for exactly that beer has been added."
+                : "add the Ingredient Deposit line below to charge its ingredient share."}
+            </Banner>
+          )}
+
+          {/* ── Line edits need a reason ─────────────────────────────────── */}
+          {lineEdits.length > 0 && (
+            <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1.5">
+              <p className="text-xs text-accent-soft">
+                Lines differ from what was generated: <span className="font-medium">{summarizeLineEdits(lineEdits)}</span>.
+                The edit is recorded on the invoice with your reason.
+              </p>
+              <div className="space-y-1">
+                <label className="text-xs text-secondary">Reason <span className="text-danger">*</span></label>
+                <input
+                  className="inp-sm w-full"
+                  value={lineEditReason}
+                  placeholder="e.g. agreed rate for this partner; keg cleaning waived"
+                  onChange={(e) => setLineEditReason(e.target.value)}
+                />
+              </div>
+            </div>
           )}
 
           {/* ── Ingredient deposit ─────────────────────────────────────────── */}
@@ -830,7 +886,7 @@ export default function InvoicePreviewModal({
             <button onClick={onClose} className="btn-secondary" disabled={creating}>Cancel</button>
             <button
               onClick={handleCreate}
-              disabled={creating || effectiveLineItems.length === 0 || unlinkedProductLines > 0 || (invoiceMode === "manual" && !manualValid) || (isOverride && !overrideReason.trim())}
+              disabled={creating || effectiveLineItems.length === 0 || unlinkedProductLines > 0 || (invoiceMode === "manual" && !manualValid) || (isOverride && !overrideReason.trim()) || needsLineEditReason}
               className="btn-primary"
             >
               {creating

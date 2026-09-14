@@ -76,6 +76,8 @@ export interface LedgerExportRow extends ExportVolumeRow {
   is_phantom: boolean | null;
   source_ref: string | null;
   created_at: string;
+  /** Credited a contract allocation whose deposit was unpaid at ship time. */
+  shipped_before_deposit?: boolean | null;
 }
 
 export interface LedgerInvoiceRow {
@@ -120,7 +122,7 @@ export interface LedgerShipment {
   shipment_id: string | null;
   date: string;
   batch_number: string | null;
-  lines: Array<{ variant_label: string | null; quantity: number; volume_bbl: number; over_allocation: boolean; is_ad_hoc: boolean }>;
+  lines: Array<{ variant_label: string | null; quantity: number; volume_bbl: number; over_allocation: boolean; is_ad_hoc: boolean; shipped_before_deposit: boolean }>;
   volume_bbl: number;
   status: string;
   invoice: LedgerInvoiceRef | null;
@@ -240,6 +242,7 @@ export function groupShipments(rows: LedgerExportRow[], invoiceById: Map<string,
           volume_bbl: r2(Number(g.volume_bbl ?? 0)),
           over_allocation: !!g.over_allocation,
           is_ad_hoc: !!g.is_ad_hoc,
+          shipped_before_deposit: !!g.shipped_before_deposit,
         })),
         volume_bbl: r2(group.reduce((s, g) => s + Number(g.volume_bbl ?? 0), 0)),
         status: first.status,

@@ -146,6 +146,7 @@ describe("writeExportTransaction", () => {
         // Defaults to false: a row is ad-hoc only when the ad-hoc ship route
         // says so, never because its allocation happens to be missing.
         is_ad_hoc: false,
+    shipped_before_deposit: false,
       },
     ]);
     expect(inserted.export_transaction_taxes).toEqual([

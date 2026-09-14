@@ -98,8 +98,8 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
   const body = await req.json();
   const action = body.action as "generate" | "send" | "sync";
 
-  if (!["generate", "send", "sync", "delete", "mark_paid"].includes(action)) {
-    return NextResponse.json({ error: "action must be generate | send | sync | delete | mark_paid" }, { status: 400 });
+  if (!["generate", "send", "sync", "delete", "mark_paid", "record_paid_amount"].includes(action)) {
+    return NextResponse.json({ error: "action must be generate | send | sync | delete | mark_paid | record_paid_amount" }, { status: 400 });
   }
 
   // Fetch allocation with all needed joined data
@@ -415,7 +415,10 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     const externalRef = body.external_ref  as string | undefined;
 
     if (!paidAt)                          return NextResponse.json({ error: "paid_at is required" }, { status: 400 });
-    if (amountCents === undefined || amountCents < 0) return NextResponse.json({ error: "amount_cents must be non-negative" }, { status: 400 });
+    // A paid deposit with no amount is unauditable — ten spring-cohort
+    // allocations were marked paid at $0 and "was the right amount charged"
+    // could not be answered for any of them.
+    if (amountCents === undefined || !(amountCents > 0)) return NextResponse.json({ error: "amount_cents must be the amount actually paid (greater than zero)" }, { status: 400 });
     if (source === "quickbooks" && !externalRef) return NextResponse.json({ error: "external_ref (QB invoice number) is required" }, { status: 400 });
 
     const now = new Date().toISOString();
@@ -482,6 +485,75 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
       }
     }
 
+    return NextResponse.json({ allocation: updated });
+  }
+
+  // ── record_paid_amount ────────────────────────────────────────────────────
+  // For an allocation already marked paid with no amount on record (the
+  // spring-cohort backfills). Writes the amount and, when no ledger invoice
+  // is linked yet, a paid invoices row so the deposit shows in Finance too.
+  if (action === "record_paid_amount") {
+    if (!allocation.invoice_paid_at) {
+      return NextResponse.json({ error: "This allocation is not marked paid — use mark_paid" }, { status: 422 });
+    }
+    if (Number(allocation.deposit_amount_paid_cents ?? 0) > 0) {
+      return NextResponse.json({ error: "An amount is already recorded for this deposit" }, { status: 422 });
+    }
+    const amountCents = body.amount_cents as number | undefined;
+    const externalRef = (body.external_ref as string | undefined)?.trim();
+    if (amountCents === undefined || !(amountCents > 0)) return NextResponse.json({ error: "amount_cents must be greater than zero" }, { status: 400 });
+    if (!externalRef) return NextResponse.json({ error: "external_ref (the invoice or payment reference) is required" }, { status: 400 });
+
+    const { data: updated, error: updateErr } = await supabase
+      .from("batch_allocations")
+      .update({ deposit_amount_paid_cents: amountCents })
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+    const { data: existing } = await adminSupabase
+      .from("invoices")
+      .select("id, total_cents")
+      .eq("invoice_type", "allocation_deposit")
+      .eq("allocation_id", id)
+      .neq("status", "voided")
+      .maybeSingle();
+    if (existing?.id) {
+      if (Number(existing.total_cents ?? 0) === 0) {
+        await adminSupabase.from("invoices").update({ subtotal_cents: amountCents, total_cents: amountCents }).eq("id", existing.id);
+      }
+    } else {
+      const pct = Number(allocation.percentage);
+      const { data: inv } = await adminSupabase
+        .from("invoices")
+        .upsert(
+          {
+            source:         "other",
+            external_id:    externalRef,
+            invoice_number: externalRef,
+            invoice_type:   "allocation_deposit",
+            allocation_id:  id,
+            partner_id:     partner.id,
+            customer_name:  partner.company_name,
+            invoice_date:   String(allocation.invoice_paid_at).slice(0, 10),
+            status:         "paid",
+            subtotal_cents: amountCents,
+            tax_cents:      0,
+            total_cents:    amountCents,
+            notes:          `Amount recorded after the fact — ${batch.beer_name} deposit (${pct.toFixed(1)}%)`,
+          },
+          { onConflict: "source,external_id", ignoreDuplicates: false },
+        )
+        .select("id")
+        .single();
+      if (inv?.id) {
+        await adminSupabase.from("invoice_batch_links").upsert(
+          { invoice_id: inv.id, batch_id: batch.id },
+          { onConflict: "invoice_id,batch_id", ignoreDuplicates: true },
+        );
+      }
+    }
     return NextResponse.json({ allocation: updated });
   }
 

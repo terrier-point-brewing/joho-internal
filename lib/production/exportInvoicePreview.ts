@@ -106,6 +106,15 @@ export interface InvoicePreviewResult {
    * does NOT exclude it, or a three-drop delivery would pay deposit on drop one.
    */
   unpaidDepositAllocations: UnpaidDepositAllocation[];
+  /**
+   * Contract billing only: shipments beyond every booked deposit (over-delivery
+   * rows, credited to no allocation). A contract invoice carries no product
+   * line — the partner paid for the beer through the deposit — so beer past the
+   * booking would go out for packaging fees alone. The modal adds an ingredient
+   * share for exactly these rows when no wider deposit line already covers them.
+   */
+  overDeliveryTransactionIds: string[];
+  overDeliveryBbl: number;
 }
 
 /** One shipped allocation whose deposit hasn't been collected in full. */
@@ -151,6 +160,8 @@ interface ExportTxRow {
   is_ad_hoc: boolean | null;
   /** The batch_allocation this shipment was credited to; null for ad-hoc/over-delivery rows. */
   allocation_id: string | null;
+  /** Shipped beyond every booked deposit (see planShipment). */
+  over_allocation?: boolean | null;
 }
 
 /**
@@ -579,7 +590,7 @@ export async function buildInvoicePreview(
   // ── 1. Load transactions + validate same-customer, invoice_required ───────
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc, allocation_id")
+    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc, allocation_id, over_allocation")
     .in("id", transactionIds);
   if (txErr) throw new Error(txErr.message);
   if (!txs || txs.length !== transactionIds.length) {
@@ -817,6 +828,10 @@ export async function buildInvoicePreview(
     }
   }
 
+  const overDeliveryRows = channel === "contract_brewing"
+    ? rows.filter((r) => !r.allocation_id && r.over_allocation === true)
+    : [];
+
   return {
     customerId,
     customerName: partner.company_name,
@@ -829,5 +844,7 @@ export async function buildInvoicePreview(
     materialBreakdowns,
     adHoc: rows.some((r) => r.is_ad_hoc === true),
     unpaidDepositAllocations,
+    overDeliveryTransactionIds: overDeliveryRows.map((r) => r.id),
+    overDeliveryBbl: Math.round(overDeliveryRows.reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0) * 10000) / 10000,
   };
 }

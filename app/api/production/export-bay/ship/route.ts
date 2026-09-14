@@ -6,6 +6,7 @@ import { writeColdStorageShipment } from "@/lib/production/shipmentWriter";
 import type { ShipmentWarning } from "@/lib/production/allocationReserve";
 import { normalizeShipLines, dedupeWarnings, type ShipLinesInput } from "@/lib/production/shipLines";
 import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
+import { unpaidDepositBatches } from "@/lib/production/shipReserveContext";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,14 @@ interface ShipRequest extends ShipLinesInput {
   partner_id: string;
   recipe_id: string;
   notes?: string | null;
+  /**
+   * The operator has seen that a contract allocation this shipment will credit
+   * has NOT paid its ingredient deposit, and is shipping on credit anyway (the
+   * deposit back-charges on the export invoice). Without it the route refuses
+   * with the batches in question, so shipping before the deposit is a stated
+   * decision rather than something nobody noticed.
+   */
+  acknowledge_unpaid_deposit?: boolean;
 }
 
 // POST /api/production/export-bay/ship
@@ -55,6 +64,20 @@ export async function POST(req: NextRequest) {
         { status: 422 }
       );
     }
+  }
+
+  // Deposit gate: contract allocations that will be credited but have not paid.
+  // Physical stock stays the only HARD block — the partner may well be good for
+  // it — but leaving on credit is acknowledged, not silent.
+  const unpaid = await unpaidDepositBatches(supabase, { recipeId: recipe_id, partnerId: partner_id });
+  if (unpaid.length > 0 && body.acknowledge_unpaid_deposit !== true) {
+    return NextResponse.json(
+      {
+        error: `The ingredient deposit for ${unpaid.map((u) => `#${u.batchNumber ?? u.batchId.slice(0, 8)}`).join(", ")} has not been paid. Ship anyway and the deposit is back-charged on the export invoice — confirm to continue.`,
+        unpaid_deposit_batches: unpaid,
+      },
+      { status: 409 },
+    );
   }
 
   // One shipment id across every line, so the whole drop reads as a single
