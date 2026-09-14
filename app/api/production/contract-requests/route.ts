@@ -119,6 +119,7 @@ export async function GET(req: NextRequest) {
     (stageInputById[a.contract_request_id] ??= []).push({
       exportedBbl: d.exported_bbl,
       owedBbl: d.owed_bbl,
+      batchComplete: d.batch_status === "complete",
       writtenOff: !!(a as { written_off_at?: string | null }).written_off_at,
       // kept for the rollups below
       producedBbl: d.produced_bbl,

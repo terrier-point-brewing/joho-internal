@@ -388,6 +388,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
           storedStatus: c.status,
           allocations: allocs.map((a) => ({
             exportedBbl: a.exported_bbl, owedBbl: a.owed_bbl, writtenOff: a.written_off_bbl != null,
+            batchComplete: a.batch_status === "complete",
           })),
         });
 
