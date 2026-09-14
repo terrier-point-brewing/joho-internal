@@ -18,7 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "../hooks/queries";
 import type { LedgerAllocation, LedgerCommitment, LedgerInvoiceRef, LedgerPartner, LedgerShipment } from "@/lib/production/partnerLedger";
-import { stageBucket, STAGE_EXPLANATION, type CommitmentBucket, type CommitmentStage } from "@/lib/production/commitmentStage";
+import type { CommitmentStage } from "@/lib/production/commitmentStage";
 import { fmtUsd } from "@/lib/utils/formatting";
 import { fmtDate } from "@/lib/utils/formatting";
 import FilterBar from "@/app/components/ui/FilterBar";
@@ -68,28 +68,30 @@ function RecordPaidAmount({ allocationId, onDone }: { allocationId: string; onDo
   );
 }
 
-const BUCKET_META: Record<CommitmentBucket, { label: string; cls: string }> = {
+const STAGE_META: Record<CommitmentStage, { label: string; cls: string }> = {
   open:      { label: "Open",      cls: "bg-info-surface/50 text-info border-info-border" },
   closed:    { label: "Closed",    cls: "bg-success-surface/40 text-success border-success-border" },
   cancelled: { label: "Cancelled", cls: "bg-danger-surface/40 text-danger border-danger-border" },
 };
-const OPEN_STAGES = new Set<CommitmentStage>(["unplanned", "planned", "brewing", "packaged", "shipping"]);
 
 const ATTENTION_CLS: Record<Attention["kind"], string> = {
   not_invoiced:      "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
   deposit_uncharged: "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
   deposit_unpaid:    "bg-accent-muted/40 text-accent border-accent-border",
-  over_shipped:      "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
   needs_batch:       "bg-info-surface/40 text-info border-info-border",
+  over_delivered:    "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
   amount_unrecorded: "bg-surface-mid text-secondary border-line-strong",
+  under_delivered:   "bg-surface-mid text-muted border-line-strong",
 };
+/** Closing notes (not actionable) read quieter than things to do. */
+const NOTE_CLS = "bg-surface-mid text-muted border-line";
 
 function AttentionChips({ flags }: { flags: Attention[] }) {
   if (flags.length === 0) return <span className="text-faint text-xs">—</span>;
   return (
     <div className="flex flex-wrap gap-1">
       {flags.map((f) => (
-        <span key={f.kind} className={`text-xs px-1.5 py-0.5 rounded border whitespace-nowrap ${ATTENTION_CLS[f.kind]}`}>{f.label}</span>
+        <span key={f.kind} className={`text-xs px-1.5 py-0.5 rounded border whitespace-nowrap ${f.actionable ? ATTENTION_CLS[f.kind] : NOTE_CLS}`}>{f.label}</span>
       ))}
     </div>
   );
@@ -102,7 +104,7 @@ function DeliveryCell({ c }: { c: LedgerCommitment }) {
   const owed = t.owed_bbl;
   const pct = owed > 0 ? Math.min(100, (t.shipped_bbl / owed) * 100) : 0;
   const over = owed > 0 && t.shipped_bbl > owed + 0.01;
-  const closed = stageBucket(c.stage) !== "open";
+  const closed = c.stage !== "open";
   return (
     <div className="min-w-[150px]">
       <div className="text-xs tabular-nums font-mono">
@@ -138,8 +140,8 @@ const CHANNEL_LABEL: Record<string, string> = {
 };
 
 function StageBadge({ stage }: { stage: CommitmentStage }) {
-  const m = BUCKET_META[stageBucket(stage)];
-  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium whitespace-nowrap ${m.cls}`} title={STAGE_EXPLANATION[stage]}>{m.label}</span>;
+  const m = STAGE_META[stage];
+  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium whitespace-nowrap ${m.cls}`}>{m.label}</span>;
 }
 
 function ChannelBadge({ channel }: { channel: string }) {
@@ -277,7 +279,6 @@ function CommitmentPanel({ c, onOpenInvoice, onChanged }: { c: LedgerCommitment;
   return (
     <div className="px-6 py-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="space-y-4">
-        <p className="text-xs text-secondary">{STAGE_EXPLANATION[c.stage]}</p>
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1.5">Allocation</div>
           {c.allocations.length === 0
@@ -365,7 +366,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
       if (partnerFilter.length > 0 && !partnerFilter.includes(p.partner_id)) continue;
       const rows = p.commitments
         .map((c) => ({ c, flags: commitmentAttention(c), rank: attentionRank(c) }))
-        .filter((r) => view === "all" ? true : view === "open" ? OPEN_STAGES.has(r.c.stage) || r.rank < 99 : r.rank < 99)
+        .filter((r) => view === "all" ? true : view === "open" ? r.c.stage === "open" || r.rank < 99 : r.rank < 99)
         .sort((x, y) => x.rank - y.rank || (x.c.desired_delivery_date ?? "9999").localeCompare(y.c.desired_delivery_date ?? "9999"));
       const showUnallocated = view !== "attention" ? p.unallocated.length > 0 : p.unallocated_uninvoiced_transaction_ids.length > 0;
       if (rows.length === 0 && !showUnallocated) continue;
@@ -383,7 +384,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
       + ledger.reduce((s, p) => s + p.unallocated.filter((u) => !u.invoice).reduce((x, u) => x + u.volume_bbl, 0), 0);
     return {
       attention,
-      remainingBbl: all.filter((c) => OPEN_STAGES.has(c.stage)).reduce((s, c) => s + c.totals.remaining_bbl, 0),
+      remainingBbl: all.filter((c) => c.stage === "open").reduce((s, c) => s + c.totals.remaining_bbl, 0),
       uninvoicedBbl: uninvoiced,
       outstandingCents: all.reduce((s, c) =>
         s + Math.max(0, c.totals.deposit_billed_cents - c.totals.deposit_paid_cents)

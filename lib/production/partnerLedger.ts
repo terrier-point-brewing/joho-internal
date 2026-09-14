@@ -368,8 +368,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
         const stage = deriveCommitmentStage({
           storedStatus: c.status,
           allocations: allocs.map((a) => ({
-            batchStatus: a.batch_status, producedBbl: a.produced_bbl, exportedBbl: a.exported_bbl,
-            owedBbl: a.owed_bbl, writtenOff: a.written_off_bbl != null,
+            exportedBbl: a.exported_bbl, owedBbl: a.owed_bbl, writtenOff: a.written_off_bbl != null,
           })),
         });
 

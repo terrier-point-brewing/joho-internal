@@ -15,7 +15,6 @@ import DepositCoverageLine from "../DepositCoverageLine";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
 import { lockedFieldsChanged } from "@/lib/production/commitmentLock";
-import { stageBucket, STAGE_EXPLANATION, type CommitmentBucket } from "@/lib/production/commitmentStage";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
@@ -27,18 +26,16 @@ import type { ControlsConfig } from "@/lib/table/types";
 // The stage is DERIVED from the deal's allocations (lib/production/
 // commitmentStage) — where it actually is, not what status was last written.
 // The stored status only carries the human decision (open / cancelled).
-const BUCKET_META: Record<CommitmentBucket, { label: string; cls: string }> = {
+const STAGE_META: Record<CommitmentStage, { label: string; cls: string }> = {
   open:      { label: "Open",      cls: "bg-info-surface/50 text-info border-info-border" },
   closed:    { label: "Closed",    cls: "bg-success-surface/40 text-success border-success-border" },
   cancelled: { label: "Cancelled", cls: "bg-danger-surface/40 text-danger border-danger-border" },
 };
 
-/** Legacy rows from before the stage existed — map the stored status straight across. */
+/** Rows fetched before the stage existed — fall back to the stored decision. */
 function stageOf(q: ContractBrewingRequest): CommitmentStage {
   if (q.stage) return q.stage;
-  if (q.status === "cancelled") return "cancelled";
-  if (q.status === "fulfilled") return "fulfilled";
-  return (q.batch_allocations?.length ?? 0) > 0 ? "planned" : "unplanned";
+  return q.status === "cancelled" ? "cancelled" : "open";
 }
 
 const CHANNEL_META: Record<CommitmentChannel, { label: string; cls: string }> = {
@@ -55,17 +52,15 @@ const CHANNEL_OPTIONS = [
   { value: "wholesale", label: CHANNEL_META.wholesale.label, className: CC.amber },
 ];
 
-/** Open deals first, then closed, then cancelled; inside a bucket the finer stage keeps its pipeline order. */
-const STAGE_SORT_RANK: Record<CommitmentStage, number> = {
-  unplanned: 0, planned: 1, brewing: 2, packaged: 3, shipping: 4, delivered: 5, fulfilled: 6, written_off: 7, cancelled: 8,
-};
+/** Open deals first, then closed, then cancelled. */
+const STAGE_SORT_RANK: Record<CommitmentStage, number> = { open: 0, closed: 1, cancelled: 2 };
 
-const STAGE_OPTIONS = (["open", "closed", "cancelled"] as CommitmentBucket[]).map((k) => ({ value: k, label: BUCKET_META[k].label }));
+const STAGE_OPTIONS = (["open", "closed", "cancelled"] as CommitmentStage[]).map((k) => ({ value: k, label: STAGE_META[k].label }));
 
 const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
   filters: [
     { param: "channel", accessor: (r) => r.channel },
-    { param: "stage", accessor: (r) => stageBucket(r.stage_key) },
+    { param: "stage", accessor: (r) => r.stage_key },
     { param: "recipe", accessor: (r) => r.recipe_name },
     { param: "partner", accessor: (r) => r.partner_id ?? "" },
   ],
@@ -87,8 +82,8 @@ const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
 };
 
 function StageBadge({ stage }: { stage: CommitmentStage }) {
-  const m = BUCKET_META[stageBucket(stage)];
-  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium whitespace-nowrap ${m.cls}`} title={STAGE_EXPLANATION[stage]}>{m.label}</span>;
+  const m = STAGE_META[stage];
+  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium whitespace-nowrap ${m.cls}`}>{m.label}</span>;
 }
 
 /** Shipped ÷ owed in bbl, with the batches the deal sits on. Owed is the

@@ -1,100 +1,39 @@
 import { isFullyDelivered } from "./allocationDelivery";
 
 /**
- * Where a commitment is, derived from its allocations rather than stored.
+ * Whether a commitment is still open, derived from its allocations rather
+ * than stored.
  *
- * `commitments.status` only ever held what code happened to write: "open",
- * then "fulfilled" once a batch was manually completed and every drop had
- * shipped. A batch that shipped out fully but was never pressed Complete kept
- * its commitment "open" forever (B-020 Oktoberfest, B-056 Pilsner), and
- * nothing said "brewing" or "delivered" in between. The stored column keeps
- * only the human decisions — cancelled, and the legacy fulfilled cache — and
- * this stage is what the operator sees.
+ * A reader of the ledger needs exactly one thing from a stage: is beer still
+ * owed on this deal? Where the batch sits in the pipeline (planned, brewing,
+ * packaged) changes nothing about that answer, and delivered / fulfilled /
+ * written off are all the same answer — closed — with at most a warning
+ * about how it closed (over- or under-delivered). Those warnings live in
+ * lib/production/ledgerAttention, not here.
  *
- * Stages, in the order a deal moves through them:
- *   unplanned   no batch allocated yet — the scheduler still owes it a brew
- *   planned     allocated on a batch that has not been brewed
- *   brewing     the batch is in the brewhouse / fermenter / brite, nothing packaged
- *   packaged    beer is in containers, nothing shipped yet
- *   shipping    some shipped, less than owed
- *   delivered   shipped ≥ owed, but the batch is not complete so owed can still move
- *   fulfilled   shipped ≥ owed on a complete batch (final), or written off
- *   written_off every allocation was written off — closed without full delivery
- *   cancelled   the human decision
+ *   open       beer is still owed (no batch yet, brewing, or partly shipped)
+ *   closed     nothing more ships: everything owed went out, or the remainder
+ *              was written off
+ *   cancelled  the human decision
+ *
+ * `commitments.status` keeps only that human decision. Its legacy
+ * "fulfilled" / "in_progress" values are ignored here.
  */
-export type CommitmentStage =
-  | "cancelled"
-  | "unplanned"
-  | "planned"
-  | "brewing"
-  | "packaged"
-  | "shipping"
-  | "delivered"
-  | "fulfilled"
-  | "written_off";
+export type CommitmentStage = "open" | "closed" | "cancelled";
 
 export interface StageAllocation {
-  batchStatus: string;
-  producedBbl: number;
   exportedBbl: number;
   owedBbl: number;
   writtenOff: boolean;
 }
-
-const PRE_BREW = new Set(["planning", "backlog"]);
 
 export function deriveCommitmentStage(input: {
   storedStatus: string | null;
   allocations: StageAllocation[];
 }): CommitmentStage {
   if (input.storedStatus === "cancelled") return "cancelled";
-  const allocs = input.allocations;
-  if (allocs.length === 0) return "unplanned";
-
-  const live = allocs.filter((a) => !a.writtenOff);
-  if (live.length === 0) return "written_off";
-
-  // Every live allocation delivered on a complete batch → final. A written-off
-  // sibling does not hold the deal open: its remainder was forgiven.
-  const allDelivered = live.every((a) => isFullyDelivered(a.exportedBbl, a.owedBbl));
-  const allComplete = live.every((a) => a.batchStatus === "complete");
-  if (allDelivered && allComplete) return "fulfilled";
-  if (allDelivered) return "delivered";
-
-  if (live.some((a) => a.exportedBbl > 0)) return "shipping";
-  if (live.some((a) => a.producedBbl > 0)) return "packaged";
-  if (live.some((a) => !PRE_BREW.has(a.batchStatus))) return "brewing";
-  return "planned";
+  const live = input.allocations.filter((a) => !a.writtenOff);
+  if (input.allocations.length === 0) return "open";
+  if (live.length === 0) return "closed";
+  return live.every((a) => isFullyDelivered(a.exportedBbl, a.owedBbl)) ? "closed" : "open";
 }
-
-/** Stages that still need something to happen — the scheduler's "open" set. */
-export const ACTIVE_STAGES: ReadonlySet<CommitmentStage> = new Set([
-  "unplanned", "planned", "brewing", "packaged", "shipping", "delivered",
-]);
-
-/**
- * What the operator sees. The nine-way stage above is how the deal is
- * derived; the reader of a ledger only needs to know whether beer is still
- * owed. Delivered, fulfilled and written off are all "closed": nothing more
- * ships, and whether the money is right is the Needs column's job.
- */
-export type CommitmentBucket = "open" | "closed" | "cancelled";
-
-export function stageBucket(stage: CommitmentStage): CommitmentBucket {
-  if (stage === "cancelled") return "cancelled";
-  if (stage === "delivered" || stage === "fulfilled" || stage === "written_off") return "closed";
-  return "open";
-}
-
-/** One line of plain language for the expanded row. */
-export const STAGE_EXPLANATION: Record<CommitmentStage, string> = {
-  unplanned:   "No batch has been allocated to this commitment yet.",
-  planned:     "Allocated on a batch that has not been brewed.",
-  brewing:     "The batch is in the brewhouse or a tank; nothing packaged yet.",
-  packaged:    "Beer is in kegs or cans; nothing has shipped yet.",
-  shipping:    "Some of the owed beer has shipped.",
-  delivered:   "Everything owed has shipped. The batch is not marked complete, so owed could still move if more beer is packaged.",
-  fulfilled:   "Everything owed has shipped and the batch is complete.",
-  written_off: "The remaining owed beer was forgiven; nothing more ships.",
-  cancelled:   "Cancelled by hand.",
-};
