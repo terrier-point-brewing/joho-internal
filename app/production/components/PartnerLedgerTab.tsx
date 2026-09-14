@@ -133,11 +133,12 @@ function DepositCell({ c }: { c: LedgerCommitment }) {
   if (c.allocations.length === 0) return <span className="text-faint text-xs">—</span>;
   const t = c.totals;
   const allSettled = c.allocations.every((a) => a.deposit.state === "settled" || a.deposit.state === "written_off");
+  const anyPaid = c.allocations.some((a) => !!a.deposit.paid_at);
   const anyUncharged = c.allocations.some((a) => a.deposit.state === "uncharged");
   const collecting = c.allocations.some((a) => a.deposit.state === "collecting");
   const hasMoney = t.deposit_paid_cents > 0 || t.deposit_billed_cents > 0 || t.deposit_refunded_cents > 0;
   const label = allSettled
-    ? (t.deposit_paid_cents > 0 ? "paid" : "paid · amount not recorded")
+    ? (t.deposit_paid_cents > 0 ? "paid" : anyPaid ? "paid · amount not recorded" : "written off, never paid")
     : anyUncharged ? "not yet charged" : collecting ? "collecting per shipment" : "invoiced, awaiting payment";
   return (
     <div className="text-xs leading-4">
@@ -154,7 +155,7 @@ function DepositCell({ c }: { c: LedgerCommitment }) {
           )}
         </div>
       )}
-      <div className={allSettled && t.deposit_paid_cents === 0 ? "text-[var(--cat-amber-fg)]" : anyUncharged ? "text-[var(--cat-amber-fg)]" : "text-muted"}>{label}</div>
+      <div className={allSettled && t.deposit_paid_cents === 0 && anyPaid ? "text-[var(--cat-amber-fg)]" : anyUncharged ? "text-[var(--cat-amber-fg)]" : "text-muted"}>{label}</div>
     </div>
   );
 }
@@ -248,15 +249,18 @@ function CommitmentPanel({ c, onOpenInvoice, onChanged }: { c: LedgerCommitment;
                     <span className="text-muted">Deposit:</span>
                     {a.deposit.invoice && <InvoiceChip inv={a.deposit.invoice} />}
                     {a.deposit.backcharge_invoices.map((inv) => <InvoiceChip key={inv.id} inv={inv} onOpen={onOpenInvoice} />)}
-                    {!a.deposit.invoice && a.deposit.backcharge_invoices.length === 0 && a.deposit.state !== "settled" && (
+                    {!a.deposit.invoice && a.deposit.backcharge_invoices.length === 0 && a.deposit.state !== "settled" && !a.deposit.paid_at && (
                       <span className={a.deposit.state === "written_off" ? "text-muted" : "text-[var(--cat-amber-fg)]"}>
-                        {a.deposit.state === "written_off" ? "written off" : "not charged — will be back-charged on the export invoice"}
+                        {a.deposit.state === "written_off" ? "written off before any deposit was paid" : "not charged — will be back-charged on the export invoice"}
                       </span>
                     )}
                     {a.deposit.paid_cents > 0 && <span className="text-muted">· {fmtUsd(a.deposit.paid_cents / 100)} paid</span>}
-                    {a.deposit.state === "settled" && a.deposit.paid_cents === 0 && a.deposit.collected_cents === 0 && (
+                    {a.deposit.paid_at && a.deposit.paid_cents === 0 && a.deposit.collected_cents === 0 && (
                       <>
-                        <span className="text-[var(--cat-amber-fg)]">· paid, amount not recorded</span>
+                        <span className="text-[var(--cat-amber-fg)]">
+                          · paid {fmtDate(a.deposit.paid_at)}, amount not recorded
+                          {a.deposit.state === "written_off" && " (remaining volume later written off)"}
+                        </span>
                         <RecordPaidAmount allocationId={a.id} onDone={onChanged} />
                       </>
                     )}
