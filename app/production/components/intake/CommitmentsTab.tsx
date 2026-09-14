@@ -1,17 +1,15 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
   Recipe, ContractBrewingPartner, ContractBrewingRequest,
   ContractRequestStatus, CommitmentStage, CommitmentChannel, CommitmentAllocationSummary,
-  PackagingVariation,
 } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
-import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { Modal, Field, ModalActions } from "../shared";
-import { fetchJson, useRecipePackagingVariationsQuery } from "../../hooks/queries";
+import { fetchJson } from "../../hooks/queries";
 import { DepositInvoiceModal } from "../DepositInvoiceModal";
 import DepositCoverageLine from "../DepositCoverageLine";
 import type { DepositCalculation } from "@/lib/square/square-invoices";
@@ -47,10 +45,6 @@ function stageOf(q: ContractBrewingRequest): CommitmentStage {
   if (q.status === "fulfilled") return "fulfilled";
   return (q.batch_allocations?.length ?? 0) > 0 ? "planned" : "unplanned";
 }
-
-const STATUS_LABEL: Record<ContractRequestStatus, string> = {
-  open: "Open", in_progress: "In Progress (legacy)", fulfilled: "Fulfilled (legacy)", cancelled: "Cancelled",
-};
 
 const CHANNEL_META: Record<CommitmentChannel, { label: string; cls: string }> = {
   distribution:     { label: "Distribution",     cls: "bg-info-surface/40 text-info border-info-border" },
@@ -91,11 +85,8 @@ const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
       { key: "recipe_name", accessor: (r) => r.recipe_name },
       { key: "partner_name", accessor: (r) => r.partner_name },
       { key: "volume_bbl", accessor: (r) => r.volume_bbl },
-      { key: "packaging_total_bbl", accessor: (r) => r.packaging_total_bbl },
       { key: "schedule_sort", accessor: (r) => r.schedule_sort },
       { key: "received_on", accessor: (r) => r.received_on ?? "" },
-      { key: "locked_on", accessor: (r) => r.locked_on ?? "" },
-      { key: "last_edited_on", accessor: (r) => r.last_edited_on ?? "" },
     ],
   },
 };
@@ -158,14 +149,13 @@ function InvoiceStatusBadge({ a }: { a: CommitmentAllocationSummary }) {
 // ─── Invoicing controls for a commitment's linked contract_brewing allocation(s) ──
 
 function InvoicingCell({
-  commitment, onPreview, onViewInSquare, actionLoading, onSend, onSync, onDelete,
+  commitment, onPreview, onViewInSquare, actionLoading, onSend, onDelete,
 }: {
   commitment: ContractBrewingRequest;
   onPreview: (a: CommitmentAllocationSummary) => void;
   onViewInSquare: (id: string) => void;
   actionLoading: string | null;
   onSend: (id: string) => void;
-  onSync: (id: string) => void;
   onDelete: (id: string, sent: boolean) => void;
 }) {
   if (commitment.channel !== "contract_brewing") return <span className="text-faint text-xs">— (Deposit invoices are only used for Contract Brewing)</span>;
@@ -217,10 +207,6 @@ function InvoicingCell({
               )}
               {a.invoice_sent_at && (
                 <>
-                  <button type="button" onClick={() => onSync(a.id)} disabled={actionLoading === a.id}
-                    className="btn-secondary btn-xxs whitespace-nowrap">
-                    {actionLoading === a.id ? "Syncing…" : "Sync Status"}
-                  </button>
                   <button type="button" onClick={() => onDelete(a.id, true)} disabled={actionLoading === a.id}
                     className="btn-danger btn-xxs whitespace-nowrap">
                     Delete
@@ -237,29 +223,16 @@ function InvoicingCell({
 
 // ─── Form state ──────────────────────────────────────────────────────────────
 
-interface PackagingRow {
-  variation_id: string;
-  qty: string;
-}
-
 interface FormState {
   channel: CommitmentChannel;
   recipe_id: string;
   partner_id: string;
   volume_bbl: string;
   desired_delivery_date: string;
-  cadence: "one_time" | "recurring";
-  recurrence: "weekly" | "biweekly" | "monthly";
-  start_date: string;
-  end_date: string;
-  packaging: PackagingRow[];
   status: ContractRequestStatus;
   notes: string;
   received_on: string;
-  locked_on: string;
 }
-
-const EMPTY_PACKAGING_ROW: PackagingRow = { variation_id: "", qty: "" };
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -268,11 +241,9 @@ function todayIso() {
 const FORM_EMPTY: FormState = {
   channel: "contract_brewing",
   recipe_id: "", partner_id: "", volume_bbl: "",
-  desired_delivery_date: "", cadence: "one_time",
-  recurrence: "weekly", start_date: "", end_date: "",
-  packaging: [{ ...EMPTY_PACKAGING_ROW }],
+  desired_delivery_date: "",
   status: "open", notes: "",
-  received_on: todayIso(), locked_on: "",
+  received_on: todayIso(),
 };
 
 function CommitmentModal({
@@ -285,7 +256,6 @@ function CommitmentModal({
   onDone: () => void;
 }) {
   const isEdit = !!existing;
-  const { data: recipePackagingVariations = [] } = useRecipePackagingVariationsQuery();
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<FormState>(existing ? {
     channel: existing.channel,
@@ -293,42 +263,13 @@ function CommitmentModal({
     partner_id: existing.partner_id ?? "",
     volume_bbl: String(existing.volume_bbl),
     desired_delivery_date: existing.desired_delivery_date ?? "",
-    cadence: existing.cadence,
-    recurrence: existing.recurrence ?? "weekly",
-    start_date: existing.start_date ?? "",
-    end_date: existing.end_date ?? "",
-    packaging: existing.packaging_preferences && existing.packaging_preferences.length > 0
-      ? existing.packaging_preferences.map((p) => ({ variation_id: p.variation_id, qty: String(p.qty) }))
-      : [{ ...EMPTY_PACKAGING_ROW }],
     status: existing.status,
     notes: existing.notes ?? "",
     received_on: existing.received_on ?? "",
-    locked_on: existing.locked_on ?? "",
   } : FORM_EMPTY);
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const recipeVariations = recipePackagingVariations
-    .filter((rv) => rv.recipe_id === form.recipe_id)
-    .map((rv) => rv.packaging_variations)
-    .filter((v): v is PackagingVariation => v != null && v.is_active);
-  const kegs = recipeVariations.filter((v) => v.container?.type === "keg");
-  const cans = recipeVariations.filter((v) => v.container?.type === "can");
-
-  useEffect(() => {
-    const validIds = new Set(recipeVariations.map((v) => v.id));
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears stale variation picks when the recipe (and its declared-variation set) changes.
-    setForm((f) => {
-      const next = f.packaging.map((row) =>
-        row.variation_id && !validIds.has(row.variation_id) ? { ...row, variation_id: "" } : row
-      );
-      return next.some((row, i) => row.variation_id !== f.packaging[i].variation_id) ? { ...f, packaging: next } : f;
-    });
-    // Only re-run when the recipe (and therefore the declared-variation set) changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.recipe_id]);
-
   const isDistribution = form.channel === "distribution";
-  const isRecurring = isDistribution && form.cadence === "recurring";
 
   // A locked deal (deposit paid) can still change beer, partner, channel or
   // volume — with a reason the server keeps on the notes.
@@ -341,48 +282,21 @@ function CommitmentModal({
     : [];
   const needsUnlockReason = lockedChanges.length > 0 && !unlockReason.trim();
 
-  function setPackagingRow(i: number, patch: Partial<PackagingRow>) {
-    setForm((f) => ({ ...f, packaging: f.packaging.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) }));
-  }
-  function addPackagingRow() {
-    setForm((f) => ({ ...f, packaging: [...f.packaging, { ...EMPTY_PACKAGING_ROW }] }));
-  }
-  function removePackagingRow(i: number) {
-    setForm((f) => ({ ...f, packaging: f.packaging.filter((_, idx) => idx !== i) }));
-  }
-
-  function rowBbl(row: PackagingRow): number | null {
-    const variation = recipeVariations.find((v) => v.id === row.variation_id);
-    const qty = parseFloat(row.qty);
-    if (!variation?.total_volume_fl_oz || !qty) return null;
-    return (qty * variation.total_volume_fl_oz) / BBL_TO_FL_OZ;
-  }
-  const totalPackagingBbl = form.packaging.reduce((sum, r) => sum + (rowBbl(r) ?? 0), 0);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.recipe_id) { alert("Please select a recipe."); return; }
     if (needsUnlockReason) { alert("This commitment is locked — give a reason for the change."); return; }
     setSubmitting(true);
     try {
-      const packagingPayload = form.packaging
-        .filter((r) => r.variation_id && r.qty)
-        .map((r) => ({ variation_id: r.variation_id, qty: parseFloat(r.qty) }));
       const body = {
         channel: form.channel,
         recipe_id: form.recipe_id,
         partner_id: form.partner_id || null,
         volume_bbl: parseFloat(form.volume_bbl),
-        desired_delivery_date: !isRecurring ? (form.desired_delivery_date || null) : null,
-        cadence: isDistribution ? form.cadence : "one_time",
-        recurrence: isRecurring ? form.recurrence : null,
-        start_date: isRecurring ? (form.start_date || null) : null,
-        end_date: isRecurring ? (form.end_date || null) : null,
-        packaging: packagingPayload,
+        desired_delivery_date: form.desired_delivery_date || null,
         status: form.status,
         notes: form.notes || null,
         received_on: form.received_on || null,
-        locked_on: form.locked_on || null,
         unlock_reason: lockedChanges.length > 0 ? unlockReason.trim() : undefined,
       };
       const url = isEdit ? `/api/production/contract-requests?id=${existing!.id}` : "/api/production/contract-requests";
@@ -427,90 +341,10 @@ function CommitmentModal({
             value={form.volume_bbl} onChange={(e) => set("volume_bbl", e.target.value)} />
         </Field>
 
-        {/* Scheduling: cadence for distribution, single date otherwise */}
-        {isDistribution ? (
-          <>
-            <Field label="Cadence" required>
-              <div className="flex gap-2">
-                {(["one_time", "recurring"] as const).map((c) => (
-                  <ToggleChip key={c} active={form.cadence === c} onClick={() => set("cadence", c)}>
-                    {c === "one_time" ? "One-time" : "Recurring"}
-                  </ToggleChip>
-                ))}
-              </div>
-            </Field>
-            {isRecurring ? (
-              <div className="grid grid-cols-3 gap-3">
-                <Field label="Start Date" required>
-                  <input type="date" className="inp" required value={form.start_date}
-                    onChange={(e) => set("start_date", e.target.value)} />
-                </Field>
-                <Field label="Frequency">
-                  <select className="inp" value={form.recurrence}
-                    onChange={(e) => set("recurrence", e.target.value as typeof form.recurrence)}>
-                    <option value="weekly">Weekly</option>
-                    <option value="biweekly">Biweekly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
-                </Field>
-                <Field label="End Date">
-                  <input type="date" className="inp" value={form.end_date}
-                    onChange={(e) => set("end_date", e.target.value)} />
-                </Field>
-              </div>
-            ) : (
-              <Field label="Delivery Date" required>
-                <input type="date" className="inp" required value={form.desired_delivery_date}
-                  onChange={(e) => set("desired_delivery_date", e.target.value)} />
-              </Field>
-            )}
-          </>
-        ) : (
-          <Field label="Desired Delivery">
-            <input type="date" className="inp" value={form.desired_delivery_date}
-              onChange={(e) => set("desired_delivery_date", e.target.value)} />
-          </Field>
-        )}
-
-        {/* Packaging preferences — multiple rows allowed */}
-        <div className="rounded border border-line px-3 py-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-secondary">Packaging Preferences</p>
-            {totalPackagingBbl > 0 && (
-              <p className="text-xs text-muted">Total: <span className="text-body tabular-nums">{totalPackagingBbl.toFixed(2)} BBL</span></p>
-            )}
-          </div>
-          <div className="space-y-2">
-            {form.packaging.map((row, i) => {
-              const bbl = rowBbl(row);
-              return (
-                <div key={i} className="grid grid-cols-[1fr_120px_80px_24px] gap-2 items-center">
-                  <select className="inp" value={row.variation_id} onChange={(e) => setPackagingRow(i, { variation_id: e.target.value })}>
-                    <option value="">— not specified —</option>
-                    {kegs.length > 0 && (
-                      <optgroup label="Kegs">
-                        {kegs.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </optgroup>
-                    )}
-                    {cans.length > 0 && (
-                      <optgroup label="Cans">
-                        {cans.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </optgroup>
-                    )}
-                  </select>
-                  <input type="number" step="1" min="0" className="inp" placeholder="# of containers"
-                    value={row.qty} onChange={(e) => setPackagingRow(i, { qty: e.target.value })} />
-                  <span className="text-xs text-muted tabular-nums text-right">{bbl != null ? `${bbl.toFixed(2)} BBL` : ""}</span>
-                  <button type="button" onClick={() => removePackagingRow(i)} disabled={form.packaging.length === 1}
-                    className="btn-danger btn-xxs">✕</button>
-                </div>
-              );
-            })}
-          </div>
-          <button type="button" onClick={addPackagingRow} className="btn-secondary">
-            + Add another preference
-          </button>
-        </div>
+        <Field label="Desired Delivery">
+          <input type="date" className="inp" value={form.desired_delivery_date}
+            onChange={(e) => set("desired_delivery_date", e.target.value)} />
+        </Field>
 
         {lockedChanges.length > 0 && (
           <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1.5">
@@ -526,28 +360,35 @@ function CommitmentModal({
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Status">
-            <select className="inp" value={form.status} onChange={(e) => set("status", e.target.value as ContractRequestStatus)}>
-              {(["open", "cancelled", ...(form.status === "open" || form.status === "cancelled" ? [] : [form.status])] as ContractRequestStatus[]).map((s) => (
-                <option key={s} value={s}>{STATUS_LABEL[s]}</option>
-              ))}
-            </select>
-          </Field>
           <Field label="Notes">
             <input className="inp" value={form.notes} onChange={(e) => set("notes", e.target.value)} />
           </Field>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
           <Field label="Received On" hint={!isEdit ? "auto-filled to today" : undefined}>
             <input type="date" className="inp" value={form.received_on}
               onChange={(e) => set("received_on", e.target.value)} />
           </Field>
-          <Field label="Locked On">
-            <input type="date" className="inp" value={form.locked_on}
-              onChange={(e) => set("locked_on", e.target.value)} />
-          </Field>
         </div>
+
+        {/* The stage is derived from the allocations; the only decision that
+            lives on the commitment itself is whether it is cancelled. Locking
+            happens when the deposit is paid — it is shown, never typed. */}
+        {isEdit && (
+          <div className="flex items-center justify-between gap-3 rounded border border-line px-3 py-2">
+            <p className="text-xs text-muted">
+              {existing?.locked_on
+                ? <>Locked on {fmtDateLong(existing.locked_on)} when the deposit was paid.</>
+                : <>Not locked yet — it locks when the deposit is paid.</>}
+            </p>
+            {form.status === "cancelled" ? (
+              <button type="button" className="btn-secondary btn-xxs" onClick={() => set("status", "open")}>Reopen commitment</button>
+            ) : (
+              <button type="button" className="btn-danger btn-xxs" onClick={() => set("status", "cancelled")}>Cancel commitment</button>
+            )}
+          </div>
+        )}
+        {isEdit && form.status === "cancelled" && (
+          <p className="text-xs text-danger">Saving will mark this commitment cancelled.</p>
+        )}
 
         <ModalActions submitting={submitting} onCancel={onClose} label={isEdit ? "Save Changes" : "Create"} />
       </form>
@@ -561,19 +402,11 @@ interface SortableRow extends ContractBrewingRequest {
   stage_key: CommitmentStage;
   progress_sort: number;
   partner_name: string;
-  packaging_total_bbl: number;
   schedule_sort: string;
   /** Derived from the joined recipe (commitments.beer_style was dropped). */
   recipe_name: string;
 }
 
-function packagingTotalBbl(q: ContractBrewingRequest): number {
-  return (q.packaging_preferences ?? []).reduce((sum, p) => {
-    const flOz = p.packaging_variations?.total_volume_fl_oz;
-    if (!flOz) return sum;
-    return sum + (p.qty * flOz) / BBL_TO_FL_OZ;
-  }, 0);
-}
 
 export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[]; partners: ContractBrewingPartner[] }) {
   const qc = useQueryClient();
@@ -670,21 +503,6 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     }
   }
 
-  async function handleSyncInvoice(allocId: string) {
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync" }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      await load();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to sync invoice");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
   async function handleDeleteInvoice(allocId: string, sent: boolean) {
     const msg = sent
       ? "Cancel and delete this sent invoice? The partner may receive a cancellation notice. A new invoice can then be generated."
@@ -717,27 +535,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     alert(body.error ?? "Couldn't delete this commitment");
   }
 
-  function pkgLabel(q: ContractBrewingRequest): React.ReactNode {
-    const prefs = q.packaging_preferences ?? [];
-    if (prefs.length === 0) return "—";
-    const total = packagingTotalBbl(q);
-    return (
-      <div className="space-y-0.5">
-        {prefs.map((p) => (
-          <div key={p.id}>{p.qty} × {p.packaging_variations?.name ?? "—"}</div>
-        ))}
-        {total > 0 && <div className="text-faint">{total.toFixed(2)} BBL total</div>}
-      </div>
-    );
-  }
-
   function scheduleLabel(q: ContractBrewingRequest): string {
-    if (q.cadence === "recurring") {
-      const freq = q.recurrence ?? "—";
-      const from = q.start_date ? fmtDateLong(q.start_date) : "—";
-      const to = q.end_date ? ` → ${fmtDateLong(q.end_date)}` : "";
-      return `${freq.charAt(0).toUpperCase() + freq.slice(1)} from ${from}${to}`;
-    }
     return q.desired_delivery_date ? fmtDateLong(q.desired_delivery_date) : "—";
   }
 
@@ -756,8 +554,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
       stage_key: stageOf(q),
       progress_sort: (q.owed_bbl ?? 0) > 0 ? (q.exported_bbl ?? 0) / (q.owed_bbl ?? 1) : -1,
       partner_name: q.contract_brewing_partners?.company_name ?? "",
-      packaging_total_bbl: packagingTotalBbl(q),
-      schedule_sort: q.cadence === "recurring" ? (q.start_date ?? "") : (q.desired_delivery_date ?? ""),
+      schedule_sort: q.desired_delivery_date ?? "",
       recipe_name: q.recipes?.beer_name ?? "",
     })),
     [rows],
@@ -798,11 +595,8 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                 <SortableTh label="Partner" sortKey="partner_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Volume (BBL)" sortKey="volume_bbl" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
                 <SortableTh label="Shipped / Owed" sortKey="progress" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
-                <SortableTh label="Packaging" sortKey="packaging_total_bbl" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Delivery" sortKey="schedule_sort" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <SortableTh label="Received" sortKey="received_on" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
-                <SortableTh label="Locked" sortKey="locked_on" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
-                <SortableTh label="Edited" sortKey="last_edited_on" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
                 <th className="px-4 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Invoicing</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-muted">Notes</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-muted" />
@@ -817,11 +611,11 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                   <td className="px-4 py-2.5 text-body">{q.contract_brewing_partners?.company_name ?? "—"}</td>
                   <td className="px-4 py-2.5 text-body tabular-nums">{Number(q.volume_bbl)}</td>
                   <td className="px-4 py-2.5"><ProgressCell q={q} /></td>
-                  <td className="px-4 py-2.5 text-secondary text-xs">{pkgLabel(q)}</td>
                   <td className="px-4 py-2.5 text-secondary text-xs whitespace-nowrap">{scheduleLabel(q)}</td>
-                  <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">{q.received_on ? fmtDateLong(q.received_on) : "—"}</td>
-                  <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">{q.locked_on ? fmtDateLong(q.locked_on) : "—"}</td>
-                  <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">{q.last_edited_on ? fmtDateLong(q.last_edited_on.slice(0, 10)) : "—"}</td>
+                  <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">
+                    {q.received_on ? fmtDateLong(q.received_on) : "—"}
+                    {q.locked_on && <span className="ml-1 text-faint" title={`Locked ${fmtDateLong(q.locked_on)} — deposit paid`}>· locked</span>}
+                  </td>
                   <td className="px-4 py-2.5 min-w-[180px]">
                     <InvoicingCell
                       commitment={q}
@@ -829,7 +623,6 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                       onViewInSquare={handleViewInSquare}
                       actionLoading={invoiceActionLoading}
                       onSend={handleSendInvoice}
-                      onSync={handleSyncInvoice}
                       onDelete={handleDeleteInvoice}
                     />
                   </td>

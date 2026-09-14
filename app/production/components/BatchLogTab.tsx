@@ -13,7 +13,6 @@ import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
 import { computeLocationBreakdown } from "@/lib/production/volumeLedger";
 import { fetchJson } from "../hooks/queries";
-import type { DepositCalculation } from "@/lib/square/square-invoices";
 import {
   useBatchesQuery, useRecipesQuery, useTransfersQuery, useContractPartnersQuery,
   useAssignmentsQuery, useEquipmentQuery, useBatchScheduleQuery, useBatchConversionsQuery,
@@ -21,7 +20,6 @@ import {
   type ScheduleEntry,
 } from "../hooks/queries";
 import { computeBranchPackagingStatus } from "./EquipmentSchedule/constants";
-import { DepositInvoiceModal } from "./DepositInvoiceModal";
 import { RefundAdjustmentModal } from "./RefundAdjustmentModal";
 import IngredientShortfallModal from "./IngredientShortfallModal";
 import { CHANNEL_COLOR, TRANSFER_TYPE_TEXT } from "../lib/categoryColors";
@@ -570,143 +568,13 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
   const remaining = 100 - totalPct;
   const overAllocated = totalPct > 100.1;
 
-  // ── Deposit invoice state ──────────────────────────────────────────────────
-  const [invoiceModalAlloc, setInvoiceModalAlloc] = useState<BatchAllocation | null>(null);
-  const [invoiceModalMode, setInvoiceModalMode] = useState<"generate" | "mark_paid">("generate");
-  const [invoicePreview, setInvoicePreview] = useState<{ calculation: DepositCalculation } | null>(null);
-  const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
-  const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null); // alloc ID
+  // ── Refund of part of a paid deposit ─────────────────────────────────────
+  // Explicit action, not a side effect of editing the percentage: a paid
+  // allocation's % is read-only here, and "Refund part of deposit…" opens the
+  // refund modal where the new percentage is entered on purpose.
   const [refundAlloc, setRefundAlloc] = useState<{ allocation: BatchAllocation; newPercentage: number } | null>(null);
   const [refundSubmitting, setRefundSubmitting] = useState(false);
   const [refundError, setRefundError] = useState<{ message: string; moneyMoved: boolean } | null>(null);
-
-  async function openInvoiceModal(a: BatchAllocation) {
-    setInvoiceModalMode("generate");
-    setInvoiceModalAlloc(a);
-    setInvoicePreview(null);
-    setInvoicePreviewLoading(true);
-    try {
-      const data = await fetchJson<{ calculation: DepositCalculation }>(`/api/production/allocations/${a.id}/invoice`);
-      setInvoicePreview(data);
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to load invoice preview");
-      setInvoiceModalAlloc(null);
-    } finally {
-      setInvoicePreviewLoading(false);
-    }
-  }
-
-  async function viewInvoiceInSquare(a: BatchAllocation) {
-    setInvoiceActionLoading(a.id);
-    try {
-      const data = await fetchJson<{ invoiceUrl: string | null }>(`/api/production/allocations/${a.id}/invoice`);
-      if (data.invoiceUrl) {
-        window.open(data.invoiceUrl, "_blank", "noopener,noreferrer");
-      } else {
-        alert("No public URL available for this invoice yet. It may still be processing.");
-      }
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to fetch invoice URL");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
-  async function handleGenerateInvoice(allocId: string) {
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "generate" }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setInvoiceModalAlloc(null);
-      await refresh();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to generate invoice");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
-  async function handleMarkPaid(allocId: string, data: import("./DepositInvoiceModal").MarkPaidData) {
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "mark_paid", ...data }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setInvoiceModalAlloc(null);
-      await refresh();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to mark as paid");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
-  async function handleSendInvoice(allocId: string) {
-    if (!confirm("Send this invoice to the partner via email?")) return;
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send" }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      await refresh();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to send invoice");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
-  async function handleDeleteInvoice(allocId: string, sent: boolean) {
-    const msg = sent
-      ? "Cancel and delete this sent invoice? The partner may receive a cancellation notice. A new invoice can then be generated."
-      : "Delete this draft invoice? A new one can be generated.";
-    if (!confirm(msg)) return;
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete" }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      await refresh();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to delete invoice");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
-  async function handleSyncInvoice(allocId: string) {
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "sync" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Error");
-      await refresh();
-      if (data.squareStatus === "PAID") {
-        // Allocation auto-locked by server
-      }
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to sync invoice");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
 
   // ── Inline % editing ──────────────────────────────────────────────────────
   const [editingPct, setEditingPct] = useState<Record<string, string>>({});
@@ -720,11 +588,11 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
       return;
     }
 
-    // A paid allocation being reduced goes through the refund flow
-    // instead of the plain PATCH — that endpoint rejects this case outright.
-    if (a.invoice_paid_at && pct < Number(a.percentage)) {
-      setRefundAlloc({ allocation: a, newPercentage: pct });
-      return; // editingPct stays set until the modal resolves, so the field still shows the typed value
+    // A paid allocation's percentage is locked; reducing it is a refund, which
+    // has its own button so the money movement is never a side effect of a blur.
+    if (a.invoice_paid_at) {
+      setEditingPct(p => { const n = { ...p }; delete n[a.id]; return n; });
+      return;
     }
 
     const res = await fetch(`/api/production/allocations/${a.id}`, {
@@ -961,13 +829,15 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                   </div>
 
                   {/* Controls: % input + BBL + invoice + status + delete */}
-                  <div className="grid grid-cols-[88px_64px_200px_90px_20px] items-center gap-2 flex-none">
+                  <div className="grid grid-cols-[88px_64px_150px_90px_20px] items-center gap-2 flex-none">
                     {/* Inline % */}
                     <div className="flex items-center gap-1">
                       <input
                         type="number" step="0.1" min="0" max="100"
                         className="inp-sm w-16 text-right tabular-nums"
                         value={pctVal}
+                        readOnly={!!a.invoice_paid_at}
+                        title={a.invoice_paid_at ? "Deposit paid — the percentage is locked. Use “Refund part of deposit…” to reduce it." : undefined}
                         onChange={e => setEditingPct(p => ({ ...p, [a.id]: e.target.value }))}
                         onBlur={() => savePct(a)}
                         onKeyDown={e => { if (e.key === "Enter") savePct(a); }}
@@ -977,71 +847,15 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     <span className="text-xs tabular-nums text-secondary text-right">
                       {allocBbl != null ? `${allocBbl.toFixed(1)} BBL` : ""}
                     </span>
-                    {/* Invoice controls for contract_brewing allocations */}
-                    <div className="flex flex-wrap items-center gap-1">
-                      {a.channel === "contract_brewing" && (
-                        <>
-                          {/* View in Square — available whenever an invoice exists, paid or not */}
-                          {a.square_deposit_invoice_id && (
-                            <button type="button"
-                              onClick={() => viewInvoiceInSquare(a)}
-                              disabled={invoiceActionLoading === a.id}
-                              className="btn-secondary whitespace-nowrap">
-                              View in Square ↗
-                            </button>
-                          )}
-                          {/* Action buttons only for unpaid allocations */}
-                          {!a.invoice_paid_at && (
-                            <>
-                              {!a.invoice_generated_at && (
-                                <button type="button"
-                                  onClick={() => openInvoiceModal(a)}
-                                  disabled={invoiceActionLoading === a.id}
-                                  className="btn-primary whitespace-nowrap">
-                                  Generate Invoice
-                                </button>
-                              )}
-                              {a.invoice_generated_at && !a.invoice_sent_at && (
-                                <>
-                                  <button type="button"
-                                    onClick={() => handleSendInvoice(a.id)}
-                                    disabled={invoiceActionLoading === a.id}
-                                    className="btn-primary whitespace-nowrap">
-                                    {invoiceActionLoading === a.id ? "Sending…" : "Send Invoice"}
-                                  </button>
-                                  <button type="button"
-                                    onClick={() => handleDeleteInvoice(a.id, false)}
-                                    disabled={invoiceActionLoading === a.id}
-                                    className="btn-danger whitespace-nowrap">
-                                    Delete
-                                  </button>
-                                </>
-                              )}
-                              {a.invoice_sent_at && (
-                                <>
-                                  <button type="button"
-                                    onClick={() => handleSyncInvoice(a.id)}
-                                    disabled={invoiceActionLoading === a.id}
-                                    className="btn-secondary whitespace-nowrap">
-                                    {invoiceActionLoading === a.id ? "Syncing…" : "Sync Status"}
-                                  </button>
-                                  <button type="button"
-                                    onClick={() => handleDeleteInvoice(a.id, true)}
-                                    disabled={invoiceActionLoading === a.id}
-                                    className="btn-danger whitespace-nowrap">
-                                    Delete
-                                  </button>
-                                </>
-                              )}
-                              <button type="button"
-                                onClick={() => { setInvoiceModalMode("mark_paid"); setInvoiceModalAlloc(a); setInvoicePreview(null); }}
-                                disabled={invoiceActionLoading === a.id}
-                                className="btn-secondary whitespace-nowrap">
-                                Mark Paid (Ext.)
-                              </button>
-                            </>
-                          )}
-                        </>
+                    {/* Deposit invoicing lives on Intake → Commitments; a paid
+                        deposit can be partly refunded from here, on purpose. */}
+                    <div className="flex items-center justify-end">
+                      {a.channel === "contract_brewing" && a.invoice_paid_at && !a.written_off_at && (
+                        <button type="button"
+                          onClick={() => { setRefundError(null); setRefundAlloc({ allocation: a, newPercentage: Number(a.percentage) }); }}
+                          className="btn-secondary btn-xxs whitespace-nowrap">
+                          Refund part of deposit…
+                        </button>
                       )}
                     </div>
                     <AllocationStatusBadge allocation={a} />
@@ -1200,24 +1014,11 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
       )}
 
       {/* Deposit invoice preview modal */}
-      {invoiceModalAlloc && (
-        <DepositInvoiceModal
-          allocation={invoiceModalAlloc}
-          preview={invoicePreview}
-          loading={invoicePreviewLoading}
-          generating={invoiceActionLoading === invoiceModalAlloc.id}
-          defaultMode={invoiceModalMode}
-          onGenerate={() => handleGenerateInvoice(invoiceModalAlloc.id)}
-          onMarkPaid={(data) => handleMarkPaid(invoiceModalAlloc.id, data)}
-          markingPaid={invoiceActionLoading === invoiceModalAlloc.id}
-          onClose={() => setInvoiceModalAlloc(null)}
-        />
-      )}
-
       {refundAlloc && (
         <RefundAdjustmentModal
           allocation={refundAlloc.allocation}
           newPercentage={refundAlloc.newPercentage}
+          onChangePercentage={(pct) => setRefundAlloc((r) => (r ? { ...r, newPercentage: pct } : r))}
           submitting={refundSubmitting}
           error={refundError}
           onConfirm={handleConfirmRefund}

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
 import { owedBbl, sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
 import { deriveCommitmentStage, type StageAllocation } from "@/lib/production/commitmentStage";
@@ -12,28 +11,9 @@ import { todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
-interface PackagingPrefInput {
-  variation_id: string;
-  qty: number;
-}
-
-function parsePackaging(b: Record<string, unknown>): PackagingPrefInput[] | undefined {
-  if (!Array.isArray(b.packaging)) return undefined;
-  return (b.packaging as Array<{ variation_id?: string; qty?: number | string }>)
-    .filter((p) => p.variation_id && p.qty != null && Number(p.qty) > 0)
-    .map((p) => ({ variation_id: p.variation_id as string, qty: Number(p.qty) }));
-}
-
-async function replacePackagingPreferences(supabase: SupabaseClient, commitmentId: string, prefs: PackagingPrefInput[]) {
-  await supabase.from("commitment_packaging_preferences").delete().eq("commitment_id", commitmentId);
-  if (prefs.length === 0) return;
-  await supabase.from("commitment_packaging_preferences").insert(
-    prefs.map((p) => ({ commitment_id: commitmentId, variation_id: p.variation_id, qty: p.qty }))
-  );
-}
-
-const COMMITMENT_SELECT = `*, recipes(beer_name, style), contract_brewing_partners(company_name),
-  commitment_packaging_preferences(id, commitment_id, variation_id, qty, created_at, packaging_variations(id, name, total_volume_fl_oz, container_id, format))`;
+// Packaging preferences were dropped from the form 2026-09-13: nothing read
+// them (not the scheduler, not the demand calendar) and no row was ever saved.
+const COMMITMENT_SELECT = `*, recipes(beer_name, style), contract_brewing_partners(company_name)`;
 
 export async function GET(req: NextRequest) {
   try { await requirePermission(CAP.partnersRead); } catch (res) { return res as Response; }
@@ -50,12 +30,7 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data || data.length === 0) return NextResponse.json(data);
 
-  // Rename the join to the field name the UI expects.
-  const withPrefs = data.map((c) => {
-    const row = c as typeof c & { commitment_packaging_preferences?: unknown };
-    const { commitment_packaging_preferences, ...rest } = row;
-    return { ...rest, packaging_preferences: commitment_packaging_preferences ?? [] };
-  });
+  const withPrefs = data;
 
   // Pull linked batch_allocations once: used both to sum committed BBL (across
   // all channels) and to surface invoicing controls for contract_brewing rows.
@@ -291,14 +266,7 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const prefs = parsePackaging(b);
-  if (prefs && prefs.length > 0) {
-    await replacePackagingPreferences(supabase, data.id, prefs);
-  }
-
-  const { data: full } = await supabase.from("commitments").select(COMMITMENT_SELECT).eq("id", data.id).single();
-  return NextResponse.json(full ?? data, { status: 201 });
+  return NextResponse.json(data, { status: 201 });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -312,8 +280,7 @@ export async function PATCH(req: NextRequest) {
   const allowed = ["recipe_id", "status", "notes", "volume_bbl", "desired_delivery_date", "partner_id", "channel", "cadence", "recurrence", "start_date", "end_date", "received_on", "locked_on"];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (k in b) patch[k] = b[k];
-  const prefs = parsePackaging(b);
-  if (Object.keys(patch).length === 0 && !prefs) return NextResponse.json({ error: "no fields to update" }, { status: 400 });
+  if (Object.keys(patch).length === 0) return NextResponse.json({ error: "no fields to update" }, { status: 400 });
 
   if (Object.keys(patch).length > 0) {
     // A locked deal (deposit paid) does not quietly change beer, partner,
@@ -342,10 +309,6 @@ export async function PATCH(req: NextRequest) {
     const { error } = await supabase.from("commitments").update(patch).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  if (prefs) {
-    await replacePackagingPreferences(supabase, id, prefs);
-  }
-
   // Propagate commitment changes to linked unlocked allocations.
   // "Unlocked" = invoice_paid_at IS NULL. Paid allocations are frozen.
   const syncableFields = ["channel", "partner_id", "volume_bbl"] as const;

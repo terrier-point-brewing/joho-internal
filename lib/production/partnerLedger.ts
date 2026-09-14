@@ -176,6 +176,8 @@ export interface LedgerCommitment {
 }
 
 export interface LedgerCommitmentTotals {
+  /** Shipments credited to this deal that have no invoice yet — bill them from the row. */
+  uninvoiced_transaction_ids?: string[];
   owed_bbl: number;
   shipped_bbl: number;
   remaining_bbl: number;
@@ -194,6 +196,7 @@ export interface LedgerPartner {
   /** Shipped with no commitment behind it: over-delivery and ad-hoc drops. */
   unallocated: LedgerShipment[];
   unallocated_bbl: number;
+  unallocated_uninvoiced_transaction_ids: string[];
   totals: LedgerCommitmentTotals;
 }
 
@@ -264,7 +267,10 @@ function emptyTotals(): LedgerCommitmentTotals {
 }
 
 function addTotals(into: LedgerCommitmentTotals, t: LedgerCommitmentTotals): void {
-  for (const k of Object.keys(into) as Array<keyof LedgerCommitmentTotals>) into[k] = r2(into[k] + t[k]);
+  for (const k of Object.keys(into) as Array<keyof LedgerCommitmentTotals>) {
+    if (k === "uninvoiced_transaction_ids") continue;
+    into[k] = r2((into[k] as number) + (t[k] as number));
+  }
 }
 
 export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
@@ -346,7 +352,9 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
         totals.owed_bbl = r2(allocs.reduce((s, a) => s + a.owed_bbl, 0));
         totals.shipped_bbl = r2(allocs.reduce((s, a) => s + a.exported_bbl, 0));
         totals.remaining_bbl = r2(allocs.filter((a) => a.written_off_bbl == null).reduce((s, a) => s + a.remaining_bbl, 0));
+        const uninvoicedRows = rows.filter((r) => !r.invoice_id && r.status === "invoice_required");
         totals.uninvoiced_bbl = r2(rows.filter((r) => !r.invoice_id).reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0));
+        totals.uninvoiced_transaction_ids = uninvoicedRows.map((r) => r.id);
         totals.deposit_billed_cents = allocs.reduce((s, a) => s + (a.deposit.invoice?.total_cents ?? 0) + a.deposit.charged_cents, 0);
         totals.deposit_paid_cents = allocs.reduce((s, a) => s + a.deposit.paid_cents + a.deposit.collected_cents, 0);
         totals.deposit_refunded_cents = allocs.reduce((s, a) => s + a.deposit.refunded_cents, 0);
@@ -392,6 +400,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
       commitments,
       unallocated,
       unallocated_bbl: r2(unallocatedRows.reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0)),
+      unallocated_uninvoiced_transaction_ids: unallocatedRows.filter((r) => !r.invoice_id && r.status === "invoice_required").map((r) => r.id),
       totals,
     });
   }

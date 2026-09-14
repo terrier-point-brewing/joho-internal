@@ -13,6 +13,7 @@ import { fmtUsd } from "@/lib/utils/formatting";
 export function RefundAdjustmentModal({
   allocation,
   newPercentage,
+  onChangePercentage,
   submitting,
   error,
   onConfirm,
@@ -20,6 +21,8 @@ export function RefundAdjustmentModal({
 }: {
   allocation: BatchAllocation;
   newPercentage: number;
+  /** When given, the new percentage is entered here rather than arriving from an inline edit. */
+  onChangePercentage?: (pct: number) => void;
   submitting: boolean;
   /**
    * A failed attempt. `moneyMoved` is the load-bearing half: when the partner
@@ -36,10 +39,23 @@ export function RefundAdjustmentModal({
   const refundCents = paidCents - newDepositCents;
 
   const fmt = (cents: number) => fmtUsd(cents / 100);
+  const validReduction = newPercentage > 0 && newPercentage < currentPercentage - 1e-9;
 
   return (
     <Modal title="Reduce Allocation & Refund" onClose={onClose}>
       <div className="space-y-4">
+        {onChangePercentage && (
+          <div className="space-y-1">
+            <label className="text-xs text-secondary">New allocation percentage (currently {currentPercentage.toFixed(1)}%)</label>
+            <div className="flex items-center gap-1">
+              <input type="number" step="0.1" min="0.1" max={currentPercentage} className="inp-sm w-24 text-right tabular-nums"
+                value={Number.isFinite(newPercentage) ? newPercentage : ""}
+                onChange={(e) => onChangePercentage(parseFloat(e.target.value))} />
+              <span className="text-xs text-muted">%</span>
+            </div>
+            {!validReduction && <p className="text-xs text-faint">Enter a percentage below the current one to see the refund.</p>}
+          </div>
+        )}
         <div className="rounded-lg bg-surface border border-line p-4 space-y-2">
           <div className="flex justify-between text-sm">
             <span className="text-muted">Originally paid ({currentPercentage.toFixed(1)}%)</span>
@@ -80,7 +96,7 @@ export function RefundAdjustmentModal({
             <button
               type="button"
               onClick={onConfirm}
-              disabled={submitting}
+              disabled={submitting || !validReduction}
               className="btn-primary">
               {submitting ? "Refunding…" : error ? "Try again" : "Refund & Save"}
             </button>

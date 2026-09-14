@@ -35,6 +35,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "partner_id is required unless channel is taproom" }, { status: 400 });
   }
 
+  // ── A partner with an allocation for this recipe ships from the allocation ─
+  // Ad-hoc rows credit nothing, so shipping a committed partner this way
+  // would leave their commitment unfulfilled and the beer unaccounted for.
+  // This used to be an advisory confirm; it is a refusal now.
+  if (channel !== "taproom" && partner_id) {
+    const { data: existing } = await supabase
+      .from("batch_allocations")
+      .select("id, brew_batches!inner(recipe_id, batch_number)")
+      .eq("partner_id", partner_id)
+      .neq("channel", "taproom")
+      .eq("brew_batches.recipe_id", recipe_id)
+      .limit(3);
+    if ((existing ?? []).length > 0) {
+      const batches = (existing ?? [])
+        .map((a) => (a.brew_batches as unknown as { batch_number?: string | null } | null)?.batch_number)
+        .filter((n): n is string => !!n)
+        .map((n) => `#${n}`);
+      return NextResponse.json(
+        { error: `This partner has an allocation for this beer${batches.length ? ` (${batches.join(", ")})` : ""}. Ship it from that allocation card so the commitment is credited; ad-hoc is for partners with no commitment.` },
+        { status: 409 },
+      );
+    }
+  }
+
   // ── Validate availability ─────────────────────────────────────────────────
   let totalAvailable: number;
   try {
