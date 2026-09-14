@@ -18,7 +18,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "../hooks/queries";
 import type { LedgerAllocation, LedgerCommitment, LedgerInvoiceRef, LedgerPartner, LedgerShipment } from "@/lib/production/partnerLedger";
-import type { CommitmentStage } from "@/lib/production/commitmentStage";
+import { stageBucket, STAGE_EXPLANATION, type CommitmentBucket, type CommitmentStage } from "@/lib/production/commitmentStage";
 import { fmtUsd } from "@/lib/utils/formatting";
 import { fmtDate } from "@/lib/utils/formatting";
 import FilterBar from "@/app/components/ui/FilterBar";
@@ -68,19 +68,12 @@ function RecordPaidAmount({ allocationId, onDone }: { allocationId: string; onDo
   );
 }
 
-const STAGE_META: Record<CommitmentStage, { label: string; cls: string }> = {
-  unplanned:   { label: "Needs a batch", cls: "bg-accent-muted/50 text-accent border-accent-border" },
-  planned:     { label: "Planned",       cls: "bg-surface-mid text-secondary border-line-strong" },
-  brewing:     { label: "Brewing",       cls: "bg-info-surface/50 text-info border-info-border" },
-  packaged:    { label: "Packaged",      cls: "bg-info-surface/50 text-info border-info-border" },
-  shipping:    { label: "Shipping",      cls: "bg-info-surface/50 text-info border-info-border" },
-  delivered:   { label: "Delivered",     cls: "bg-success-surface/30 text-success border-success-border" },
-  fulfilled:   { label: "Fulfilled",     cls: "bg-success-surface/50 text-success border-success-border" },
-  written_off: { label: "Written off",   cls: "bg-surface-mid text-muted border-line-strong" },
-  cancelled:   { label: "Cancelled",     cls: "bg-danger-surface/40 text-danger border-danger-border" },
+const BUCKET_META: Record<CommitmentBucket, { label: string; cls: string }> = {
+  open:      { label: "Open",      cls: "bg-info-surface/50 text-info border-info-border" },
+  closed:    { label: "Closed",    cls: "bg-success-surface/40 text-success border-success-border" },
+  cancelled: { label: "Cancelled", cls: "bg-danger-surface/40 text-danger border-danger-border" },
 };
-const STAGE_ORDER: CommitmentStage[] = ["unplanned", "planned", "brewing", "packaged", "shipping", "delivered", "fulfilled", "written_off", "cancelled"];
-const OPEN_STAGES = new Set<CommitmentStage>(["unplanned", "planned", "brewing", "packaged", "shipping", "delivered"]);
+const OPEN_STAGES = new Set<CommitmentStage>(["unplanned", "planned", "brewing", "packaged", "shipping"]);
 
 const ATTENTION_CLS: Record<Attention["kind"], string> = {
   not_invoiced:      "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]",
@@ -109,7 +102,7 @@ function DeliveryCell({ c }: { c: LedgerCommitment }) {
   const owed = t.owed_bbl;
   const pct = owed > 0 ? Math.min(100, (t.shipped_bbl / owed) * 100) : 0;
   const over = owed > 0 && t.shipped_bbl > owed + 0.01;
-  const closed = c.stage === "fulfilled" || c.stage === "written_off" || c.stage === "cancelled";
+  const closed = stageBucket(c.stage) !== "open";
   return (
     <div className="min-w-[150px]">
       <div className="text-xs tabular-nums font-mono">
@@ -145,8 +138,8 @@ const CHANNEL_LABEL: Record<string, string> = {
 };
 
 function StageBadge({ stage }: { stage: CommitmentStage }) {
-  const m = STAGE_META[stage];
-  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium whitespace-nowrap ${m.cls}`}>{m.label}</span>;
+  const m = BUCKET_META[stageBucket(stage)];
+  return <span className={`text-xs px-1.5 py-0.5 rounded border font-medium whitespace-nowrap ${m.cls}`} title={STAGE_EXPLANATION[stage]}>{m.label}</span>;
 }
 
 function ChannelBadge({ channel }: { channel: string }) {
@@ -284,6 +277,7 @@ function CommitmentPanel({ c, onOpenInvoice, onChanged }: { c: LedgerCommitment;
   return (
     <div className="px-6 py-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="space-y-4">
+        <p className="text-xs text-secondary">{STAGE_EXPLANATION[c.stage]}</p>
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1.5">Allocation</div>
           {c.allocations.length === 0
@@ -357,7 +351,6 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
 
   const [view, setView] = useState<View>("attention");
   const [partnerFilter, setPartnerFilter] = useState<string[]>([]);
-  const [stageFilter, setStageFilter] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // Billing starts from the row that shows what is unbilled: the same preview
   // modal the Shipments tab uses, fed the deal's uninvoiced shipment ids.
@@ -371,7 +364,6 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
     for (const p of ledger) {
       if (partnerFilter.length > 0 && !partnerFilter.includes(p.partner_id)) continue;
       const rows = p.commitments
-        .filter((c) => stageFilter.length === 0 || stageFilter.includes(c.stage))
         .map((c) => ({ c, flags: commitmentAttention(c), rank: attentionRank(c) }))
         .filter((r) => view === "all" ? true : view === "open" ? OPEN_STAGES.has(r.c.stage) || r.rank < 99 : r.rank < 99)
         .sort((x, y) => x.rank - y.rank || (x.c.desired_delivery_date ?? "9999").localeCompare(y.c.desired_delivery_date ?? "9999"));
@@ -381,7 +373,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
       out.push({ partner: p, rows, rank });
     }
     return out.sort((a, b) => a.rank - b.rank || a.partner.company_name.localeCompare(b.partner.company_name));
-  }, [ledger, partnerFilter, stageFilter, view]);
+  }, [ledger, partnerFilter, view]);
 
   const summary = useMemo(() => {
     const all = ledger.flatMap((p) => p.commitments);
@@ -399,7 +391,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
     };
   }, [ledger]);
 
-  const filterActiveCount = (partnerFilter.length ? 1 : 0) + (stageFilter.length ? 1 : 0) + (view !== "attention" ? 1 : 0);
+  const filterActiveCount = (partnerFilter.length ? 1 : 0) + (view !== "attention" ? 1 : 0);
 
   return (
     <div className="space-y-4">
@@ -410,7 +402,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
           onCreated={() => { setInvoiceFor(null); refresh(); }}
         />
       )}
-      <FilterBar activeCount={filterActiveCount} onClear={() => { setPartnerFilter([]); setStageFilter([]); setView("attention"); }}>
+      <FilterBar activeCount={filterActiveCount} onClear={() => { setPartnerFilter([]); setView("attention"); }}>
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs text-muted mr-0.5">Show:</span>
           {([
@@ -423,8 +415,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
         </div>
         <FilterSelect label="Partner" options={ledger.map((p) => ({ value: p.partner_id, label: p.company_name }))}
           value={partnerFilter} onChange={setPartnerFilter} allLabel="All Partners" />
-        <FilterSelect label="Stage" options={STAGE_ORDER.map((s) => ({ value: s, label: STAGE_META[s].label }))}
-          value={stageFilter} onChange={setStageFilter} allLabel="Any stage" />
+
       </FilterBar>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
