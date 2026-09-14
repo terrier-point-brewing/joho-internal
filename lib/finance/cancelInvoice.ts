@@ -53,7 +53,7 @@ import { cancelInvoice as cancelSquareInvoice, getInvoiceStatus } from "@/lib/sq
 import { isSquareNotFound } from "@/lib/square/client";
 import { fetchCurrentCounts } from "@/lib/square/inventory";
 import { reverseSubstitutedInventory } from "@/lib/production/invoiceSkuSubstitutions";
-import { cascadeExportTransactionsStatus } from "@/lib/finance/reconcileInvoiceStatus";
+import { cascadeExportTransactionsStatus, settleBackchargedDeposits } from "@/lib/finance/reconcileInvoiceStatus";
 
 /**
  * Ledger statuses a cancel may act on.
@@ -253,6 +253,9 @@ export async function cancelExportInvoice(
   let releasedShipments = 0;
   try {
     releasedShipments = await cascadeExportTransactionsStatus(supabase, invoiceId, "voided");
+    // Same rule as the Square-side void: a back-charged deposit pointing at a
+    // cancelled invoice goes back to pending instead of waiting on a dead one.
+    await settleBackchargedDeposits(supabase, invoiceId, "voided", null);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     warnings.push(

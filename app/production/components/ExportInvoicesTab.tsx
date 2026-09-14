@@ -165,12 +165,16 @@ function InvoiceExpandedPanel({
   );
 
   async function patchLineItem(body: Record<string, unknown>) {
+    // Every hand change to a generated line is recorded on the invoice with a
+    // reason — the route refuses without one.
+    const reason = window.prompt("Why is this line changing? This is recorded on the invoice.")?.trim();
+    if (!reason) return;
     setActionLoading(true); setActionError(null);
     try {
       const res = await fetch(`/api/production/export/invoices/${invoice.id}/line-items`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, reason }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       onRefresh();

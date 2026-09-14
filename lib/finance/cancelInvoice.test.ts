@@ -19,6 +19,9 @@ vi.mock("@/lib/production/invoiceSkuSubstitutions", () => ({
 }));
 vi.mock("@/lib/finance/reconcileInvoiceStatus", () => ({
   cascadeExportTransactionsStatus: (...a: unknown[]) => cascadeExportTransactionsStatus(...a),
+  // Cancel releases any deposit back-charged onto the invoice (same as the
+  // Square-side void); the release itself is covered in reconcileInvoiceStatus.test.
+  settleBackchargedDeposits: async () => 0,
 }));
 
 class SquareApiError extends Error {

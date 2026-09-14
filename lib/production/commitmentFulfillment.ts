@@ -37,7 +37,7 @@ async function loadFulfillmentState(
 ): Promise<FulfillmentState | null> {
   const { data: allocation } = await supabase
     .from("batch_allocations")
-    .select("id, batch_id, channel, partner_id, percentage, contract_request_id")
+    .select("id, batch_id, channel, partner_id, percentage, contract_request_id, written_off_at")
     .eq("id", allocationId)
     .single();
   if (!allocation?.contract_request_id) return null;
@@ -87,7 +87,9 @@ async function loadFulfillmentState(
   return {
     commitmentId: allocation.contract_request_id,
     status: commitment.status,
-    exportedBbl,
+    // A written-off allocation forgave whatever was still owed: it is met by
+    // decision, so it reads as fully exported here.
+    exportedBbl: (allocation as { written_off_at?: string | null }).written_off_at ? allocatedBbl : exportedBbl,
     allocatedBbl,
   };
 }

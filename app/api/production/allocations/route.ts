@@ -11,6 +11,7 @@ import {
   type BatchInput,
 } from "@/lib/production/allocationReserve";
 import { splitCommitmentForConversionChild } from "@/lib/production/commitmentSplit";
+import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
 import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
 import { sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
 import { loadDepositCharges } from "@/lib/production/depositCharges";
@@ -391,5 +392,8 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // A new allocation on a batch that already shipped is judged immediately,
+  // not the next time something else touches it.
+  if (data?.contract_request_id) await recheckCommitmentFulfillment(supabase, data.id);
   return NextResponse.json(data, { status: 201 });
 }

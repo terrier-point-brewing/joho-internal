@@ -7,6 +7,7 @@ import { owedBbl, sumExportedByAllocation, type ExportVolumeRow } from "@/lib/pr
 import { deriveCommitmentStage, type StageAllocation } from "@/lib/production/commitmentStage";
 import { loadDepositCharges } from "@/lib/production/depositCharges";
 import { lockedFieldsChanged, unlockNote } from "@/lib/production/commitmentLock";
+import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
 import { todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
@@ -254,10 +255,6 @@ export async function POST(req: NextRequest) {
       status: b.status || "open",
       notes: b.notes || null,
       channel: b.channel || "contract_brewing",
-      cadence: b.cadence || "one_time",
-      recurrence: b.recurrence || null,
-      start_date: b.start_date || null,
-      end_date: b.end_date || null,
       received_on: b.received_on || null,
       locked_on: b.locked_on || null,
       last_edited_on: new Date().toISOString(),
@@ -277,9 +274,15 @@ export async function PATCH(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const b = await req.json();
-  const allowed = ["recipe_id", "status", "notes", "volume_bbl", "desired_delivery_date", "partner_id", "channel", "cadence", "recurrence", "start_date", "end_date", "received_on", "locked_on"];
+  // cadence/recurrence/start/end were written by nothing else and read by
+  // nothing; locked_on is stamped by payment, never typed. Status here is the
+  // human decision only — the fulfilment engine owns open/fulfilled.
+  const allowed = ["recipe_id", "status", "notes", "volume_bbl", "desired_delivery_date", "partner_id", "channel", "received_on"];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (k in b) patch[k] = b[k];
+  if ("status" in patch && !["open", "cancelled"].includes(String(patch.status))) {
+    return NextResponse.json({ error: "status can only be set to open or cancelled — fulfilment is derived from shipments" }, { status: 400 });
+  }
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: "no fields to update" }, { status: 400 });
 
   if (Object.keys(patch).length > 0) {
@@ -354,6 +357,8 @@ export async function PATCH(req: NextRequest) {
 
       if (Object.keys(allocUpdate).length > 0) {
         await supabase.from("batch_allocations").update(allocUpdate).eq("id", alloc.id);
+        // Percentage / channel / partner all move what the allocation is owed.
+        await recheckCommitmentFulfillment(supabase, alloc.id);
       }
     }
   }

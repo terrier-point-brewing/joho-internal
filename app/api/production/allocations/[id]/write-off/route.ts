@@ -8,6 +8,7 @@ import {
   type AllocationInput,
   type BatchInput,
 } from "@/lib/production/allocationReserve";
+import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
 
 export const dynamic = "force-dynamic";
 
@@ -118,13 +119,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Writing off closes the obligation — fulfill the linked commitment too.
+  // Writing off closes the obligation. The fulfilment engine now treats a
+  // written-off allocation as met, so the commitment is re-judged through the
+  // one path every other write uses rather than stamped here.
   if (loaded.allocation.contract_request_id) {
-    await supabase
-      .from("commitments")
-      .update({ status: "fulfilled" })
-      .eq("id", loaded.allocation.contract_request_id)
-      .neq("status", "fulfilled");
+    await recheckCommitmentFulfillment(supabase, id);
   }
 
   return NextResponse.json({ allocation: updated, assessment });
@@ -161,13 +160,10 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Reopen a commitment that write-off had marked fulfilled.
+  // Re-judge rather than force "in_progress": a deal the shipments genuinely
+  // satisfied stays fulfilled after the write-off is undone.
   if (current.contract_request_id) {
-    await supabase
-      .from("commitments")
-      .update({ status: "in_progress" })
-      .eq("id", current.contract_request_id)
-      .eq("status", "fulfilled");
+    await recheckCommitmentFulfillment(supabase, id);
   }
 
   return NextResponse.json({ allocation: updated });
