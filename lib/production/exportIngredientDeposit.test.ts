@@ -365,7 +365,6 @@ describe("calculateShippedIngredientDeposits", () => {
     expect(lines[0].depositCents).toBe(5000);
     expect(lines[0].totalIngredientCostUsd).toBe(100);
     expect(lines[0].excludedRecipes).toEqual([{ recipeId: "r-mule", beerName: "Carolina Mule" }]);
-    expect(shippedDepositDescription(lines[0])).toContain("conversion additions only (excludes Carolina Mule)");
   });
 
   it("refuses an exclusion the batch does not descend from, and says so", async () => {
@@ -387,20 +386,10 @@ describe("calculateShippedIngredientDeposits", () => {
     expect(warnings.some((w) => w.includes("not converted from Epic Hazy IPA"))).toBe(true);
   });
 
-  it("puts the derivation in the description, since Square files it as the line note", () => {
-    const text = shippedDepositDescription({
-      batchId: "b1", batchNumber: "B-038", beerName: "Pumpkin Ale",
-      shippedBbl: 3.0968, packagedBbl: 22.9975, inTankBbl: 0, packagingYieldPct: 90, expectedFromTankBbl: 0, projectedYieldBbl: 22.9975,
-      percentage: 13.4659, depositCents: 22917, totalIngredientCostUsd: 1701.79,
-      packagingInProgress: false, excludedRecipes: [], breakdown: [],
-    });
-    expect(text).toBe("Ingredient Deposit — Pumpkin Ale: 3.10 bbl of the 23.00 bbl packaged (13.47%)");
-  });
-
-  it("names the excluded bases, so a conversion-only deposit is not read as the whole bill", () => {
-    // The number on a conversion-only line is much smaller than the beer's name
-    // suggests. Square files this text as the line note, so it is the only place
-    // a reader a year from now can see which bill the share was taken of.
+  it("names only the beer in the description — it is customer-facing", () => {
+    // The derivation (yield, share, exclusions) lives in the breakdown modal
+    // and the ledger, not on the invoice the partner reads. The "Ingredient
+    // Deposit" prefix stays: the export invoice route detects the line by it.
     const text = shippedDepositDescription({
       batchId: "b2", batchNumber: "B-051", beerName: "Transfusion Pilsner",
       shippedBbl: 4, packagedBbl: 20, inTankBbl: 0, packagingYieldPct: 90,
@@ -413,10 +402,7 @@ describe("calculateShippedIngredientDeposits", () => {
       ],
       breakdown: [],
     });
-    expect(text).toBe(
-      "Ingredient Deposit — Transfusion Pilsner: 4.00 bbl of the 20.00 bbl packaged (20.00%)" +
-      ", conversion additions only (excludes Carolina Mule, Pace Yourself Pilsner)",
-    );
+    expect(text).toBe("Ingredient Deposit — Transfusion Pilsner");
   });
 });
 

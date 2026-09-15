@@ -129,6 +129,18 @@ interface SquareOrderGetResponse {
  * `options.excludeRecipeIds` nets an ancestor recipe's bill out first, for a
  * batch that was made by converting rather than brewed from scratch — see
  * IngredientDepositOptions. Omitted, the whole bill is priced, exactly as before.
+ *
+ * ── A conversion-born batch never brewed a turn ─────────────────────────────
+ * The per-turn bill is the recipe card for a FULL brewhouse turn. A batch that
+ * was drawn off another batch (`converted_from_batch_id`) is whatever volume
+ * came across — 5.17 bbl of Orange Pilsner off a 40 bbl Pilsner — and pricing
+ * it off the 20 bbl card charged the partner for a turn nobody brewed: B-063's
+ * 4.67 bbl shipment came out at $932.89 of a $1,033 bill, and excluding the
+ * Pilsner still left $691.74 of Pilsner malt, because the exclusion is sized to
+ * the batch's volume while the gross was sized to the card. So a conversion-born
+ * batch's bill is the recipe's per-bbl rate × its own volume — the same footing
+ * as the exclusion, so a shared ingredient nets to exactly zero and only the
+ * addition (the orange puree) is left.
  */
 export async function calculateIngredientDeposit(
   supabase: SupabaseClient,
@@ -138,7 +150,7 @@ export async function calculateIngredientDeposit(
 ): Promise<DepositCalculation> {
   const { data: batch, error: batchErr } = await supabase
     .from("brew_batches")
-    .select("id, beer_name, volume_bbl, turns, recipe_id")
+    .select("id, beer_name, volume_bbl, turns, recipe_id, converted_from_batch_id")
     .eq("id", batchId)
     .single();
 
@@ -147,7 +159,7 @@ export async function calculateIngredientDeposit(
 
   const { data: recipeIngredients, error: riErr } = await supabase
     .from("recipe_ingredients")
-    .select("quantity_per_turn, ingredients(id, name, unit, cost_per_unit_usd)")
+    .select("quantity_per_turn, quantity_per_bbl, ingredients(id, name, unit, cost_per_unit_usd)")
     .eq("recipe_id", batch.recipe_id);
 
   if (riErr) throw new Error(`Failed to fetch recipe ingredients: ${riErr.message}`);
@@ -159,6 +171,9 @@ export async function calculateIngredientDeposit(
   // multiply back to the line total. Guarded so a volume-less batch can't
   // divide by zero and emit Infinity into an invoice.
   const turnVol = volumeBbl > 0 ? volumeBbl / turns : 0;
+  // Drawn off another batch rather than brewed: its bill is the rate over its
+  // own volume, not a full turn's card — see the module comment.
+  const conversionBorn = !!(batch as { converted_from_batch_id?: string | null }).converted_from_batch_id;
 
   // ── What an excluded base already paid for, expressed in THIS bill's terms ──
   // The excluded rates are per bbl (that is the only figure two recipes with
@@ -209,7 +224,9 @@ export async function calculateIngredientDeposit(
     const ing = ri.ingredients as unknown as { id: string; name: string; unit: string; cost_per_unit_usd: number | null } | null;
     if (!ing || ing.cost_per_unit_usd == null) continue;
 
-    const grossPerTurn = Number(ri.quantity_per_turn);
+    const grossPerTurn = conversionBorn
+      ? Number((ri as { quantity_per_bbl?: number | null }).quantity_per_bbl ?? 0) * turnVol
+      : Number(ri.quantity_per_turn);
     // Drawn down as it is consumed, so a bill listing an ingredient twice has
     // the exclusion applied once across both lines rather than once per line.
     const claimable = Math.min(grossPerTurn, excludedPerTurn.get(ing.id) ?? 0);

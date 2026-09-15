@@ -507,23 +507,14 @@ export async function calculateShippedIngredientDeposits(
 }
 
 /**
- * The invoice line's description. Square shows the catalog item's own name and
- * files this as the line's note, so it is where the derivation has to live — a
- * bare "Ingredient Deposit" leaves nobody able to check the number a year later.
+ * The invoice line's description — customer-facing, so it names the beer and
+ * nothing else. The derivation (yield, percentage, exclusions, per-ingredient
+ * shares) lives in `ShippedDepositLine` and the breakdown modal, not on the
+ * invoice. The "Ingredient Deposit" prefix is load-bearing: the export invoice
+ * route recognises a deposit line by it.
  */
 export function shippedDepositDescription(line: ShippedDepositLine): string {
-  const basis = line.packagingInProgress
-    ? `${line.projectedYieldBbl.toFixed(2)} bbl projected yield (in-tank beer at ${line.packagingYieldPct}%)`
-    : `${line.projectedYieldBbl.toFixed(2)} bbl packaged`;
-  // A conversion-only deposit is a smaller number than the beer's name would
-  // lead anyone to expect, so the line has to say which bill it is a share of.
-  const scope = line.excludedRecipes.length
-    ? `, conversion additions only (excludes ${line.excludedRecipes.map((r) => r.beerName).join(", ")})`
-    : "";
-  return (
-    `Ingredient Deposit — ${line.beerName}: ${line.shippedBbl.toFixed(2)} bbl of the ` +
-    `${basis} (${line.percentage.toFixed(2)}%)${scope}`
-  );
+  return `Ingredient Deposit — ${line.beerName}`;
 }
 
 function round4(n: number): number {
