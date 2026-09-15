@@ -15,10 +15,12 @@ interface BatchRow {
   volume_bbl: number;
   turns: number | null;
   recipe_id: string | null;
+  converted_from_batch_id?: string | null;
 }
 
 interface RecipeIngredientRow {
   quantity_per_turn: number;
+  quantity_per_bbl?: number;
   ingredients: { id: string; name: string; unit: string; cost_per_unit_usd: number | null } | null;
 }
 
@@ -267,5 +269,39 @@ describe("calculateIngredientDeposit — converted-from exclusions", () => {
         { excludeRecipeIds: ["r-mule"] },
       ),
     ).rejects.toThrow(/no recorded volume/);
+  });
+});
+
+describe("calculateIngredientDeposit — conversion-born batches", () => {
+  // Orange Pilsner B-063: 5.17 bbl drawn off a 40 bbl Pilsner. The card is a
+  // 20 bbl turn (330 lb of Pilsner malt, 37.5 lb of puree); the batch never
+  // brewed a turn, so its bill is the per-bbl rate over its own 5.17 bbl.
+  const ORANGE = { id: "b3", beer_name: "Orange Pilsner", volume_bbl: 5.17, turns: 1, recipe_id: "r-orange", converted_from_batch_id: "b-pils" };
+  const ORANGE_BILL = [
+    { quantity_per_turn: 330, quantity_per_bbl: 16.5, ingredients: { id: "malt", name: "Pilsner Malt", unit: "lb", cost_per_unit_usd: 1 } },
+    { quantity_per_turn: 37.5, quantity_per_bbl: 1.875, ingredients: { id: "puree", name: "Orange Puree", unit: "lb", cost_per_unit_usd: 2 } },
+  ];
+  const PILSNER_BASE = [{ recipe_id: "r-pilsner", ingredient_id: "malt", quantity_per_bbl: 16.5 }];
+
+  it("prices the bill over the batch's own volume, not a full turn's card", async () => {
+    const result = await calculateIngredientDeposit(stub(ORANGE, ORANGE_BILL, PILSNER_BASE), "b3", 100);
+    // 16.5 × 5.17 × $1 + 1.875 × 5.17 × $2 = 85.305 + 19.3875
+    expect(result.total_ingredient_cost_usd).toBeCloseTo(104.6925, 4);
+    expect(result.breakdown.find((b) => b.name === "Pilsner Malt")?.quantity_per_bbl).toBeCloseTo(16.5, 6);
+  });
+
+  it("excluding the source leaves exactly the addition — shared malt nets to zero", async () => {
+    const result = await calculateIngredientDeposit(
+      stub(ORANGE, ORANGE_BILL, PILSNER_BASE), "b3", 100, { excludeRecipeIds: ["r-pilsner"] },
+    );
+    expect(result.breakdown.map((b) => b.name)).toEqual(["Orange Puree"]);
+    expect(result.total_ingredient_cost_usd).toBeCloseTo(19.3875, 4);
+  });
+
+  it("leaves a brewed batch on the per-turn card", async () => {
+    // Same card, brewed as one 20 bbl turn: 330 + 37.5 × 2 = $405, as before.
+    const brewed = { ...ORANGE, volume_bbl: 20, converted_from_batch_id: null };
+    const result = await calculateIngredientDeposit(stub(brewed, ORANGE_BILL, PILSNER_BASE), "b3", 100);
+    expect(result.total_ingredient_cost_usd).toBe(405);
   });
 });

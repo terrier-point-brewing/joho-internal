@@ -164,21 +164,11 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     const draftDate = todayLocalDate();
     const serviceDate = draftDate;
     const dueDate = addDaysStr(draftDate, netTerms);
-    const pct = Number(allocation.percentage);
-    const batchBbl = Number(batch.volume_bbl);
-    const commitment = allocation.commitments as { volume_bbl: number } | null;
-    const requestedBbl = commitment?.volume_bbl != null ? Number(commitment.volume_bbl) : null;
-
-    const title = `Ingredient Deposit — ${batch.beer_name} (${pct.toFixed(1)}% allocation)`;
-    // A conversion deposit is a smaller number than the beer's name suggests, so
-    // the description must say which bill it is a share of — same convention as
-    // shippedDepositDescription.
-    const conversionScope = excludedRecipes.length > 0
-      ? ` Conversion additions only — excludes ${excludedRecipes.map((r) => r.beerName).join(", ")}, already covered by the batch it was converted from.`
-      : "";
-    const description = (requestedBbl != null
-      ? `Deposit for your ${requestedBbl.toFixed(1)} bbl commitment of a ${batchBbl.toFixed(1)} bbl ${batch.beer_name} batch (${requestedBbl.toFixed(1)} bbl ÷ ${batchBbl.toFixed(1)} bbl = ${pct.toFixed(1)}%). Covers ingredient costs for your contracted share.`
-      : `Deposit for ${pct.toFixed(1)}% of ${batch.beer_name} batch (${batchBbl.toFixed(1)} bbl). Covers ingredient costs for your allocated share.`) + conversionScope;
+    // Customer-facing: name the beer and nothing else. The derivation (share,
+    // batch volume, conversion exclusions) stays in the ledger and the breakdown
+    // modal — same convention as shippedDepositDescription.
+    const title = `Ingredient Deposit — ${batch.beer_name}`;
+    const description = `Ingredient deposit for your ${batch.beer_name} batch.`;
 
     const invoiceParams = {
       squareCustomerId: partner.square_customer_id,
