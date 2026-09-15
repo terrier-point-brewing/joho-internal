@@ -9,7 +9,7 @@ import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, AllocationChannel, ContractBrewingRequest } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
-import { fmtDateLong, fmtBbl2 } from "@/lib/utils/formatting";
+import { fmtDateLong, fmtBbl2, fmtCents } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
 import { computeLocationBreakdown } from "@/lib/production/volumeLedger";
 import { fetchJson } from "../hooks/queries";
@@ -496,6 +496,22 @@ function AllocationStatusBadge({ allocation }: { allocation: BatchAllocation }) 
   );
 }
 
+/**
+ * Where a contract deposit stands, honouring BOTH ways it can be billed: the
+ * allocation's own deposit invoice, or a back-charge line on an export invoice
+ * (`deposit_coverage.additions`). The batch log used to read only the former,
+ * so a deposit billed on an export invoice still showed "Invoice pending".
+ */
+type DepositStage = "paid" | "backcharged" | "sent" | "draft" | "pending";
+function depositStage(a: BatchAllocation): DepositStage {
+  if (a.invoice_paid_at) return "paid";
+  const add = a.deposit_coverage?.additions;
+  if (add?.via === "backcharge" && (add.status === "pending_invoice" || add.status === "collecting")) return "backcharged";
+  if (a.invoice_sent_at) return "sent";
+  if (a.invoice_generated_at) return "draft";
+  return "pending";
+}
+
 function InvoiceStatusBadge({ allocation }: { allocation: BatchAllocation }) {
   if (allocation.channel !== "contract_brewing") return null;
 
@@ -503,7 +519,21 @@ function InvoiceStatusBadge({ allocation }: { allocation: BatchAllocation }) {
     ? <span className="ml-1 font-mono opacity-70">#{allocation.deposit_invoice_number}</span>
     : null;
 
-  if (allocation.invoice_paid_at) {
+  const stage = depositStage(allocation);
+  if (stage === "backcharged") {
+    const add = allocation.deposit_coverage!.additions;
+    const num = add.invoice_number ? <span className="ml-1 font-mono opacity-70">#{add.invoice_number}</span> : null;
+    const partly = (add.collected_cents ?? 0) > 0 ? ` (${fmtCents(add.collected_cents ?? 0)} of ${fmtCents(add.charged_cents ?? 0)} in)` : "";
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent-muted/30 border border-accent-border/40 rounded px-1.5 py-0.5"
+        title={`Deposit billed as a line on the export invoice${partly}; not yet paid.`}
+      >
+        ● Billed on export{num}
+      </span>
+    );
+  }
+  if (stage === "paid") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] text-success bg-success-surface/30 border border-success-border/40 rounded px-1.5 py-0.5">
         ✓ Deposit paid{numSuffix}
@@ -779,8 +809,9 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
       {(() => {
         const unpaid = allocations.filter(a => a.channel === "contract_brewing" && !a.invoice_paid_at);
         if (!unpaid.length) return null;
-        const notInvoiced = unpaid.filter(a => !a.invoice_generated_at).length;
-        const sentCount = unpaid.filter(a => a.invoice_sent_at).length;
+        const stages = unpaid.map(depositStage);
+        const notInvoiced = stages.filter(st => st === "pending").length;
+        const sentCount = stages.filter(st => st === "sent" || st === "backcharged").length;
         const label = unpaid.length === 1 ? "deposit" : "deposits";
         const detail = [
           notInvoiced > 0 ? `${notInvoiced} not yet invoiced` : null,
@@ -1573,9 +1604,10 @@ function DepositInvoiceBadge({ batchId, status }: { batchId: string; status: str
   //   • sent-open (red $)    — invoice was sent but the deposit is still unpaid
   const unpaid = allocations.filter(a => a.channel === "contract_brewing" && !a.invoice_paid_at);
   if (!unpaid.length) return null;
-  const notSent = unpaid.filter(a => !a.invoice_sent_at);
-  const sentOpen = unpaid.filter(a => a.invoice_sent_at);
-  const notInvoiced = notSent.filter(a => !a.invoice_generated_at).length;
+  // A back-charge on an export invoice has reached the partner: it is "sent".
+  const notSent = unpaid.filter(a => { const st = depositStage(a); return st === "draft" || st === "pending"; });
+  const sentOpen = unpaid.filter(a => { const st = depositStage(a); return st === "sent" || st === "backcharged"; });
+  const notInvoiced = notSent.filter(a => depositStage(a) === "pending").length;
 
   const notSentTitle = `${notSent.length} deposit invoice${notSent.length > 1 ? "s" : ""} not sent`
     + (notInvoiced > 0 ? ` (${notInvoiced} not yet created)` : "");
