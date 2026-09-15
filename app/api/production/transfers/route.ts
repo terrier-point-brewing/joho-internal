@@ -476,7 +476,7 @@ async function reconcileSchedule(
         // "departed" volume in the equipment schedule graph.
         let activeEntryQuery = supabase
           .from("batch_schedule_entries")
-          .select("id, downstream_entry_id")
+          .select("id")
           .eq("batch_id", batch_id)
           .in("stage", candidateStages)
           .eq("equipment_id", from_tank_id)
@@ -494,19 +494,13 @@ async function reconcileSchedule(
             .update({ actual_end: today })
             .eq("id", activeEntry.id);
           scheduleUpdate.push({ action: "actual_end_set", entry_id: activeEntry.id, equipment_name: srcTankInfo.name });
-
-          // Source is now fully drained — if it was feeding a downstream entry that's
-          // still accumulating partial arrivals (actual_start set, actual_end open),
-          // close that out too, since no more volume is coming from this source.
-          if (activeEntry.downstream_entry_id) {
-            await supabase
-              .from("batch_schedule_entries")
-              .update({ actual_end: today })
-              .eq("id", activeEntry.downstream_entry_id)
-              .is("cancelled_at", null)
-              .not("actual_start", "is", null)
-              .is("actual_end", null);
-          }
+          // Deliberately NOT closing activeEntry.downstream_entry_id here. The
+          // arrival block above has just created (or topped up) that entry and
+          // wired it as this source's downstream, so closing it stamps
+          // actual_end = actual_start on a tank the beer is still sitting in
+          // (B-058/059/061/067 fermenting; B-033/054 conditioning). An
+          // occupancy entry's actual_end means "the beer left this tank", not
+          // "nothing more is arriving" — only a later departure may set it.
         }
       }
     }

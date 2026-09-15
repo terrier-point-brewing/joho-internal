@@ -121,7 +121,7 @@ export function AddStagePanel({
       )}
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={save} disabled={saving}
-          className="px-3 py-1.5 text-xs bg-accent-emphasis hover:bg-accent disabled:opacity-50 text-white rounded font-medium">
+          className="btn-primary">
           {saving ? "Saving…" : "Add stage"}
         </button>
         <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-muted hover:text-body">Cancel</button>
