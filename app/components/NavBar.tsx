@@ -75,7 +75,7 @@ const LogoutIcon = () => (
 export default function NavBar() {
   const pathname = usePathname();
 
-  const { role, user, loading } = useUserRole();
+  const { role, user, loading, isPartner } = useUserRole();
   const { can } = usePermissions();
   const pendingRequests = usePendingAccessRequestCount();
 
@@ -98,6 +98,20 @@ export default function NavBar() {
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
     window.location.href = "/login";
+  }
+
+  // An external partner gets no staff navigation at all — not a filtered
+  // sidebar, none. Just a slim bar to sign out from; the portal is one page.
+  if (isPartner) {
+    return (
+      <div className="fixed top-0 inset-x-0 z-50 bg-surface border-b border-line flex items-center justify-between px-4 h-11">
+        <span className="text-sm font-bold text-primary tracking-wide">TPB <span className="font-normal text-muted">Partner portal</span></span>
+        <div className="flex items-center gap-3">
+          <span className="hidden sm:inline text-xs text-muted truncate max-w-[220px]">{user?.email}</span>
+          <button onClick={handleLogout} className="btn-secondary btn-xxs">Sign out</button>
+        </div>
+      </div>
+    );
   }
 
   const isProduction = pathname === "/production" || pathname.startsWith("/production/");

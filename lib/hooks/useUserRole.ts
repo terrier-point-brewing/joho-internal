@@ -31,6 +31,7 @@ export function useUserRole(): Omit<AuthMe, "grants"> & { loading: boolean } {
   return {
     user: data?.user ?? null,
     role: data?.role ?? null,
+    isPartner: data?.isPartner ?? false,
     loading: isLoading,
   };
 }

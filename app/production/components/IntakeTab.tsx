@@ -2,6 +2,7 @@
 
 import TaproomTab      from "./intake/TaproomTab";
 import CommitmentsTab  from "./intake/CommitmentsTab";
+import PartnerRequestsTab from "./intake/PartnerRequestsTab";
 import SafetyStockTab  from "./intake/SafetyStockTab";
 import DemandCalendarTab from "./intake/DemandCalendarTab";
 import BatchSchedulerTab from "./intake/BatchSchedulerTab";
@@ -19,6 +20,7 @@ export default function IntakeTab({ sub }: { sub: IntakeSubtab }) {
     <>
       {sub === "taproom"     && <TaproomTab recipes={recipes} />}
       {sub === "commitments" && <CommitmentsTab recipes={recipes} partners={partners} />}
+      {sub === "requests"    && <PartnerRequestsTab recipes={recipes} />}
       {sub === "safety"      && <SafetyStockTab recipes={recipes} transfers={transfers} tanks={tanks} batches={batches} />}
       {sub === "demand"      && <DemandCalendarTab />}
       {sub === "scheduler"   && <BatchSchedulerTab recipes={recipes} tanks={tanks} partners={partners} />}

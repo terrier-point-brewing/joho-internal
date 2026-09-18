@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   conversionRatio,
   convertibleTargets,
@@ -128,7 +129,11 @@ export async function POST(
   const toUnit = typeof body?.to_unit === "string" ? body.to_unit.trim() : "";
   if (!toUnit) return NextResponse.json({ error: "to_unit is required" }, { status: 400 });
 
-  const { data, error } = await supabase.rpc("convert_ingredient_unit", {
+  // Service-role client for the call itself: convert_ingredient_unit is
+  // SECURITY DEFINER and checks nothing about its caller, so no login session
+  // holds EXECUTE on it (20261118110000_definer_rpcs_service_role_only.sql).
+  // The requirePermission above is the authorization.
+  const { data, error } = await createSupabaseAdminClient().rpc("convert_ingredient_unit", {
     p_ingredient_id: id,
     p_to_unit: toUnit,
   });

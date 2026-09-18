@@ -599,6 +599,8 @@ export interface ContractBrewingPartner {
   email: string | null;
   notes: string | null;
   square_customer_id: string | null;
+  /** Their beer is never offered to other partners in the partner portal. */
+  recipes_exclusive?: boolean;
   created_at: string;
 }
 

@@ -4,7 +4,7 @@ import { CAP } from "./capabilities";
 import { effectiveLevel } from "./resolve";
 import { SCOPES, ROOT, type ScopeKey, type Section } from "./scopes";
 
-const SECTIONS: Section[] = ["taproom", "production", "finance", "payroll", "catalog", "brand", "marketing", "org"];
+const SECTIONS: Section[] = ["taproom", "production", "finance", "payroll", "catalog", "brand", "marketing", "org", "partner"];
 
 function isValidKey(key: string): boolean {
   return key === ROOT || key in SCOPES || (SECTIONS as string[]).includes(key);
@@ -19,9 +19,9 @@ describe("ROLE_BUNDLES", () => {
     }
   });
 
-  it("grants admin on all 33 scopes for the admin role", () => {
+  it("grants admin on all 34 scopes for the admin role", () => {
     const scopeKeys = Object.keys(SCOPES) as ScopeKey[];
-    expect(scopeKeys.length).toBe(33);
+    expect(scopeKeys.length).toBe(34);
     for (const scope of scopeKeys) {
       expect(effectiveLevel(ROLE_BUNDLES.admin, scope)).toBe("admin");
     }
@@ -51,6 +51,20 @@ describe("ROLE_BUNDLES", () => {
     }
     expect(effectiveLevel(ROLE_BUNDLES.admin, "marketing.access")).toBe("admin");
     expect(effectiveLevel(ROLE_BUNDLES.viewer, "production.access")).toBeNull();
+  });
+
+  it("confines the external partner role to the portal — one leaf, and nothing resolves outside it", () => {
+    expect(ROLE_BUNDLES.partner).toEqual({ "partner.portal": "read" });
+    for (const scope of Object.keys(SCOPES) as ScopeKey[]) {
+      if (scope === "partner.portal") continue;
+      expect(effectiveLevel(ROLE_BUNDLES.partner, scope), scope).toBeNull();
+    }
+  });
+
+  it("keeps every staff bundle out of the partner portal", () => {
+    for (const role of ["viewer", "brewer", "manager", "custom"] as const) {
+      expect(effectiveLevel(ROLE_BUNDLES[role], "partner.portal")).toBeNull();
+    }
   });
 
   it("has an empty custom bundle", () => {

@@ -113,6 +113,7 @@ export const TAX_SETTINGS_NAV: SettingsNavEntry[] = [
 export const PRODUCTION_SETTINGS_NAV: SettingsNavEntry[] = [
   { href: "/settings/production/deposits", label: "Deposit Settings" },
   { href: "/settings/production/export", label: "Export Settings" },
+  { href: "/settings/production/partner-portal", label: "Partner Portal" },
   // The group gates on production.settings:manage, but this backfill's route
   // enforces production.export:manage — a different scope, not a parent — so it
   // needs its own gate or a settings-only holder sees a tab that 403s.

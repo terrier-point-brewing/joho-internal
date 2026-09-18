@@ -16,6 +16,8 @@ const PARTNER_EMPTY = {
   address: "",
   email: "",
   notes: "",
+  // Contract partners only: their beer is never offered to other partners in the portal.
+  recipes_exclusive: false,
 };
 
 function partnerApiBase(kind: PartnerKind) {
@@ -234,6 +236,7 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
       address:      p.address     ?? "",
       email:        p.email       ?? "",
       notes:        p.notes       ?? "",
+      recipes_exclusive: "recipes_exclusive" in p ? !!p.recipes_exclusive : false,
     });
     setEditingId(p.id);
     setShowModal(true);
@@ -252,6 +255,7 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
         address:      form.address     || null,
         email:        form.email       || null,
         notes:        form.notes       || null,
+        ...(kind === "contract" ? { recipes_exclusive: form.recipes_exclusive } : {}),
       };
       const res = editingId
         ? await fetch(`${base}/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
@@ -431,6 +435,16 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
               <textarea className="inp resize-none" rows={2} value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </Field>
+            {kind === "contract" && (
+              <label className="flex items-start gap-2 text-xs text-secondary">
+                <input type="checkbox" className="mt-0.5" checked={form.recipes_exclusive}
+                  onChange={(e) => setForm((f) => ({ ...f, recipes_exclusive: e.target.checked }))} />
+                <span>
+                  Beer is exclusive
+                  <span className="block text-faint">Batches of this partner&rsquo;s recipes are never offered to other partners in the partner portal.</span>
+                </span>
+              </label>
+            )}
             <ModalActions submitting={submitting} onCancel={() => setShowModal(false)}
               label={editingId ? "Save Changes" : `Add ${kindLabel}`} />
           </form>

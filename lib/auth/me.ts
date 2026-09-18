@@ -14,6 +14,8 @@ export interface AuthMe {
   user: { id: string; email: string } | null;
   role: UserRole | null;
   grants: ScopeGrants;
+  /** True for an external partner login — the shell renders no staff nav. */
+  isPartner: boolean;
 }
 
 /**
@@ -23,10 +25,11 @@ export interface AuthMe {
  * step again, which is exactly the hydration mismatch this exists to prevent.
  */
 export function toAuthMe(session: Session | null): AuthMe {
-  if (!session) return { user: null, role: null, grants: {} };
+  if (!session) return { user: null, role: null, grants: {}, isPartner: false };
   return {
     user: { id: session.user.id, email: session.user.email ?? "" },
     role: session.role,
     grants: session.grants,
+    isPartner: session.partnerId != null,
   };
 }

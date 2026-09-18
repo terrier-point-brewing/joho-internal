@@ -7,11 +7,12 @@ import TabBar, { type TabDef } from "@/app/components/TabBar";
 import { PRODUCTION_NAV } from "@/app/production/nav-config";
 import IntakeTab from "@/app/production/components/IntakeTab";
 
-export type IntakeSubtab = "taproom" | "commitments" | "safety" | "demand" | "scheduler";
+export type IntakeSubtab = "taproom" | "commitments" | "requests" | "safety" | "demand" | "scheduler";
 
 const SUBTABS: TabDef<IntakeSubtab>[] = [
   { key: "taproom",     label: "Taproom" },
   { key: "commitments", label: "Commitments" },
+  { key: "requests",    label: "Partner Requests" },
   { key: "safety",      label: "Safety Stock" },
   { key: "demand",      label: "Demand Calendar" },
   { key: "scheduler",   label: "Batch Scheduler" },

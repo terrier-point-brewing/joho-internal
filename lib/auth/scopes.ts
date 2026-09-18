@@ -19,7 +19,7 @@
  * `catalog`); a subtab needing finer gating than its parent domain -> sub-leaf
  * (`finance.tax.filing`).
  *
- * Thirty-three leaves across eight families. Interior nodes are grantable too:
+ * Thirty-four leaves across nine families. Interior nodes are grantable too:
  * `finance.tax` is a real key, and a bare `finance` grant rolls down into all
  * of `finance.tax.*` by dot-prefix. A SIBLING leaf grant confers nothing on its
  * section — `finance.tax:operate` does not resolve `finance.access` — which is
@@ -33,7 +33,8 @@ export type Section =
   | "catalog"
   | "brand"
   | "marketing"
-  | "org";
+  | "org"
+  | "partner";
 
 export const SCOPES = {
   "taproom.access": { label: "Access", section: "taproom" },
@@ -102,6 +103,12 @@ export const SCOPES = {
   // App-wide reskin. Split out of brand.guide, which used to conflate editing
   // brand CONTENT with restyling the internal app for every user.
   "org.appearance": { label: "Appearance", section: "org" },
+
+  // The external partner portal, and the ONLY scope the `partner` role holds.
+  // It sits in its own family so that no staff bundle reaches it by roll-down
+  // (only ROOT does) and so that it rolls down into nothing else: a partner
+  // resolves to no grant on every other scope in this file.
+  "partner.portal": { label: "Portal", section: "partner" },
 } as const satisfies Record<string, { label: string; section: Section }>;
 
 /** Derived from the const, so a typo is a compile error rather than a runtime 403. */

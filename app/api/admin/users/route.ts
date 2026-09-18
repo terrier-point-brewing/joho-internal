@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, CAP } from "@/lib/auth";
+import { requirePermission, CAP, type UserRole } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
+
+const PARTNER_ROLE: UserRole = "partner";
+
+/** Null when the role / company pairing is valid, else the reason it is not. */
+function partnerPairingError(role: unknown, partnerId: unknown): string | null {
+  if (role === PARTNER_ROLE && !partnerId) return "A partner login must be linked to a partner company.";
+  if (role !== PARTNER_ROLE && partnerId) return "Only a partner login can be linked to a partner company.";
+  return null;
+}
 
 export async function GET() {
   try {
@@ -13,7 +22,7 @@ export async function GET() {
 
   const admin = createSupabaseAdminClient();
   const [profilesRes, authRes] = await Promise.all([
-    admin.from("profiles").select("id, email, role, created_at").order("created_at", { ascending: true }),
+    admin.from("profiles").select("id, email, role, partner_id, created_at").order("created_at", { ascending: true }),
     admin.auth.admin.listUsers({ perPage: 1000 }),
   ]);
 
@@ -38,10 +47,15 @@ export async function POST(req: NextRequest) {
     return res as Response;
   }
 
-  const { email, password, role } = await req.json();
+  const { email, password, role, partner_id } = await req.json();
   if (!email || !password || !role) {
     return NextResponse.json({ error: "email, password, and role are required" }, { status: 400 });
   }
+  // An external partner login belongs to exactly one company; a staff login to
+  // none. The DB enforces the same pairing (profiles_partner_role_pairing) —
+  // checked here first so the refusal reads like a sentence.
+  const pairing = partnerPairingError(role, partner_id);
+  if (pairing) return NextResponse.json({ error: pairing }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
 
@@ -57,10 +71,15 @@ export async function POST(req: NextRequest) {
   // Set role (trigger created the profile row; now update the role)
   const { error: profileError } = await admin
     .from("profiles")
-    .update({ role })
+    .update({ role, partner_id: role === PARTNER_ROLE ? partner_id : null })
     .eq("id", authData.user.id);
 
-  if (profileError) return NextResponse.json({ error: profileError.message }, { status: 500 });
+  if (profileError) {
+    // A login with no role row would default to viewer — an EXTERNAL person
+    // inside the taproom numbers. Remove it rather than leave it half-made.
+    await admin.auth.admin.deleteUser(authData.user.id);
+    return NextResponse.json({ error: profileError.message }, { status: 500 });
+  }
 
   return NextResponse.json({ id: authData.user.id, email, role }, { status: 201 });
 }
