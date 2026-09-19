@@ -31,6 +31,12 @@ const PAYMENT: Record<PaymentStatus, { label: string; tone: Tone }> = {
   not_invoiced: { label: "Not yet invoiced", tone: "neutral" },
 };
 
+const STAGE_LABEL: Record<ClaimableBatch["stage"], string> = {
+  in_tank: "In tank — not packaged yet",
+  packaging: "Packaging under way",
+  packaged: "Packaged — ready now",
+};
+
 const STATUS: Record<PortalRequest["status"], { label: string; tone: Tone }> = {
   submitted: { label: "Awaiting our reply", tone: "info" },
   approved: { label: "Approved", tone: "success" },
@@ -170,26 +176,31 @@ export default function PartnerPortal() {
           ) : (
             <div className="flex flex-col gap-2">
               {data.available.map((b) => (
-                <Card key={b.batch_id} className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-primary">{b.beer_name}</div>
-                    <div className="text-xs text-muted">
-                      {[b.style, b.abv ? `${b.abv}% ABV` : null].filter(Boolean).join(" · ") || "—"}
+                <Card key={b.batch_id}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-primary">{b.beer_name}</div>
+                      <div className="text-xs text-muted">
+                        {[b.style, b.abv ? `${b.abv}% ABV` : null].filter(Boolean).join(" · ") || "—"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <div className="text-sm font-semibold text-strong">{bbl(b.claimable_bbl)} available</div>
+                        <div className="text-xs text-muted">{STAGE_LABEL[b.stage]}{b.stage !== "packaged" && b.ready_by ? ` · ready around ${shortDate(b.ready_by)}` : ""}</div>
+                      </div>
+                      <button className="btn-primary" onClick={() => setClaiming(b)}>Claim some</button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div className="text-sm font-semibold text-strong">{bbl(b.claimable_bbl)} available</div>
-                      <div className="text-xs text-muted">{b.packaged ? "Packaged — ready now" : b.ready_by ? `Ready around ${shortDate(b.ready_by)}` : "Ready soon — date to be confirmed"}</div>
-                    </div>
-                    <button className="btn-primary" onClick={() => setClaiming(b)}>Claim some</button>
-                  </div>
+                  <ReadinessBar batch={b} />
                 </Card>
               ))}
             </div>
           )}
           <p className="text-xs text-muted mt-4">
-            Amounts for beer still in tank are estimates until it is packaged. Availability is first approved, first served.
+            <span className="text-success">Packaged</span> beer is here and ready to ship. Beer <span className="text-info">still in tank</span> is
+            our estimate of what it will package out at — the final amount is confirmed once it is packaged. Availability is first
+            approved, first served.
           </p>
         </section>
       )}
@@ -298,6 +309,26 @@ export default function PartnerPortal() {
   );
 }
 
+/**
+ * What an offer is made of: beer on the floor, and beer still to come. The same
+ * two-tone reading as the staff ledger's delivery bar, without the batch's size.
+ */
+function ReadinessBar({ batch: b }: { batch: ClaimableBatch }) {
+  const total = Math.max(b.claimable_bbl, 0.0001);
+  return (
+    <div className="mt-3">
+      <div className="h-1.5 rounded-full bg-surface-mid overflow-hidden flex" aria-hidden>
+        {b.ready_now_bbl > 0.005 && <div className="h-full bg-success-emphasis" style={{ width: `${(b.ready_now_bbl / total) * 100}%` }} />}
+        {b.in_tank_bbl > 0.005 && <div className="h-full bg-info-emphasis" style={{ width: `${(b.in_tank_bbl / total) * 100}%` }} />}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs mt-1.5">
+        <span className={b.ready_now_bbl > 0.005 ? "text-success" : "text-faint"}>{bbl(b.ready_now_bbl)} packaged and ready now</span>
+        <span className={b.in_tank_bbl > 0.005 ? "text-info" : "text-faint"}>{bbl(b.in_tank_bbl)} still in tank (estimate)</span>
+      </div>
+    </div>
+  );
+}
+
 function Stat({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: "success" | "danger" }) {
   return (
     <Card>
@@ -396,6 +427,7 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
   const next = overview.capacity.find((m) => m.open_slots > 0) ?? null;
   const waiting = requests.filter((r) => r.status === "submitted").length;
   const claimable = overview.available.reduce((s, b) => s + b.claimable_bbl, 0);
+  const readyNow = overview.available.reduce((s, b) => s + b.ready_now_bbl, 0);
   const owed = history?.summary.outstanding_cents ?? 0;
   return (
     <section className="flex flex-col gap-4">
@@ -454,6 +486,13 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
           <div className="text-xl font-semibold text-primary mt-1">
             {overview.available.length === 0 ? "None right now" : `${bbl1(claimable)} across ${overview.available.length} beer${overview.available.length === 1 ? "" : "s"}`}
           </div>
+          {overview.available.length > 0 && (
+            <div className="text-xs mt-1">
+              <span className="text-success">{bbl1(readyNow)} packaged and ready now</span>
+              <span className="text-faint"> · </span>
+              <span className="text-info">{bbl1(claimable - readyNow)} still in tank</span>
+            </div>
+          )}
           <div className="text-xs text-secondary mt-1">
             {overview.available.slice(0, 3).map((b) => b.beer_name.trim()).join(", ") || "Check back as new batches are scheduled."}
           </div>

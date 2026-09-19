@@ -2,7 +2,7 @@
 // client bundle never reaches a server module.
 
 export interface MonthCapacity { month: string; open_slots: number; earliest_start: string | null; max_turns: number }
-export interface ClaimableBatch { batch_id: string; beer_name: string; style: string | null; abv: number | null; ready_by: string | null; packaged: boolean; claimable_bbl: number }
+export interface ClaimableBatch { batch_id: string; beer_name: string; style: string | null; abv: number | null; ready_by: string | null; packaged: boolean; claimable_bbl: number; ready_now_bbl: number; in_tank_bbl: number; stage: "in_tank" | "packaging" | "packaged" }
 export interface OwnRecipe { id: string; beer_name: string; style: string | null }
 export interface Overview {
   company_name: string; preview: boolean; turn_bbl: number; max_turns: number;

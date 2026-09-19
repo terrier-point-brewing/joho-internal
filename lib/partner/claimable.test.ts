@@ -60,6 +60,37 @@ describe("claimPool", () => {
   });
 });
 
+describe("claimPool — ready now vs still in tank", () => {
+  it("calls none of it ready while nothing is packaged", () => {
+    const p = claimPool({ planned_bbl: 20, produced_bbl: 0, converted_bbl: 0, bufferPct: 10,
+      allocations: [alloc("c", "contract_brewing", 70), alloc("t", "taproom", 30)] });
+    expect(p).toMatchObject({ claimableBbl: 4, readyNowBbl: 0, inTankBbl: 4 });
+  });
+
+  it("splits a part-packaged batch: what is on the floor, and what is still to come", () => {
+    // 28 packaged, 25 shipped (24 of it to the contract partner, who is owed 57% × 28 = 15.96 → nothing more yet).
+    const p = claimPool({ planned_bbl: 40, produced_bbl: 28, projected_bbl: 38.8, converted_bbl: 0, bufferPct: 10, total_exported_bbl: 25,
+      allocations: [alloc("c", "contract_brewing", 57, 24), alloc("t", "taproom", 30)] });
+    expect(p.claimableBbl).toBe(9.92);
+    expect(p.readyNowBbl).toBe(3);      // 28 − 25 on the floor
+    expect(p.inTankBbl).toBe(6.92);
+  });
+
+  it("holds back packaged beer another partner is still owed", () => {
+    // 30 packaged, 5 shipped to the partner, who is owed 50% × 30 = 15 → 10 of the 25 on the floor is theirs.
+    const p = claimPool({ planned_bbl: 40, produced_bbl: 30, projected_bbl: 39, converted_bbl: 0, bufferPct: 0, total_exported_bbl: 5,
+      allocations: [alloc("c", "contract_brewing", 50, 5), alloc("t", "taproom", 50)] });
+    expect(p.readyNowBbl).toBe(15);
+    expect(p.readyNowBbl + p.inTankBbl).toBe(p.claimableBbl);
+  });
+
+  it("is all ready once the tank is empty", () => {
+    const p = claimPool({ planned_bbl: 40, produced_bbl: 36, projected_bbl: 36, converted_bbl: 0, bufferPct: 10, total_exported_bbl: 18,
+      allocations: [alloc("c", "contract_brewing", 50, 18), alloc("t", "taproom", 50)] });
+    expect(p).toMatchObject({ claimableBbl: 14.4, readyNowBbl: 14.4, inTankBbl: 0 });
+  });
+});
+
 describe("planClaim", () => {
   const pool = claimPool({ planned_bbl: 40, produced_bbl: 0, converted_bbl: 0, bufferPct: 10,
     allocations: [alloc("c", "contract_brewing", 40), alloc("t", "taproom", 50)] });
