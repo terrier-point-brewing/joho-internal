@@ -139,7 +139,7 @@ export default function UserManagement() {
   return (
     <div className="flex-1 overflow-auto px-4 sm:px-6">
       <SettingsHeader title="Users" />
-      <div className="pb-4 sm:pb-8 max-w-4xl">
+      <div className="pb-4 sm:pb-8">
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
       {displayError && (
         <Banner tone="danger" className="mb-4">{displayError}</Banner>

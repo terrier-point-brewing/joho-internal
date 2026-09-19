@@ -193,7 +193,7 @@ export default function TargetSettingTab() {
   // ---------------------------------------------------------------------------
   if (mode === "view") {
     return (
-      <div className="max-w-4xl space-y-6">
+      <div className="space-y-6">
         {/* Year tabs + Edit button inline */}
         <div className="flex items-center gap-2">
           {[currentYear - 1, currentYear, currentYear + 1].map((y) => (
@@ -267,7 +267,7 @@ export default function TargetSettingTab() {
   // EDIT MODE
   // ---------------------------------------------------------------------------
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-xs text-faint">Editing {year} · blank cells are skipped on save</p>
         <div className="flex items-center gap-3">
