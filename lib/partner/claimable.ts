@@ -68,6 +68,14 @@ export interface ClaimPool {
   basisBbl: number;
   bufferBbl: number;
   claimableBbl: number;
+  /**
+   * How much of `claimableBbl` is packaged and sitting here today, against how
+   * much is still in tank and only expected. "4 bbl available" means something
+   * very different when none of it has been packaged yet, so the two are never
+   * shown as one number. They always sum to `claimableBbl`.
+   */
+  readyNowBbl: number;
+  inTankBbl: number;
   /** Where a claim is drawn from, in draw order: unallocated first, then taproom. */
   sources: ClaimSource[];
 }
@@ -77,7 +85,7 @@ export function claimPool(b: ClaimBatchInput): ClaimPool {
   // percentage. Once packaging starts: the projected yield, which converges on
   // the packaged volume as the tank drains.
   const basisBbl = b.produced_bbl > EPS ? Math.max(b.produced_bbl, b.projected_bbl ?? 0) : b.planned_bbl;
-  if (basisBbl <= EPS) return { basisBbl: 0, bufferBbl: 0, claimableBbl: 0, sources: [] };
+  if (basisBbl <= EPS) return { basisBbl: 0, bufferBbl: 0, claimableBbl: 0, readyNowBbl: 0, inTankBbl: 0, sources: [] };
 
   const convertedPct = b.planned_bbl > EPS ? (b.converted_bbl / b.planned_bbl) * 100 : 0;
   const totalPct = b.allocations.reduce((s, a) => s + Number(a.percentage), 0) + convertedPct;
@@ -111,7 +119,17 @@ export function claimPool(b: ClaimBatchInput): ClaimPool {
   const bufferBbl = round2((Math.min(100, Math.max(0, b.bufferPct)) / 100) * basisBbl);
   // Floored, never rounded up: the number shown is a promise the approval has
   // to be able to keep.
-  return { basisBbl, bufferBbl, claimableBbl: floor2(Math.max(0, pool - bufferBbl)), sources };
+  const claimableBbl = floor2(Math.max(0, pool - bufferBbl));
+
+  // Packaged beer physically here that no other partner is still owed out of
+  // what has been packaged so far. A claim is served from that first; the rest
+  // of it has to wait for the tank.
+  const packagedOnHand = Math.max(0, b.produced_bbl - (b.total_exported_bbl ?? 0));
+  const othersOwedOfPackaged = b.allocations
+    .filter((a) => a.channel !== "taproom" && !a.written_off_at)
+    .reduce((s, a) => s + Math.max(0, (Number(a.percentage) / 100) * b.produced_bbl - a.exported_bbl), 0);
+  const readyNowBbl = floor2(Math.min(claimableBbl, Math.max(0, packagedOnHand - othersOwedOfPackaged)));
+  return { basisBbl, bufferBbl, claimableBbl, readyNowBbl, inTankBbl: round2(claimableBbl - readyNowBbl), sources };
 }
 
 export interface ClaimDraw { allocationId: string | null; bbl: number; newPct: number | null }

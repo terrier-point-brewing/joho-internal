@@ -99,8 +99,8 @@ export async function loadCapacityInputs(admin: SupabaseClient, today: string): 
 
 // ── Claimable beer ──────────────────────────────────────────────────────────
 
-/** Less than a half-barrel keg is a rounding crumb, not an offer. */
-const MIN_OFFER_BBL = 0.5;
+/** Under a barrel is a rounding crumb, not an offer worth a partner's attention. */
+const MIN_OFFER_BBL = 1;
 
 export interface ClaimableBatch {
   batch_id: string;
@@ -111,6 +111,12 @@ export interface ClaimableBatch {
   /** True once the beer is packaged — it is ready now, not an estimate. */
   packaged: boolean;
   claimable_bbl: number;
+  /** Of that: packaged and here today. */
+  ready_now_bbl: number;
+  /** Of that: still in tank — an estimate until it is packaged. */
+  in_tank_bbl: number;
+  /** Where the batch is, in words a partner can use. No volumes: batch size is not theirs to see. */
+  stage: "in_tank" | "packaging" | "packaged";
 }
 
 interface BatchRow {
@@ -122,7 +128,7 @@ interface BatchRow {
 export async function loadClaimPools(
   admin: SupabaseClient,
   opts: { batchIds?: string[] } = {},
-): Promise<Map<string, { batch: BatchRow; pool: ClaimPool; readyBy: string | null; packaged: boolean }>> {
+): Promise<Map<string, { batch: BatchRow; pool: ClaimPool; readyBy: string | null; packaged: boolean; producedAny: boolean }>> {
   let q = admin.from("brew_batches")
     .select("id, beer_name, volume_bbl, status, expected_delivery_date, recipes(beer_name, style, abv, partner_id, contract_brewing_partners(recipes_exclusive))")
     .neq("status", "complete");
@@ -130,7 +136,7 @@ export async function loadClaimPools(
   const { data: batchRows } = await q;
   const batches = (batchRows ?? []) as unknown as BatchRow[];
   const ids = batches.map((b) => b.id);
-  const out = new Map<string, { batch: BatchRow; pool: ClaimPool; readyBy: string | null; packaged: boolean }>();
+  const out = new Map<string, { batch: BatchRow; pool: ClaimPool; readyBy: string | null; packaged: boolean; producedAny: boolean }>();
   if (ids.length === 0) return out;
 
   const [{ data: allocs }, { data: transfers }, { data: exports_ }, { data: conversions }, { data: entries }, bufferPct, { data: equipment }, yieldPct] = await Promise.all([
@@ -182,7 +188,7 @@ export async function loadClaimPools(
         .map((a) => ({ id: a.id, channel: a.channel, percentage: Number(a.percentage), written_off_at: a.written_off_at, exported_bbl: exported.get(a.id) ?? 0 })),
     });
     out.set(b.id, {
-      batch: b, pool, packaged: producedBbl > 0 && projection.inTankBbl < 0.05,
+      batch: b, pool, packaged: producedBbl > 0 && projection.inTankBbl < 0.05, producedAny: producedBbl > 0,
       readyBy: b.expected_delivery_date ?? lastEnd.get(b.id)?.slice(0, 10) ?? null,
     });
   }
@@ -192,7 +198,7 @@ export async function loadClaimPools(
 export async function loadClaimableForPartner(admin: SupabaseClient, partnerId: string): Promise<ClaimableBatch[]> {
   const [pools, today] = await Promise.all([loadClaimPools(admin), breweryToday()]);
   const rows: ClaimableBatch[] = [];
-  for (const { batch, pool, readyBy, packaged } of pools.values()) {
+  for (const { batch, pool, readyBy, packaged, producedAny } of pools.values()) {
     if (pool.claimableBbl < MIN_OFFER_BBL) continue;
     const owner = { partner_id: batch.recipes?.partner_id ?? null, exclusive: batch.recipes?.contract_brewing_partners?.recipes_exclusive ?? false };
     if (!visibleToPartner(partnerId, owner)) continue;
@@ -205,6 +211,9 @@ export async function loadClaimableForPartner(admin: SupabaseClient, partnerId: 
       ready_by: readyBy && readyBy >= today ? readyBy : null,
       packaged,
       claimable_bbl: pool.claimableBbl,
+      ready_now_bbl: pool.readyNowBbl,
+      in_tank_bbl: pool.inTankBbl,
+      stage: packaged ? "packaged" : producedAny ? "packaging" : "in_tank",
     });
   }
   return rows.sort((a, b) => (a.ready_by ?? "9999").localeCompare(b.ready_by ?? "9999"));

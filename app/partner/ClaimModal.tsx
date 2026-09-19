@@ -31,7 +31,9 @@ export default function ClaimModal({ batch, onClose, onSubmitted }: { batch: Cla
       {error && <Banner className="mb-4">{error}</Banner>}
       <form onSubmit={submit} className="flex flex-col gap-3">
         <p className="text-xs text-muted">
-          {bbl(batch.claimable_bbl)} available · {batch.packaged ? "packaged, ready now" : batch.ready_by ? `ready around ${shortDate(batch.ready_by)}` : "ready date to be confirmed"}
+          {bbl(batch.claimable_bbl)} available: <span className="text-success">{bbl(batch.ready_now_bbl)} packaged and ready now</span>,{" "}
+          <span className="text-info">{bbl(batch.in_tank_bbl)} still in tank</span>
+          {batch.in_tank_bbl > 0.005 ? (batch.ready_by ? `, expected around ${shortDate(batch.ready_by)}` : ", date to be confirmed") : ""}.
         </p>
         <Field label="How much do you want?" required hint="in bbl">
           <input
@@ -40,6 +42,13 @@ export default function ClaimModal({ batch, onClose, onSubmitted }: { batch: Cla
           />
         </Field>
         {tooMuch && <p className="text-xs text-danger">Only {bbl(batch.claimable_bbl)} is available.</p>}
+        {!tooMuch && amount > batch.ready_now_bbl + 0.005 && (
+          <p className="text-xs text-info">
+            {batch.ready_now_bbl > 0.005
+              ? `${bbl(batch.ready_now_bbl)} of this can ship now; the other ${bbl(amount - batch.ready_now_bbl)} comes once the rest is packaged.`
+              : "None of this is packaged yet — it ships once the beer is packaged, and the final amount may come in a little under the estimate."}
+          </p>
+        )}
         <Field label="Notes" hint="packaging, timing, anything we should know">
           <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} className="inp w-full" />
         </Field>
