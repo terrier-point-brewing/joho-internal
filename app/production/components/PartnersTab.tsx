@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchJson } from "../hooks/queries";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { ContractBrewingPartner, Supplier } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -16,9 +20,9 @@ const PARTNER_EMPTY = {
   address: "",
   email: "",
   notes: "",
-  // Contract partners only: their beer is never offered to other partners in the portal.
-  recipes_exclusive: false,
 };
+
+const usd = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function partnerApiBase(kind: PartnerKind) {
   return kind === "contract" ? "/api/partners/contract-brewing" : "/api/partners/suppliers";
@@ -210,6 +214,24 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
   const loadContracts = () => qc.invalidateQueries({ queryKey: productionKeys.contractPartners });
   const loadSuppliers = () => qc.invalidateQueries({ queryKey: productionKeys.suppliers });
 
+  const { can } = usePermissions();
+  const canPreviewPortal = can(CAP.partnerPortal);
+  const canManage = can(CAP.partnersManage);
+  // Excise billed to each partner on export invoices — charged vs collected.
+  const { data: excise = {} } = useQuery({
+    queryKey: ["production", "partner-excise"],
+    queryFn: () => fetchJson<Record<string, { charged_cents: number; collected_cents: number; outstanding_cents: number; invoices: number }>>("/api/production/partner-excise"),
+    enabled: kind === "contract" && can(CAP.exportRead),
+  });
+
+  async function setExclusive(partner: ContractBrewingPartner, value: boolean) {
+    const res = await fetch(`/api/partners/contract-brewing/${partner.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recipes_exclusive: value }),
+    });
+    if (!res.ok) alert((await res.json().catch(() => ({}))).error ?? "Could not save");
+    await loadContracts();
+  }
+
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(PARTNER_EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -236,7 +258,6 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
       address:      p.address     ?? "",
       email:        p.email       ?? "",
       notes:        p.notes       ?? "",
-      recipes_exclusive: "recipes_exclusive" in p ? !!p.recipes_exclusive : false,
     });
     setEditingId(p.id);
     setShowModal(true);
@@ -255,7 +276,6 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
         address:      form.address     || null,
         email:        form.email       || null,
         notes:        form.notes       || null,
-        ...(kind === "contract" ? { recipes_exclusive: form.recipes_exclusive } : {}),
       };
       const res = editingId
         ? await fetch(`${base}/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
@@ -329,7 +349,13 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
                 <th className="px-4 py-2.5 text-xs font-medium text-muted">Phone</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-muted">Address</th>
                 {kind === "contract" && (
-                  <th className="px-4 py-2.5 text-xs font-medium text-muted">Square</th>
+                  <>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted">Square</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted text-right" title="Barrel excise tax billed to this partner on export invoices. Collected = on invoices they have paid.">
+                      Excise charged / collected
+                    </th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted">Partner portal</th>
+                  </>
                 )}
                 <th className="px-4 py-2.5 text-xs font-medium text-muted"></th>
               </tr>
@@ -362,6 +388,36 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
                         ) : (
                           <span className="text-disabled text-xs">—</span>
                         )}
+                      </td>
+                    )}
+                    {isContract && (
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        {excise[p.id] ? (
+                          <>
+                            <span className="text-secondary">{usd(excise[p.id].charged_cents)}</span>
+                            <span className="text-faint"> / </span>
+                            <span className="text-success">{usd(excise[p.id].collected_cents)}</span>
+                            {excise[p.id].outstanding_cents > 0 && (
+                              <div className="text-xs text-danger">{usd(excise[p.id].outstanding_cents)} not yet paid</div>
+                            )}
+                          </>
+                        ) : <span className="text-disabled">—</span>}
+                      </td>
+                    )}
+                    {isContract && (
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-3">
+                          {canPreviewPortal && (
+                            <Link href={`/partner?as=${p.id}`} className="btn-secondary btn-xxs" title="See the partner portal exactly as this company sees it (read-only)">
+                              Preview
+                            </Link>
+                          )}
+                          <label className="flex items-center gap-1.5 text-xs text-secondary whitespace-nowrap" title="Batches of this partner's recipes are never offered to other partners in the portal">
+                            <input type="checkbox" checked={!!cp.recipes_exclusive} disabled={!canManage}
+                              onChange={(e) => setExclusive(cp, e.target.checked)} />
+                            Beer is exclusive
+                          </label>
+                        </div>
                       </td>
                     )}
                     <td className="px-4 py-2.5">
@@ -435,16 +491,6 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
               <textarea className="inp resize-none" rows={2} value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </Field>
-            {kind === "contract" && (
-              <label className="flex items-start gap-2 text-xs text-secondary">
-                <input type="checkbox" className="mt-0.5" checked={form.recipes_exclusive}
-                  onChange={(e) => setForm((f) => ({ ...f, recipes_exclusive: e.target.checked }))} />
-                <span>
-                  Beer is exclusive
-                  <span className="block text-faint">Batches of this partner&rsquo;s recipes are never offered to other partners in the partner portal.</span>
-                </span>
-              </label>
-            )}
             <ModalActions submitting={submitting} onCancel={() => setShowModal(false)}
               label={editingId ? "Save Changes" : `Add ${kindLabel}`} />
           </form>

@@ -13,7 +13,7 @@ import Card from "@/app/components/ui/Card";
 import type { Tone } from "@/app/components/ui/tone";
 import BatchRequestModal from "./BatchRequestModal";
 import ClaimModal from "./ClaimModal";
-import { bbl, dollars, longDate, monthLabel, shortDate, type ClaimableBatch, type Overview, type PaymentStatus, type PortalDeal, type PortalHistory, type PortalRequest, type PortalShipment } from "./types";
+import { bbl, bbl1, dollars, longDate, monthLabel, shortDate, type ClaimableBatch, type Overview, type PaymentStatus, type PortalDeal, type PortalHistory, type PortalRequest, type PortalShipment } from "./types";
 
 type TabKey = "home" | "capacity" | "available" | "requests" | "history";
 
@@ -98,7 +98,8 @@ export default function PartnerPortal() {
       />
       {readOnly && (
         <Banner tone="info" className="mb-3">
-          Preview — this is what {data?.company_name} sees. You can open the forms, but a preview cannot submit them.
+          Preview — this is what {data?.company_name} sees. You can open the forms, but a preview cannot submit them.{" "}
+          <a href="/production/partners" className="underline">Back to Partners</a>
         </Banner>
       )}
       <TabBar tabs={TABS} activeKey={tab} onSelect={(k) => { setTab(k); setNotice(null); }} />
@@ -328,7 +329,9 @@ function DealCard({ deal }: { deal: PortalDeal }) {
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-primary">{deal.beer_name ?? "Beer"}</div>
+          <div className="text-sm font-semibold text-primary">
+            {deal.beer_name ?? "Beer"}{deal.style ? <span className="font-normal text-muted"> · {deal.style}</span> : null}
+          </div>
           <div className="text-xs text-muted mt-0.5">
             {deal.received_on ? `Committed ${longDate(deal.received_on)}` : "Commitment"}
             {deal.desired_delivery_date ? ` · wanted by ${longDate(deal.desired_delivery_date)}` : ""}
@@ -388,16 +391,26 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
             </div>
             <button className="btn-secondary" onClick={() => go("history")}>See history</button>
           </div>
-          <ul className="mt-3 border-t border-line pt-2 flex flex-col gap-1">
+          {/* One grid for every row, so the columns line up down the list. */}
+          <div className="mt-3 border-t border-line pt-2 grid grid-cols-[auto_1fr_auto_auto] gap-x-4 gap-y-1.5 text-xs items-baseline">
+            <span className="text-faint">Invoice</span>
+            <span className="text-faint">For</span>
+            <span className="text-faint">Sent</span>
+            <span className="text-faint text-right">Amount</span>
             {history.open_invoices.slice(0, 5).map((i) => (
-              <li key={i.id} className="flex flex-wrap justify-between gap-2 text-xs">
-                <span className="text-body">Invoice {i.number ?? ""} · {i.kind === "deposit" ? "ingredient deposit" : "shipment"}</span>
-                <span className="text-muted">{longDate(i.date)}</span>
-                <span className="text-secondary">{dollars(i.total_cents)}</span>
-              </li>
+              <div key={i.id} className="contents">
+                <span className="text-body whitespace-nowrap">{i.number ?? "—"}</span>
+                <span className="text-secondary min-w-0">
+                  {i.kind === "deposit" ? "Ingredient deposit" : "Shipment"}
+                  {i.beers.length > 0 ? ` · ${i.beers.join(", ")}` : ""}
+                  {i.bbl > 0 ? ` · ${bbl(i.bbl)}` : ""}
+                </span>
+                <span className="text-muted whitespace-nowrap">{longDate(i.date)}</span>
+                <span className="text-strong text-right whitespace-nowrap">{dollars(i.total_cents)}</span>
+              </div>
             ))}
-            {history.open_invoices.length > 5 && <li className="text-xs text-muted">and {history.open_invoices.length - 5} more</li>}
-          </ul>
+          </div>
+          {history.open_invoices.length > 5 && <p className="text-xs text-muted mt-2">and {history.open_invoices.length - 5} more — see History</p>}
         </Card>
       )}
 
@@ -422,7 +435,7 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
         <Card>
           <div className="text-xs text-muted">Beer you could claim now</div>
           <div className="text-xl font-semibold text-primary mt-1">
-            {overview.available.length === 0 ? "None right now" : `${bbl(claimable)} across ${overview.available.length} beer${overview.available.length === 1 ? "" : "s"}`}
+            {overview.available.length === 0 ? "None right now" : `${bbl1(claimable)} across ${overview.available.length} beer${overview.available.length === 1 ? "" : "s"}`}
           </div>
           <div className="text-xs text-secondary mt-1">
             {overview.available.slice(0, 3).map((b) => b.beer_name.trim()).join(", ") || "Check back as new batches are scheduled."}

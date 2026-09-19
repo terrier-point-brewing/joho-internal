@@ -220,11 +220,16 @@ export interface PortalInvoice {
   kind: "shipment" | "deposit";
   status: "paid" | "unpaid";
   total_cents: number;
+  /** What the invoice is for, in the partner's terms: "Mash Pit Lager (Lager)". */
+  beers: string[];
+  /** Beer it covers: shipped bbl for a shipment invoice, booked bbl for a deposit. */
+  bbl: number;
 }
 
 export interface PortalDeal {
   id: string;
   beer_name: string | null;
+  style: string | null;
   status: "open" | "closed" | "cancelled";
   booked_bbl: number;
   shipped_bbl: number;
@@ -282,14 +287,24 @@ export function toPortalHistory(ledger: LedgerPartner | undefined): PortalHistor
     if (!ref || ref.status === "voided") return null;
     const inv: PortalInvoice = {
       id: ref.id, number: ref.invoice_number, date: ref.invoice_date, kind,
-      status: ref.status === "paid" ? "paid" : "unpaid", total_cents: ref.total_cents,
+      status: ref.status === "paid" ? "paid" : "unpaid", total_cents: ref.total_cents, beers: [], bbl: 0,
     };
     if (!invoices.has(inv.id)) invoices.set(inv.id, inv);
     return invoices.get(inv.id)!;
   };
-  const shipmentsOf = (rows: LedgerPartner["unallocated"]): PortalDeal["shipments"] =>
+  /** Say what an invoice covers: which beer, and how much of it. */
+  const covers = (inv: PortalInvoice | null, beer: string | null, bblCovered: number) => {
+    if (!inv) return;
+    if (beer && !inv.beers.includes(beer)) inv.beers.push(beer);
+    inv.bbl = Math.round((inv.bbl + bblCovered) * 100) / 100;
+  };
+  const beerLabel = (name: string | null, style: string | null | undefined) =>
+    name ? (style && !name.toLowerCase().includes(style.toLowerCase()) ? `${name.trim()} (${style})` : name.trim()) : null;
+
+  const shipmentsOf = (rows: LedgerPartner["unallocated"], beer: string | null): PortalDeal["shipments"] =>
     rows.filter((s) => s.kind === "shipment").map((s) => {
       const invoice = note(s.invoice, "shipment");
+      covers(invoice, beer, s.volume_bbl);
       return {
         date: s.date, volume_bbl: s.volume_bbl,
         lines: s.lines.map((l) => ({ label: l.variant_label, quantity: l.quantity })),
@@ -307,7 +322,9 @@ export function toPortalHistory(ledger: LedgerPartner | undefined): PortalHistor
       for (const ref of a.deposit.backcharge_invoices) note(ref, "shipment");
       refunded += a.deposit.refunded_cents;
       const sentOrPaid = a.deposit.invoice && (a.deposit.sent_at || a.deposit.invoice.status === "paid");
-      if (sentOrPaid) note(a.deposit.invoice, "deposit");
+      if (sentOrPaid) covers(note(a.deposit.invoice, "deposit"), beerLabel(c.recipe_name, c.recipe_style),
+        // Before anything is packaged nothing is "owed" yet; the deposit is for the booked share of the planned batch.
+        a.owed_bbl > 0 ? a.owed_bbl : (a.percentage / 100) * a.batch_planned_bbl);
       // Marked paid from QuickBooks: money received with no invoice row to carry it.
       else if (!a.deposit.invoice && a.deposit.paid_cents > 0) looseDepositPaid += a.deposit.paid_cents;
     }
@@ -318,6 +335,7 @@ export function toPortalHistory(ledger: LedgerPartner | undefined): PortalHistor
     return {
       id: c.id,
       beer_name: c.recipe_name,
+      style: c.recipe_style ?? null,
       status: c.stage,
       booked_bbl: c.booked_bbl,
       shipped_bbl: c.totals.shipped_bbl,
@@ -328,14 +346,14 @@ export function toPortalHistory(ledger: LedgerPartner | undefined): PortalHistor
       deposit: c.channel === "contract_brewing"
         ? { billed_cents: c.totals.deposit_billed_cents, paid_cents: c.totals.deposit_paid_cents - c.totals.deposit_refunded_cents, status: depositStatus }
         : null,
-      shipments: shipmentsOf(c.shipments),
+      shipments: shipmentsOf(c.shipments, beerLabel(c.recipe_name, c.recipe_style)),
     };
   });
   // Open deals first — they are the ones with something still to happen.
   const rank = { open: 0, closed: 1, cancelled: 2 } as const;
   deals.sort((a, b) => rank[a.status] - rank[b.status] || (b.received_on ?? "").localeCompare(a.received_on ?? ""));
 
-  const other_shipments = shipmentsOf(ledger.unallocated);
+  const other_shipments = shipmentsOf(ledger.unallocated, null);
   const all = [...invoices.values()];
   const open = deals.filter((d) => d.status === "open");
   return {

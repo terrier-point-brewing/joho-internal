@@ -72,6 +72,12 @@ describe("toPortalHistory", () => {
     expect(h.deals[2].shipments[0]).toMatchObject({ payment: "paid", invoice: { number: "INV-SHARED", total_cents: 100_000 } });
   });
 
+  it("says what each invoice covers: the beer and how much of it", () => {
+    const shared = h.deals[1].shipments[0].invoice!;
+    expect(shared).toMatchObject({ beers: ["Beer"], bbl: 8 }); // 5 + 3 bbl across two deals, one beer name
+    expect(h.open_invoices.find((i) => i.id === "inv-open")).toMatchObject({ bbl: 2 });
+  });
+
   it("never passes staff notes or batch numbers through", () => {
     expect(JSON.stringify(h)).not.toMatch(/staff only|B-001/);
   });

@@ -31,6 +31,8 @@ export interface LedgerCommitmentRow {
   partner_id: string | null;
   recipe_id: string | null;
   recipe_name: string | null;
+  /** The plain beer style, for readers who do not know the recipe by name. */
+  recipe_style?: string | null;
   channel: string;
   status: string;
   volume_bbl: number | string | null;
@@ -186,6 +188,7 @@ export interface LedgerAllocation {
 export interface LedgerCommitment {
   id: string;
   recipe_name: string | null;
+  recipe_style?: string | null;
   channel: string;
   stage: CommitmentStage;
   booked_bbl: number;
@@ -409,6 +412,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
         return {
           id: c.id,
           recipe_name: c.recipe_name,
+          recipe_style: c.recipe_style ?? null,
           channel: c.channel,
           stage,
           booked_bbl: r2(booked),

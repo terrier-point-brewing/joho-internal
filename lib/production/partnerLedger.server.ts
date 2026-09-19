@@ -25,7 +25,7 @@ export async function loadPartnerLedger(admin: SupabaseClient): Promise<LedgerPa
   const [{ data: partners }, { data: commitments }, { data: allocations }, { data: exports_ }] = await Promise.all([
     admin.from("contract_brewing_partners").select("id, company_name").order("company_name"),
     admin.from("commitments")
-      .select("id, partner_id, recipe_id, channel, status, volume_bbl, desired_delivery_date, received_on, locked_on, split_from_commitment_id, notes, recipes(beer_name)"),
+      .select("id, partner_id, recipe_id, channel, status, volume_bbl, desired_delivery_date, received_on, locked_on, split_from_commitment_id, notes, recipes(beer_name, style)"),
     admin.from("batch_allocations")
       .select(`id, batch_id, channel, partner_id, contract_request_id, percentage,
         invoice_paid_at, invoice_sent_at, invoice_generated_at, deposit_backcharged_invoice_id, square_deposit_invoice_id,
@@ -98,8 +98,8 @@ export async function loadPartnerLedger(admin: SupabaseClient): Promise<LedgerPa
 
   const ledger = buildPartnerLedger({
     partners: (partners ?? []) as Array<{ id: string; company_name: string }>,
-    commitments: ((commitments ?? []) as unknown as Array<Omit<LedgerCommitmentRow, "recipe_name"> & { recipes: { beer_name: string } | null }>)
-      .map(({ recipes, ...c }) => ({ ...c, recipe_name: recipes?.beer_name ?? null })),
+    commitments: ((commitments ?? []) as unknown as Array<Omit<LedgerCommitmentRow, "recipe_name"> & { recipes: { beer_name: string; style?: string | null } | null }>)
+      .map(({ recipes, ...c }) => ({ ...c, recipe_name: recipes?.beer_name ?? null, recipe_style: recipes?.style ?? null })),
     allocations: allocRows.map(({ brew_batches, ...a }) => ({
       ...a,
       batch_number: brew_batches?.batch_number ?? null,
