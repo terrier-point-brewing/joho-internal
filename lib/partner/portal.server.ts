@@ -99,8 +99,8 @@ export async function loadCapacityInputs(admin: SupabaseClient, today: string): 
 
 // ── Claimable beer ──────────────────────────────────────────────────────────
 
-/** Less than a half-barrel keg is a rounding crumb, not an offer. */
-const MIN_OFFER_BBL = 0.5;
+/** Under a barrel is a rounding crumb, not an offer worth a partner's attention. */
+const MIN_OFFER_BBL = 1;
 
 export interface ClaimableBatch {
   batch_id: string;
