@@ -247,7 +247,7 @@ export default function PartnerPortal() {
           {history.error && <Banner className="mb-4">{(history.error as Error).message}</Banner>}
           {history.data && (
             <>
-              <div className="grid gap-3 sm:grid-cols-3 mb-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
                 <Stat label="Total shipped" value={bbl(history.data.summary.shipped_bbl)} />
                 <Stat label="Invoices paid" value={dollars(history.data.summary.paid_cents)} tone="success" />
                 <Stat
@@ -256,7 +256,12 @@ export default function PartnerPortal() {
                   tone={history.data.summary.outstanding_cents > 0 ? "danger" : undefined}
                   note={history.data.open_invoices.length > 0 ? `${history.data.open_invoices.length} unpaid invoice${history.data.open_invoices.length === 1 ? "" : "s"}` : "Nothing owed"}
                 />
+                <ExciseStat excise={history.data.excise} />
               </div>
+              <p className="text-xs text-muted -mt-2 mb-4">
+                Excise tax is the state and federal beer tax we pay on your beer and pass through on your shipment invoices. It is
+                already included in the paid and outstanding figures, not added on top.
+              </p>
               {history.data.deals.length === 0 && <Card><p className="text-sm text-muted">No commitments on record yet.</p></Card>}
               <div className="flex flex-col gap-2">
                 {history.data.deals.map((d) => <DealCard key={d.id} deal={d} />)}
@@ -300,6 +305,18 @@ function Stat({ label, value, note, tone }: { label: string; value: string; note
       <div className={`text-xl font-semibold mt-1 ${tone === "success" ? "text-success" : tone === "danger" ? "text-danger" : "text-primary"}`}>{value}</div>
       {note && <div className="text-xs text-muted mt-1">{note}</div>}
     </Card>
+  );
+}
+
+function ExciseStat({ excise }: { excise: PortalHistory["excise"] }) {
+  return (
+    <Stat
+      label="Excise tax charged"
+      value={dollars(excise.charged_cents)}
+      note={excise.charged_cents === 0 ? "None billed yet"
+        : excise.outstanding_cents > 0 ? `${dollars(excise.collected_cents)} collected · ${dollars(excise.outstanding_cents)} on unpaid invoices`
+        : `${dollars(excise.collected_cents)} collected — all paid`}
+    />
   );
 }
 
@@ -403,7 +420,7 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
                 <span className="text-secondary min-w-0">
                   {i.kind === "deposit" ? "Ingredient deposit" : "Shipment"}
                   {i.beers.length > 0 ? ` · ${i.beers.join(", ")}` : ""}
-                  {i.bbl > 0 ? ` · ${bbl(i.bbl)}` : ""}
+                  {i.bbl > 0 ? ` · ${bbl1(i.bbl)}` : ""}
                 </span>
                 <span className="text-muted whitespace-nowrap">{longDate(i.date)}</span>
                 <span className="text-strong text-right whitespace-nowrap">{dollars(i.total_cents)}</span>
@@ -444,11 +461,12 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
         </Card>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Stat label="Requests awaiting our reply" value={String(waiting)} note={waiting > 0 ? "We will reply in My requests" : "Nothing pending"} />
-        <Stat label="Open commitments" value={String(history?.summary.open_deals ?? "…")} note={history ? `${bbl(history.summary.to_come_bbl)} still to come` : undefined} />
-        <Stat label="Total shipped" value={history ? bbl(history.summary.shipped_bbl) : "…"} />
+        <Stat label="Open commitments" value={String(history?.summary.open_deals ?? "…")} note={history ? `${bbl1(history.summary.to_come_bbl)} still to come` : undefined} />
+        <Stat label="Total shipped" value={history ? bbl1(history.summary.shipped_bbl) : "…"} />
         <Stat label="Invoices paid" value={history ? dollars(history.summary.paid_cents) : "…"} tone="success" note={history && owed === 0 ? "Nothing outstanding" : undefined} />
+        {history && history.excise.charged_cents > 0 && <ExciseStat excise={history.excise} />}
       </div>
     </section>
   );

@@ -28,6 +28,7 @@ export interface PortalDeal {
 }
 export interface PortalHistory {
   summary: { shipped_bbl: number; paid_cents: number; outstanding_cents: number; open_deals: number; to_come_bbl: number };
+  excise: { charged_cents: number; collected_cents: number; outstanding_cents: number; invoices: number };
   open_invoices: PortalInvoice[];
   deals: PortalDeal[];
   other_shipments: PortalShipment[];

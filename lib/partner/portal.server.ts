@@ -6,6 +6,7 @@ import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 import type { LedgerInvoiceRef, LedgerPartner } from "@/lib/production/partnerLedger";
 import { loadPackagingYieldPct, projectBatchYield } from "@/lib/production/exportIngredientDeposit";
 import type { LedgerTransfer } from "@/lib/production/volumeLedger";
+import { EXCISE_LINE_CATEGORY, excisePerPartner, type ExciseInvoice, type ExciseLine, type PartnerExcise } from "@/lib/production/partnerExcise";
 import { type BusyInterval, type Fermenter } from "./capacity";
 import { claimPool, DEFAULT_TAPROOM_BUFFER_PCT, visibleToPartner, type ClaimPool } from "./claimable";
 
@@ -209,6 +210,24 @@ export async function loadClaimableForPartner(admin: SupabaseClient, partnerId: 
   return rows.sort((a, b) => (a.ready_by ?? "9999").localeCompare(b.ready_by ?? "9999"));
 }
 
+// ── Excise ──────────────────────────────────────────────────────────────────
+
+/** Barrel excise billed to one partner on shipment invoices: charged vs paid. */
+export async function loadPartnerExcise(admin: SupabaseClient, partnerId: string): Promise<PartnerExcise> {
+  const none: PartnerExcise = { charged_cents: 0, collected_cents: 0, outstanding_cents: 0, invoices: 0 };
+  const { data: invoices } = await admin.from("invoices")
+    .select("id, partner_id, status").eq("invoice_type", "export_invoice").eq("partner_id", partnerId);
+  const rows = (invoices ?? []) as ExciseInvoice[];
+  const lines: ExciseLine[] = [];
+  // Chunked: an .in() list rides in the URL, and a few hundred uuids overflow it.
+  for (let i = 0; i < rows.length; i += 150) {
+    const { data } = await admin.from("invoice_line_items")
+      .select("invoice_id, total_cents").eq("category", EXCISE_LINE_CATEGORY).in("invoice_id", rows.slice(i, i + 150).map((r) => r.id));
+    lines.push(...((data ?? []) as ExciseLine[]));
+  }
+  return excisePerPartner(rows, lines)[partnerId] ?? none;
+}
+
 // ── History ─────────────────────────────────────────────────────────────────
 
 export type PaymentStatus = "paid" | "unpaid" | "not_invoiced";
@@ -255,6 +274,12 @@ export interface PortalHistory {
     open_deals: number;
     to_come_bbl: number;
   };
+  /**
+   * Beer excise we billed this partner on shipment invoices. It is INSIDE the
+   * paid / outstanding figures above, not on top of them — shown separately
+   * because it is tax passed through, not a charge for the beer or the brewing.
+   */
+  excise: PartnerExcise;
   /** Invoices sent and not yet paid, oldest first. */
   open_invoices: PortalInvoice[];
   deals: PortalDeal[];
@@ -264,6 +289,7 @@ export interface PortalHistory {
 
 const EMPTY_HISTORY: PortalHistory = {
   summary: { shipped_bbl: 0, paid_cents: 0, outstanding_cents: 0, open_deals: 0, to_come_bbl: 0 },
+  excise: { charged_cents: 0, collected_cents: 0, outstanding_cents: 0, invoices: 0 },
   open_invoices: [], deals: [], other_shipments: [],
 };
 
@@ -279,8 +305,8 @@ const EMPTY_HISTORY: PortalHistory = {
  * twice. A voided invoice is not money owed; a deposit drafted but not yet
  * sent is not the partner's to pay yet.
  */
-export function toPortalHistory(ledger: LedgerPartner | undefined): PortalHistory {
-  if (!ledger) return EMPTY_HISTORY;
+export function toPortalHistory(ledger: LedgerPartner | undefined, excise: PartnerExcise = EMPTY_HISTORY.excise): PortalHistory {
+  if (!ledger) return { ...EMPTY_HISTORY, excise };
 
   const invoices = new Map<string, PortalInvoice>();
   const note = (ref: LedgerInvoiceRef | null | undefined, kind: PortalInvoice["kind"]): PortalInvoice | null => {
@@ -364,6 +390,7 @@ export function toPortalHistory(ledger: LedgerPartner | undefined): PortalHistor
       open_deals: open.length,
       to_come_bbl: Math.round(open.reduce((s, d) => s + d.remaining_bbl, 0) * 100) / 100,
     },
+    excise,
     open_invoices: all.filter((i) => i.status === "unpaid").sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "")),
     deals,
     other_shipments,

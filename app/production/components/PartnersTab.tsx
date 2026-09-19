@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchJson } from "../hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { ContractBrewingPartner, Supplier } from "../types";
@@ -21,8 +20,6 @@ const PARTNER_EMPTY = {
   email: "",
   notes: "",
 };
-
-const usd = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function partnerApiBase(kind: PartnerKind) {
   return kind === "contract" ? "/api/partners/contract-brewing" : "/api/partners/suppliers";
@@ -217,13 +214,6 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
   const { can } = usePermissions();
   const canPreviewPortal = can(CAP.partnerPortal);
   const canManage = can(CAP.partnersManage);
-  // Excise billed to each partner on export invoices — charged vs collected.
-  const { data: excise = {} } = useQuery({
-    queryKey: ["production", "partner-excise"],
-    queryFn: () => fetchJson<Record<string, { charged_cents: number; collected_cents: number; outstanding_cents: number; invoices: number }>>("/api/production/partner-excise"),
-    enabled: kind === "contract" && can(CAP.exportRead),
-  });
-
   async function setExclusive(partner: ContractBrewingPartner, value: boolean) {
     const res = await fetch(`/api/partners/contract-brewing/${partner.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recipes_exclusive: value }),
@@ -351,9 +341,6 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
                 {kind === "contract" && (
                   <>
                     <th className="px-4 py-2.5 text-xs font-medium text-muted">Square</th>
-                    <th className="px-4 py-2.5 text-xs font-medium text-muted text-right" title="Barrel excise tax billed to this partner on export invoices. Collected = on invoices they have paid.">
-                      Excise charged / collected
-                    </th>
                     <th className="px-4 py-2.5 text-xs font-medium text-muted">Partner portal</th>
                   </>
                 )}
@@ -388,20 +375,6 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
                         ) : (
                           <span className="text-disabled text-xs">—</span>
                         )}
-                      </td>
-                    )}
-                    {isContract && (
-                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                        {excise[p.id] ? (
-                          <>
-                            <span className="text-secondary">{usd(excise[p.id].charged_cents)}</span>
-                            <span className="text-faint"> / </span>
-                            <span className="text-success">{usd(excise[p.id].collected_cents)}</span>
-                            {excise[p.id].outstanding_cents > 0 && (
-                              <div className="text-xs text-danger">{usd(excise[p.id].outstanding_cents)} not yet paid</div>
-                            )}
-                          </>
-                        ) : <span className="text-disabled">—</span>}
                       </td>
                     )}
                     {isContract && (
