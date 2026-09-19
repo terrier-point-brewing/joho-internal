@@ -17,6 +17,9 @@ import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "../hooks/queries";
+import SearchInput from "@/app/components/ui/SearchInput";
+import { applyControls } from "@/lib/table/applyControls";
+import type { ControlsConfig } from "@/lib/table/types";
 import type { LedgerAllocation, LedgerCommitment, LedgerInvoiceRef, LedgerPartner, LedgerShipment } from "@/lib/production/partnerLedger";
 import type { CommitmentStage } from "@/lib/production/commitmentStage";
 import { fmtUsd } from "@/lib/utils/formatting";
@@ -466,6 +469,10 @@ type View = "attention" | "open" | "all";
 
 const COLUMNS = 8; // expand, beer, stage, attention, delivery, deposit, invoiced, due
 
+const LEDGER_RECIPE_SEARCH: ControlsConfig<LedgerCommitment> = {
+  search: [{ param: "q", accessor: (c) => c.recipe_name ?? "" }],
+};
+
 export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateToInvoice: (invoiceId: string) => void }) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: queryKeys.production.partnerLedger() });
@@ -476,6 +483,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
 
   const [view, setView] = useState<View>("attention");
   const [partnerFilter, setPartnerFilter] = useState<string[]>([]);
+  const [recipeQ, setRecipeQ] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // Billing starts from the row that shows what is unbilled: the same preview
   // modal the Shipments tab uses, fed the deal's uninvoiced shipment ids.
@@ -489,17 +497,18 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
     const out: Array<{ partner: LedgerPartner; rows: Row[]; rank: number }> = [];
     for (const p of ledger) {
       if (partnerFilter.length > 0 && !partnerFilter.includes(p.partner_id)) continue;
-      const rows = p.commitments
+      const rows = applyControls(p.commitments, LEDGER_RECIPE_SEARCH, { search: { q: recipeQ }, filters: {}, sort: null })
         .map((c) => ({ c, flags: commitmentAttention(c), rank: attentionRank(c) }))
         .filter((r) => view === "all" ? true : view === "open" ? r.c.stage === "open" : r.rank < 99)
         .sort((x, y) => x.rank - y.rank || (x.c.desired_delivery_date ?? "9999").localeCompare(y.c.desired_delivery_date ?? "9999"));
-      const showUnallocated = view !== "open" && p.unallocated_bbl > 0.0001;
+      // Unallocated volume belongs to no recipe, so a recipe search leaves it out.
+      const showUnallocated = view !== "open" && p.unallocated_bbl > 0.0001 && !recipeQ.trim();
       if (rows.length === 0 && !showUnallocated) continue;
       const rank = Math.min(...rows.map((r) => r.rank), p.unallocated_bbl > 0.0001 ? 1 : 99);
       out.push({ partner: p, rows, rank });
     }
     return out.sort((a, b) => a.rank - b.rank || a.partner.company_name.localeCompare(b.partner.company_name));
-  }, [ledger, partnerFilter, view]);
+  }, [ledger, partnerFilter, recipeQ, view]);
 
   const summary = useMemo(() => {
     const all = ledger.flatMap((p) => p.commitments);
@@ -517,7 +526,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
     };
   }, [ledger]);
 
-  const filterActiveCount = (partnerFilter.length ? 1 : 0) + (view !== "attention" ? 1 : 0);
+  const filterActiveCount = (partnerFilter.length ? 1 : 0) + (view !== "attention" ? 1 : 0) + (recipeQ.trim() ? 1 : 0);
 
   return (
     <div className="space-y-4">
@@ -531,7 +540,8 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
           onCreated={() => { setInvoiceFor(null); refresh(); }}
         />
       )}
-      <FilterBar activeCount={filterActiveCount} onClear={() => { setPartnerFilter([]); setView("attention"); }}>
+      <FilterBar activeCount={filterActiveCount} onClear={() => { setPartnerFilter([]); setRecipeQ(""); setView("attention"); }}>
+        <SearchInput value={recipeQ} onChange={setRecipeQ} placeholder="Search recipes…" />
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs text-muted mr-0.5">Show:</span>
           {([

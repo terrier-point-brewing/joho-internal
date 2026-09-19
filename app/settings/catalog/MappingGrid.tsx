@@ -7,6 +7,14 @@ import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { queryKeys } from "@/lib/query-keys";
 import type { MappingCellVariation, MappingGridRow, MappingColumn } from "@/app/production/types";
+import SearchInput from "@/app/components/ui/SearchInput";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
+
+const GRID_CONTROLS: ControlsConfig<MappingGridRow> = {
+  search: [{ param: "q", accessor: (r) => r.recipeName }],
+};
+const NO_ROWS: MappingGridRow[] = [];
 
 function syncedAgo(iso: string | null): string | null {
   if (!iso) return null;
@@ -114,6 +122,10 @@ export default function MappingGrid({
     }
   }
 
+  // Search narrows what is drawn only — the suggestion counts and "Fill all"
+  // below keep reading every row.
+  const { rows: visibleRows, search, setSearch } = useTableControls(data?.rows ?? NO_ROWS, GRID_CONTROLS);
+
   if (isLoading) return <div className="text-sm text-muted py-8 text-center">Loading grid…</div>;
   if (error) return <div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div>;
   if (!data) return null;
@@ -187,6 +199,7 @@ export default function MappingGrid({
     <div>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
+          <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search recipes…" />
           {canSyncCatalog && (
             <button onClick={refreshFromSquare} disabled={syncing} className="btn-secondary">
               {syncing ? "Syncing…" : "Refresh from Square"}
@@ -260,8 +273,8 @@ export default function MappingGrid({
             </tr>
           </thead>
           <tbody>
-            {rows.flatMap((row, i) => {
-              const showHeader = i === 0 || row.recipePartnerName !== rows[i - 1].recipePartnerName;
+            {visibleRows.flatMap((row, i) => {
+              const showHeader = i === 0 || row.recipePartnerName !== visibleRows[i - 1].recipePartnerName;
               const header = showHeader ? (
                 <tr key={`group-${row.recipePartnerName ?? "house"}`}>
                   <td

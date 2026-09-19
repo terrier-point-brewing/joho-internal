@@ -63,6 +63,9 @@ import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import Badge from "@/app/components/ui/Badge";
 import SaveHint from "@/app/components/ui/SaveHint";
 import type { Tone } from "@/app/components/ui/tone";
+import SearchInput from "@/app/components/ui/SearchInput";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 import MappingFrame from "./MappingFrame";
 import { useMappingData } from "./useMappingData";
 import { useBankFeedRules } from "./useBankFeedRules";
@@ -123,6 +126,10 @@ function rowKey(r: { source: string; counterparty_key: string }): string {
   return `${r.source} ${r.counterparty_key}`;
 }
 
+const COUNTERPARTY_CONTROLS: ControlsConfig<RuleRow> = {
+  search: [{ param: "q", accessor: (r) => r.counterparty_label }],
+};
+
 export default function CounterpartiesPanel({ selector }: { selector?: ReactNode }) {
   const { accounts, rows, setRows, loading, error, setError } =
     useMappingData<RuleRow>(RULES_URL, "Failed to load counterparty accounts.");
@@ -141,6 +148,7 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
   // One bank account is the normal case and does not need a column telling the
   // operator which one they are looking at.
   const showFeed = new Set(rows.map((r) => r.source)).size > 1;
+  const { rows: visible, search, setSearch } = useTableControls(rows, COUNTERPARTY_CONTROLS, { prefix: "cp_" });
 
   async function patch(rule: RuleRow, body: Record<string, unknown>): Promise<boolean> {
     setSavingKey(rowKey(rule));
@@ -297,6 +305,7 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
   return (
     <MappingFrame
       selector={selector}
+      search={<SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search counterparties…" />}
       loading={loading}
       error={error}
       hasAccounts={accounts.length > 0}
@@ -337,7 +346,10 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
         </>
       }
     >
-      {rows.map((rule) => {
+      {visible.length === 0 && (
+        <tr><td colSpan={showFeed ? 5 : 4} className="px-4 py-6 text-center text-faint">No counterparties match.</td></tr>
+      )}
+      {visible.map((rule) => {
         const key = rowKey(rule);
         const handled = effectiveHandler(rule);
         const { feedOff, selfClassifying, treatment, asksAccountSource } = stateOf(rule);

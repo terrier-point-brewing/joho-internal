@@ -9,6 +9,9 @@ import { FULFILLMENT_TOLERANCE_BBL } from "@/lib/production/commitmentFulfillmen
 import Banner from "@/app/components/ui/Banner";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FilterSelect from "@/app/components/ui/FilterSelect";
+import SearchInput from "@/app/components/ui/SearchInput";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 
 interface DepositBreakdownLine {
   id: string; ingredient_name: string; unit: string;
@@ -176,6 +179,20 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
   );
 }
 
+// Same boxes and params as the sibling Export Invoices tab: invoice # and recipe
+// are different entities, so each gets its own search.
+const DEPOSIT_CONTROLS: ControlsConfig<DepositInvoiceListItem> = {
+  search: [
+    { param: "q", accessor: (i) => i.invoice_number ?? "" },
+    { param: "q_recipe", accessor: (i) => i.beer_name ?? "" },
+  ],
+  filters: [
+    { param: "customer", accessor: (i) => i.partner_id ?? "" },
+    { param: "status", accessor: (i) => i.status },
+    { param: "year", accessor: (i) => i.invoice_date?.slice(0, 4) ?? "" },
+  ],
+};
+
 export default function DepositInvoicesTab() {
   // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
   // React Query has paused reads as false while there is still no data — the
@@ -187,38 +204,27 @@ export default function DepositInvoicesTab() {
   const { data: partners = [] } = useContractPartnersQuery();
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [customerFilter, setCustomerFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [yearFilter, setYearFilter] = useState<string>("all");
-
   const years = useMemo(() => {
     const ys = new Set(invoices.map((inv) => inv.invoice_date?.slice(0, 4)).filter(Boolean) as string[]);
     return [...ys].sort().reverse();
   }, [invoices]);
 
-  const filtered = useMemo(() => invoices.filter((inv) => {
-    if (customerFilter !== "all" && inv.partner_id !== customerFilter) return false;
-    if (statusFilter !== "all" && inv.status !== statusFilter) return false;
-    if (yearFilter !== "all" && inv.invoice_date?.slice(0, 4) !== yearFilter) return false;
-    return true;
-  }), [invoices, customerFilter, statusFilter, yearFilter]);
+  const { rows: filtered, search, filters, setSearch, setFilter, reset, activeCount } =
+    useTableControls(invoices, DEPOSIT_CONTROLS, { prefix: "dep_" });
 
   const openTotal = filtered.filter((inv) => inv.status === "open" || inv.status === "draft").reduce((s, inv) => s + inv.total_cents, 0);
   const grandTotal = filtered.reduce((s, inv) => s + inv.total_cents, 0);
 
-  const filterActiveCount = (customerFilter !== "all" ? 1 : 0) + (statusFilter !== "all" ? 1 : 0) + (yearFilter !== "all" ? 1 : 0);
-
   return (
     <div className="space-y-4">
-      <FilterBar
-        activeCount={filterActiveCount}
-        onClear={() => { setCustomerFilter("all"); setStatusFilter("all"); setYearFilter("all"); }}
-      >
+      <FilterBar activeCount={activeCount} onClear={reset}>
+        <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search invoice #…" />
+        <SearchInput value={search.q_recipe ?? ""} onChange={(v) => setSearch("q_recipe", v)} placeholder="Search recipe…" />
         <FilterSelect
           label="Customer"
           options={partners.map((p) => ({ value: p.id, label: p.company_name }))}
-          value={customerFilter !== "all" ? [customerFilter] : []}
-          onChange={(v) => setCustomerFilter(v[0] ?? "all")}
+          value={filters.customer ?? []}
+          onChange={(v) => setFilter("customer", v)}
           allLabel="All Customers"
         />
         <FilterSelect
@@ -229,15 +235,15 @@ export default function DepositInvoicesTab() {
             { value: "paid", label: "Paid" },
             { value: "voided", label: "Voided" },
           ]}
-          value={statusFilter !== "all" ? [statusFilter] : []}
-          onChange={(v) => setStatusFilter(v[0] ?? "all")}
+          value={filters.status ?? []}
+          onChange={(v) => setFilter("status", v)}
           allLabel="All Statuses"
         />
         <FilterSelect
           label="Year"
           options={years.map((y) => ({ value: y, label: y }))}
-          value={yearFilter !== "all" ? [yearFilter] : []}
-          onChange={(v) => setYearFilter(v[0] ?? "all")}
+          value={filters.year ?? []}
+          onChange={(v) => setFilter("year", v)}
           allLabel="All Years"
         />
       </FilterBar>
