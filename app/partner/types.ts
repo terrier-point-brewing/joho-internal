@@ -14,11 +14,23 @@ export interface PortalRequest {
   desired_date: string | null; notes: string | null; status: "submitted" | "approved" | "declined" | "withdrawn";
   decision_note: string | null; decided_at: string | null; created_at: string; file_names: string[];
 }
+export type PaymentStatus = "paid" | "unpaid" | "not_invoiced";
+export interface PortalInvoice { id: string; number: string | null; date: string | null; kind: "shipment" | "deposit"; status: "paid" | "unpaid"; total_cents: number }
+export interface PortalShipment {
+  date: string; volume_bbl: number; lines: Array<{ label: string | null; quantity: number }>;
+  payment: PaymentStatus; invoice: PortalInvoice | null;
+}
 export interface PortalDeal {
   id: string; beer_name: string | null; status: "open" | "closed" | "cancelled"; booked_bbl: number; shipped_bbl: number;
   remaining_bbl: number; in_tank_bbl: number; desired_delivery_date: string | null; received_on: string | null;
-  deposit: { billed_cents: number; paid_cents: number } | null;
-  shipments: Array<{ date: string; volume_bbl: number; lines: Array<{ label: string | null; quantity: number }> }>;
+  deposit: { billed_cents: number; paid_cents: number; status: PaymentStatus } | null;
+  shipments: PortalShipment[];
+}
+export interface PortalHistory {
+  summary: { shipped_bbl: number; paid_cents: number; outstanding_cents: number; open_deals: number; to_come_bbl: number };
+  open_invoices: PortalInvoice[];
+  deals: PortalDeal[];
+  other_shipments: PortalShipment[];
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

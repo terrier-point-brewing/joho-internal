@@ -16,38 +16,41 @@ describe("freeRanges", () => {
 });
 
 describe("monthlyCapacity", () => {
-  it("covers six calendar months starting with the current one", () => {
+  it("covers six calendar months starting with the first one anything can start in", () => {
     const rows = monthlyCapacity({ today: "2026-09-18", fermenters: [F40], busy: [], fermentDays: 14 });
-    expect(rows.map((r) => r.month)).toEqual(["2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02"]);
+    expect(rows.map((r) => r.month)).toEqual(["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03"]);
   });
 
-  it("never offers today, and counts a free fermenter once in every month it is free", () => {
+  it("never opens anything inside the two-week lead time, however empty the tank", () => {
     const rows = monthlyCapacity({ today: "2026-09-18", fermenters: [F40], busy: [], fermentDays: 14 });
-    expect(rows[0]).toMatchObject({ open_slots: 1, earliest_start: "2026-09-19", max_turns: 2 });
-    expect(rows[1]).toMatchObject({ open_slots: 1, earliest_start: "2026-10-01" });
+    expect(rows[0]).toMatchObject({ month: "2026-10", open_slots: 1, earliest_start: "2026-10-02", max_turns: 2 });
+    expect(rows[1]).toMatchObject({ open_slots: 1, earliest_start: "2026-11-01" });
+    // Early in a month the lead time still lands inside it.
+    expect(monthlyCapacity({ today: "2026-09-02", fermenters: [F40], busy: [], fermentDays: 14 })[0])
+      .toMatchObject({ month: "2026-09", earliest_start: "2026-09-16" });
   });
 
   it("reads Full while every fermenter is booked, and opens the day one frees up", () => {
     const rows = monthlyCapacity({
       today: "2026-09-18", fermenters: [F40], fermentDays: 14,
-      busy: [{ equipment_id: "f40", start: "2026-09-01", end: "2026-11-10" }],
+      busy: [{ equipment_id: "f40", start: "2026-09-01", end: "2026-12-10" }],
     });
     expect(rows[0]).toMatchObject({ open_slots: 0, earliest_start: null, max_turns: 0 });
     expect(rows[1].open_slots).toBe(0);
-    expect(rows[2]).toMatchObject({ open_slots: 1, earliest_start: "2026-11-10" });
+    expect(rows[2]).toMatchObject({ open_slots: 1, earliest_start: "2026-12-10" });
   });
 
   it("does not count a gap shorter than one fermentation", () => {
     const rows = monthlyCapacity({
       today: "2026-09-18", fermenters: [F40], fermentDays: 14,
-      busy: [{ equipment_id: "f40", start: "2026-09-29", end: "2027-04-01" }],
+      busy: [{ equipment_id: "f40", start: "2026-10-12", end: "2027-06-01" }],
     });
     expect(rows.every((r) => r.open_slots === 0)).toBe(true);
   });
 
   it("does not read Full in the last month just because the brew would finish past the horizon", () => {
     const rows = monthlyCapacity({ today: "2026-09-18", fermenters: [F40], busy: [], fermentDays: 28 });
-    expect(rows[5]).toMatchObject({ month: "2027-02", open_slots: 1, earliest_start: "2027-02-01" });
+    expect(rows[5]).toMatchObject({ month: "2027-03", open_slots: 1, earliest_start: "2027-03-01" });
   });
 
   it("counts fermenters, and reports the largest brew an open one could hold", () => {
@@ -60,19 +63,19 @@ describe("brewWindows", () => {
   it("offers Mondays where a big-enough fermenter is free for the whole fermentation", () => {
     const w = brewWindows({
       today: "2026-09-18", fermenters: [F40, F80], fermentDays: 14, leadTimeDays: 21, turns: 4,
-      busy: [{ equipment_id: "f80", start: "2026-09-01", end: "2026-10-07" }],
+      busy: [{ equipment_id: "f80", start: "2026-09-01", end: "2026-10-14" }],
       limit: 2,
     });
-    // f40 is free but too small for four turns; f80 frees up Oct 7 → Mon Oct 12.
+    // f40 is free but too small for four turns; f80 frees up Oct 14 → Mon Oct 19.
     expect(w).toEqual([
-      { week_of: "2026-10-12", ready_around: "2026-11-02" },
       { week_of: "2026-10-19", ready_around: "2026-11-09" },
+      { week_of: "2026-10-26", ready_around: "2026-11-16" },
     ]);
   });
 
-  it("starts from the next Monday and respects the limit", () => {
+  it("starts from the first Monday past the two-week lead time, and respects the limit", () => {
     const w = brewWindows({ today: "2026-09-18", fermenters: [F40], busy: [], fermentDays: 10, leadTimeDays: 10, turns: 1, limit: 3 });
-    expect(w.map((x) => x.week_of)).toEqual(["2026-09-21", "2026-09-28", "2026-10-05"]);
+    expect(w.map((x) => x.week_of)).toEqual(["2026-10-05", "2026-10-12", "2026-10-19"]);
   });
 });
 

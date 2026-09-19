@@ -35,6 +35,15 @@ describe("claimPool", () => {
     expect(p.claimableBbl).toBe(0);
   });
 
+  it("measures a part-packaged batch against its projected yield, not just what is packaged so far", () => {
+    // 40 planned; 28 packaged and 25 of it shipped to the contract partner; ~10.8 more expected from the tank.
+    const p = claimPool({ planned_bbl: 40, produced_bbl: 28, projected_bbl: 38.8, converted_bbl: 0, bufferPct: 10, total_exported_bbl: 25,
+      allocations: [alloc("c", "contract_brewing", 57, 24), alloc("t", "taproom", 30)] });
+    // pool: taproom 11.64 + unallocated 13% 5.04 = 16.68; on hand 13.8 − owed to partner 0 (over-shipped); reserve 3.88.
+    expect(p.basisBbl).toBe(38.8);
+    expect(p.claimableBbl).toBe(9.92);
+  });
+
   it("caps packaged beer at what is physically on hand after other partners' shares", () => {
     // Paper: taproom share 18, nothing credited to it. Reality: 30 of 36 bbl
     // has left the building, 10 of it against the partner's 18.

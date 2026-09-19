@@ -13,6 +13,12 @@
 
 export const TURN_BBL = 20;
 export const HORIZON_MONTHS = 6;
+/**
+ * Nothing is ever offered sooner than this. A new brew has to be approved and
+ * its ingredients ordered before it can start, so a tank that happens to be
+ * empty tomorrow is not capacity a partner can use.
+ */
+export const MIN_LEAD_DAYS = 14;
 const DAY_MS = 86_400_000;
 
 export interface Fermenter { id: string; capacity_bbl: number | null }
@@ -57,8 +63,9 @@ export function freeRanges(busy: Array<{ start: number; end: number }>, from: nu
 }
 
 function horizon(today: string): { from: number; to: number } {
-  const from = toDay(today) + 1; // nothing starts today
-  const t = new Date(`${today}T00:00:00Z`);
+  const from = toDay(today) + MIN_LEAD_DAYS;
+  // Six calendar months counted from the first month anything can start in.
+  const t = new Date(from * DAY_MS);
   const end = Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + HORIZON_MONTHS, 1);
   return { from, to: Math.floor(end / DAY_MS) };
 }

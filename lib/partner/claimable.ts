@@ -10,8 +10,9 @@
  *   pool       = Σ taproom allocations' (share − already shipped) + unallocated
  *   claimable  = max(0, pool − buffer% × basis)
  *
- * and, once the beer is packaged, the pool is further capped at what is still
- * physically on hand after every other partner's unshipped share.
+ * and, once packaging has started, the basis becomes the batch's projected
+ * yield and the pool is capped at what is physically left (projected yield −
+ * everything shipped) after every other partner's unshipped share.
  *
  * The share/basis/unallocated arithmetic is the re-home engine's
  * (lib/production/rehome.ts listHomes) on purpose: approval draws the claim out
@@ -39,6 +40,13 @@ export interface ClaimBatchInput {
   produced_bbl: number;
   converted_bbl: number;
   /**
+   * Packaged so far PLUS what is still in tank at the house packaging yield
+   * (projectBatchYield). A batch that is half packaged is not a half-size
+   * batch: measuring shares against packaged-to-date alone made every
+   * part-packaged batch read as having nothing left to claim.
+   */
+  projected_bbl?: number;
+  /**
    * Everything that has left the batch, whoever it was credited to — including
    * rows with no allocation. Once beer is packaged this bounds the pool by what
    * is physically still here: the taproom pouring kegs nobody booked against
@@ -65,7 +73,10 @@ export interface ClaimPool {
 }
 
 export function claimPool(b: ClaimBatchInput): ClaimPool {
-  const basisBbl = b.produced_bbl > EPS ? b.produced_bbl : b.planned_bbl;
+  // Nothing packaged: planned volume, the house convention for an allocation
+  // percentage. Once packaging starts: the projected yield, which converges on
+  // the packaged volume as the tank drains.
+  const basisBbl = b.produced_bbl > EPS ? Math.max(b.produced_bbl, b.projected_bbl ?? 0) : b.planned_bbl;
   if (basisBbl <= EPS) return { basisBbl: 0, bufferBbl: 0, claimableBbl: 0, sources: [] };
 
   const convertedPct = b.planned_bbl > EPS ? (b.converted_bbl / b.planned_bbl) * 100 : 0;
@@ -89,8 +100,9 @@ export function claimPool(b: ClaimBatchInput): ClaimPool {
 
   let pool = sources.reduce((s, x) => s + x.freeBbl, 0);
   if (b.produced_bbl > EPS && b.total_exported_bbl != null) {
-    // Same on-hand reading as allocationReserve.batchReserve: produced − shipped.
-    const onHand = Math.max(0, b.produced_bbl - b.total_exported_bbl);
+    // allocationReserve.batchReserve's on-hand reading (produced − shipped),
+    // extended by the beer still expected out of the tank.
+    const onHand = Math.max(0, basisBbl - b.total_exported_bbl);
     const owedToOthers = b.allocations
       .filter((a) => a.channel !== "taproom" && !a.written_off_at)
       .reduce((s, a) => s + Math.max(0, (Number(a.percentage) / 100) * basisBbl - a.exported_bbl), 0);

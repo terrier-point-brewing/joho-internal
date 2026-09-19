@@ -173,6 +173,8 @@ export interface LedgerAllocation {
     /** When the deposit was marked paid. Survives a later write-off of the
      *  remaining VOLUME — that forgives beer, not the money already taken. */
     paid_at: string | null;
+    /** When the deposit invoice went to the partner. Null = still a draft on our side. */
+    sent_at?: string | null;
     paid_cents: number;
     refunded_cents: number;
     charged_cents: number;
@@ -364,6 +366,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
               via: additions.via,
               invoice: invoiceRef(depositInvoice),
               paid_at: a.invoice_paid_at ?? null,
+              sent_at: a.invoice_sent_at ?? null,
               paid_cents: Number(a.deposit_amount_paid_cents ?? 0),
               refunded_cents: Number(a.refund_amount_cents ?? 0),
               charged_cents: additions.chargedCents,
