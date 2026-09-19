@@ -28,12 +28,22 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncSquareCatalog } from "@/lib/square/syncCatalog";
+import { applyGlDefaultRulesToNewVariations } from "@/lib/finance/glDefaultRules";
 
 export async function runSquareCatalogSync(supabase: SupabaseClient) {
   const result = await syncSquareCatalog(supabase);
 
+  // A standing GL default only ever fires on a variation's first sight, so the
+  // caller that first sees it has to apply it. This job used to skip the step:
+  // a variation the schedule mirrored before anyone pressed "Refresh from
+  // Square" was no longer new by the time a person did, and never inherited its
+  // category's rule. Non-fatal, same as the button's route.
+  const defaults = await applyGlDefaultRulesToNewVariations(supabase, result.insertedVariationIds);
+
   return {
     ...result,
+    defaultsApplied: defaults.applied,
+    defaultsError: defaults.error,
     // Surfaced as its own scalar so the monitor shows it without unpacking the
     // array — a rename that moved a pour size is the one outcome of this job
     // that needs a person.
