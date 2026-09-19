@@ -408,7 +408,7 @@ export default function SalesPulseTab() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6">
 
       {/* Week selector */}
       <div className="flex items-center gap-2 sm:gap-3 flex-wrap">

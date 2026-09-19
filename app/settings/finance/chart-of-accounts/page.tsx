@@ -653,7 +653,7 @@ export default function ChartOfAccountsPage() {
         />
       </div>
 
-      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 max-w-4xl space-y-6">
+      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6">
 
         {step === "idle" && (
           <div className="flex items-center justify-between gap-2">

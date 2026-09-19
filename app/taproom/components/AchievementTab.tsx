@@ -361,7 +361,7 @@ export default function AchievementTab() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6">
 
       {/* Controls — one row, no scroll */}
       <div className="flex items-center gap-2 flex-wrap">

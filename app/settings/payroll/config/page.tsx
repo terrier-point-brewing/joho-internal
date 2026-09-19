@@ -202,9 +202,9 @@ export default function PayrollSettingsPage() {
         title="Payroll Config"
         description="Pay periods, tip pool frequency, and per-employee job title, wage, and employment type."
       />
-      <div className="pb-4 sm:pb-8 max-w-3xl">
+      <div className="pb-4 sm:pb-8">
       {/* ── Pay Schedule ─────────────────────────────────────────────────── */}
-      <section className="mt-6 mb-10">
+      <section className="mt-6 mb-10 max-w-3xl">
         <div className="flex items-center gap-3 mb-4">
           <h3 className="text-sm font-semibold text-strong">Pay Schedule</h3>
           {config?.id ? (
@@ -248,7 +248,7 @@ export default function PayrollSettingsPage() {
       </section>
 
       {/* ── Rate Configuration ────────────────────────────────────────────── */}
-      <section className="mb-10">
+      <section className="mb-10 max-w-3xl">
         <h3 className="text-sm font-semibold text-strong mb-4">Rate Configuration</h3>
         <div className="grid grid-cols-2 gap-4 mb-4">
           <label className="block">
