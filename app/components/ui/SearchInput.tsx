@@ -10,7 +10,7 @@ export default function SearchInput({
   value,
   onChange,
   placeholder,
-  debounceMs = 200,
+  debounceMs = 500,
   className = "",
   ariaLabel,
   autoFocus,
@@ -25,13 +25,24 @@ export default function SearchInput({
 }) {
   const [text, setText] = useState(value);
   const [prevValue, setPrevValue] = useState(value);
+  // Values this box has emitted that the parent has not echoed back yet. A
+  // URL-synced parent answers a keystroke late (router.replace is async), so an
+  // incoming `value` that is one of our own emissions is an echo of older
+  // typing — adopting it would overwrite the characters typed since.
+  const [pending, setPending] = useState<string[]>([]);
 
   // Adjust local text when the controlled value changes externally (e.g. reset).
   // React's "store info from previous renders" pattern — no effect, so it never
   // triggers a cascading render (see https://react.dev/reference/react/useState).
   if (value !== prevValue) {
     setPrevValue(value);
-    setText(value);
+    const echo = pending.indexOf(value);
+    if (echo === -1) {
+      setPending([]);
+      setText(value);
+    } else {
+      setPending(pending.slice(echo + 1));
+    }
   }
 
   // Keep a live ref to onChange so the debounce timer never fires a stale one.
@@ -43,7 +54,10 @@ export default function SearchInput({
 
   useEffect(() => {
     if (text === value) return;
-    const id = setTimeout(() => onChangeRef.current(text), debounceMs);
+    const id = setTimeout(() => {
+      setPending((p) => [...p, text]);
+      onChangeRef.current(text);
+    }, debounceMs);
     return () => clearTimeout(id);
   }, [text, value, debounceMs]);
 

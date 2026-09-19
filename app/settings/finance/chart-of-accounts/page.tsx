@@ -6,6 +6,9 @@ import SettingsHeader from "@/app/settings/SettingsHeader";
 import { ACCOUNT_TYPE_SECTION, type StatementSection } from "@/lib/finance/accountSections";
 import { parseCoaCsv, type ParsedCoaRow } from "@/lib/finance/coaCsv";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
+import SearchInput from "@/app/components/ui/SearchInput";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -294,6 +297,11 @@ function EditPanel({
     </form>
   );
 }
+
+// An account's own identity fields share one box (number + name).
+const COA_CONTROLS: ControlsConfig<CoAAccount> = {
+  search: [{ param: "q", accessor: (a) => [a.account_number, a.account_name] }],
+};
 
 // ── Statement View ────────────────────────────────────────────────────────────
 
@@ -641,8 +649,11 @@ export default function ChartOfAccountsPage() {
   // Build statement view data. PL_SECTIONS + BS_SECTIONS between them cover
   // every SectionKey, so anything left over is an account whose type maps to
   // no section at all — effectiveSection returns null for exactly those.
-  const sectionAccounts = (key: SectionKey) => accounts.filter((a) => effectiveSection(a) === key);
-  const uncategorized   = accounts.filter((a) => effectiveSection(a) === null);
+  // The tree renders a match whose parent was filtered out as a root, so a
+  // search never hides a sub-account behind a non-matching parent.
+  const { rows: visible, search, setSearch } = useTableControls(accounts, COA_CONTROLS);
+  const sectionAccounts = (key: SectionKey) => visible.filter((a) => effectiveSection(a) === key);
+  const uncategorized   = visible.filter((a) => effectiveSection(a) === null);
 
   return (
     <>
@@ -658,7 +669,10 @@ export default function ChartOfAccountsPage() {
         {step === "idle" && (
           <div className="flex items-center justify-between gap-2">
             {!loading && !error && accounts.length > 0 ? (
-              <ButtonGroup tabs={CoA_VIEW_TABS} activeKey={viewMode} onSelect={setViewMode} />
+              <div className="flex items-center gap-3 flex-wrap">
+                <ButtonGroup tabs={CoA_VIEW_TABS} activeKey={viewMode} onSelect={setViewMode} />
+                <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search account # or name…" />
+              </div>
             ) : <div />}
             <div className="flex items-center gap-2">
               <button
@@ -960,7 +974,7 @@ export default function ChartOfAccountsPage() {
               </div>
             ) : (
               <TypeViewTable
-                accounts={accounts}
+                accounts={visible}
                 allAccounts={accounts}
                 editingId={editingId}
                 onEdit={handleEdit}

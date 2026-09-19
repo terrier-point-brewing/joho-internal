@@ -10,6 +10,9 @@ import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import SaveHint from "@/app/components/ui/SaveHint";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { Tone } from "@/app/components/ui/tone";
+import SearchInput from "@/app/components/ui/SearchInput";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 import MappingFrame from "./MappingFrame";
 import { useMappingData } from "./useMappingData";
 import { useState, type ReactNode } from "react";
@@ -29,6 +32,10 @@ interface RuleRow {
   excluded: boolean;
   chart_of_accounts: CoaJoin | null;
 }
+
+const EXPENSE_RULE_CONTROLS: ControlsConfig<RuleRow> = {
+  search: [{ param: "q", accessor: (r) => [r.external_account_name, r.external_account_code] }],
+};
 
 export default function ExpensesPanel({ selector }: { selector?: ReactNode }) {
   const { accounts, rows, setRows, loading, error, setError } =
@@ -81,9 +88,12 @@ export default function ExpensesPanel({ selector }: { selector?: ReactNode }) {
     ? "neutral"
     : mapped === needsMapping ? "success" : "danger";
 
+  const { rows: visible, search, setSearch } = useTableControls(rows, EXPENSE_RULE_CONTROLS, { prefix: "exp_" });
+
   return (
     <MappingFrame
       selector={selector}
+      search={<SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search source accounts…" />}
       loading={loading}
       error={error}
       hasAccounts={accounts.length > 0}
@@ -110,7 +120,10 @@ export default function ExpensesPanel({ selector }: { selector?: ReactNode }) {
         </>
       }
     >
-      {rows.map((rule) => (
+      {visible.length === 0 && (
+        <tr><td colSpan={3} className="px-4 py-6 text-center text-faint">No source accounts match.</td></tr>
+      )}
+      {visible.map((rule) => (
         <tr key={rule.id} className="border-t border-line/40 hover:bg-surface-mid/20">
           <td className="px-4 py-2">
             <div className="flex items-center gap-2 min-w-0">

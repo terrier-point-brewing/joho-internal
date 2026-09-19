@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import dynamic from "next/dynamic";
 import { addDays, parseISO } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -26,7 +26,6 @@ import { CHANNEL_COLOR, TRANSFER_TYPE_TEXT } from "../lib/categoryColors";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
-import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
 import SortableTh from "@/app/components/ui/SortableTh";
 import DepositCoverageLine from "./DepositCoverageLine";
@@ -58,7 +57,6 @@ const STATUS_OPTIONS = [
 const BATCH_CONTROLS: ControlsConfig<BrewBatch> = {
   search: [{ param: "q", accessor: (b) => [b.batch_number, b.beer_name] }],
   filters: [
-    { param: "beer", accessor: (b) => b.beer_name },
     { param: "status", accessor: (b) => b.status },
   ],
   sort: {
@@ -230,14 +228,6 @@ export default function BatchLogTab() {
   const { rows: allBatches, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
     useTableControls(batches, BATCH_CONTROLS);
 
-  const beerOptions = useMemo(
-    () =>
-      Array.from(new Set(batches.map((b) => b.beer_name)))
-        .sort()
-        .map((n) => ({ value: n, label: n })),
-    [batches],
-  );
-
   const tankTypeById = Object.fromEntries(tanks.map((t) => [t.id, t.type]));
   const assignedBatchIds = new Set(assignments.map((a) => a.batch_id));
 
@@ -248,13 +238,7 @@ export default function BatchLogTab() {
           <SearchInput
             value={search.q ?? ""}
             onChange={(v) => setSearch("q", v)}
-            placeholder="Search batches…"
-          />
-          <FilterSelect
-            label="Beer"
-            options={beerOptions}
-            value={filters.beer ?? []}
-            onChange={(v) => setFilter("beer", v)}
+            placeholder="Search batch # or beer…"
           />
           <FilterChips
             label="Status"

@@ -42,6 +42,7 @@ export default function MappingFrame({
   headers,
   footer,
   selector,
+  search,
   children,
 }: {
   loading: boolean;
@@ -58,6 +59,8 @@ export default function MappingFrame({
   footer: ReactNode;
   /** The panel-picker ButtonGroup, rendered in line with this panel's own summary/actions row. */
   selector?: ReactNode;
+  /** A panel's `<SearchInput>`, shown above the table. The panel filters its own rows. */
+  search?: ReactNode;
   /** The panel's own `<tr>` rows. */
   children: ReactNode;
 }) {
@@ -91,6 +94,7 @@ export default function MappingFrame({
         <Centered title={emptyRows.title} hint={emptyRows.hint} />
       ) : (
         <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+          {search && <div className="mb-3">{search}</div>}
           <div className="bg-surface border border-line rounded-lg overflow-hidden">
             <table className="w-full text-xs border-collapse">
               <thead>

@@ -405,7 +405,7 @@ All list/table search, filtering, and sorting use the shared primitives in
   wrong: partner becomes a categorical filter, recipe stays a text box.
 - An entity's own identity fields may share one box (account number + name,
   item + variation of the same SKU) — pass an array accessor for that box.
-- Case-insensitive substring, debounced ~200 ms (built into `<SearchInput>`).
+- Case-insensitive substring, debounced ~500 ms (built into `<SearchInput>`).
 
 **Categorical filters — preferred.**
 - If a field has a bounded, known value set, filter categorically, never with

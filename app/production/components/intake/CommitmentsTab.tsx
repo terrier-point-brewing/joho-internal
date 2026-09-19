@@ -19,6 +19,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
+import SearchInput from "@/app/components/ui/SearchInput";
 import SortableTh from "@/app/components/ui/SortableTh";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig } from "@/lib/table/types";
@@ -58,10 +59,10 @@ const STAGE_SORT_RANK: Record<CommitmentStage, number> = { open: 0, closed: 1, c
 const STAGE_OPTIONS = (["open", "closed", "cancelled"] as CommitmentStage[]).map((k) => ({ value: k, label: STAGE_META[k].label }));
 
 const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
+  search: [{ param: "q", accessor: (r) => r.recipe_name }],
   filters: [
     { param: "channel", accessor: (r) => r.channel },
     { param: "stage", accessor: (r) => r.stage_key },
-    { param: "recipe", accessor: (r) => r.recipe_name },
     { param: "partner", accessor: (r) => r.partner_id ?? "" },
   ],
   sort: {
@@ -529,7 +530,6 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     return q.desired_delivery_date ? fmtDateLong(q.desired_delivery_date) : "—";
   }
 
-  const uniqueRecipes = Array.from(new Set(rows.map((r) => r.recipes?.beer_name).filter(Boolean))).sort() as string[];
   const uniquePartners = Array.from(
     new Map(
       rows
@@ -550,7 +550,7 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
     [rows],
   );
 
-  const { rows: displayRows, filters, sort, setFilter, toggleSort, reset, activeCount } =
+  const { rows: displayRows, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount } =
     useTableControls(sortableRows, COMMITMENT_CONTROLS, { prefix: "commit_" });
 
   return (
@@ -558,13 +558,11 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
       <p className="text-sm text-muted mb-3">Distribution allocations and contract brewing requests. All are outflows from cold storage.</p>
       <div className="flex items-start gap-3 mb-4">
         <FilterBar activeCount={activeCount} onClear={reset}>
+          <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search recipes…" />
           <FilterChips label="Channel" options={CHANNEL_OPTIONS}
             value={filters.channel ?? []} onChange={(v) => setFilter("channel", v)} />
           <FilterChips label="Stage" options={STAGE_OPTIONS}
             value={filters.stage ?? []} onChange={(v) => setFilter("stage", v)} />
-          <FilterSelect label="Recipe"
-            options={uniqueRecipes.map((s) => ({ value: s, label: s }))}
-            value={filters.recipe ?? []} onChange={(v) => setFilter("recipe", v)} />
           <FilterSelect label="Partner"
             options={uniquePartners.map(([id, name]) => ({ value: id, label: name }))}
             value={filters.partner ?? []} onChange={(v) => setFilter("partner", v)} />

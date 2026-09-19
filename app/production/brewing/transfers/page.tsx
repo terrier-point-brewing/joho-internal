@@ -11,6 +11,9 @@ import PageHeader from "@/app/components/PageHeader";
 import StickyHeader from "@/app/components/StickyHeader";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FilterSelect from "@/app/components/ui/FilterSelect";
+import SearchInput from "@/app/components/ui/SearchInput";
+import { useTableControls } from "@/app/components/ui/useTableControls";
+import type { ControlsConfig } from "@/lib/table/types";
 
 type TransferType = "transfer" | "kegging" | "canning" | "conversion" | "export" | "brewing";
 
@@ -73,6 +76,12 @@ function fmtDateTime(iso: string) {
   });
 }
 
+// A batch's own identity fields share one box (batch # + beer name).
+const NO_ROWS: TransferLogRow[] = [];
+const TRANSFER_CONTROLS: ControlsConfig<TransferLogRow> = {
+  search: [{ param: "q", accessor: (r) => [r.batch?.batch_number, r.batch?.beer_name] }],
+};
+
 function buildUrl(filters: { batch_id: string; from: string; to: string; type: string }) {
   const p = new URLSearchParams();
   if (filters.batch_id) p.set("batch_id", filters.batch_id);
@@ -86,10 +95,13 @@ export default function TransferLogPage() {
   const [filters, setFilters] = useState({ batch_id: "", from: "", to: "", type: "" });
   const [applied, setApplied] = useState(filters);
 
-  const { data: rows = [], isLoading, isError } = useQuery({
+  const { data: loaded = NO_ROWS, isLoading, isError } = useQuery({
     queryKey: ["transfer-log", applied],
     queryFn: () => fetchJson<TransferLogRow[]>(buildUrl(applied)),
   });
+
+  // The date/type filters re-query on Apply; the batch search narrows what came back.
+  const { rows, search, setSearch } = useTableControls(loaded, TRANSFER_CONTROLS);
 
   function apply() { setApplied({ ...filters }); }
   function clear()  { const empty = { batch_id: "", from: "", to: "", type: "" }; setFilters(empty); setApplied(empty); }
@@ -107,6 +119,7 @@ export default function TransferLogPage() {
           activeCount={[applied.from, applied.to, applied.type, applied.batch_id].filter(Boolean).length}
           onClear={clear}
         >
+          <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search batch # or beer…" />
           <label className="inline-flex items-center gap-1.5 text-xs text-muted">
             From
             <input type="date" className="inp-sm w-auto" value={filters.from}
