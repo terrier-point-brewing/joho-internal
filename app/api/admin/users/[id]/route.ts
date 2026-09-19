@@ -33,9 +33,16 @@ export async function PATCH(
   const { role } = body;
   if (!role) return NextResponse.json({ error: "role or password is required" }, { status: 400 });
 
-  const { error } = await admin.from("profiles").update({ role }).eq("id", id);
+  // Role and company move together, in one write: the DB refuses a partner
+  // with no company and a staff login with one.
+  const partner_id = role === "partner" ? (body.partner_id ?? null) : null;
+  if (role === "partner" && !partner_id) {
+    return NextResponse.json({ error: "A partner login must be linked to a partner company." }, { status: 400 });
+  }
+
+  const { error } = await admin.from("profiles").update({ role, partner_id }).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ id, role });
+  return NextResponse.json({ id, role, partner_id });
 }
 
 export async function DELETE(

@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { partnerMayReach } from "@/lib/partner/confinement";
 
 export async function proxy(request: NextRequest) {
   // Machine-to-machine endpoints authenticate themselves (Square HMAC signature,
@@ -53,6 +54,21 @@ export async function proxy(request: NextRequest) {
 
   if (!user && !isLoginPage && !isPublicApi && !isAuthPage) {
     return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  // An external partner login is confined to the portal. The flag is
+  // app_metadata, which only the service role can write and which a DB trigger
+  // keeps equal to profiles.role = 'partner' — so this costs no query beyond
+  // the getUser() above. It is the OUTER wall only: the partner role also
+  // holds no scope any staff route accepts, and a restrictive RLS policy denies
+  // the token at the database. Any one of the three failing still leaves two.
+  if (user && user.app_metadata?.portal_partner === true) {
+    if (!partnerMayReach(pathname)) {
+      return pathname.startsWith("/api/")
+        ? new NextResponse("Forbidden", { status: 403 })
+        : NextResponse.redirect(new URL("/partner", request.url));
+    }
+    return response;
   }
 
   if (user && isLoginPage) {

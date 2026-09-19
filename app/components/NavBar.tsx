@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useUserRole, usePermissions } from "@/lib/hooks/useUserRole";
+import PartnerBar from "@/app/partner/PartnerBar";
 import { usePendingAccessRequestCount } from "@/lib/hooks/useAccessRequests";
 import { CAP } from "@/lib/auth/capabilities";
 import { navEntryVisible } from "./SubNav";
@@ -75,7 +76,7 @@ const LogoutIcon = () => (
 export default function NavBar() {
   const pathname = usePathname();
 
-  const { role, user, loading } = useUserRole();
+  const { role, user, loading, isPartner } = useUserRole();
   const { can } = usePermissions();
   const pendingRequests = usePendingAccessRequestCount();
 
@@ -99,6 +100,10 @@ export default function NavBar() {
     await supabase.auth.signOut();
     window.location.href = "/login";
   }
+
+  // An external partner gets no staff navigation at all — not a filtered
+  // sidebar, none. Just a slim top bar; the portal is one page.
+  if (isPartner) return <PartnerBar email={user?.email ?? null} onSignOut={handleLogout} />;
 
   const isProduction = pathname === "/production" || pathname.startsWith("/production/");
   const isTaproom    = pathname === "/taproom" || pathname.startsWith("/taproom/");

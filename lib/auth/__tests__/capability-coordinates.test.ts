@@ -62,6 +62,8 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   partnersRead: { scope: "production.partners", level: "read" },
   partnersOperate: { scope: "production.partners", level: "operate" },
   partnersManage: { scope: "production.partners", level: "manage" },
+  partnerRequestsDecide: { scope: "production.partners", level: "operate" },
+  partnerPortal: { scope: "partner.portal", level: "read" },
 
   recipesOperate: { scope: "production.recipes", level: "operate" },
 

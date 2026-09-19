@@ -70,10 +70,11 @@ const SECTION_LABELS: Record<Section, string> = {
   brand: "Brand",
   marketing: "Marketing",
   org: "Organization",
+  partner: "Partner portal",
 };
 
 // Marketing sits directly after Brand, matching where it sits in the sidebar.
-const SECTION_ORDER: Section[] = ["taproom", "production", "finance", "payroll", "catalog", "brand", "marketing", "org"];
+const SECTION_ORDER: Section[] = ["taproom", "production", "finance", "payroll", "catalog", "brand", "marketing", "org", "partner"];
 
 // SECTION_LABELS is a Record<Section, …>, so ADDING a Section is a compile
 // error there. SECTION_ORDER is a plain array literal and would silently drop

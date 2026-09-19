@@ -53,6 +53,14 @@ export const CAP = {
   partnersRead: { scope: "production.partners", level: "read" },
   partnersOperate: { scope: "production.partners", level: "operate" },
   partnersManage: { scope: "production.partners", level: "manage" },
+  // Approving or declining what a partner asked for through the portal. It
+  // creates the commitment (and, for a claim, the allocation), so it is the
+  // same authority as doing either by hand — which is what puts it with brewer
+  // and admin and keeps a read-only manager out.
+  partnerRequestsDecide: { scope: "production.partners", level: "operate" },
+  // The external partner portal. Held by the `partner` role and by ROOT
+  // (admin, for previewing as a company) — no staff bundle reaches it.
+  partnerPortal: { scope: "partner.portal", level: "read" },
 
   recipesOperate: { scope: "production.recipes", level: "operate" },
 

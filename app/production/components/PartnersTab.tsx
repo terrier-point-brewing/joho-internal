@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { ContractBrewingPartner, Supplier } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -208,6 +211,17 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
   const loadContracts = () => qc.invalidateQueries({ queryKey: productionKeys.contractPartners });
   const loadSuppliers = () => qc.invalidateQueries({ queryKey: productionKeys.suppliers });
 
+  const { can } = usePermissions();
+  const canPreviewPortal = can(CAP.partnerPortal);
+  const canManage = can(CAP.partnersManage);
+  async function setExclusive(partner: ContractBrewingPartner, value: boolean) {
+    const res = await fetch(`/api/partners/contract-brewing/${partner.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recipes_exclusive: value }),
+    });
+    if (!res.ok) alert((await res.json().catch(() => ({}))).error ?? "Could not save");
+    await loadContracts();
+  }
+
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(PARTNER_EMPTY);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -325,7 +339,10 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
                 <th className="px-4 py-2.5 text-xs font-medium text-muted">Phone</th>
                 <th className="px-4 py-2.5 text-xs font-medium text-muted">Address</th>
                 {kind === "contract" && (
-                  <th className="px-4 py-2.5 text-xs font-medium text-muted">Square</th>
+                  <>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted">Square</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted">Partner portal</th>
+                  </>
                 )}
                 <th className="px-4 py-2.5 text-xs font-medium text-muted"></th>
               </tr>
@@ -358,6 +375,22 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
                         ) : (
                           <span className="text-disabled text-xs">—</span>
                         )}
+                      </td>
+                    )}
+                    {isContract && (
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-3">
+                          {canPreviewPortal && (
+                            <Link href={`/partner?as=${p.id}`} className="btn-secondary btn-xxs" title="See the partner portal exactly as this company sees it (read-only)">
+                              Preview
+                            </Link>
+                          )}
+                          <label className="flex items-center gap-1.5 text-xs text-secondary whitespace-nowrap" title="Batches of this partner's recipes are never offered to other partners in the portal">
+                            <input type="checkbox" checked={!!cp.recipes_exclusive} disabled={!canManage}
+                              onChange={(e) => setExclusive(cp, e.target.checked)} />
+                            Beer is exclusive
+                          </label>
+                        </div>
                       </td>
                     )}
                     <td className="px-4 py-2.5">

@@ -9,6 +9,12 @@ export interface Session {
   user: User;
   role: UserRole;
   grants: ScopeGrants;
+  /**
+   * The company an external partner login belongs to; null for every staff
+   * login. Portal routes scope every read and write by this and by nothing the
+   * browser sends.
+   */
+  partnerId: string | null;
 }
 
 /**
@@ -35,11 +41,12 @@ export const getSessionUser = cache(async function getSessionUser(): Promise<Ses
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, partner_id")
     .eq("id", user.id)
     .single();
 
   const role = (profile?.role ?? "viewer") as UserRole;
+  const partnerId = (profile as { partner_id?: string | null } | null)?.partner_id ?? null;
 
   if (role === "custom") {
     const { data: rows } = await supabase
@@ -50,8 +57,8 @@ export const getSessionUser = cache(async function getSessionUser(): Promise<Ses
     const grants: ScopeGrants = Object.fromEntries(
       (rows ?? []).map((r: { scope: string; level: string }) => [r.scope, r.level]),
     );
-    return { user, role, grants };
+    return { user, role, grants, partnerId };
   }
 
-  return { user, role, grants: await getRoleBundle(role) };
+  return { user, role, grants: await getRoleBundle(role), partnerId };
 });

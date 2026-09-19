@@ -1,7 +1,7 @@
 import type { ScopeGrants } from "./resolve";
 import { ROOT } from "./scopes";
 
-export type UserRole = "viewer" | "brewer" | "manager" | "admin" | "custom";
+export type UserRole = "viewer" | "brewer" | "manager" | "admin" | "custom" | "partner";
 
 /**
  * The entire permission matrix, in one file.
@@ -55,4 +55,10 @@ export const ROLE_BUNDLES: Record<UserRole, ScopeGrants> = {
   },
 
   custom: {}, // grants come from user_permission_grants
+
+  // An EXTERNAL login — a contract-brewing or wholesale partner. One leaf and
+  // nothing else, ever: adding a second key here is how a partner starts
+  // seeing the inside of the brewery. proxy.ts and the restrictive RLS policy
+  // (20261118100000_partner_portal.sql) back this up independently.
+  partner: { "partner.portal": "read" },
 };

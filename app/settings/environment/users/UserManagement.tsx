@@ -15,11 +15,17 @@ interface Profile {
   id: string;
   email: string;
   role: UserRole;
+  /** The company an external partner login belongs to; null for staff. */
+  partner_id: string | null;
   created_at: string;
   email_confirmed: boolean;
 }
 
-const ROLES: UserRole[] = ["viewer", "brewer", "manager", "admin", "custom"];
+// `partner` is an EXTERNAL login (the partner portal) and always carries a
+// company; choosing it reveals the company picker beside the role.
+const ROLES: UserRole[] = ["viewer", "brewer", "manager", "admin", "custom", "partner"];
+
+interface PartnerOption { id: string; company_name: string }
 
 /**
  * Preset bundles that can be edited here. `admin` is deliberately absent — it
@@ -41,7 +47,15 @@ export default function UserManagement() {
     queryFn: () => fetchJson<Profile[]>("/api/admin/users"),
   });
 
+  const { data: partners = [] } = useQuery({
+    queryKey: ["partners", "contract-brewing", "options"],
+    queryFn: () => fetchJson<PartnerOption[]>("/api/partners/contract-brewing"),
+  });
+
   const [apiError, setApiError] = useState<string | null>(null);
+  // Rows switched to "partner" that still need a company before anything is
+  // saved — a partner login with no company is refused by the API and the DB.
+  const [awaitingCompany, setAwaitingCompany] = useState<Set<string>>(new Set());
 
   // Grant matrix modal state (custom-role users only)
   const [grantsUserId, setGrantsUserId] = useState<string | null>(null);
@@ -55,7 +69,7 @@ export default function UserManagement() {
 
   // Create user modal state
   const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState({ email: "", password: "", role: "viewer" as UserRole });
+  const [createForm, setCreateForm] = useState({ email: "", password: "", role: "viewer" as UserRole, partner_id: "" });
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -79,17 +93,27 @@ export default function UserManagement() {
     }
   }
 
-  async function handleRoleChange(userId: string, role: UserRole) {
+  async function handleRoleChange(userId: string, role: UserRole, partnerId: string | null = null) {
+    if (role === "partner" && !partnerId) {
+      // Nothing to save yet — wait for the company.
+      setAwaitingCompany((s) => new Set(s).add(userId));
+      return;
+    }
+    setAwaitingCompany((s) => { const n = new Set(s); n.delete(userId); return n; });
     // Optimistic update
     qc.setQueryData<Profile[]>(QUERY_KEY, (prev) =>
-      prev?.map((u) => (u.id === userId ? { ...u, role } : u))
+      prev?.map((u) => (u.id === userId ? { ...u, role, partner_id: partnerId } : u))
     );
     const res = await fetch(`/api/admin/users/${userId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({ role, partner_id: partnerId }),
     });
-    if (!res.ok) qc.invalidateQueries({ queryKey: QUERY_KEY });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setApiError(data.error ?? "Failed to change role");
+      qc.invalidateQueries({ queryKey: QUERY_KEY });
+    }
   }
 
   async function handleConfirmEmail(userId: string) {
@@ -120,7 +144,7 @@ export default function UserManagement() {
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(createForm),
+      body: JSON.stringify({ ...createForm, partner_id: createForm.role === "partner" ? createForm.partner_id : null }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -129,7 +153,7 @@ export default function UserManagement() {
       return;
     }
     setShowCreate(false);
-    setCreateForm({ email: "", password: "", role: "viewer" });
+    setCreateForm({ email: "", password: "", role: "viewer", partner_id: "" });
     setCreating(false);
     qc.invalidateQueries({ queryKey: QUERY_KEY });
   }
@@ -175,17 +199,32 @@ export default function UserManagement() {
                   <tr key={u.id} className="border-b border-line/50 last:border-0">
                     <td className="px-4 py-3 text-strong">{u.email}</td>
                     <td className="px-4 py-3">
-                      <select
-                        value={u.role}
-                        onChange={(e) => handleRoleChange(u.id, e.target.value as UserRole)}
-                        className="inp-sm w-auto"
-                      >
-                        {ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <select
+                          value={awaitingCompany.has(u.id) ? "partner" : u.role}
+                          onChange={(e) => handleRoleChange(u.id, e.target.value as UserRole)}
+                          className="inp-sm w-auto"
+                        >
+                          {ROLES.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                        </select>
+                        {(u.role === "partner" || awaitingCompany.has(u.id)) && (
+                          <select
+                            value={awaitingCompany.has(u.id) ? "" : (u.partner_id ?? "")}
+                            onChange={(e) => e.target.value && handleRoleChange(u.id, "partner", e.target.value)}
+                            className="inp-sm w-auto"
+                            aria-label="Partner company"
+                          >
+                            <option value="">Choose company…</option>
+                            {partners.map((p) => (
+                              <option key={p.id} value={p.id}>{p.company_name}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {u.email_confirmed ? (
@@ -350,6 +389,24 @@ export default function UserManagement() {
                 ))}
               </select>
             </Field>
+            {createForm.role === "partner" && (
+              <Field label="Partner company" required>
+                <select
+                  required
+                  value={createForm.partner_id}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, partner_id: e.target.value }))}
+                  className="inp w-full"
+                >
+                  <option value="">Choose company…</option>
+                  {partners.map((p) => (
+                    <option key={p.id} value={p.id}>{p.company_name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted mt-1">
+                  An external login. They see the partner portal for this company and nothing else.
+                </p>
+              </Field>
+            )}
             <ModalActions
               submitting={creating}
               onCancel={() => { setShowCreate(false); setCreateError(null); }}
