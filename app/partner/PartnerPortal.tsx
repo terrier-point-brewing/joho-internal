@@ -91,7 +91,7 @@ export default function PartnerPortal() {
   const readOnly = data?.preview ?? false;
 
   return (
-    <div className={`px-4 sm:px-6 pb-8 max-w-4xl ${isPartner ? "md:pt-11" : ""}`}>
+    <div className={`px-4 sm:px-6 pb-8 ${isPartner ? "md:pt-11" : ""}`}>
       <PageHeader
         title={data?.company_name ?? "Partner portal"}
         description="See what we can brew for you, claim beer that's coming available, and track your requests."
@@ -128,7 +128,7 @@ export default function PartnerPortal() {
               Request a batch
             </button>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
             {data.capacity.map((m) => (
               <Card key={m.month}>
                 <div className="text-sm font-semibold text-primary">{monthLabel(m.month)}</div>
@@ -461,7 +461,7 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
         </Card>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Stat label="Requests awaiting our reply" value={String(waiting)} note={waiting > 0 ? "We will reply in My requests" : "Nothing pending"} />
         <Stat label="Open commitments" value={String(history?.summary.open_deals ?? "…")} note={history ? `${bbl1(history.summary.to_come_bbl)} still to come` : undefined} />
         <Stat label="Total shipped" value={history ? bbl1(history.summary.shipped_bbl) : "…"} />
@@ -479,9 +479,9 @@ function PreviewPicker({ onPick }: { onPick: (id: string) => void }) {
     queryFn: () => fetchJson<Array<{ id: string; company_name: string }>>("/api/partners/contract-brewing"),
   });
   return (
-    <div className="px-4 sm:px-6 max-w-xl">
+    <div className="px-4 sm:px-6">
       <PageHeader title="Partner portal preview" description="See the portal exactly as a partner company sees it. Read-only." />
-      <select className="inp w-full mt-2" defaultValue="" onChange={(e) => e.target.value && onPick(e.target.value)} aria-label="Partner company">
+      <select className="inp w-full sm:w-96 mt-2" defaultValue="" onChange={(e) => e.target.value && onPick(e.target.value)} aria-label="Partner company">
         <option value="">Choose a company…</option>
         {partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
       </select>

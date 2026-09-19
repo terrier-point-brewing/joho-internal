@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useUserRole, usePermissions } from "@/lib/hooks/useUserRole";
+import PartnerBar from "@/app/partner/PartnerBar";
 import { usePendingAccessRequestCount } from "@/lib/hooks/useAccessRequests";
 import { CAP } from "@/lib/auth/capabilities";
 import { navEntryVisible } from "./SubNav";
@@ -101,18 +102,8 @@ export default function NavBar() {
   }
 
   // An external partner gets no staff navigation at all — not a filtered
-  // sidebar, none. Just a slim bar to sign out from; the portal is one page.
-  if (isPartner) {
-    return (
-      <div className="fixed top-0 inset-x-0 z-50 bg-surface border-b border-line flex items-center justify-between px-4 h-11">
-        <span className="text-sm font-bold text-primary tracking-wide">TPB <span className="font-normal text-muted">Partner portal</span></span>
-        <div className="flex items-center gap-3">
-          <span className="hidden sm:inline text-xs text-muted truncate max-w-[220px]">{user?.email}</span>
-          <button onClick={handleLogout} className="btn-secondary btn-xxs">Sign out</button>
-        </div>
-      </div>
-    );
-  }
+  // sidebar, none. Just a slim top bar; the portal is one page.
+  if (isPartner) return <PartnerBar email={user?.email ?? null} onSignOut={handleLogout} />;
 
   const isProduction = pathname === "/production" || pathname.startsWith("/production/");
   const isTaproom    = pathname === "/taproom" || pathname.startsWith("/taproom/");
