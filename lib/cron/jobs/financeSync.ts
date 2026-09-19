@@ -24,7 +24,7 @@ import { syncPosTransactionsForRange } from "@/lib/finance/syncPosTransactions";
 import { syncRefundsForRange } from "@/lib/finance/syncRefunds";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
-import { autoMapInvoiceLineItems } from "@/lib/finance/autoMap";
+import { autoMapInvoiceLineItems, autoMapPosLineItems } from "@/lib/finance/autoMap";
 import { syncSquareFeesForRange } from "@/lib/finance/syncSquareFees";
 import { recordProviderSyncResult } from "@/lib/finance/balances/connections";
 
@@ -102,6 +102,18 @@ async function syncEverything(supabase: SupabaseClient) {
   const invoiceLineSync = await syncSquareInvoicesForYear(supabase, year);
   const invoiceAutoMap = await autoMapInvoiceLineItems(supabase, { year });
 
+  // The orders re-sync above only re-resolves the account on lines inside its
+  // window. A line that aged out unmapped -- its variation was coded later than
+  // that -- was otherwise waiting on someone to press Auto-map. Fill-nulls-only,
+  // Supabase-only, and swallowed: it must not fail a sync that recorded orders.
+  let posAutoMapped: number | { error: string };
+  try {
+    posAutoMapped = (await autoMapPosLineItems(supabase, { year })).mapped;
+  } catch (e) {
+    console.error("[finance-sync] pos auto-map failed", e);
+    posAutoMapped = { error: e instanceof Error ? e.message : String(e) };
+  }
+
   // Processing fees for the same window (the whole history on an empty table
   // -- see syncSquareFees.ts). Swallowed, not thrown: fees are a derived P&L
   // convenience over payments that are already safely recorded, and failing
@@ -121,6 +133,7 @@ async function syncEverything(supabase: SupabaseClient) {
     invoicesReconciled,
     invoiceLineSync: { synced: invoiceLineSync.synced, updated: invoiceLineSync.updated },
     invoiceAutoMapped: invoiceAutoMap.mapped,
+    posAutoMapped,
     fees,
   };
 }
