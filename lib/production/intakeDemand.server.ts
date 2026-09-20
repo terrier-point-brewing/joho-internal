@@ -10,6 +10,7 @@
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { fetchColdStorageOnHand } from "@/lib/production/coldStorageOnHand";
 import { fetchSellThrough } from "@/lib/square/sell-through";
+import { expectedYieldBbl } from "@/lib/production/batchVolume";
 import {
   buildDemandCalendar,
   type BatchInflow, type CommitmentDemand, type DemandRow,
@@ -80,6 +81,13 @@ export function commitmentPieces(input: {
   return pieces;
 }
 
+/** What a batch is forecast to package: the recipe's post-loss yield for a
+ *  brewed batch; a conversion child never saw the brewhouse, so what it was
+ *  handed (its volume_bbl) is the forecast. See lib/production/batchVolume. */
+function forecastOutputBbl(b: { volume_bbl: number | null; turns: number | null; converted_from_batch_id: string | null }, yieldPerTurn: number | null | undefined): number {
+  return b.converted_from_batch_id ? Number(b.volume_bbl ?? 0) : expectedYieldBbl(yieldPerTurn, b.turns);
+}
+
 /** Expected yield minus what is already packaged — never negative. */
 export function inTankRemainingBbl(input: { expectedBbl: number; packagedBbl: number }): number {
   return Math.max(0, input.expectedBbl - input.packagedBbl);
@@ -99,7 +107,7 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
       .select("id, recipe_id, channel, volume_bbl, desired_delivery_date")
       .eq("status", "open"),
     supabase.from("brew_batches")
-      .select("id, batch_number, recipe_id, turns, volume_bbl, expected_delivery_date")
+      .select("id, batch_number, recipe_id, turns, volume_bbl, expected_delivery_date, converted_from_batch_id")
       .in("status", ACTIVE_BATCH_STATUSES),
     supabase.from("taproom_recipe_settings").select("recipe_id").eq("is_retired", true),
   ]);
@@ -107,7 +115,7 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
   const recipes = must<Recipe>("recipes", recipesRes);
   const floors = must<SafetyStockFloor>("safety stock", floorsRes);
   const openCommitments = must<{ id: string; recipe_id: string | null; channel: CommitmentChannel; volume_bbl: number; desired_delivery_date: string | null }>("commitments", commitmentsRes);
-  const activeBatches = must<{ id: string; batch_number: string | null; recipe_id: string | null; turns: number | null; volume_bbl: number | null; expected_delivery_date: string | null }>("batches", batchesRes);
+  const activeBatches = must<{ id: string; batch_number: string | null; recipe_id: string | null; turns: number | null; volume_bbl: number | null; expected_delivery_date: string | null; converted_from_batch_id: string | null }>("batches", batchesRes);
   const recipeById = new Map(recipes.map((r) => [r.id, r]));
 
   // ── Cold storage on hand (net of shipments) ───────────────────────────────
@@ -120,10 +128,10 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
 
   // ── Open commitments → what is still owed / still needs a batch ───────────
   const commitmentIds = openCommitments.map((c) => c.id);
-  const allocs = commitmentIds.length === 0 ? [] : must<{ id: string; contract_request_id: string; percentage: number; batch_id: string; brew_batches: { volume_bbl: number | null; status: string | null; expected_delivery_date: string | null; recipe_id: string | null; turns: number | null } | null }>(
+  const allocs = commitmentIds.length === 0 ? [] : must<{ id: string; contract_request_id: string; percentage: number; batch_id: string; brew_batches: { volume_bbl: number | null; status: string | null; expected_delivery_date: string | null; recipe_id: string | null; turns: number | null; converted_from_batch_id: string | null } | null }>(
     "allocations",
     await supabase.from("batch_allocations")
-      .select("id, batch_id, contract_request_id, percentage, brew_batches(volume_bbl, status, expected_delivery_date, recipe_id, turns)")
+      .select("id, batch_id, contract_request_id, percentage, brew_batches(volume_bbl, status, expected_delivery_date, recipe_id, turns, converted_from_batch_id)")
       .in("contract_request_id", commitmentIds),
   );
   const allocIds = allocs.map((a) => a.id);
@@ -151,8 +159,7 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
       const b = a.brew_batches;
       const active = ACTIVE_BATCH_STATUSES.includes(b?.status ?? "");
       const packaged = packagedByBatch.get(a.batch_id) ?? 0;
-      const yieldPerTurn = b?.recipe_id ? recipeById.get(b.recipe_id)?.expected_yield_bbl : null;
-      const expected = yieldPerTurn != null ? yieldPerTurn * (b?.turns ?? 1) : null;
+      const expected = b ? forecastOutputBbl(b, b.recipe_id ? recipeById.get(b.recipe_id)?.expected_yield_bbl : null) : null;
       return {
         percentage: Number(a.percentage),
         batchVolumeBbl: Number(b?.volume_bbl ?? 0),
@@ -177,8 +184,7 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
   const batchInflows: BatchInflow[] = [];
   for (const b of activeBatches) {
     if (!b.recipe_id || !b.expected_delivery_date) continue;
-    const yieldPerTurn = recipeById.get(b.recipe_id)?.expected_yield_bbl;
-    const expectedBbl = yieldPerTurn != null ? yieldPerTurn * (b.turns ?? 1) : Number(b.volume_bbl ?? 0);
+    const expectedBbl = forecastOutputBbl(b, recipeById.get(b.recipe_id)?.expected_yield_bbl);
     batchInflows.push({
       batch_number: b.batch_number,
       recipe_id: b.recipe_id,
