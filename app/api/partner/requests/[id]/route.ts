@@ -13,7 +13,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (caller.preview) return NextResponse.json({ error: "Preview mode cannot withdraw requests." }, { status: 403 });
   const { id } = await params;
   try {
-    await withdrawRequest(createSupabaseAdminClient(), caller.partnerId, id);
+    await withdrawRequest(createSupabaseAdminClient(), caller.partnerId, id, caller.session.user.id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof RequestError) return NextResponse.json({ error: e.message }, { status: e.status });

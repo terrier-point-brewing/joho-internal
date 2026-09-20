@@ -128,14 +128,15 @@ export async function submitRequest(
 // ── Read ────────────────────────────────────────────────────────────────────
 
 const REQUEST_SELECT = `id, partner_id, kind, recipe_id, batch_id, turns, volume_bbl, desired_date, notes, new_beer, files,
-  status, channel, decision_note, decided_at, commitment_id, allocation_id, created_at,
+  status, channel, decision_note, decided_at, decided_by, created_by, commitment_id, allocation_id, created_at,
   recipes(beer_name, style), brew_batches(beer_name, batch_number), contract_brewing_partners(company_name)`;
 
 interface RequestRow {
   id: string; partner_id: string; kind: "batch" | "claim"; recipe_id: string | null; batch_id: string | null;
   turns: number | null; volume_bbl: number | string; desired_date: string | null; notes: string | null;
   new_beer: NewBeer | null; files: RequestFile[]; status: string; channel: string | null;
-  decision_note: string | null; decided_at: string | null; commitment_id: string | null; allocation_id: string | null; created_at: string;
+  decision_note: string | null; decided_at: string | null; decided_by: string | null; created_by: string | null;
+  commitment_id: string | null; allocation_id: string | null; created_at: string;
   recipes: { beer_name: string | null; style: string | null } | null;
   brew_batches: { beer_name: string | null; batch_number: string | null } | null;
   contract_brewing_partners: { company_name: string } | null;
@@ -145,6 +146,18 @@ export interface PortalRequest {
   id: string; kind: "batch" | "claim"; beer_name: string; is_new_beer: boolean;
   turns: number | null; volume_bbl: number; desired_date: string | null; notes: string | null;
   status: string; decision_note: string | null; decided_at: string | null; created_at: string; file_names: string[];
+  /** Which of the company's logins sent it — a company can have several. */
+  submitted_by: string | null;
+  /** Set only when a colleague withdrew it. Staff who approve or decline are never named to a partner. */
+  withdrawn_by: string | null;
+}
+
+/** user id → email, for the audit trail on a request. */
+async function emailsOf(admin: SupabaseClient, ids: Array<string | null>): Promise<Map<string, string>> {
+  const wanted = [...new Set(ids.filter((id): id is string => !!id))];
+  if (wanted.length === 0) return new Map();
+  const { data } = await admin.from("profiles").select("id, email").in("id", wanted);
+  return new Map(((data ?? []) as Array<{ id: string; email: string }>).map((p) => [p.id, p.email]));
 }
 
 const beerName = (r: RequestRow) => r.recipes?.beer_name ?? r.new_beer?.name ?? r.brew_batches?.beer_name ?? "Beer";
@@ -152,7 +165,11 @@ const beerName = (r: RequestRow) => r.recipes?.beer_name ?? r.new_beer?.name ?? 
 /** A partner's own requests — no channel, no batch number, no staff identity. */
 export async function listRequestsForPartner(admin: SupabaseClient, partnerId: string): Promise<PortalRequest[]> {
   const { data } = await admin.from("partner_requests").select(REQUEST_SELECT).eq("partner_id", partnerId).order("created_at", { ascending: false });
-  return ((data ?? []) as unknown as RequestRow[]).map((r) => ({
+  const rows = (data ?? []) as unknown as RequestRow[];
+  const emails = await emailsOf(admin, rows.flatMap((r) => [r.created_by, r.status === "withdrawn" ? r.decided_by : null]));
+  return rows.map((r) => ({
+    submitted_by: r.created_by ? emails.get(r.created_by) ?? null : null,
+    withdrawn_by: r.status === "withdrawn" && r.decided_by ? emails.get(r.decided_by) ?? null : null,
     id: r.id, kind: r.kind, beer_name: beerName(r), is_new_beer: r.kind === "batch" && !r.recipe_id,
     turns: r.turns, volume_bbl: Number(r.volume_bbl), desired_date: r.desired_date, notes: r.notes,
     status: r.status, decision_note: r.decision_note, decided_at: r.decided_at, created_at: r.created_at,
@@ -160,7 +177,9 @@ export async function listRequestsForPartner(admin: SupabaseClient, partnerId: s
   }));
 }
 
-export interface InboxRequest extends Omit<PortalRequest, "file_names"> {
+export interface InboxRequest extends Omit<PortalRequest, "file_names" | "withdrawn_by"> {
+  /** Who approved, declined or withdrew it. */
+  decided_by: string | null;
   partner_id: string; partner_name: string; recipe_id: string | null; batch_id: string | null; batch_number: string | null;
   new_beer: NewBeer | null; files: RequestFile[]; channel: string | null;
   commitment_id: string | null;
@@ -176,6 +195,7 @@ export async function listInbox(admin: SupabaseClient): Promise<InboxRequest[]> 
 
   const openClaimBatches = [...new Set(rows.filter((r) => r.status === "submitted" && r.kind === "claim" && r.batch_id).map((r) => r.batch_id!))];
   const partnerIds = [...new Set(rows.map((r) => r.partner_id))];
+  const emails = await emailsOf(admin, rows.flatMap((r) => [r.created_by, r.decided_by]));
   const [pools, { data: deals }] = await Promise.all([
     openClaimBatches.length > 0 ? loadClaimPools(admin, { batchIds: openClaimBatches }) : Promise.resolve(new Map()),
     partnerIds.length > 0
@@ -195,6 +215,8 @@ export async function listInbox(admin: SupabaseClient): Promise<InboxRequest[]> 
       id: r.id, kind: r.kind, beer_name: beerName(r), is_new_beer: r.kind === "batch" && !r.recipe_id,
       turns: r.turns, volume_bbl: Number(r.volume_bbl), desired_date: r.desired_date, notes: r.notes,
       status: r.status, decision_note: r.decision_note, decided_at: r.decided_at, created_at: r.created_at,
+      submitted_by: r.created_by ? emails.get(r.created_by) ?? null : null,
+      decided_by: r.decided_by ? emails.get(r.decided_by) ?? null : null,
       partner_id: r.partner_id, partner_name: r.contract_brewing_partners?.company_name ?? "Partner",
       recipe_id: r.recipe_id, batch_id: r.batch_id, batch_number: r.brew_batches?.batch_number ?? null,
       new_beer: r.new_beer, files: r.files ?? [], channel: r.channel, commitment_id: r.commitment_id,
@@ -206,9 +228,10 @@ export async function listInbox(admin: SupabaseClient): Promise<InboxRequest[]> 
 
 // ── Withdraw ────────────────────────────────────────────────────────────────
 
-export async function withdrawRequest(admin: SupabaseClient, partnerId: string, id: string): Promise<void> {
+export async function withdrawRequest(admin: SupabaseClient, partnerId: string, id: string, userId: string): Promise<void> {
+  // A withdrawal is a decision too — it records which login made it, and when.
   const { data } = await admin.from("partner_requests")
-    .update({ status: "withdrawn" }).eq("id", id).eq("partner_id", partnerId).eq("status", "submitted").select("id");
+    .update({ status: "withdrawn", decided_by: userId, decided_at: new Date().toISOString() }).eq("id", id).eq("partner_id", partnerId).eq("status", "submitted").select("id");
   if (!data || data.length === 0) throw new RequestError("That request has already been decided.", 409);
 }
 
