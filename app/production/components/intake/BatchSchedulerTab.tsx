@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { format, parseISO, addDays, differenceInDays } from "date-fns";
@@ -8,7 +9,8 @@ import { Recipe, Equipment, ContractBrewingRequest, AllocationChannel, leadTimeD
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Field } from "../shared";
 import { fetchJson, useBatchScheduleQuery, type ScheduleEntry } from "../../hooks/queries";
-import type { SchedulerRecommendation } from "@/app/api/production/batch-scheduler/route";
+import type { SchedulerRecommendation, SchedulerResponse } from "@/app/api/production/batch-scheduler/route";
+import Banner from "@/app/components/ui/Banner";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 
@@ -42,16 +44,33 @@ interface SchedulerRow {
   equipment_sequence: EditableSlot[];
   allocations: PendingAllocation[];
   isManual: boolean;
+  /** Why the server could not plan this batch. The brewer can still plan it by hand. */
+  blocked_reason: string | null;
 }
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
-/** Build commitment allocations and always append a taproom row for the remainder. */
+/** What a commitment still needs from a NEW batch: booked minus what already sits on one. */
+function uncoveredBbl(c: ContractBrewingRequest): number {
+  return Math.max(0, Number(c.volume_bbl) - Number(c.committed_allocated_bbl ?? 0));
+}
+
+/** Open commitments for a recipe that no batch fully covers yet. */
+function commitmentsNeedingBatch(commitments: ContractBrewingRequest[], recipeId: string): ContractBrewingRequest[] {
+  return commitments.filter((c) => c.recipe_id === recipeId && c.status === "open" && uncoveredBbl(c) > 0.01);
+}
+
+/** Build commitment allocations and always append a taproom row for the remainder.
+ *  Each commitment takes only its UNCOVERED volume, capped at what the batch has
+ *  left, so a deal already on a batch is never booked twice. */
 function buildAutoAllocations(relevant: ContractBrewingRequest[], volumeBbl: number): PendingAllocation[] {
-  const commitmentAllocs = relevant.map((c) => {
-    const pct = volumeBbl > 0 ? Math.round((Number(c.volume_bbl) / volumeBbl) * 100 * 10) / 10 : 0;
-    const ch: AllocationChannel = c.channel === "distribution" ? "distribution" : "contract_brewing";
-    return newAlloc({ channel: ch, percentage: String(pct), partner_id: c.partner_id ?? "", contract_request_id: c.id });
+  let leftPct = 100;
+  const commitmentAllocs = relevant.flatMap((c) => {
+    const want = volumeBbl > 0 ? Math.round((uncoveredBbl(c) / volumeBbl) * 100 * 10) / 10 : 0;
+    const pct = Math.min(want, leftPct);
+    if (pct <= 0) return [];
+    leftPct = Math.round((leftPct - pct) * 10) / 10;
+    return [newAlloc({ channel: c.channel, percentage: String(pct), partner_id: c.partner_id ?? "", contract_request_id: c.id })];
   });
   const usedPct = commitmentAllocs.reduce((s, a) => s + (parseFloat(a.percentage) || 0), 0);
   const taproomPct = Math.max(0, Math.round((100 - usedPct) * 10) / 10);
@@ -119,6 +138,7 @@ function toRow(rec: SchedulerRecommendation): SchedulerRow {
       })),
     allocations: [],
     isManual: false,
+    blocked_reason: rec.blocked_reason,
   };
 }
 
@@ -336,6 +356,7 @@ const CHANNEL_OPTIONS: { value: AllocationChannel; label: string }[] = [
   { value: "taproom",          label: "Taproom" },
   { value: "distribution",     label: "Distribution" },
   { value: "contract_brewing", label: "Contract Brewing" },
+  { value: "wholesale",        label: "Wholesale" },
   { value: "safety_stock",     label: "Safety Stock" },
 ];
 
@@ -357,9 +378,7 @@ function AllocationPlanSection({
   const remaining = Math.max(0, 100 - totalPct);
   const overAllocated = totalPct > 100;
 
-  const recipeCommitments = commitments.filter(
-    (c) => c.recipe_id === row.recipe_id && (c.status === "open" || c.status === "in_progress")
-  );
+  const recipeCommitments = commitmentsNeedingBatch(commitments, row.recipe_id);
 
   function setAlloc(id: string, patch: Partial<PendingAllocation>) {
     onChange({ ...row, allocations: allocs.map((a) => a.id === id ? { ...a, ...patch } : a) });
@@ -419,8 +438,7 @@ function AllocationPlanSection({
           <p className="text-xs text-disabled px-3 py-3">No allocations yet.</p>
         ) : allocs.map((a, idx) => {
           const isTaproom = a.channel === "taproom" || a.channel === "safety_stock";
-          const channelKey = a.channel === "distribution" ? "distribution" : "contract_brewing";
-          const channelCommitments = recipeCommitments.filter((c) => c.channel === channelKey);
+          const channelCommitments = recipeCommitments.filter((c) => c.channel === a.channel);
           const sel = isTaproom ? null : commitments.find((c) => c.id === a.contract_request_id);
           const pct = parseFloat(a.percentage) || 0;
           const allocBbl = row.volume_bbl > 0 ? (pct / 100) * row.volume_bbl : 0;
@@ -445,7 +463,9 @@ function AllocationPlanSection({
                   {channelCommitments.length === 0
                     ? <option disabled value="">No open commitments</option>
                     : channelCommitments.map((c) => {
-                        return <option key={c.id} value={c.id}>{Number(c.volume_bbl)} BBL</option>;
+                        const who = c.contract_brewing_partners?.company_name ?? "No partner";
+                        const due = c.desired_delivery_date ? ` · due ${fmtDateLong(c.desired_delivery_date)}` : " · ASAP";
+                        return <option key={c.id} value={c.id}>{who} · {uncoveredBbl(c).toFixed(1)} of {Number(c.volume_bbl)} BBL{due}</option>;
                       })}
                 </select>
               )}
@@ -532,10 +552,12 @@ export default function BatchSchedulerTab({
   // React Query has paused reads as false while there is still no data — the
   // render would fall through to "No batches need scheduling right now" for a
   // load that never landed.
-  const { data: recs, isPending: loading, error, refetch } = useQuery({
+  const { data: schedulerData, isPending: loading, error, refetch } = useQuery({
     queryKey: queryKeys.production.batchScheduler(),
-    queryFn: () => fetchJson<SchedulerRecommendation[]>("/api/production/batch-scheduler"),
+    queryFn: () => fetchJson<SchedulerResponse>("/api/production/batch-scheduler"),
   });
+  const recs = schedulerData?.recommendations;
+  const warnings = schedulerData?.warnings ?? [];
   const { data: scheduleEntries = [] } = useBatchScheduleQuery();
   const { data: commitments = [] } = useQuery({
     queryKey: queryKeys.production.commitments(),
@@ -571,10 +593,7 @@ export default function BatchSchedulerTab({
         const recipe = recipes.find((r) => r.id === row.recipe_id);
         const delivery = row.expected_delivery_date || calcDeliveryDate(row.brew_date, recipe);
         if (row.allocations.length > 0) return { ...row, expected_delivery_date: delivery };
-        const relevant = commitments.filter(
-          (c) => c.recipe_id === row.recipe_id && (c.status === "open" || c.status === "in_progress")
-        );
-        return { ...row, expected_delivery_date: delivery, allocations: buildAutoAllocations(relevant, row.volume_bbl) };
+        return { ...row, expected_delivery_date: delivery, allocations: buildAutoAllocations(commitmentsNeedingBatch(commitments, row.recipe_id), row.volume_bbl) };
       });
     });
     setActiveId((prev) => prev ?? (recs.length > 0 ? toRow(recs[0]).id : null));
@@ -636,6 +655,7 @@ export default function BatchSchedulerTab({
       equipment_sequence: [],
       allocations: [],
       isManual: true,
+      blocked_reason: null,
     };
     setQueue((prev) => [...prev, newRow]);
     setActiveId(newRow.id);
@@ -701,6 +721,8 @@ export default function BatchSchedulerTab({
     try {
       const recipe = recipes.find((r) => r.id === row.recipe_id);
 
+      // One call: the server checks the whole plan, then saves the batch, its
+      // tank bookings and its allocations together — or nothing at all.
       const batchRes = await fetch("/api/production/batches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -712,50 +734,25 @@ export default function BatchSchedulerTab({
           volume_bbl: row.volume_bbl,
           turns: row.turns,
           notes: row.notes || null,
+          schedule: row.equipment_sequence.map((slot) => ({
+            stage: slot.stage,
+            equipment_id: slot.equipment_id,
+            planned_start: slot.scheduled_start,
+            planned_end: slot.scheduled_end,
+          })),
+          allocations: row.allocations
+            .filter((a) => parseFloat(a.percentage) > 0)
+            .map((a) => ({
+              channel: a.channel,
+              percentage: parseFloat(a.percentage),
+              partner_id: a.partner_id || null,
+              contract_request_id: a.contract_request_id || null,
+              notes: a.notes || null,
+            })),
         }),
       });
       if (!batchRes.ok) throw new Error((await batchRes.json()).error ?? "Failed to create batch");
       const batch = await batchRes.json();
-
-      // Save each schedule entry — check for errors so failures aren't silent
-      for (const slot of row.equipment_sequence) {
-        const schedRes = await fetch("/api/production/batch-schedule", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            batch_id: batch.id,
-            equipment_id: slot.equipment_id,
-            stage: slot.stage === "brite" ? "conditioning" : slot.stage,
-            planned_start: `${slot.scheduled_start}T00:00:00.000Z`,
-            planned_end: `${slot.scheduled_end}T00:00:00.000Z`,
-          }),
-        });
-        if (!schedRes.ok) {
-          const err = await schedRes.json();
-          throw new Error(`Failed to save ${slot.stage} schedule: ${err.error ?? "unknown error"}`);
-        }
-      }
-
-      // POST pending allocations — check for errors
-      const validAllocs = row.allocations.filter((a) => parseFloat(a.percentage) > 0);
-      for (const a of validAllocs) {
-        const allocRes = await fetch("/api/production/allocations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            batch_id: batch.id,
-            channel: a.channel,
-            percentage: parseFloat(a.percentage),
-            partner_id: a.partner_id || null,
-            contract_request_id: a.contract_request_id || null,
-            notes: a.notes || null,
-          }),
-        });
-        if (!allocRes.ok) {
-          const err = await allocRes.json();
-          throw new Error(`Failed to save allocation: ${err.error ?? "unknown error"}`);
-        }
-      }
 
       // Show success banner with batch number from the API response
       setCommitSuccess({
@@ -774,6 +771,8 @@ export default function BatchSchedulerTab({
         refetch(),
         qc.invalidateQueries({ queryKey: queryKeys.production.batchSchedule() }),
         qc.invalidateQueries({ queryKey: queryKeys.production.batches() }),
+        qc.invalidateQueries({ queryKey: queryKeys.production.commitments() }),
+        qc.invalidateQueries({ queryKey: queryKeys.production.demandCalendar() }),
       ]);
       onBatchCommitted?.();
     } catch (e) {
@@ -804,6 +803,8 @@ export default function BatchSchedulerTab({
         </div>
       </div>
 
+      {warnings.map((w) => <Banner key={w}>{w}</Banner>)}
+
       {/* Success banner */}
       {commitSuccess && (
         <div className="flex items-start gap-3 rounded-lg border border-success-border/50 bg-success-surface/20 px-4 py-3">
@@ -816,6 +817,7 @@ export default function BatchSchedulerTab({
               )}
               <span className="font-semibold">{commitSuccess.style}</span>
               {" "}brewing {fmtDateLong(commitSuccess.brew_date)}
+              {" · "}<Link href="/production/brewing/batch-log" className="underline">Open in Batch Log →</Link>
             </p>
             {commitSuccess.resolvedUrgency && commitSuccess.stockout_date && (
               <p className="text-xs text-success/80 mt-0.5">
@@ -874,6 +876,11 @@ export default function BatchSchedulerTab({
           </div>
 
           <div className="p-4 space-y-6">
+            {activeRow.blocked_reason && (
+              <Banner tone="accent">
+                This beer needs a batch, but no plan could be built: {activeRow.blocked_reason} You can still set it up by hand below.
+              </Banner>
+            )}
             {/* Configuration */}
             <div>
               <p className="text-xs font-medium text-muted mb-3">Batch Configuration</p>
@@ -886,9 +893,7 @@ export default function BatchSchedulerTab({
                       onChange={(e) => {
                         const r = recipes.find((x) => x.id === e.target.value);
                         const newVol = (r?.expected_yield_bbl ?? 0) * activeRow.turns;
-                        const relevant = commitments.filter(
-                          (c) => c.recipe_id === e.target.value && (c.status === "open" || c.status === "in_progress")
-                        );
+                        const relevant = commitmentsNeedingBatch(commitments, e.target.value);
                         const updated = { ...activeRow, recipe_id: e.target.value, style: r?.style ?? r?.beer_name ?? activeRow.style, volume_bbl: newVol, expected_delivery_date: calcDeliveryDate(activeRow.brew_date, r), allocations: buildAutoAllocations(relevant, newVol) };
                         updateRow(updated);
                         suggestEquipment(updated);
@@ -908,9 +913,7 @@ export default function BatchSchedulerTab({
                       const r = recipes.find((x) => x.id === activeRow.recipe_id);
                       const newVol = r?.expected_yield_bbl ? t * r.expected_yield_bbl : activeRow.volume_bbl;
                       // Recalculate allocation percentages against the new volume
-                      const relevant = commitments.filter(
-                        (c) => c.recipe_id === activeRow.recipe_id && (c.status === "open" || c.status === "in_progress")
-                      );
+                      const relevant = commitmentsNeedingBatch(commitments, activeRow.recipe_id);
                       const newAllocs = buildAutoAllocations(relevant, newVol);
                       const updated = { ...activeRow, turns: t, volume_bbl: newVol, allocations: newAllocs };
                       updateRow(updated);
