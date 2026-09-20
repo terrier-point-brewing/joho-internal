@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
-import Link from "next/link";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { format, parseISO, addDays, differenceInDays } from "date-fns";
+import { parseISO, addDays, differenceInDays } from "date-fns";
 import { Recipe, Equipment, ContractBrewingRequest, AllocationChannel, leadTimeDays } from "../../types";
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Field } from "../shared";
@@ -12,7 +11,6 @@ import { fetchJson, useBatchScheduleQuery, type ScheduleEntry } from "../../hook
 import type { SchedulerRecommendation, SchedulerResponse } from "@/app/api/production/batch-scheduler/route";
 import Banner from "@/app/components/ui/Banner";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
-import ToggleChip from "@/app/components/ui/ToggleChip";
 import { batchFillBbl } from "@/lib/production/batchVolume";
 
 interface PendingAllocation {
@@ -58,7 +56,7 @@ function uncoveredBbl(c: ContractBrewingRequest): number {
 
 /** Open commitments for a recipe that no batch fully covers yet. */
 function commitmentsNeedingBatch(commitments: ContractBrewingRequest[], recipeId: string): ContractBrewingRequest[] {
-  return commitments.filter((c) => c.recipe_id === recipeId && c.status === "open" && uncoveredBbl(c) > 0.01);
+  return commitments.filter((c) => c.recipe_id === recipeId && c.status === "open" && uncoveredBbl(c) >= 0.1);
 }
 
 /** Build commitment allocations and always append a taproom row for the remainder.
@@ -537,16 +535,31 @@ function AllocationPlanSection({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function BatchSchedulerTab({
+export interface CommittedBatch {
+  style: string;
+  batch_number: string | null;
+  brew_date: string;
+}
+
+/**
+ * The one "schedule a batch" form. Opened from a Plan row or a commitment, it
+ * works on ONE beer (`recipeId`): the server's recommendation when there is
+ * one, a blank plan for that recipe otherwise. `recipeId: null` = pick the beer.
+ */
+export default function ScheduleBatchForm({
   recipes,
   tanks,
   partners = [],
-  onBatchCommitted,
+  recipeId,
+  onCommitted,
+  onCancel,
 }: {
   recipes: Recipe[];
   tanks: Equipment[];
   partners?: { id: string; company_name: string }[];
-  onBatchCommitted?: () => void;
+  recipeId: string | null;
+  onCommitted: (batch: CommittedBatch) => void;
+  onCancel: () => void;
 }) {
   const qc = useQueryClient();
   // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
@@ -566,42 +579,61 @@ export default function BatchSchedulerTab({
   });
 
   const [queue, setQueue] = useState<SchedulerRow[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
-  const [commitSuccess, setCommitSuccess] = useState<{
-    style: string;
-    batch_number: string | null;
-    brew_date: string;
-    stockout_date: string | null;
-    resolvedUrgency: boolean;
-  } | null>(null);
 
-  // Seed queue from recommendations and immediately fill allocations from commitments.
-  // Running both in one effect (with both as deps) means whichever loads second triggers
-  // the final hydration — no separate auto-fill pass needed.
+  // Build the single row this form works on, once the recommendations and the
+  // commitments have both loaded. Edits the brewer has made are never replaced.
   useEffect(() => {
     if (!recs) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setQueue((prev) => {
-      const manuals = prev.filter((r) => r.isManual);
-      const fromRecs = recs.map(toRow);
-      const merged = fromRecs.map((fresh) => {
-        const existing = prev.find((p) => p.id === fresh.id && !p.isManual);
-        return existing ?? fresh;
-      });
-      return [...merged, ...manuals].map((row) => {
-        const recipe = recipes.find((r) => r.id === row.recipe_id);
-        const delivery = row.expected_delivery_date || calcDeliveryDate(row.brew_date, recipe);
-        if (row.allocations.length > 0) return { ...row, expected_delivery_date: delivery };
-        return { ...row, expected_delivery_date: delivery, allocations: buildAutoAllocations(commitmentsNeedingBatch(commitments, row.recipe_id), row.volume_bbl) };
-      });
+      if (prev.length > 0) {
+        // Commitments arrived after the row was built: fill an untouched plan.
+        return prev.map((row) => row.allocations.length > 0 || !row.recipe_id ? row
+          : { ...row, allocations: buildAutoAllocations(commitmentsNeedingBatch(commitments, row.recipe_id), row.volume_bbl) });
+      }
+      const rec = recipeId ? recs.find((r) => r.recipe_id === recipeId) : undefined;
+      const recipe = recipes.find((r) => r.id === recipeId);
+      const volume = batchFillBbl(1);
+      const row: SchedulerRow = rec ? toRow(rec) : {
+        id: `manual-${recipeId ?? "new"}`,
+        recipe_id: recipeId ?? "",
+        style: recipe?.beer_name ?? "New batch",
+        stockout_date: null,
+        demand_bbl: 0,
+        turns: 1,
+        volume_bbl: volume,
+        brew_date: new Date().toISOString().slice(0, 10),
+        expected_delivery_date: "",
+        notes: "",
+        equipment_sequence: [],
+        allocations: [],
+        isManual: true,
+        blocked_reason: null,
+      };
+      const recipeOfRow = recipes.find((r) => r.id === row.recipe_id);
+      return [{
+        ...row,
+        expected_delivery_date: row.expected_delivery_date || calcDeliveryDate(row.brew_date, recipeOfRow),
+        allocations: row.recipe_id ? buildAutoAllocations(commitmentsNeedingBatch(commitments, row.recipe_id), row.volume_bbl) : [],
+      }];
     });
-    setActiveId((prev) => prev ?? (recs.length > 0 ? toRow(recs[0]).id : null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recs, commitments]);
 
-  const activeRow = useMemo(() => queue.find((r) => r.id === activeId) ?? queue[0] ?? null, [queue, activeId]);
+  // A beer with no server recommendation still gets tanks suggested, once.
+  const [autoSuggested, setAutoSuggested] = useState(false);
+  useEffect(() => {
+    const row = queue[0];
+    if (autoSuggested || !row || !row.isManual || !row.recipe_id || row.volume_bbl <= 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAutoSuggested(true);
+    void suggestEquipment(row);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue, autoSuggested]);
+
+  const activeRow = useMemo(() => queue[0] ?? null, [queue]);
 
   // Auto-add extra tank slots for fermenter/brite when volume exceeds single-tank capacity.
   // Brewhouse is handled by turns (sequential same-day runs), so it is excluded.
@@ -630,36 +662,6 @@ export default function BatchSchedulerTab({
 
   function updateRow(updated: SchedulerRow) {
     setQueue((prev) => prev.map((r) => r.id === updated.id ? updated : r));
-  }
-
-  function removeRow(id: string) {
-    setQueue((prev) => {
-      const next = prev.filter((r) => r.id !== id);
-      if (activeId === id) setActiveId(next[0]?.id ?? null);
-      return next;
-    });
-  }
-
-  async function addManualRow() {
-    const today = new Date().toISOString().slice(0, 10);
-    const newRow: SchedulerRow = {
-      id: `manual-${Date.now()}`,
-      recipe_id: "",
-      style: "New Batch",
-      stockout_date: null,
-      demand_bbl: 0,
-      turns: 1,
-      volume_bbl: 0,
-      brew_date: today,
-      expected_delivery_date: "",
-      notes: "",
-      equipment_sequence: [],
-      allocations: [],
-      isManual: true,
-      blocked_reason: null,
-    };
-    setQueue((prev) => [...prev, newRow]);
-    setActiveId(newRow.id);
   }
 
   async function suggestEquipment(row: SchedulerRow) {
@@ -755,19 +757,6 @@ export default function BatchSchedulerTab({
       if (!batchRes.ok) throw new Error((await batchRes.json()).error ?? "Failed to create batch");
       const batch = await batchRes.json();
 
-      // Show success banner with batch number from the API response
-      setCommitSuccess({
-        style: row.style,
-        batch_number: batch.batch_number ?? null,
-        brew_date: row.brew_date,
-        stockout_date: row.stockout_date,
-        resolvedUrgency: !row.isManual && !!row.stockout_date,
-      });
-
-      // Remove committed row, refresh scheduler + schedule entries.
-      // The demand calendar will naturally resolve because expected_delivery_date
-      // is now set on the new batch — no need to force-invalidate it here.
-      removeRow(row.id);
       await Promise.all([
         refetch(),
         qc.invalidateQueries({ queryKey: queryKeys.production.batchSchedule() }),
@@ -775,7 +764,7 @@ export default function BatchSchedulerTab({
         qc.invalidateQueries({ queryKey: queryKeys.production.commitments() }),
         qc.invalidateQueries({ queryKey: queryKeys.production.demandCalendar() }),
       ]);
-      onBatchCommitted?.();
+      onCommitted({ style: row.style, batch_number: batch.batch_number ?? null, brew_date: row.brew_date });
     } catch (e) {
       alert(e instanceof Error ? e.message : "Commit failed");
     } finally {
@@ -789,75 +778,7 @@ export default function BatchSchedulerTab({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <p className="text-sm text-muted">
-          Batches sorted by urgency. Review demand and equipment for each, then commit one at a time.
-        </p>
-        <div className="flex items-center gap-2 shrink-0">
-          <button onClick={() => refetch()} className="btn-secondary">
-            Refresh
-          </button>
-          <button onClick={addManualRow} className="btn-primary">
-            + Add Batch
-          </button>
-        </div>
-      </div>
-
       {warnings.map((w) => <Banner key={w}>{w}</Banner>)}
-
-      {/* Success banner */}
-      {commitSuccess && (
-        <div className="flex items-start gap-3 rounded-lg border border-success-border/50 bg-success-surface/20 px-4 py-3">
-          <span className="text-success text-base leading-none mt-0.5">✓</span>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-success">
-              Batch committed —{" "}
-              {commitSuccess.batch_number && (
-                <span className="font-mono text-success mr-1">#{commitSuccess.batch_number}</span>
-              )}
-              <span className="font-semibold">{commitSuccess.style}</span>
-              {" "}brewing {fmtDateLong(commitSuccess.brew_date)}
-              {" · "}<Link href="/production/brewing/batch-log" className="underline">Open in Batch Log →</Link>
-            </p>
-            {commitSuccess.resolvedUrgency && commitSuccess.stockout_date && (
-              <p className="text-xs text-success/80 mt-0.5">
-                Addresses projected stockout on {fmtDateLong(commitSuccess.stockout_date)}. Demand calendar will update shortly.
-              </p>
-            )}
-          </div>
-          <button
-            onClick={() => setCommitSuccess(null)}
-            className="text-success hover:text-success text-xs leading-none shrink-0"
-          >✕</button>
-        </div>
-      )}
-
-      {/* Queue strip */}
-      {queue.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {queue.map((row, i) => (
-            <ToggleChip
-              key={row.id}
-              active={row.id === (activeRow?.id)}
-              onClick={() => setActiveId(row.id)}
-              className="shrink-0 flex items-center gap-2 text-left"
-            >
-              <span className="text-faint font-mono">#{i + 1}</span>
-              {urgencyBadge(row)}
-              <span className="font-medium text-body max-w-[120px] truncate">{row.style}</span>
-            </ToggleChip>
-          ))}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {queue.length === 0 && (
-        <div className="py-16 text-center space-y-2">
-          <p className="text-faint text-sm">No batches need scheduling right now.</p>
-          <p className="text-xs text-disabled">All styles are within safe stock levels, or no demand data exists. Use &quot;+ Add Batch&quot; to schedule manually.</p>
-        </div>
-      )}
 
       {/* Active batch panel */}
       {activeRow && (
@@ -979,12 +900,7 @@ export default function BatchSchedulerTab({
 
             {/* Footer */}
             <div className="flex items-center justify-between pt-2 border-t border-line">
-              <button
-                onClick={() => removeRow(activeRow.id)}
-                className="btn-danger"
-              >
-                Remove from queue
-              </button>
+              <button onClick={onCancel} className="btn-secondary">Cancel</button>
               {(() => {
                 const hasConflict = activeRow.equipment_sequence.some((s) => slotConflicted(s, scheduleEntries));
                 const allocTotal = activeRow.allocations.reduce((s, a) => s + (parseFloat(a.percentage) || 0), 0);
@@ -1018,12 +934,6 @@ export default function BatchSchedulerTab({
         </div>
       )}
 
-      {/* Remaining count */}
-      {queue.length > 1 && (
-        <p className="text-xs text-faint text-right">
-          {queue.length - 1} more batch{queue.length > 2 ? "es" : ""} in queue
-        </p>
-      )}
     </div>
   );
 }

@@ -55,9 +55,11 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
 
   const rows = view === "open" ? data.filter((r) => r.status === "submitted") : data;
 
+  // The inbox sits above Commitments: loud when something waits, one line when not.
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <div className="mb-8">
+      <h2 className="text-sm font-semibold text-primary mb-2">Partner requests</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <ButtonGroup<View>
           tabs={[{ key: "open", label: `Needs a decision (${data.filter((r) => r.status === "submitted").length})` }, { key: "all", label: "Everything" }]}
           activeKey={view}
@@ -67,7 +69,7 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
       {error && <Banner className="mb-4">{(error as Error).message}</Banner>}
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
       {!isLoading && rows.length === 0 && (
-        <Card><p className="text-sm text-muted">{view === "open" ? "No partner requests are waiting." : "No partner requests yet."}</p></Card>
+        <p className="text-sm text-faint">{view === "open" ? "No partner requests are waiting." : "No partner requests yet."}</p>
       )}
       <div className="flex flex-col gap-2">
         {rows.map((r) => (
@@ -96,7 +98,7 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
                   </p>
                 )}
                 {r.decision_note && <p className="text-xs text-muted mt-1">Our reply: {r.decision_note}</p>}
-                {r.status === "approved" && r.channel && <p className="text-xs text-muted mt-1">Booked as {CHANNEL_LABEL[r.channel] ?? r.channel} — it is now an ordinary commitment under Commitments.</p>}
+                {r.status === "approved" && r.channel && <p className="text-xs text-muted mt-1">Booked as {CHANNEL_LABEL[r.channel] ?? r.channel} — it is now an ordinary commitment in the list below.</p>}
               </div>
               <div className="flex items-center gap-2">
                 <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>
@@ -201,8 +203,8 @@ function DecideModal({ request: r, recipes, canDecide, onClose }: { request: Inb
               {isClaim
                 ? "Invoiced at shipment at the product price with the channel discount — no deposit, exactly as any distribution or wholesale deal."
                 : channel === "contract_brewing"
-                  ? "Approving books the commitment. The ingredient deposit is raised from Intake → Commitments once the batch is scheduled and allocated, as it is today."
-                  : "Approving books the commitment. Schedule and allocate the batch as usual; it is invoiced at shipment."}
+                  ? "Approving books the commitment. Schedule its batch from the Commitments list below; the ingredient deposit is raised there once the batch is allocated."
+                  : "Approving books the commitment. Schedule its batch from the Commitments list below; it is invoiced at shipment."}
             </p>
             <Field label="Note to the partner" hint="required to decline">
               <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} className="inp w-full" />

@@ -137,8 +137,13 @@ describe("commitmentPieces", () => {
   });
   it("a finished batch that came in short owes its share of what it made", () => {
     expect(commitmentPieces({ bookedBbl: 30, desiredDate: "2026-08-06",
-      allocations: [{ percentage: 75, batchVolumeBbl: 40, exportedBbl: 11.5, landsOn: null, producedBbl: 32 }] }))
+      allocations: [{ percentage: 75, batchVolumeBbl: 40, exportedBbl: 11.5, landsOn: null, batchOutputBbl: 32 }] }))
       .toEqual([{ bbl: 12.5, date: "2026-08-06" }]);
+  });
+  it("a batch in tanks owes its share of the expected yield, not of the planned size", () => {
+    expect(commitmentPieces({ bookedBbl: 20, desiredDate: "2026-09-23",
+      allocations: [{ percentage: 100, batchVolumeBbl: 20, exportedBbl: 0, landsOn: "2026-09-25", batchOutputBbl: 17.5 }] }))
+      .toEqual([{ bbl: 17.5, date: "2026-09-25" }]);
   });
   it("an overdue deal with a batch on the way is not a stockout", () => {
     const [row] = calendar({

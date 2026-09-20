@@ -21,8 +21,18 @@ type DbClient = { from: (table: string) => any };
 
 const ACTIVE_BATCH_STATUSES = ["planning", "brewing", "fermenting", "conditioning"];
 
+/** A demand row plus the three facts the Plan tab leads with. */
+export interface PlanRow extends DemandRow {
+  /** Unshipped beer owed to partners, all channels. */
+  owed_bbl: number;
+  /** Of that, what no batch covers yet. */
+  uncovered_bbl: number;
+  /** Retired from the taproom: never recommended, hidden from "needs action". */
+  is_retired: boolean;
+}
+
 export interface IntakeDemand {
-  rows: DemandRow[];
+  rows: PlanRow[];
   commitments: CommitmentDemand[];
   recipes: Recipe[];
   /** Plain-language problems the planner must see (Square down, a blocked read…). */
@@ -47,17 +57,18 @@ export function commitmentRemainders(input: {
 export function commitmentPieces(input: {
   bookedBbl: number;
   desiredDate: string | null;
-  /** producedBbl: what a FINISHED batch actually packaged. A batch that came in
-   *  short owes its share of what it made, not of what was planned — the same
-   *  rule as lib/production/allocationDelivery's owedBbl. */
-  allocations: Array<{ percentage: number; batchVolumeBbl: number; exportedBbl: number; landsOn: string | null; producedBbl?: number | null }>;
+  /** batchOutputBbl: what the batch really yields — packaged volume once it is
+   *  finished, expected yield while it is in tanks. A deal owns its SHARE of
+   *  that, not of the planned size (the rule in allocationDelivery's owedBbl),
+   *  so a batch that lands a little under its booking is not a stockout. */
+  allocations: Array<{ percentage: number; batchVolumeBbl: number; exportedBbl: number; landsOn: string | null; batchOutputBbl?: number | null }>;
 }): Array<{ bbl: number; date: string | null }> {
   const pieces: Array<{ bbl: number; date: string | null }> = [];
   let left = input.bookedBbl;
   for (const a of input.allocations) {
     const share = Math.min(left, (a.percentage / 100) * a.batchVolumeBbl);
     left -= share;
-    const owed = a.landsOn == null && a.producedBbl != null ? Math.min(share, (a.percentage / 100) * a.producedBbl) : share;
+    const owed = a.batchOutputBbl != null ? Math.min(share, (a.percentage / 100) * a.batchOutputBbl) : share;
     const unshipped = Math.max(0, owed - a.exportedBbl);
     if (unshipped <= 0) continue;
     const date = a.landsOn && (!input.desiredDate || a.landsOn > input.desiredDate) ? a.landsOn : input.desiredDate;
@@ -79,7 +90,7 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
     return res.data ?? [];
   };
 
-  const [recipesRes, floorsRes, commitmentsRes, batchesRes] = await Promise.all([
+  const [recipesRes, floorsRes, commitmentsRes, batchesRes, retiredRes] = await Promise.all([
     supabase.from("recipes").select("*"),
     supabase.from("safety_stock_floors").select("*"),
     supabase.from("commitments")
@@ -88,7 +99,9 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
     supabase.from("brew_batches")
       .select("id, recipe_id, turns, volume_bbl, expected_delivery_date")
       .in("status", ACTIVE_BATCH_STATUSES),
+    supabase.from("taproom_recipe_settings").select("recipe_id").eq("is_retired", true),
   ]);
+  const retired = new Set(must<{ recipe_id: string }>("taproom settings", retiredRes).map((r) => r.recipe_id));
   const recipes = must<Recipe>("recipes", recipesRes);
   const floors = must<SafetyStockFloor>("safety stock", floorsRes);
   const openCommitments = must<{ id: string; recipe_id: string | null; channel: CommitmentChannel; volume_bbl: number; desired_delivery_date: string | null }>("commitments", commitmentsRes);
@@ -105,10 +118,10 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
 
   // ── Open commitments → what is still owed / still needs a batch ───────────
   const commitmentIds = openCommitments.map((c) => c.id);
-  const allocs = commitmentIds.length === 0 ? [] : must<{ id: string; contract_request_id: string; percentage: number; batch_id: string; brew_batches: { volume_bbl: number | null; status: string | null; expected_delivery_date: string | null } | null }>(
+  const allocs = commitmentIds.length === 0 ? [] : must<{ id: string; contract_request_id: string; percentage: number; batch_id: string; brew_batches: { volume_bbl: number | null; status: string | null; expected_delivery_date: string | null; recipe_id: string | null; turns: number | null } | null }>(
     "allocations",
     await supabase.from("batch_allocations")
-      .select("id, batch_id, contract_request_id, percentage, brew_batches(volume_bbl, status, expected_delivery_date)")
+      .select("id, batch_id, contract_request_id, percentage, brew_batches(volume_bbl, status, expected_delivery_date, recipe_id, turns)")
       .in("contract_request_id", commitmentIds),
   );
   const allocIds = allocs.map((a) => a.id);
@@ -132,13 +145,21 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
   const commitments: CommitmentDemand[] = [];
   for (const c of openCommitments) {
     if (!c.recipe_id) continue;
-    const mine = allocs.filter((a) => a.contract_request_id === c.id).map((a) => ({
-      percentage: Number(a.percentage),
-      batchVolumeBbl: Number(a.brew_batches?.volume_bbl ?? 0),
-      exportedBbl: exportedByAlloc.get(a.id) ?? 0,
-      producedBbl: packagedByBatch.get(a.batch_id) ?? 0,
-      landsOn: ACTIVE_BATCH_STATUSES.includes(a.brew_batches?.status ?? "") ? (a.brew_batches?.expected_delivery_date ?? null) : null,
-    }));
+    const mine = allocs.filter((a) => a.contract_request_id === c.id).map((a) => {
+      const b = a.brew_batches;
+      const active = ACTIVE_BATCH_STATUSES.includes(b?.status ?? "");
+      const packaged = packagedByBatch.get(a.batch_id) ?? 0;
+      const yieldPerTurn = b?.recipe_id ? recipeById.get(b.recipe_id)?.expected_yield_bbl : null;
+      const expected = yieldPerTurn != null ? yieldPerTurn * (b?.turns ?? 1) : null;
+      return {
+        percentage: Number(a.percentage),
+        batchVolumeBbl: Number(b?.volume_bbl ?? 0),
+        exportedBbl: exportedByAlloc.get(a.id) ?? 0,
+        // In tanks: at least what is packaged so far, else the expected yield.
+        batchOutputBbl: active ? (expected != null ? Math.max(expected, packaged) : null) : packaged,
+        landsOn: active ? (b?.expected_delivery_date ?? null) : null,
+      };
+    });
     const bookedBbl = Number(c.volume_bbl ?? 0);
     commitments.push({
       id: c.id,
@@ -178,9 +199,18 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
     warnings.push(`Taproom sales could not be read from Square, so taproom demand shows as zero. (${err instanceof Error ? err.message : "unknown error"})`);
   }
 
-  const rows = buildDemandCalendar({
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const rows: PlanRow[] = buildDemandCalendar({
     currentBblByRecipe, commitments, batchInflows, recipes, safetyFloors: floors,
     taproomDailyBblByRecipe, taproomCurrentBblByRecipe, today,
+  }).map((row) => {
+    const mine = commitments.filter((c) => c.recipe_id === row.recipe_id);
+    return {
+      ...row,
+      owed_bbl: round2(mine.reduce((s, c) => s + (c.pieces ?? []).reduce((p, x) => p + x.bbl, 0), 0)),
+      uncovered_bbl: round2(mine.reduce((s, c) => s + c.unallocated_bbl, 0)),
+      is_retired: retired.has(row.recipe_id),
+    };
   });
 
   return { rows, commitments, recipes, warnings };

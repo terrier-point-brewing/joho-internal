@@ -35,28 +35,26 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
 
   try {
-    const [demand, tanksRes, entriesRes, assignmentsRes, retiredRes] = await Promise.all([
+    const [demand, tanksRes, entriesRes, assignmentsRes] = await Promise.all([
       loadIntakeDemand(supabase),
       supabase.from("equipment").select("id, name, type, capacity_bbl"),
       supabase.from("batch_schedule_entries").select("equipment_id, planned_start, planned_end, actual_start, actual_end, cancelled_at"),
       supabase.from("batch_tank_assignments").select("tank_id, assigned_at").is("released_at", null),
-      supabase.from("taproom_recipe_settings").select("recipe_id").eq("is_retired", true),
     ]);
-    const readErr = tanksRes.error ?? entriesRes.error ?? assignmentsRes.error ?? retiredRes.error;
+    const readErr = tanksRes.error ?? entriesRes.error ?? assignmentsRes.error;
     if (readErr) throw new Error(readErr.message);
 
     const today = new Date();
     const tanks = (tanksRes.data ?? []) as SlotTank[];
     const scheduled = (entriesRes.data ?? []) as SlotBusyEntry[];
     const entries = [...scheduled, ...occupiedTanksAsEntries(assignmentsRes.data ?? [], scheduled, today)];
-    const retired = new Set((retiredRes.data ?? []).map((r) => r.recipe_id as string));
     const recipeById = new Map(demand.recipes.map((r) => [r.id, r]));
 
     const recommendations: SchedulerRecommendation[] = [];
 
     for (const row of demand.rows) {
       if (row.status === "green" || !row.stockout_date) continue;
-      if (retired.has(row.recipe_id)) continue;
+      if (row.is_retired) continue;
       const recipe = recipeById.get(row.recipe_id);
       if (!recipe) continue;
 
