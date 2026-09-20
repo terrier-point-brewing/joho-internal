@@ -41,6 +41,7 @@ export interface CommitmentDemand {
 
 /** Beer still in tanks: expected yield minus what has already been packaged. */
 export interface BatchInflow {
+  batch_number?: string | null;
   recipe_id: string;
   expected_delivery_date: string;
   remaining_bbl: number;
@@ -65,7 +66,15 @@ export interface DemandRow {
   current_bbl: number;
   safety_floor_bbl: number;
   taproom_bbl_per_week: number;
+  /** First week cold storage cannot cover demand — even if a batch already in
+   *  tanks fixes it later. "Short now", not necessarily "brew now". */
   stockout_date: string | null;
+  /** First week of the shortfall a NEW batch could still fix: one that is
+   *  still there a full lead time from today. null = beer already in tanks
+   *  covers everything, so there is nothing to schedule. Drives `status`. */
+  action_date: string | null;
+  /** Deepest shortfall from one lead time out to the end of the window. */
+  short_bbl: number;
   threshold_1x_date: string | null;
   threshold_15x_date: string | null;
   weeks: DemandWeek[];
@@ -222,11 +231,27 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
       });
     }
 
-    // Red: too late to brew in time. Yellow: brew soon. A stockout further out
-    // than that needs nothing yet — flagging it made every beer a warning.
+    // A batch scheduled today lands one lead time from now. A shortfall that
+    // beer already in tanks cures before then is "waiting", not "brew": a new
+    // batch could not arrive sooner. Only a shortfall still open past that point
+    // is actionable, and it dates from the start of that unbroken short run.
+    const earliestLanding = toMondayStr(addDays(today, leadTime));
+    const isShort = (w: DemandWeek) => w.projected_eow_bbl < floorBbl - 0.01;
+    const firstOpen = weeks.findIndex((w) => w.weekStart >= earliestLanding && isShort(w));
+    let actionDate: string | null = null;
+    let shortBbl = 0;
+    if (firstOpen !== -1) {
+      let runStart = firstOpen;
+      while (runStart > 0 && isShort(weeks[runStart - 1])) runStart--;
+      actionDate = weeks[runStart].weekStart;
+      shortBbl = weeks.slice(firstOpen).reduce((worst, w) => Math.max(worst, floorBbl - w.projected_eow_bbl), 0);
+    }
+
+    // Red: too late to brew in time. Yellow: brew soon. Further out than that
+    // needs nothing yet — flagging it made every beer a warning.
     let status: DemandRow["status"] = "green";
-    if (stockoutDate) {
-      const daysToStockout = differenceInDays(parseISO(stockoutDate), today);
+    if (actionDate) {
+      const daysToStockout = differenceInDays(parseISO(actionDate), today);
       if (leadTime === 0 || daysToStockout <= leadTime) status = "red";
       else if (daysToStockout <= leadTime * WARN_LEAD_MULTIPLIER) status = "yellow";
     }
@@ -248,6 +273,8 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
       safety_floor_bbl: round2(floorBbl),
       taproom_bbl_per_week: round2(taproomWeeklyBbl),
       stockout_date: stockoutDate,
+      action_date: actionDate,
+      short_bbl: round2(shortBbl),
       threshold_1x_date: threshold1x,
       threshold_15x_date: threshold15x,
       weeks,

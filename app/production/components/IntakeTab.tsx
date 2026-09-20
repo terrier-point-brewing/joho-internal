@@ -1,29 +1,58 @@
 "use client";
 
-import TaproomTab      from "./intake/TaproomTab";
-import CommitmentsTab  from "./intake/CommitmentsTab";
+import { useState } from "react";
+import Link from "next/link";
+import PlanTab from "./intake/PlanTab";
+import CommitmentsTab from "./intake/CommitmentsTab";
 import PartnerRequestsTab from "./intake/PartnerRequestsTab";
-import SafetyStockTab  from "./intake/SafetyStockTab";
-import DemandCalendarTab from "./intake/DemandCalendarTab";
-import BatchSchedulerTab from "./intake/BatchSchedulerTab";
-import { useRecipesQuery, useTransfersQuery, useEquipmentQuery, useBatchesQuery, useContractPartnersQuery } from "../hooks/queries";
+import ScheduleBatchForm, { type CommittedBatch } from "./intake/ScheduleBatchForm";
+import Banner from "@/app/components/ui/Banner";
+import { Modal } from "@/app/components/ui/Modal";
+import { fmtDateLong } from "@/lib/utils/formatting";
+import { useRecipesQuery, useEquipmentQuery, useContractPartnersQuery } from "../hooks/queries";
 import type { IntakeSubtab } from "../intake/page";
 
 export default function IntakeTab({ sub }: { sub: IntakeSubtab }) {
   const { data: recipes = [] }  = useRecipesQuery();
-  const { data: transfers = [] } = useTransfersQuery();
   const { data: tanks = [] }    = useEquipmentQuery();
-  const { data: batches = [] }  = useBatchesQuery();
   const { data: partners = [] } = useContractPartnersQuery();
+
+  // One schedule form for the whole section: a Plan row and a commitment both open it.
+  // undefined = closed, null = open with no beer picked yet.
+  const [scheduling, setScheduling] = useState<string | null | undefined>(undefined);
+  const [committed, setCommitted] = useState<CommittedBatch | null>(null);
+  const openSchedule = (recipeId: string | null) => { setCommitted(null); setScheduling(recipeId); };
 
   return (
     <>
-      {sub === "taproom"     && <TaproomTab recipes={recipes} />}
-      {sub === "commitments" && <CommitmentsTab recipes={recipes} partners={partners} />}
-      {sub === "requests"    && <PartnerRequestsTab recipes={recipes} />}
-      {sub === "safety"      && <SafetyStockTab recipes={recipes} transfers={transfers} tanks={tanks} batches={batches} />}
-      {sub === "demand"      && <DemandCalendarTab />}
-      {sub === "scheduler"   && <BatchSchedulerTab recipes={recipes} tanks={tanks} partners={partners} />}
+      {committed && (
+        <Banner tone="success" className="mb-4">
+          Batch {committed.batch_number ? `#${committed.batch_number} ` : ""}scheduled — {committed.style}, brewing {fmtDateLong(committed.brew_date)}.{" "}
+          <Link href="/production/brewing/batch-log" className="underline">Open in Batch Log →</Link>
+        </Banner>
+      )}
+
+      {sub === "plan" && <PlanTab onSchedule={openSchedule} />}
+      {sub === "commitments" && (
+        <>
+          <PartnerRequestsTab recipes={recipes} />
+          <CommitmentsTab recipes={recipes} partners={partners} onSchedule={openSchedule} />
+        </>
+      )}
+
+      {scheduling !== undefined && (
+        <Modal title="Schedule a batch" onClose={() => setScheduling(undefined)} extraWide>
+          <ScheduleBatchForm
+            key={scheduling ?? "new"}
+            recipes={recipes}
+            tanks={tanks}
+            partners={partners}
+            recipeId={scheduling}
+            onCancel={() => setScheduling(undefined)}
+            onCommitted={(batch) => { setCommitted(batch); setScheduling(undefined); }}
+          />
+        </Modal>
+      )}
     </>
   );
 }

@@ -399,9 +399,21 @@ interface SortableRow extends ContractBrewingRequest {
 }
 
 
-export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[]; partners: ContractBrewingPartner[] }) {
+/** Booked volume no batch covers yet — the part that still needs scheduling. */
+function uncoveredBbl(q: ContractBrewingRequest): number {
+  if (stageOf(q) !== "open") return 0;
+  return Math.max(0, Number(q.volume_bbl) - Number(q.committed_allocated_bbl ?? 0));
+}
+
+export default function CommitmentsTab({ recipes, partners, onSchedule }: {
+  recipes: Recipe[];
+  partners: ContractBrewingPartner[];
+  /** Opens Intake's schedule form for a beer. */
+  onSchedule?: (recipeId: string) => void;
+}) {
   const qc = useQueryClient();
-  const { data: rows = [] } = useQuery({
+  // isPending so a slow load reads "Loading…", never "No commitments recorded yet".
+  const { data: rows = [], isPending, error: loadError } = useQuery({
     queryKey: queryKeys.production.commitments(),
     queryFn: () => fetchJson<ContractBrewingRequest[]>("/api/production/contract-requests"),
   });
@@ -555,7 +567,8 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
 
   return (
     <div>
-      <p className="text-sm text-muted mb-3">Distribution allocations and contract brewing requests. All are outflows from cold storage.</p>
+      <h2 className="text-sm font-semibold text-primary mb-1">Commitments</h2>
+      <p className="text-sm text-muted mb-3">Beer promised to partners. A deal with no batch yet shows a Schedule button.</p>
       <div className="flex items-start gap-3 mb-4">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search recipes…" />
@@ -570,8 +583,12 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
         <button onClick={() => setShowModal(true)} className="btn-primary ml-auto shrink-0">+ New</button>
       </div>
 
-      {displayRows.length === 0 ? (
-        <p className="text-faint text-sm py-10 text-center">No commitments recorded yet.</p>
+      {loadError ? (
+        <p className="text-sm text-danger py-6">{loadError instanceof Error ? loadError.message : "Could not load commitments."}</p>
+      ) : isPending ? (
+        <p className="text-faint text-sm py-10 text-center">Loading…</p>
+      ) : displayRows.length === 0 ? (
+        <p className="text-faint text-sm py-10 text-center">{rows.length === 0 ? "No commitments recorded yet." : "No commitments match these filters."}</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-line">
           <table className="w-full text-sm">
@@ -598,7 +615,17 @@ export default function CommitmentsTab({ recipes, partners }: { recipes: Recipe[
                   <td className="px-4 py-2.5 text-primary font-medium">{q.recipe_name || "—"}</td>
                   <td className="px-4 py-2.5 text-body">{q.contract_brewing_partners?.company_name ?? "—"}</td>
                   <td className="px-4 py-2.5 text-body tabular-nums">{Number(q.volume_bbl)}</td>
-                  <td className="px-4 py-2.5"><ProgressCell q={q} /></td>
+                  <td className="px-4 py-2.5">
+                    <ProgressCell q={q} />
+                    {uncoveredBbl(q) >= 0.1 && (
+                      <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="text-xs text-accent-soft">{uncoveredBbl(q).toFixed(1)} bbl needs a batch</span>
+                        {onSchedule && q.recipe_id && (
+                          <button onClick={() => onSchedule(q.recipe_id!)} className="btn-primary btn-xxs">Schedule</button>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-secondary text-xs whitespace-nowrap">{scheduleLabel(q)}</td>
                   <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">
                     {q.received_on ? fmtDateLong(q.received_on) : "—"}
