@@ -13,6 +13,7 @@ import type { SchedulerRecommendation, SchedulerResponse } from "@/app/api/produ
 import Banner from "@/app/components/ui/Banner";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
 import ToggleChip from "@/app/components/ui/ToggleChip";
+import { batchFillBbl } from "@/lib/production/batchVolume";
 
 interface PendingAllocation {
   id: string; // local key only
@@ -892,7 +893,7 @@ export default function BatchSchedulerTab({
                       value={activeRow.recipe_id}
                       onChange={(e) => {
                         const r = recipes.find((x) => x.id === e.target.value);
-                        const newVol = (r?.expected_yield_bbl ?? 0) * activeRow.turns;
+                        const newVol = batchFillBbl(activeRow.turns);
                         const relevant = commitmentsNeedingBatch(commitments, e.target.value);
                         const updated = { ...activeRow, recipe_id: e.target.value, style: r?.style ?? r?.beer_name ?? activeRow.style, volume_bbl: newVol, expected_delivery_date: calcDeliveryDate(activeRow.brew_date, r), allocations: buildAutoAllocations(relevant, newVol) };
                         updateRow(updated);
@@ -910,8 +911,7 @@ export default function BatchSchedulerTab({
                     value={activeRow.turns}
                     onChange={(e) => {
                       const t = Math.min(4, Math.max(1, parseInt(e.target.value) || 1));
-                      const r = recipes.find((x) => x.id === activeRow.recipe_id);
-                      const newVol = r?.expected_yield_bbl ? t * r.expected_yield_bbl : activeRow.volume_bbl;
+                      const newVol = batchFillBbl(t);
                       // Recalculate allocation percentages against the new volume
                       const relevant = commitmentsNeedingBatch(commitments, activeRow.recipe_id);
                       const newAllocs = buildAutoAllocations(relevant, newVol);
@@ -921,7 +921,7 @@ export default function BatchSchedulerTab({
                     }}
                   />
                 </Field>
-                <Field label="Volume (BBL)">
+                <Field label="Brewhouse fill (BBL)">
                   <div className="inp text-secondary">{activeRow.volume_bbl.toFixed(2)}</div>
                 </Field>
                 <Field label="Brew Date" required>

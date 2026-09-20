@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { parseISO } from "date-fns";
 import { occupiedTanksAsEntries, planTankSlots, type SlotBusyEntry, type SlotTank } from "@/lib/production/tankSlots";
+import { batchFillBbl } from "@/lib/production/batchVolume";
 
 export const dynamic = "force-dynamic";
 
@@ -35,10 +36,8 @@ export async function POST(req: NextRequest) {
     if (!recipe) return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
 
     const turns = Math.max(1, requestedTurns ?? 1);
-    const volumeBbl = requestedVolume ?? (recipe.expected_yield_bbl != null ? recipe.expected_yield_bbl * turns : null);
-    if (!volumeBbl) {
-      return NextResponse.json({ error: "This recipe has no expected yield — set it in Recipes so the batch can be sized." }, { status: 422 });
-    }
+    // Tanks are sized for the brewhouse fill — what actually goes into them.
+    const volumeBbl = requestedVolume ?? batchFillBbl(turns);
 
     const today = new Date();
     const entries = (entriesRes.data ?? []) as SlotBusyEntry[];

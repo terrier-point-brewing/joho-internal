@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createBatchSquareProject } from "@/lib/square/projects";
 import { upsertCommitments } from "@/lib/production/commitments";
 import { seedBatchActivities } from "@/lib/production/brewActivities";
+import { batchFillBbl } from "@/lib/production/batchVolume";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   normalizeStage, slotTimestamp, validateBatchPlan,
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const {
-    beer_name, planned_brew_date, expected_delivery_date, volume_bbl, turns,
+    beer_name, planned_brew_date, expected_delivery_date, turns,
     status = "planning", notes, recipe_id,
     converted_from_batch_id, converted_volume_bbl,
   } = body;
@@ -43,6 +44,14 @@ export async function POST(req: NextRequest) {
 
   if (!recipe_id) return NextResponse.json({ error: "recipe_id is required" }, { status: 400 });
 
+  // A brewed batch's volume is the brewhouse fill, derived from turns — never
+  // the caller's number (see lib/production/batchVolume.ts). Only a
+  // conversion-born batch carries a typed volume: what the conversion delivers.
+  const conversionVolume = Number(body.volume_bbl ?? converted_volume_bbl);
+  if (converted_from_batch_id && !(conversionVolume > 0)) {
+    return NextResponse.json({ error: "A conversion batch needs its delivered volume." }, { status: 400 });
+  }
+  const volume_bbl = converted_from_batch_id ? conversionVolume : batchFillBbl(turns);
   if (allocations.length > 0) {
     try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
   }
@@ -119,7 +128,9 @@ export async function POST(req: NextRequest) {
   // Persist extra fields not handled by the RPC
   const extras: Record<string, unknown> = {};
   if (resolvedDeliveryDate)    extras.expected_delivery_date    = resolvedDeliveryDate;
-  if (converted_from_batch_id) extras.converted_from_batch_id  = converted_from_batch_id;
+  // Link and volume in ONE write: the volume trigger only leaves a typed volume
+  // alone on a row that is already a conversion batch.
+  if (converted_from_batch_id) { extras.converted_from_batch_id = converted_from_batch_id; extras.volume_bbl = volume_bbl; }
   if (converted_volume_bbl)    extras.converted_volume_bbl     = converted_volume_bbl;
   if (Object.keys(extras).length) {
     const { error: extrasErr } = await supabase.from("brew_batches").update(extras).eq("id", batch.id);

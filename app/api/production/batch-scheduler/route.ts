@@ -4,6 +4,7 @@ import { apiError } from "@/lib/utils/api";
 import { addDays, parseISO } from "date-fns";
 import { loadIntakeDemand } from "@/lib/production/intakeDemand.server";
 import { occupiedTanksAsEntries, planTankSlots, type PlannedSlot, type SlotBusyEntry, type SlotTank } from "@/lib/production/tankSlots";
+import { batchFillBbl } from "@/lib/production/batchVolume";
 
 export const dynamic = "force-dynamic";
 
@@ -90,7 +91,9 @@ export async function GET() {
       }
 
       const turns = Math.min(Math.max(Math.ceil(demandBbl / recipe.expected_yield_bbl), 1), MAX_TURNS);
-      const volume = Math.round(turns * recipe.expected_yield_bbl * 100) / 100;
+      // Turns are sized off expected yield (post-loss demand); the batch itself is
+      // booked at brewhouse fill, like every other batch.
+      const volume = batchFillBbl(turns);
 
       // Work backwards from the stockout; never recommend a brew date in the past.
       const ideal = addDays(parseISO(row.stockout_date), -row.lead_time_days);

@@ -6,6 +6,7 @@
 // batch too big for a single tank without saying so.
 
 import { addDays, parseISO } from "date-fns";
+import { BREWHOUSE_BBL } from "@/lib/production/batchVolume";
 
 export interface SlotTank {
   id: string;
@@ -99,7 +100,7 @@ export function planTankSlots(input: {
 
     // Turns run through the brewhouse one after another, so it only has to fit
     // one turn. The beer moves to the fermenter on brew day.
-    const stageVolume = stage === "brewhouse" ? volumeBbl / turns : volumeBbl;
+    const stageVolume = stage === "brewhouse" ? BREWHOUSE_BBL : volumeBbl;
     const from = stage === "fermenter" ? brewDay : stageStart;
 
     let placed: Array<{ tank: SlotTank; start: Date }> = [];
