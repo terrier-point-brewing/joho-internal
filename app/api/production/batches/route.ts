@@ -5,6 +5,11 @@ import { createBatchSquareProject } from "@/lib/square/projects";
 import { upsertCommitments } from "@/lib/production/commitments";
 import { seedBatchActivities } from "@/lib/production/brewActivities";
 import { batchFillBbl } from "@/lib/production/batchVolume";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  normalizeStage, slotTimestamp, validateBatchPlan,
+  type PlanAllocationInput, type PlanSlotInput,
+} from "@/lib/production/batchPlan";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +37,10 @@ export async function POST(req: NextRequest) {
     status = "planning", notes, recipe_id,
     converted_from_batch_id, converted_volume_bbl,
   } = body;
+  // Optional plan (Intake's scheduler): tank bookings and allocations saved WITH
+  // the batch. Checked in full before anything is written — see lib/production/batchPlan.
+  const schedule: PlanSlotInput[] = Array.isArray(body.schedule) ? body.schedule : [];
+  const allocations: PlanAllocationInput[] = Array.isArray(body.allocations) ? body.allocations : [];
 
   if (!recipe_id) return NextResponse.json({ error: "recipe_id is required" }, { status: 400 });
 
@@ -43,6 +52,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "A conversion batch needs its delivered volume." }, { status: 400 });
   }
   const volume_bbl = converted_from_batch_id ? conversionVolume : batchFillBbl(turns);
+  if (allocations.length > 0) {
+    try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
+  }
+  if (schedule.length > 0 || allocations.length > 0) {
+    const commitmentIds = [...new Set(allocations.map((a) => a.contract_request_id).filter((id): id is string => !!id))];
+    const [busyRes, tanksRes, commitmentsRes] = await Promise.all([
+      supabase.from("batch_schedule_entries")
+        .select("equipment_id, planned_start, planned_end, actual_start, actual_end")
+        .is("cancelled_at", null).not("equipment_id", "is", null),
+      supabase.from("equipment").select("id, name"),
+      commitmentIds.length > 0
+        ? supabase.from("commitments").select("id, channel").in("id", commitmentIds)
+        : Promise.resolve({ data: [] as { id: string; channel: string | null }[], error: null }),
+    ]);
+    const readErr = busyRes.error ?? tanksRes.error ?? commitmentsRes.error;
+    if (readErr) return NextResponse.json({ error: readErr.message }, { status: 500 });
+    const problem = validateBatchPlan({
+      schedule, allocations,
+      commitmentChannelById: new Map((commitmentsRes.data ?? []).map((c) => [c.id as string, c.channel as string | null])),
+      busy: (busyRes.data ?? []).map((e) => ({
+        equipment_id: e.equipment_id as string | null,
+        start: (e.actual_start ?? e.planned_start) as string,
+        end: (e.actual_end ?? e.planned_end) as string,
+      })),
+      tankNameById: new Map((tanksRes.data ?? []).map((t) => [t.id as string, t.name as string])),
+    });
+    if (problem) return NextResponse.json({ error: problem }, { status: 422 });
+  }
 
   // Always fetch recipe lead time — used for delivery date and brewhouse schedule entry.
   const { data: recipeData, error: recipeErr } = await supabase
@@ -104,7 +141,10 @@ export async function POST(req: NextRequest) {
   // equipment_id is null at creation time (tank assigned later via tank-assignments).
   // A batch created from a conversion never has an upstream brewhouse stage —
   // planned_brew_date is only set on it as a NOT NULL placeholder.
-  if (planned_brew_date && !converted_from_batch_id) {
+  // A plan that books the brewhouse itself replaces this placeholder — two
+  // brewhouse rows on one batch is what the old three-call save left behind.
+  const planBooksBrewhouse = schedule.some((s) => normalizeStage(s.stage) === "brewhouse");
+  if (planned_brew_date && !converted_from_batch_id && !planBooksBrewhouse) {
     const brewhouseDays = Math.max(1, recipeData?.days_brewhouse ?? 1);
     const brewEnd = new Date(planned_brew_date);
     brewEnd.setUTCDate(brewEnd.getUTCDate() + brewhouseDays);
@@ -116,6 +156,46 @@ export async function POST(req: NextRequest) {
       planned_end:   brewEnd.toISOString().slice(0, 10),
       notes:         "Auto-created on batch planning",
     });
+  }
+
+  // Save the plan. Anything that fails here takes the batch with it, so a
+  // retry can never produce a duplicate or a batch with half its bookings.
+  if (schedule.length > 0 || allocations.length > 0) {
+    const planErr = await (async (): Promise<string | null> => {
+      if (schedule.length > 0) {
+        const { error } = await supabase.from("batch_schedule_entries").insert(schedule.map((s) => ({
+          batch_id:      batch.id,
+          equipment_id:  s.equipment_id,
+          stage:         normalizeStage(s.stage),
+          planned_start: slotTimestamp(s.planned_start),
+          planned_end:   slotTimestamp(s.planned_end),
+          volume_bbl:    s.volume_bbl ?? null,
+        })));
+        if (error) return `tank bookings: ${error.message}`;
+      }
+      if (allocations.length > 0) {
+        const { error } = await supabase.from("batch_allocations").insert(allocations.map((a) => ({
+          batch_id:            batch.id,
+          channel:             a.channel,
+          percentage:          Number(a.percentage),
+          partner_id:          a.partner_id || null,
+          contract_request_id: a.contract_request_id || null,
+          notes:               a.notes || null,
+        })));
+        if (error) return `allocations: ${error.message}`;
+      }
+      return null;
+    })();
+    if (planErr) {
+      // Admin client: hard delete is admin-only, but this batch is seconds old
+      // and has nothing on record. Children cascade.
+      const { error: undoErr } = await createSupabaseAdminClient().from("brew_batches").delete().eq("id", batch.id);
+      return NextResponse.json({
+        error: undoErr
+          ? `Could not save the ${planErr}. The half-saved batch could not be removed (${undoErr.message}) — delete it from the Batch Log before retrying.`
+          : `Could not save the ${planErr}. Nothing was saved — fix the problem and commit again.`,
+      }, { status: 500 });
+    }
   }
 
   // Seed the new batch's activity log from the recipe's default activities.
