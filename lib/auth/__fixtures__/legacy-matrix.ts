@@ -225,8 +225,6 @@ export const LEGACY_MATRIX: LegacyRow[] = [
   { route: "production/recipes/[id]", method: "PATCH", legacy: ["brewer"], capability: "recipesOperate" },
   { route: "production/recipes/[id]", method: "DELETE", legacy: ["brewer"], capability: "recipesOperate" },
   { route: "production/recipes", method: "POST", legacy: ["brewer"], capability: "recipesOperate" },
-  { route: "production/safety-stock", method: "POST", legacy: [], capability: "safetyStockManage" },
-  { route: "production/safety-stock", method: "DELETE", legacy: [], capability: "safetyStockManage" },
   { route: "production/stock-adjustments/bulk", method: "POST", legacy: ["brewer"], capability: "inventoryOperate" },
   { route: "production/stock-adjustments", method: "POST", legacy: ["brewer"], capability: "inventoryOperate" },
   { route: "production/tank-assignments/[id]", method: "PATCH", legacy: ["brewer"], capability: "brewingOperate" },

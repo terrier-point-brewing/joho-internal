@@ -356,7 +356,6 @@ const CHANNEL_OPTIONS: { value: AllocationChannel; label: string }[] = [
   { value: "distribution",     label: "Distribution" },
   { value: "contract_brewing", label: "Contract Brewing" },
   { value: "wholesale",        label: "Wholesale" },
-  { value: "safety_stock",     label: "Safety Stock" },
 ];
 
 // 25/10/25/10/10/10/10 proportions via fr units; ✕ gets a fixed 20px

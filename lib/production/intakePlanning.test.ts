@@ -67,13 +67,12 @@ describe("buildDemandCalendar", () => {
     expect(row.status).toBe("red");
   });
 
-  it("warns only inside 1.5x lead time; a far-off stockout stays green", () => {
-    const lead = 21;
+  it("flags a week early (the automatic buffer); a far-off stockout stays green", () => {
+    // lead time 21d + 7d buffer: red inside 28d, yellow inside 1.5 x 21 + 7 = 38.5d
     const at = (date: string) => calendar({ commitments: [commitment({ desired_delivery_date: date })] })[0].status;
-    expect(at("2026-09-28")).toBe("red");     // 7d  <= lead
-    expect(at("2026-10-19")).toBe("yellow");  // 28d <= 1.5 x lead
+    expect(at("2026-10-19")).toBe("red");     // 28d — would be too late without the buffer week
+    expect(at("2026-10-26")).toBe("yellow");  // 35d
     expect(at("2026-11-30")).toBe("green");   // 70d
-    expect(lead * 1.5).toBe(31.5);
   });
 });
 

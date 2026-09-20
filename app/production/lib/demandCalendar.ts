@@ -11,11 +11,14 @@
  */
 import { addWeeks, startOfWeek, parseISO, differenceInDays, addDays } from "date-fns";
 import type { Recipe, CommitmentChannel } from "../types";
-import type { SafetyStockFloor } from "../types";
 
 export const WEEKS_AHEAD = 12;
 /** A stockout this many lead times away is worth a warning; further out is noise. */
 export const WARN_LEAD_MULTIPLIER = 1.5;
+/** The automatic safety margin: every deadline is pulled in by one week, so a
+ *  beer is flagged a week before it is truly too late. Replaces the hand-typed
+ *  per-beer safety floors, which nobody ever filled in. */
+export const BUFFER_DAYS = 7;
 
 // ────────────────────────────────────────────────────────────
 // Input / output types
@@ -64,7 +67,6 @@ export interface DemandRow {
   style: string;
   lead_time_days: number;
   current_bbl: number;
-  safety_floor_bbl: number;
   taproom_bbl_per_week: number;
   /** First week cold storage cannot cover demand — even if a batch already in
    *  tanks fixes it later. "Short now", not necessarily "brew now". */
@@ -87,7 +89,6 @@ export interface BuildDemandCalendarInput {
   commitments: CommitmentDemand[];
   batchInflows: BatchInflow[];
   recipes: Recipe[];
-  safetyFloors?: SafetyStockFloor[];
   /** Taproom daily sell-through in BBL per recipe_id. */
   taproomDailyBblByRecipe?: Map<string, number>;
   /** Taproom on-hand BBL per recipe_id (Square live counts). */
@@ -120,7 +121,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[] {
   const {
     currentBblByRecipe, commitments, batchInflows, recipes,
-    safetyFloors = [], taproomDailyBblByRecipe, taproomCurrentBblByRecipe,
+    taproomDailyBblByRecipe, taproomCurrentBblByRecipe,
   } = input;
   const today = input.today ?? new Date();
 
@@ -170,7 +171,6 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
   const allRecipeIds = new Set<string>([
     ...currentBblByRecipe.keys(),
     ...outflows.keys(),
-    ...safetyFloors.map((f) => f.recipe_id),
     ...(taproomDailyBblByRecipe ? taproomDailyBblByRecipe.keys() : []),
   ]);
 
@@ -181,8 +181,7 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
     if (!recipe) continue;
 
     const leadTime = (recipe.days_brewhouse ?? 0) + (recipe.days_fermenter ?? 0) + (recipe.days_brite ?? 0);
-    const floor = safetyFloors.find((f) => f.recipe_id === recipeId);
-    const floorBbl = floor ? Number(floor.floor_quantity) : 0;
+    const floorBbl = 0; // short = cold storage cannot cover demand
 
     const startBbl = currentBblByRecipe.get(recipeId) ?? 0;
     const outMap = outflows.get(recipeId);
@@ -252,8 +251,8 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
     let status: DemandRow["status"] = "green";
     if (actionDate) {
       const daysToStockout = differenceInDays(parseISO(actionDate), today);
-      if (leadTime === 0 || daysToStockout <= leadTime) status = "red";
-      else if (daysToStockout <= leadTime * WARN_LEAD_MULTIPLIER) status = "yellow";
+      if (leadTime === 0 || daysToStockout <= leadTime + BUFFER_DAYS) status = "red";
+      else if (daysToStockout <= leadTime * WARN_LEAD_MULTIPLIER + BUFFER_DAYS) status = "yellow";
     }
 
     let threshold1x: string | null = null;
@@ -270,7 +269,6 @@ export function buildDemandCalendar(input: BuildDemandCalendarInput): DemandRow[
       style: recipe.beer_name ?? recipe.style,
       lead_time_days: leadTime,
       current_bbl: round2(startBbl),
-      safety_floor_bbl: round2(floorBbl),
       taproom_bbl_per_week: round2(taproomWeeklyBbl),
       stockout_date: stockoutDate,
       action_date: actionDate,

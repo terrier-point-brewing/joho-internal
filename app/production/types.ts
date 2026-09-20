@@ -332,7 +332,6 @@ export interface RecipeSquareLinkRow {
 export type AllocationCadence = "one_time" | "recurring";
 export type AllocationRecurrence = "weekly" | "biweekly" | "monthly";
 
-export type AllocationStatus = "active" | "paused" | "fulfilled" | "cancelled";
 
 /** Stored human decision. in_progress/fulfilled are legacy cache values; see CommitmentStage. */
 export type ContractRequestStatus = "open" | "in_progress" | "fulfilled" | "cancelled";
@@ -391,10 +390,6 @@ export interface Commitment {
   status: ContractRequestStatus;
   notes: string | null;
   channel: CommitmentChannel;
-  cadence: "one_time" | "recurring";
-  recurrence: "weekly" | "biweekly" | "monthly" | null;
-  start_date: string | null;
-  end_date: string | null;
   received_on: string | null;
   last_edited_on: string | null;
   locked_on: string | null;
@@ -417,14 +412,6 @@ export interface Commitment {
 
 /** @deprecated Use Commitment instead */
 export type ContractBrewingRequest = Commitment;
-
-export interface SafetyStockFloor {
-  id: string;
-  recipe_id: string;
-  packaging: "keg" | "can";
-  floor_quantity: number;
-  created_at: string;
-}
 
 export interface BatchStatusHistory {
   id: string;

@@ -26,8 +26,8 @@ describe("legacy role <-> scoped permission equivalence", () => {
   // This count is the whole point of the fixture: a bundle edit that moves any
   // (route, role) answer WITHOUT a recorded reason fails here rather than
   // shipping as silent drift.
-  it("fixture has exactly 216 rows, 57 with an intentional change, every reason non-empty", () => {
-    expect(LEGACY_MATRIX).toHaveLength(216);
+  it("fixture has exactly 214 rows, 57 with an intentional change, every reason non-empty", () => {
+    expect(LEGACY_MATRIX).toHaveLength(214);
 
     const changed = LEGACY_MATRIX.filter((row) => row.intentionalChange);
     expect(changed).toHaveLength(57);
@@ -54,6 +54,6 @@ describe("legacy role <-> scoped permission equivalence", () => {
       }
     }
 
-    expect(assertions).toBe(864);
+    expect(assertions).toBe(856);
   });
 });

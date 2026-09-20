@@ -41,7 +41,6 @@ export const CAP = {
   // which rewrite many rows at once — still do.
   ingredientMasterCreate: { scope: "production.inventory", level: "operate" },
   packagingMasterCreate: { scope: "production.inventory", level: "operate" },
-  safetyStockManage: { scope: "production.inventory", level: "manage" },
   inventoryOperate: { scope: "production.inventory", level: "operate" },
 
   equipmentManage: { scope: "production.equipment", level: "manage" },
