@@ -13,21 +13,24 @@ export interface PortalRequest {
   id: string; kind: "batch" | "claim"; beer_name: string; is_new_beer: boolean; turns: number | null; volume_bbl: number;
   desired_date: string | null; notes: string | null; status: "submitted" | "approved" | "declined" | "withdrawn";
   decision_note: string | null; decided_at: string | null; created_at: string; file_names: string[];
+  submitted_by: string | null; withdrawn_by: string | null;
 }
 export type PaymentStatus = "paid" | "unpaid" | "not_invoiced";
-export interface PortalInvoice { id: string; number: string | null; date: string | null; kind: "shipment" | "deposit"; status: "paid" | "unpaid"; total_cents: number; beers: string[]; bbl: number }
+export interface PortalInvoice { id: string; number: string | null; date: string | null; kind: "shipment" | "deposit"; status: "paid" | "unpaid"; total_cents: number; beers: string[]; bbl: number; due_date: string | null; overdue: boolean; days_overdue: number; pay_url: string | null }
+export interface DealProgress { step: number; label: string; brew_date: string | null; ready_by: string | null }
+export const PROGRESS_STEPS = ["Scheduled", "Brewing", "Fermenting", "Conditioning", "Packaging", "Ready"] as const;
 export interface PortalShipment {
-  date: string; volume_bbl: number; lines: Array<{ label: string | null; quantity: number }>;
+  kind: "shipment" | "return"; date: string; volume_bbl: number; lines: Array<{ label: string | null; quantity: number }>;
   payment: PaymentStatus; invoice: PortalInvoice | null;
 }
 export interface PortalDeal {
-  id: string; beer_name: string | null; status: "open" | "closed" | "cancelled"; booked_bbl: number; shipped_bbl: number;
+  id: string; beer_name: string | null; status: "open" | "closed" | "cancelled"; booked_bbl: number; produced_bbl: number; expected_bbl: number; has_batch: boolean; progress: DealProgress; shipped_bbl: number;
   remaining_bbl: number; in_tank_bbl: number; style?: string | null; desired_delivery_date: string | null; received_on: string | null;
   deposit: { billed_cents: number; paid_cents: number; status: PaymentStatus } | null;
   shipments: PortalShipment[];
 }
 export interface PortalHistory {
-  summary: { shipped_bbl: number; paid_cents: number; outstanding_cents: number; open_deals: number; to_come_bbl: number };
+  summary: { shipped_bbl: number; paid_cents: number; outstanding_cents: number; overdue_cents: number; open_deals: number; to_come_bbl: number };
   excise: { charged_cents: number; collected_cents: number; outstanding_cents: number; invoices: number };
   open_invoices: PortalInvoice[];
   deals: PortalDeal[];

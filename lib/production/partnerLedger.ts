@@ -145,6 +145,12 @@ export interface LedgerShipment {
   invoice: LedgerInvoiceRef | null;
   /** Reversal / refund / revision rows carry a source_ref; shown as such. */
   kind: "shipment" | "reversal" | "refund" | "revision";
+  /**
+   * For a revision mirror (reverse_shipment in "reverse" mode, written when the
+   * original sits in a filed excise period and cannot be deleted): the
+   * shipment_id it cancels out. The pair nets to zero — a typo and its eraser.
+   */
+  reverses_shipment_id?: string | null;
 }
 
 export interface LedgerAllocation {
@@ -285,6 +291,7 @@ export function groupShipments(rows: LedgerExportRow[], invoiceById: Map<string,
         status: first.status,
         invoice: invoiceRef(invoiceId ? invoiceById.get(invoiceId) : undefined),
         kind: shipmentKind(group),
+        reverses_shipment_id: group.map((g) => g.source_ref).find((ref) => ref?.startsWith("revision:"))?.slice("revision:".length) ?? null,
         _key: key,
       };
     })

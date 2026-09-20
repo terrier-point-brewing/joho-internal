@@ -31,6 +31,7 @@ interface InboxRequest {
   new_beer: { name: string; style: string | null; abv: number | null; ingredients: string; instructions: string; ingredient_supply: "partner" | "brewery" } | null;
   files: Array<{ name: string; size: number }>; channel: string | null; commitment_id: string | null;
   claimable_now_bbl: number | null; suggested_channel: string | null;
+  submitted_by: string | null; decided_by: string | null;
 }
 
 const CHANNEL_LABEL: Record<string, string> = { contract_brewing: "Contract brewing", distribution: "Distribution", wholesale: "Wholesale" };
@@ -80,7 +81,7 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
                   {r.kind === "batch"
                     ? `New batch · ${r.turns} turn${r.turns === 1 ? "" : "s"} (${r.volume_bbl} bbl) · ${r.desired_date ? `brew week of ${day(r.desired_date)}` : "flexible timing"}`
                     : `Claim on ${r.batch_number ?? "a batch"} · ${r.volume_bbl} bbl`}
-                  {" · received "}{day(r.created_at)}
+                  {" · received "}{day(r.created_at)}{r.submitted_by ? ` from ${r.submitted_by}` : ""}
                 </div>
                 {r.kind === "claim" && r.claimable_now_bbl != null && (
                   <div className={`text-xs mt-1 ${r.claimable_now_bbl + 1e-4 >= r.volume_bbl ? "text-secondary" : "text-danger"}`}>
@@ -88,6 +89,12 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
                   </div>
                 )}
                 {r.notes && <p className="text-xs text-body mt-1">Partner&apos;s note: {r.notes}</p>}
+                {r.status !== "submitted" && (
+                  <p className="text-xs text-muted mt-1">
+                    {r.status === "approved" ? "Approved" : r.status === "declined" ? "Declined" : "Withdrawn"}
+                    {r.decided_by ? ` by ${r.decided_by}` : ""}{r.decided_at ? ` on ${day(r.decided_at)}` : ""}
+                  </p>
+                )}
                 {r.decision_note && <p className="text-xs text-muted mt-1">Our reply: {r.decision_note}</p>}
                 {r.status === "approved" && r.channel && <p className="text-xs text-muted mt-1">Booked as {CHANNEL_LABEL[r.channel] ?? r.channel} — it is now an ordinary commitment under Commitments.</p>}
               </div>

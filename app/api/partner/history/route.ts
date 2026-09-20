@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadPartnerLedger } from "@/lib/production/partnerLedger.server";
-import { loadPartnerExcise, requirePartner, toPortalHistory } from "@/lib/partner/portal.server";
+import { breweryToday, loadInvoiceExtras, loadPartnerExcise, requirePartner, toPortalHistory } from "@/lib/partner/portal.server";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +11,9 @@ export async function GET(req: NextRequest) {
   let caller;
   try { caller = await requirePartner(req); } catch (res) { return res as Response; }
   const admin = createSupabaseAdminClient();
-  const [ledger, excise] = await Promise.all([loadPartnerLedger(admin), loadPartnerExcise(admin, caller.partnerId)]);
-  return NextResponse.json(toPortalHistory(ledger.find((p) => p.partner_id === caller.partnerId), excise));
+  const [ledger, excise, extras] = await Promise.all([
+    loadPartnerLedger(admin), loadPartnerExcise(admin, caller.partnerId),
+    loadInvoiceExtras(admin, caller.partnerId, await breweryToday()),
+  ]);
+  return NextResponse.json(toPortalHistory(ledger.find((p) => p.partner_id === caller.partnerId), excise, extras));
 }

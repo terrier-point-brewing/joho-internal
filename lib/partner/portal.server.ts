@@ -6,6 +6,7 @@ import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 import type { LedgerInvoiceRef, LedgerPartner } from "@/lib/production/partnerLedger";
 import { loadPackagingYieldPct, projectBatchYield } from "@/lib/production/exportIngredientDeposit";
 import type { LedgerTransfer } from "@/lib/production/volumeLedger";
+import { getInvoiceStatus } from "@/lib/square/square-invoices";
 import { EXCISE_LINE_CATEGORY, excisePerPartner, type ExciseInvoice, type ExciseLine, type PartnerExcise } from "@/lib/production/partnerExcise";
 import { type BusyInterval, type Fermenter } from "./capacity";
 import { claimPool, DEFAULT_TAPROOM_BUFFER_PCT, visibleToPartner, type ClaimPool } from "./claimable";
@@ -248,6 +249,13 @@ export interface PortalInvoice {
   kind: "shipment" | "deposit";
   status: "paid" | "unpaid";
   total_cents: number;
+  /** When Square says it should be paid by. */
+  due_date: string | null;
+  /** Unpaid and past its due date, by the brewery's calendar. */
+  overdue: boolean;
+  days_overdue: number;
+  /** Square's own hosted invoice page — the link Square emailed them. Null until the invoice is sent. */
+  pay_url: string | null;
   /** What the invoice is for, in the partner's terms: "Mash Pit Lager (Lager)". */
   beers: string[];
   /** Beer it covers: shipped bbl for a shipment invoice, booked bbl for a deposit. */
@@ -259,7 +267,19 @@ export interface PortalDeal {
   beer_name: string | null;
   style: string | null;
   status: "open" | "closed" | "cancelled";
+  /** What they asked for — whole turns, BEFORE shrinkage. A request, not a promise of volume. */
   booked_bbl: number;
+  /** Their share of what the batch has actually packaged so far, capped at the booking. */
+  produced_bbl: number;
+  /**
+   * What the deal will end up delivering: packaged share + share still in tank
+   * (or what shipped, if that is more). The honest denominator for "shipped of".
+   * Equals the booking only while no batch has been brewed for it yet.
+   */
+  expected_bbl: number;
+  progress: DealProgress;
+  /** False until a batch is allocated to the deal — nothing to measure against but the booking. */
+  has_batch: boolean;
   shipped_bbl: number;
   remaining_bbl: number;
   in_tank_bbl: number;
@@ -268,6 +288,8 @@ export interface PortalDeal {
   /** Ingredient deposit, contract brewing only. Null when the deal has none. */
   deposit: { billed_cents: number; paid_cents: number; status: PaymentStatus } | null;
   shipments: Array<{
+    /** A return is beer that came back: negative volume, no invoice of its own. */
+    kind: "shipment" | "return";
     date: string; volume_bbl: number;
     lines: Array<{ label: string | null; quantity: number }>;
     payment: PaymentStatus;
@@ -280,6 +302,7 @@ export interface PortalHistory {
     shipped_bbl: number;
     paid_cents: number;
     outstanding_cents: number;
+    overdue_cents: number;
     open_deals: number;
     to_come_bbl: number;
   };
@@ -297,7 +320,7 @@ export interface PortalHistory {
 }
 
 const EMPTY_HISTORY: PortalHistory = {
-  summary: { shipped_bbl: 0, paid_cents: 0, outstanding_cents: 0, open_deals: 0, to_come_bbl: 0 },
+  summary: { shipped_bbl: 0, paid_cents: 0, outstanding_cents: 0, overdue_cents: 0, open_deals: 0, to_come_bbl: 0 },
   excise: { charged_cents: 0, collected_cents: 0, outstanding_cents: 0, invoices: 0 },
   open_invoices: [], deals: [], other_shipments: [],
 };
@@ -314,7 +337,70 @@ const EMPTY_HISTORY: PortalHistory = {
  * twice. A voided invoice is not money owed; a deposit drafted but not yet
  * sent is not the partner's to pay yet.
  */
-export function toPortalHistory(ledger: LedgerPartner | undefined, excise: PartnerExcise = EMPTY_HISTORY.excise): PortalHistory {
+export interface InvoiceExtras {
+  today: string;
+  invoices: Map<string, { due_date: string | null; pay_url: string | null }>;
+  /** Brew and ready dates of the batch behind each allocation, keyed by allocation id. */
+  batches?: Map<string, { planned_brew_date: string | null; expected_delivery_date: string | null }>;
+}
+const NO_EXTRAS: InvoiceExtras = { today: "0000-00-00", invoices: new Map() };
+
+/** Where a deal's beer is, in six steps a partner can follow. */
+export const PROGRESS_STEPS = ["Scheduled", "Brewing", "Fermenting", "Conditioning", "Packaging", "Ready"] as const;
+export interface DealProgress {
+  /** Index into PROGRESS_STEPS; -1 while no batch has been scheduled for the deal. */
+  step: number;
+  label: string;
+  brew_date: string | null;
+  ready_by: string | null;
+}
+
+function dealProgress(c: LedgerPartner["commitments"][number], extras: InvoiceExtras): DealProgress {
+  if (c.allocations.length === 0) return { step: -1, label: "Awaiting a brew date", brew_date: null, ready_by: null };
+  // The batch furthest from done speaks for the deal.
+  const order = ["planning", "brewing", "fermenting", "conditioning", "complete"];
+  const a = [...c.allocations].sort((x, y) => order.indexOf(x.batch_status) - order.indexOf(y.batch_status))[0];
+  const dates = extras.batches?.get(a.id);
+  const packagedSome = a.produced_bbl > 0.005;
+  const step = a.batch_status === "complete" || (packagedSome && a.in_tank_bbl < 0.05) ? 5
+    : packagedSome ? 4
+    : Math.max(0, ["planning", "brewing", "fermenting", "conditioning"].indexOf(a.batch_status));
+  const label = step === 5 ? (c.totals.remaining_bbl > 0.005 ? "Packaged — ready to ship" : "Packaged and shipped")
+    : step === 4 ? "Packaging under way" : step === 0 ? "Scheduled to brew" : PROGRESS_STEPS[step];
+  const ready = dates?.expected_delivery_date ?? null;
+  return { step, label, brew_date: dates?.planned_brew_date ?? null, ready_by: step < 5 && ready && ready >= extras.today ? ready : null };
+}
+
+/**
+ * Due dates and Square pay links for a partner's invoices. The link is kept in
+ * invoices.raw_data.public_url by the payment sync; an open invoice that
+ * pre-dates that gets it from Square once, here, and is remembered.
+ */
+export async function loadInvoiceExtras(admin: SupabaseClient, partnerId: string, today: string): Promise<InvoiceExtras> {
+  const { data } = await admin.from("invoices")
+    .select("id, status, due_date, square_invoice_id, raw_data")
+    .eq("partner_id", partnerId).in("invoice_type", ["allocation_deposit", "export_invoice"]);
+  const invoices = new Map<string, { due_date: string | null; pay_url: string | null }>();
+  for (const row of (data ?? []) as Array<{ id: string; status: string; due_date: string | null; square_invoice_id: string | null; raw_data: Record<string, unknown> | null }>) {
+    let payUrl = typeof row.raw_data?.public_url === "string" ? row.raw_data.public_url : null;
+    if (!payUrl && row.status === "open" && row.square_invoice_id) {
+      try {
+        payUrl = (await getInvoiceStatus(row.square_invoice_id)).publicUrl;
+        if (payUrl) await admin.from("invoices").update({ raw_data: { ...(row.raw_data ?? {}), public_url: payUrl } }).eq("id", row.id);
+      } catch { /* Square unreachable: the row still shows, just without a link */ }
+    }
+    invoices.set(row.id, { due_date: row.due_date, pay_url: payUrl });
+  }
+  const { data: allocs } = await admin.from("batch_allocations")
+    .select("id, brew_batches(planned_brew_date, expected_delivery_date)").eq("partner_id", partnerId);
+  const batches = new Map<string, { planned_brew_date: string | null; expected_delivery_date: string | null }>();
+  for (const a of (allocs ?? []) as unknown as Array<{ id: string; brew_batches: { planned_brew_date: string | null; expected_delivery_date: string | null } | null }>) {
+    if (a.brew_batches) batches.set(a.id, a.brew_batches);
+  }
+  return { today, invoices, batches };
+}
+
+export function toPortalHistory(ledger: LedgerPartner | undefined, excise: PartnerExcise = EMPTY_HISTORY.excise, extras: InvoiceExtras = NO_EXTRAS): PortalHistory {
   if (!ledger) return { ...EMPTY_HISTORY, excise };
 
   const invoices = new Map<string, PortalInvoice>();
@@ -323,7 +409,17 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
     const inv: PortalInvoice = {
       id: ref.id, number: ref.invoice_number, date: ref.invoice_date, kind,
       status: ref.status === "paid" ? "paid" : "unpaid", total_cents: ref.total_cents, beers: [], bbl: 0,
+      due_date: null, overdue: false, days_overdue: 0, pay_url: null,
     };
+    const extra = extras.invoices.get(ref.id);
+    if (extra) {
+      inv.due_date = extra.due_date;
+      inv.pay_url = extra.pay_url;
+      if (inv.status === "unpaid" && extra.due_date && extra.due_date < extras.today) {
+        inv.overdue = true;
+        inv.days_overdue = Math.round((Date.parse(`${extras.today}T00:00:00Z`) - Date.parse(`${extra.due_date}T00:00:00Z`)) / 86_400_000);
+      }
+    }
     if (!invoices.has(inv.id)) invoices.set(inv.id, inv);
     return invoices.get(inv.id)!;
   };
@@ -336,11 +432,22 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
   const beerLabel = (name: string | null, style: string | null | undefined) =>
     name ? (style && !name.toLowerCase().includes(style.toLowerCase()) ? `${name.trim()} (${style})` : name.trim()) : null;
 
+  // A shipment entered wrong and later corrected leaves two rows behind when it
+  // sat in a filed excise period: the original, and a negative mirror that
+  // cancels it. Neither ever happened as far as the partner is concerned — the
+  // corrected shipment is its own, separate row. Drop both.
+  const everyShipment = [...ledger.commitments.flatMap((c) => c.shipments), ...ledger.unallocated];
+  const erased = new Set(everyShipment.map((s) => s.reverses_shipment_id).filter((id): id is string => !!id));
+  const real = (s: LedgerPartner["unallocated"][number]) =>
+    !s.reverses_shipment_id && s.kind !== "revision" && s.kind !== "reversal" && !(s.shipment_id && erased.has(s.shipment_id));
+
   const shipmentsOf = (rows: LedgerPartner["unallocated"], beer: string | null): PortalDeal["shipments"] =>
-    rows.filter((s) => s.kind === "shipment").map((s) => {
-      const invoice = note(s.invoice, "shipment");
-      covers(invoice, beer, s.volume_bbl);
+    rows.filter(real).map((s) => {
+      const isReturn = s.kind === "refund";
+      const invoice = isReturn ? null : note(s.invoice, "shipment");
+      if (!isReturn) covers(invoice, beer, s.volume_bbl);
       return {
+        kind: isReturn ? "return" as const : "shipment" as const,
         date: s.date, volume_bbl: s.volume_bbl,
         lines: s.lines.map((l) => ({ label: l.variant_label, quantity: l.quantity })),
         payment: !invoice ? "not_invoiced" : invoice.status,
@@ -373,6 +480,14 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
       style: c.recipe_style ?? null,
       status: c.stage,
       booked_bbl: c.booked_bbl,
+      produced_bbl: c.totals.owed_bbl,
+      // The staff ledger's scale (PartnerLedgerTab DeliveryCell), on purpose:
+      // owed is capped at what the batch produced, so measuring against the
+      // booking would leave a fully delivered deal looking short forever.
+      expected_bbl: c.allocations.length === 0 ? c.booked_bbl
+        : Math.round(Math.max(c.totals.shipped_bbl, c.totals.owed_bbl + (c.stage === "open" ? c.totals.in_tank_bbl : 0)) * 100) / 100,
+      has_batch: c.allocations.length > 0,
+      progress: dealProgress(c, extras),
       shipped_bbl: c.totals.shipped_bbl,
       remaining_bbl: c.totals.remaining_bbl,
       in_tank_bbl: c.totals.in_tank_bbl,
@@ -396,11 +511,14 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
       shipped_bbl: Math.round((deals.reduce((s, d) => s + d.shipped_bbl, 0) + other_shipments.reduce((s, x) => s + x.volume_bbl, 0)) * 100) / 100,
       paid_cents: Math.max(0, all.filter((i) => i.status === "paid").reduce((s, i) => s + i.total_cents, 0) + looseDepositPaid - refunded),
       outstanding_cents: all.filter((i) => i.status === "unpaid").reduce((s, i) => s + i.total_cents, 0),
+      overdue_cents: all.filter((i) => i.overdue).reduce((s, i) => s + i.total_cents, 0),
       open_deals: open.length,
-      to_come_bbl: Math.round(open.reduce((s, d) => s + d.remaining_bbl, 0) * 100) / 100,
+      // Packaged and waiting, plus the share still in tank.
+      to_come_bbl: Math.round(open.reduce((s, d) => s + Math.max(0, d.expected_bbl - d.shipped_bbl), 0) * 100) / 100,
     },
     excise,
-    open_invoices: all.filter((i) => i.status === "unpaid").sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "")),
+    open_invoices: all.filter((i) => i.status === "unpaid")
+      .sort((a, b) => Number(b.overdue) - Number(a.overdue) || (a.due_date ?? a.date ?? "").localeCompare(b.due_date ?? b.date ?? "")),
     deals,
     other_shipments,
   };

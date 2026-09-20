@@ -294,7 +294,10 @@ export async function reconcileInvoiceStatus(
     return { ...base, skippedReason: "no-ledger-row" };
   }
 
-  const rawData = { ...(inv.raw_data as Record<string, unknown> | null ?? {}), square_status: sq.status, updated_at: sq.updatedAt, paid_at: sq.paidAt };
+  const rawData = { ...(inv.raw_data as Record<string, unknown> | null ?? {}), square_status: sq.status, updated_at: sq.updatedAt, paid_at: sq.paidAt,
+    // The link Square emails the customer. Only exists once an invoice is sent;
+    // kept so the partner portal can offer "View / pay" without asking Square.
+    ...(sq.publicUrl ? { public_url: sq.publicUrl } : {}) };
   const { error: ledgerErr } = await supabase
     .from("invoices")
     .update({

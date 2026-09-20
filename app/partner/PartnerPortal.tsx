@@ -13,14 +13,15 @@ import Card from "@/app/components/ui/Card";
 import type { Tone } from "@/app/components/ui/tone";
 import BatchRequestModal from "./BatchRequestModal";
 import ClaimModal from "./ClaimModal";
-import { bbl, bbl1, dollars, longDate, monthLabel, shortDate, type ClaimableBatch, type Overview, type PaymentStatus, type PortalDeal, type PortalHistory, type PortalRequest, type PortalShipment } from "./types";
+import { bbl, bbl1, dollars, longDate, monthLabel, shortDate, type ClaimableBatch, type Overview, type PaymentStatus, type PortalDeal, type PortalHistory, type PortalInvoice, type PortalRequest, type PortalShipment, PROGRESS_STEPS } from "./types";
 
-type TabKey = "home" | "capacity" | "available" | "requests" | "history";
+type TabKey = "home" | "batches" | "available" | "capacity" | "requests" | "history";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "home", label: "Home" },
-  { key: "capacity", label: "Capacity" },
+  { key: "batches", label: "My batches" },
   { key: "available", label: "Available beer" },
+  { key: "capacity", label: "Capacity" },
   { key: "requests", label: "My requests" },
   { key: "history", label: "History" },
 ];
@@ -209,7 +210,7 @@ export default function PartnerPortal() {
         <section>
           <p className="text-sm text-secondary mb-4">
             Everything you have asked for, with the ones still waiting on us first. Once a request is approved it becomes a
-            commitment, and its shipments and invoices are tracked under History.
+            commitment: follow it under My batches while it is in progress, and find it in History once it has shipped.
           </p>
           {requests.isLoading && <p className="text-sm text-muted">Loading…</p>}
           {requests.data && requests.data.length === 0 && (
@@ -227,7 +228,7 @@ export default function PartnerPortal() {
                       {r.kind === "batch"
                         ? `New batch · ${r.turns} turn${r.turns === 1 ? "" : "s"} (${bbl(r.volume_bbl)}) · ${r.desired_date ? `brew week of ${shortDate(r.desired_date)}` : "flexible timing"}`
                         : `Claim · ${bbl(r.volume_bbl)}`}
-                      {" · sent "}{longDate(r.created_at)}
+                      {" · sent "}{longDate(r.created_at)}{r.submitted_by ? ` by ${r.submitted_by}` : ""}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -240,14 +241,32 @@ export default function PartnerPortal() {
                 {r.status === "approved" && (
                   <p className="text-xs text-success mt-2">
                     Approved{r.decided_at ? ` ${longDate(r.decided_at)}` : ""} — now a commitment.{" "}
-                    <button className="underline" onClick={() => setTab("history")}>Track it in History</button>
+                    <button className="underline" onClick={() => setTab("batches")}>Track it in My batches</button>
                   </p>
                 )}
+                {r.status === "withdrawn" && r.withdrawn_by && <p className="text-xs text-muted mt-2">Withdrawn by {r.withdrawn_by}{r.decided_at ? ` on ${longDate(r.decided_at)}` : ""}</p>}
                 {r.decision_note && <p className="text-xs text-body mt-2">From us: {r.decision_note}</p>}
                 {r.notes && <p className="text-xs text-muted mt-1">Your note: {r.notes}</p>}
                 {r.file_names.length > 0 && <p className="text-xs text-muted mt-1">Attached: {r.file_names.join(", ")}</p>}
               </Card>
             ))}
+          </div>
+        </section>
+      )}
+
+      {tab === "batches" && (
+        <section>
+          <p className="text-sm text-secondary mb-4">
+            Every open commitment — beer we are brewing for you and beer you have claimed — with where it is right now. Once a
+            batch is fully shipped it moves to History.
+          </p>
+          {history.isLoading && <p className="text-sm text-muted">Loading…</p>}
+          {history.error && <Banner className="mb-4">{(history.error as Error).message}</Banner>}
+          {history.data && history.data.deals.filter((d) => d.status === "open").length === 0 && (
+            <Card><p className="text-sm text-muted">Nothing in progress right now. Request a batch from Capacity, or claim some from Available beer.</p></Card>
+          )}
+          <div className="flex flex-col gap-2">
+            {(history.data?.deals ?? []).filter((d) => d.status === "open").map((d) => <DealCard key={d.id} deal={d} />)}
           </div>
         </section>
       )}
@@ -273,9 +292,21 @@ export default function PartnerPortal() {
                 Excise tax is the state and federal beer tax we pay on your beer and pass through on your shipment invoices. It is
                 already included in the paid and outstanding figures, not added on top.
               </p>
-              {history.data.deals.length === 0 && <Card><p className="text-sm text-muted">No commitments on record yet.</p></Card>}
+              {history.data.open_invoices.length > 0 && (
+                <Card className="mb-4">
+                  <div className="text-sm font-semibold text-primary">Unpaid invoices</div>
+                  <OpenInvoices invoices={history.data.open_invoices} />
+                </Card>
+              )}
+              {history.data.summary.open_deals > 0 && (
+                <p className="text-xs text-muted mb-3">
+                  Completed commitments only. Your {history.data.summary.open_deals} open one{history.data.summary.open_deals === 1 ? " is" : "s are"} under{" "}
+                  <button className="underline" onClick={() => setTab("batches")}>My batches</button>.
+                </p>
+              )}
+              {history.data.deals.filter((d) => d.status !== "open").length === 0 && <Card><p className="text-sm text-muted">No completed commitments yet.</p></Card>}
               <div className="flex flex-col gap-2">
-                {history.data.deals.map((d) => <DealCard key={d.id} deal={d} />)}
+                {history.data.deals.filter((d) => d.status !== "open").map((d) => <DealCard key={d.id} deal={d} />)}
                 {history.data.other_shipments.length > 0 && (
                   <Card>
                     <div className="text-sm font-semibold text-primary">Other shipments</div>
@@ -360,8 +391,14 @@ function ShipmentList({ shipments }: { shipments: PortalShipment[] }) {
           <span className="text-muted flex-1 min-w-[10rem]">{s.lines.map((l) => `${l.quantity} × ${l.label ?? "package"}`).join(", ")}</span>
           <span className="text-secondary">{bbl(s.volume_bbl)}</span>
           <span className="flex items-center gap-2">
-            {s.invoice && <span className="text-muted">Invoice {s.invoice.number ?? ""} · {dollars(s.invoice.total_cents)}</span>}
-            <Badge tone={PAYMENT[s.payment].tone}>{PAYMENT[s.payment].label}</Badge>
+            {s.kind === "return" ? <Badge tone="neutral">Returned</Badge> : (
+              <>
+                {s.invoice && (s.invoice.pay_url
+                  ? <a href={s.invoice.pay_url} target="_blank" rel="noreferrer" className="text-muted underline">Invoice {s.invoice.number ?? ""} · {dollars(s.invoice.total_cents)}</a>
+                  : <span className="text-muted">Invoice {s.invoice.number ?? ""} · {dollars(s.invoice.total_cents)}</span>)}
+                <Badge tone={s.invoice?.overdue ? "danger" : PAYMENT[s.payment].tone}>{s.invoice?.overdue ? `Overdue ${s.invoice.days_overdue}d` : PAYMENT[s.payment].label}</Badge>
+              </>
+            )}
           </span>
         </li>
       ))}
@@ -369,10 +406,36 @@ function ShipmentList({ shipments }: { shipments: PortalShipment[] }) {
   );
 }
 
+/** Six dots: where this deal's beer is between "scheduled" and "ready". */
+function ProgressSteps({ deal }: { deal: PortalDeal }) {
+  const p = deal.progress;
+  return (
+    <div className="mt-3">
+      <div className="flex items-center gap-1" aria-hidden>
+        {PROGRESS_STEPS.map((name, i) => (
+          <div key={name} className={`h-1 flex-1 rounded-full ${i <= p.step ? (p.step === 5 ? "bg-success-emphasis" : "bg-info-emphasis") : "bg-surface-mid"}`} title={name} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-3 text-xs mt-1">
+        <span className={p.step === 5 ? "text-success" : p.step < 0 ? "text-muted" : "text-info"}>{p.label}</span>
+        {p.step <= 0 && p.brew_date && <span className="text-muted">brew date {longDate(p.brew_date)}</span>}
+        {p.ready_by && <span className="text-muted">ready around {longDate(p.ready_by)}</span>}
+      </div>
+    </div>
+  );
+}
+
 function DealCard({ deal }: { deal: PortalDeal }) {
   const [open, setOpen] = useState(deal.status === "open");
-  const pct = deal.booked_bbl > 0 ? Math.min(100, (deal.shipped_bbl / deal.booked_bbl) * 100) : 0;
+  const isOpen = deal.status === "open";
+  const scale = Math.max(deal.expected_bbl, deal.shipped_bbl, 0.0001);
+  const w = (v: number) => `${Math.max(0, Math.min(100, (v / scale) * 100))}%`;
+  const inTank = isOpen ? deal.in_tank_bbl : 0;
+  const waiting = Math.max(0, Math.min(deal.produced_bbl, deal.expected_bbl) - deal.shipped_bbl);
   const unpaid = deal.shipments.filter((s) => s.payment === "unpaid").length;
+  // The booking is whole turns before shrinkage; what the batch really gave is
+  // smaller. Only worth a sentence when the two differ.
+  const shrunk = deal.has_batch && deal.booked_bbl - deal.expected_bbl > 0.05;
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -383,22 +446,30 @@ function DealCard({ deal }: { deal: PortalDeal }) {
           <div className="text-xs text-muted mt-0.5">
             {deal.received_on ? `Committed ${longDate(deal.received_on)}` : "Commitment"}
             {deal.desired_delivery_date ? ` · wanted by ${longDate(deal.desired_delivery_date)}` : ""}
+            {` · booked ${bbl(deal.booked_bbl)}`}
           </div>
         </div>
         <div className="flex items-center gap-2">
           {unpaid > 0 && <Badge tone="danger">{unpaid} unpaid invoice{unpaid === 1 ? "" : "s"}</Badge>}
-          <Badge tone={deal.status === "open" ? "info" : deal.status === "closed" ? "success" : "neutral"}>
-            {deal.status === "open" ? "Open" : deal.status === "closed" ? "Complete" : "Cancelled"}
+          <Badge tone={isOpen ? "info" : deal.status === "closed" ? "success" : "neutral"}>
+            {isOpen ? "Open" : deal.status === "closed" ? "Complete" : "Cancelled"}
           </Badge>
         </div>
       </div>
-      <div className="mt-3 h-1.5 rounded-full bg-surface-mid overflow-hidden">
-        <div className="h-full bg-success-emphasis" style={{ width: `${pct}%` }} />
+
+      {isOpen && <ProgressSteps deal={deal} />}
+
+      <div className="mt-3 h-1.5 rounded-full bg-surface-mid overflow-hidden flex" aria-hidden>
+        <div className="h-full bg-success-emphasis" style={{ width: w(deal.shipped_bbl) }} />
+        {waiting > 0.005 && <div className="h-full bg-info-emphasis" style={{ width: w(waiting) }} />}
+        {inTank > 0.005 && <div className="h-full bg-[repeating-linear-gradient(45deg,var(--color-line-subtle)_0_3px,transparent_3px_6px)]" style={{ width: w(inTank) }} />}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-secondary mt-2">
-        <span>{bbl(deal.shipped_bbl)} shipped of {bbl(deal.booked_bbl)}</span>
-        {deal.status === "open" && deal.remaining_bbl > 0 && <span>{bbl(deal.remaining_bbl)} to come</span>}
-        {deal.in_tank_bbl > 0 && <span>{bbl(deal.in_tank_bbl)} still in tank</span>}
+        <span>
+          {bbl(deal.shipped_bbl)} shipped of {deal.has_batch ? `${inTank > 0.005 ? "about " : ""}${bbl(deal.expected_bbl)}` : `${bbl(deal.booked_bbl)} booked`}
+        </span>
+        {waiting > 0.005 && <span className="text-info">{bbl(waiting)} packaged, waiting to ship</span>}
+        {inTank > 0.005 && <span>{bbl(inTank)} still in tank (estimate)</span>}
         {deal.deposit && (
           <span className="flex items-center gap-2">
             Deposit{deal.deposit.billed_cents > 0 ? ` ${dollars(deal.deposit.paid_cents)} of ${dollars(deal.deposit.billed_cents)}` : ""}
@@ -406,6 +477,12 @@ function DealCard({ deal }: { deal: PortalDeal }) {
           </span>
         )}
       </div>
+      {shrunk && (
+        <p className="text-xs text-muted mt-1.5">
+          You booked {bbl(deal.booked_bbl)} — that is the brew size before shrinkage. {isOpen && inTank > 0.005 ? "We expect it to package out at about" : "The batch packaged out at"}{" "}
+          {bbl(deal.expected_bbl)} for you, after the normal losses in fermentation and packaging.
+        </p>
+      )}
       {deal.shipments.length > 0 && (
         <button className="btn-secondary btn-xxs mt-3" onClick={() => setOpen((o) => !o)}>
           {open ? "Hide" : "Show"} {deal.shipments.length} shipment{deal.shipments.length === 1 ? "" : "s"}
@@ -413,6 +490,42 @@ function DealCard({ deal }: { deal: PortalDeal }) {
       )}
       {open && deal.shipments.length > 0 && <ShipmentList shipments={deal.shipments} />}
     </Card>
+  );
+}
+
+/** Open invoices in one aligned grid: what each is for, when it is due, and a way to pay it. */
+function OpenInvoices({ invoices, limit }: { invoices: PortalInvoice[]; limit?: number }) {
+  const rows = limit ? invoices.slice(0, limit) : invoices;
+  return (
+    <>
+      <div className="mt-3 border-t border-line pt-2 grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-4 gap-y-1.5 text-xs items-baseline">
+        <span className="text-faint">Invoice</span>
+        <span className="text-faint">For</span>
+        <span className="text-faint">Due</span>
+        <span className="text-faint text-right">Amount</span>
+        <span />
+        {rows.map((i) => (
+          <div key={i.id} className="contents">
+            <span className="text-body whitespace-nowrap">{i.number ?? "—"}</span>
+            <span className="text-secondary min-w-0">
+              {i.kind === "deposit" ? "Ingredient deposit" : "Shipment"}
+              {i.beers.length > 0 ? ` · ${i.beers.join(", ")}` : ""}
+              {i.bbl > 0 ? ` · ${bbl1(i.bbl)}` : ""}
+            </span>
+            <span className="whitespace-nowrap">
+              {i.overdue
+                ? <span className="text-danger font-medium">Overdue {i.days_overdue} day{i.days_overdue === 1 ? "" : "s"} · was due {shortDate(i.due_date)}</span>
+                : <span className="text-muted">{i.due_date ? longDate(i.due_date) : "—"}</span>}
+            </span>
+            <span className="text-strong text-right whitespace-nowrap">{dollars(i.total_cents)}</span>
+            <span className="text-right whitespace-nowrap">
+              {i.pay_url ? <a href={i.pay_url} target="_blank" rel="noreferrer" className="btn-secondary btn-xxs">View / pay</a> : <span className="text-faint">link on its way</span>}
+            </span>
+          </div>
+        ))}
+      </div>
+      {limit && invoices.length > limit && <p className="text-xs text-muted mt-2">and {invoices.length - limit} more — see History</p>}
+    </>
   );
 }
 
@@ -437,29 +550,11 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
             <div>
               <div className="text-xs text-muted">Open invoices</div>
               <div className="text-xl font-semibold text-danger mt-1">{dollars(owed)} outstanding</div>
+              {history.summary.overdue_cents > 0 && <div className="text-xs text-danger mt-0.5">{dollars(history.summary.overdue_cents)} of it is overdue</div>}
             </div>
             <button className="btn-secondary" onClick={() => go("history")}>See history</button>
           </div>
-          {/* One grid for every row, so the columns line up down the list. */}
-          <div className="mt-3 border-t border-line pt-2 grid grid-cols-[auto_1fr_auto_auto] gap-x-4 gap-y-1.5 text-xs items-baseline">
-            <span className="text-faint">Invoice</span>
-            <span className="text-faint">For</span>
-            <span className="text-faint">Sent</span>
-            <span className="text-faint text-right">Amount</span>
-            {history.open_invoices.slice(0, 5).map((i) => (
-              <div key={i.id} className="contents">
-                <span className="text-body whitespace-nowrap">{i.number ?? "—"}</span>
-                <span className="text-secondary min-w-0">
-                  {i.kind === "deposit" ? "Ingredient deposit" : "Shipment"}
-                  {i.beers.length > 0 ? ` · ${i.beers.join(", ")}` : ""}
-                  {i.bbl > 0 ? ` · ${bbl1(i.bbl)}` : ""}
-                </span>
-                <span className="text-muted whitespace-nowrap">{longDate(i.date)}</span>
-                <span className="text-strong text-right whitespace-nowrap">{dollars(i.total_cents)}</span>
-              </div>
-            ))}
-          </div>
-          {history.open_invoices.length > 5 && <p className="text-xs text-muted mt-2">and {history.open_invoices.length - 5} more — see History</p>}
+          <OpenInvoices invoices={history.open_invoices} limit={5} />
         </Card>
       )}
 
@@ -500,9 +595,34 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
         </Card>
       </div>
 
+      {history && history.deals.some((d) => d.status === "open") && (
+        <Card>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-muted">Your beer in progress</div>
+            <button className="btn-secondary btn-xxs" onClick={() => go("batches")}>See my batches</button>
+          </div>
+          <div className="mt-2 grid grid-cols-[1fr_auto_auto] sm:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_auto_auto] gap-x-4 gap-y-2 text-xs items-center">
+            {history.deals.filter((d) => d.status === "open").map((d) => (
+              <div key={d.id} className="contents">
+                <span className="text-body min-w-0 truncate">{d.beer_name ?? "Beer"}</span>
+                <span className="hidden sm:flex items-center gap-1" aria-hidden>
+                  {PROGRESS_STEPS.map((name, i) => (
+                    <span key={name} title={name} className={`h-1 flex-1 rounded-full ${i <= d.progress.step ? (d.progress.step === 5 ? "bg-success-emphasis" : "bg-info-emphasis") : "bg-surface-mid"}`} />
+                  ))}
+                </span>
+                <span className={`whitespace-nowrap ${d.progress.step === 5 ? "text-success" : d.progress.step < 0 ? "text-muted" : "text-info"}`}>
+                  {d.progress.label}{d.progress.ready_by ? ` · ~${shortDate(d.progress.ready_by)}` : ""}
+                </span>
+                <span className="text-secondary text-right whitespace-nowrap">{bbl1(d.shipped_bbl)} of {d.has_batch ? bbl1(d.expected_bbl) : `${bbl1(d.booked_bbl)} booked`}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Stat label="Requests awaiting our reply" value={String(waiting)} note={waiting > 0 ? "We will reply in My requests" : "Nothing pending"} />
-        <Stat label="Open commitments" value={String(history?.summary.open_deals ?? "…")} note={history ? `${bbl1(history.summary.to_come_bbl)} still to come` : undefined} />
+        <Stat label="Open batches" value={String(history?.summary.open_deals ?? "…")} note={history ? `${bbl1(history.summary.to_come_bbl)} still to come` : undefined} />
         <Stat label="Total shipped" value={history ? bbl1(history.summary.shipped_bbl) : "…"} />
         <Stat label="Invoices paid" value={history ? dollars(history.summary.paid_cents) : "…"} tone="success" note={history && owed === 0 ? "Nothing outstanding" : undefined} />
         {history && history.excise.charged_cents > 0 && <ExciseStat excise={history.excise} />}
