@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { addDays, parseISO } from "date-fns";
 import type { EquipmentSlot } from "../route";
+import { batchFillBbl, BREWHOUSE_BBL } from "@/lib/production/batchVolume";
 
 export const dynamic = "force-dynamic";
 
@@ -67,9 +68,8 @@ export async function POST(req: NextRequest) {
     const daysBrewhouse = recipe.days_brewhouse ?? 1;
     const daysFermenter = recipe.days_fermenter ?? 14;
     const daysBrite = recipe.days_brite ?? 7;
-    const yieldBbl = recipe.expected_yield_bbl ?? 10;
     const turns = requestedTurns ?? 1;
-    const volumeBbl = requestedVolume ?? yieldBbl * turns;
+    const volumeBbl = requestedVolume ?? batchFillBbl(turns);
 
     const today = new Date();
     const startDate = earliest_start ? parseISO(earliest_start) : today;
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
       if (stage.pool.length === 0) { feasible = false; break; }
 
       // Brewhouse: multiple turns run sequentially on the same day — capacity is per-turn volume.
-      const effectiveVolume = stage.type === "brewhouse" ? volumeBbl / turns : volumeBbl;
+      const effectiveVolume = stage.type === "brewhouse" ? BREWHOUSE_BBL : volumeBbl;
       const maxSingleCap = stage.pool.reduce((m, e) => Math.max(m, e.capacity_bbl ?? 0), 0);
 
       // Try single tank first

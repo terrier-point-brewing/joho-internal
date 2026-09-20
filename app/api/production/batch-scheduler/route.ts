@@ -12,6 +12,7 @@ import type {
   ContractBrewingRequest,
 } from "@/app/production/types";
 import type { SafetyStockFloor } from "@/app/production/types";
+import { batchFillBbl } from "@/lib/production/batchVolume";
 
 export const dynamic = "force-dynamic";
 
@@ -237,7 +238,9 @@ export async function GET() {
       // Need at least enough to cover demand, capped at 4 turns
       const rawTurns = Math.ceil(effectiveDemand / recipe.expected_yield_bbl);
       const recommendedTurns = Math.min(Math.max(rawTurns, 1), 4);
-      const recommendedVolume = recommendedTurns * recipe.expected_yield_bbl;
+      // Turns are sized off expected yield (post-loss demand); the batch itself is
+      // booked at brewhouse fill, like every other batch.
+      const recommendedVolume = batchFillBbl(recommendedTurns);
 
       // Work backwards from stockout: ideal brew date = stockout - leadTime
       const idealBrewDate = addDays(parseISO(row.stockout_date), -leadTime);

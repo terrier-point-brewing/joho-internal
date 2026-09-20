@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { upsertCommitments, releaseCommitments } from "@/lib/production/commitments";
 import { recheckBatchCommitments } from "@/lib/production/commitmentFulfillment";
+import { batchFillBbl } from "@/lib/production/batchVolume";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +38,21 @@ export async function PATCH(
   // Fetch current row to detect status changes and re-evaluate commitments.
   const { data: current } = await supabase
     .from("brew_batches")
-    .select("status, recipe_id, volume_bbl, turns")
+    .select("status, recipe_id, volume_bbl, turns, converted_from_batch_id")
     .eq("id", id)
     .single();
+
+  // A brewed batch's volume is the brewhouse fill, derived from turns — never
+  // the caller's number (see lib/production/batchVolume.ts). Only a
+  // conversion-born batch keeps a typed volume. Deriving it here, ahead of the
+  // lock below, means a turns edit on a deposited batch is refused too.
+  if (!current?.converted_from_batch_id) {
+    delete updates.volume_bbl;
+    if ("turns" in updates) updates.volume_bbl = batchFillBbl(Number(updates.turns));
+  }
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "A brewed batch's volume follows its turns — change the turns instead." }, { status: 400 });
+  }
 
   // The planned volume is the denominator of every allocation's percentage
   // (booked ÷ planned) and of every deposit invoice's description. Once a

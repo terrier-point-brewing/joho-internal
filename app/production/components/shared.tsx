@@ -7,7 +7,7 @@ import { CATEGORY_BADGE_CLASS } from "../lib/categoryColors";
 // (overlay, token surfaces, Escape-to-close, scroll lock) without changing call sites.
 export { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 
-export const BREWHOUSE_BBL = 20;
+export { BREWHOUSE_BBL } from "@/lib/production/batchVolume";
 
 export const BATCH_STATUSES: { value: BatchStatus; label: string; color: string }[] = [
   { value: "planning",     label: "Planning",     color: CATEGORY_BADGE_CLASS.muted },

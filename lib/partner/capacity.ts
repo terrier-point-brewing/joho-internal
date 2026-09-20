@@ -11,7 +11,9 @@
  * without a clock and never leaks which tank or which batch is in the way.
  */
 
-export const TURN_BBL = 20;
+import { BREWHOUSE_BBL } from "@/lib/production/batchVolume";
+
+export const TURN_BBL = BREWHOUSE_BBL;
 export const HORIZON_MONTHS = 6;
 /**
  * Nothing is ever offered sooner than this. A new brew has to be approved and
