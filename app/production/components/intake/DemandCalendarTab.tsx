@@ -6,6 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { format, parseISO } from "date-fns";
 import type { DemandRow, DemandWeek } from "../../lib/demandCalendar";
 import { fetchJson } from "../../hooks/queries";
+import Banner from "@/app/components/ui/Banner";
 
 function rowUrgency(row: DemandRow): "red" | "amber" | "none" {
   if (row.status === "red") return "red";
@@ -14,7 +15,8 @@ function rowUrgency(row: DemandRow): "red" | "amber" | "none" {
 }
 
 function cellTextColor(eow: number, week: DemandWeek, leadTime: number, stockoutDate: string | null): string {
-  if (eow <= 0) return "text-danger font-semibold";
+  // Short, or emptied by real demand. An idle beer sitting at zero is not an alarm.
+  if (eow < 0 || (eow === 0 && week.outflow_bbl > 0)) return "text-danger font-semibold";
   if (!stockoutDate || leadTime === 0) return "text-secondary";
   const days = Math.ceil((parseISO(stockoutDate).getTime() - parseISO(week.weekStart).getTime()) / 86400000);
   if (days <= leadTime) return "text-danger";
@@ -27,6 +29,7 @@ function cellTitle(w: DemandWeek): string {
   if (w.inflow_bbl > 0) lines.push(`  + Inflow: ${w.inflow_bbl.toFixed(2)} BBL`);
   if (w.taproom_outflow_bbl > 0) lines.push(`  − Taproom: ${w.taproom_outflow_bbl.toFixed(2)} BBL`);
   if (w.distribution_outflow_bbl > 0) lines.push(`  − Distribution: ${w.distribution_outflow_bbl.toFixed(2)} BBL`);
+  if (w.wholesale_outflow_bbl > 0) lines.push(`  − Wholesale: ${w.wholesale_outflow_bbl.toFixed(2)} BBL`);
   if (w.contract_outflow_bbl > 0) lines.push(`  − Contract: ${w.contract_outflow_bbl.toFixed(2)} BBL`);
   return lines.join("\n");
 }
@@ -43,12 +46,13 @@ function StatusDot({ status }: { status: DemandRow["status"] }) {
 }
 
 const CHANNEL_ROWS: {
-  key: "taproom_outflow_bbl" | "distribution_outflow_bbl" | "contract_outflow_bbl";
+  key: "taproom_outflow_bbl" | "distribution_outflow_bbl" | "wholesale_outflow_bbl" | "contract_outflow_bbl";
   label: string;
   dotCls: string;
 }[] = [
   { key: "taproom_outflow_bbl",      label: "Taproom",      dotCls: "bg-[var(--cat-emerald-fg)]" },
   { key: "distribution_outflow_bbl", label: "Distribution", dotCls: "bg-[var(--cat-blue-fg)]"  },
+  { key: "wholesale_outflow_bbl",    label: "Wholesale",    dotCls: "bg-[var(--cat-amber-fg)]" },
   { key: "contract_outflow_bbl",     label: "Contract",     dotCls: "bg-[var(--cat-purple-fg)]" },
 ];
 
@@ -61,10 +65,12 @@ export default function DemandCalendarTab() {
   // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
   // React Query has paused reads as false while there is still no data — the
   // render would fall through to "No demand data yet" for a load that never landed.
-  const { data: rows = [], isPending: loading, error, refetch } = useQuery({
+  const { data, isPending: loading, error, refetch } = useQuery({
     queryKey: queryKeys.production.demandCalendar(),
-    queryFn: () => fetchJson<DemandRow[]>("/api/production/demand-calendar"),
+    queryFn: () => fetchJson<{ rows: DemandRow[]; warnings: string[] }>("/api/production/demand-calendar"),
   });
+  const rows = data?.rows ?? [];
+  const warnings = data?.warnings ?? [];
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   function toggle(recipeId: string) {
@@ -80,6 +86,7 @@ export default function DemandCalendarTab() {
   if (error) return <p className="text-sm text-danger py-6">{error instanceof Error ? error.message : "Error"}</p>;
   if (rows.length === 0) return (
     <div className="py-16 text-center space-y-2">
+      {warnings.map((w) => <Banner key={w}>{w}</Banner>)}
       <p className="text-faint text-sm">No demand data yet.</p>
       <p className="text-xs text-disabled">Add distribution allocations, contract requests, or link recipes to Square for taproom sell-through.</p>
     </div>
@@ -92,12 +99,14 @@ export default function DemandCalendarTab() {
     <div>
       <div className="flex justify-between items-center mb-4">
         <p className="text-sm text-muted">
-          12-week cold storage BBL projection per recipe. Click a recipe row to see per-channel breakdown.
+          12-week cold storage BBL projection per recipe. Commitments count only what has not shipped yet; undated or overdue ones land in this week.
         </p>
         <button onClick={() => refetch()} className="btn-secondary">
           Refresh
         </button>
       </div>
+
+      {warnings.map((w) => <Banner key={w} className="mb-3">{w}</Banner>)}
 
       <div className="overflow-x-auto rounded-lg border border-line">
         <table className="w-full text-xs">
