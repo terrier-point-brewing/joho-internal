@@ -53,27 +53,16 @@ export async function GET() {
     const recommendations: SchedulerRecommendation[] = [];
 
     for (const row of demand.rows) {
-      if (row.status === "green" || !row.stockout_date) continue;
-      if (row.is_retired) continue;
+      if (row.is_retired || !row.action_date || row.status === "green") continue;
       const recipe = recipeById.get(row.recipe_id);
       if (!recipe) continue;
 
-      // What a NEW batch has to cover: the deepest shortfall between the
-      // stockout and one lead time after it (when a second batch could land), or
-      // the commitments no batch covers yet — whichever is larger. On-hand beer,
-      // batches already in tanks and commitments already on a batch are all
-      // inside the projection, so none of them is counted twice.
-      const windowEnd = addDays(parseISO(row.stockout_date), row.lead_time_days);
-      const floor = row.safety_floor_bbl;
-      const shortfallBbl = row.weeks
-        .filter((w) => parseISO(w.weekStart) <= windowEnd)
-        .reduce((worst, w) => Math.max(worst, floor - w.projected_eow_bbl), 0);
-      const uncoveredBbl = demand.commitments
-        .filter((c) => c.recipe_id === row.recipe_id)
-        .reduce((s, c) => s + c.unallocated_bbl, 0);
-      const demandBbl = Math.round(Math.max(shortfallBbl, uncoveredBbl) * 100) / 100;
+      // What a NEW batch has to cover: the shortfall still open one lead time
+      // from now (beer already in tanks is inside the projection), or the
+      // commitments no batch covers yet — whichever is larger.
+      const demandBbl = Math.round(Math.max(row.short_bbl, row.uncovered_bbl) * 100) / 100;
 
-      const base = { recipe_id: row.recipe_id, style: row.style, stockout_date: row.stockout_date, demand_bbl: demandBbl };
+      const base = { recipe_id: row.recipe_id, style: row.style, stockout_date: row.action_date, demand_bbl: demandBbl };
       const blocked = (reason: string, turns = 1, volume = 0): SchedulerRecommendation => ({
         ...base, recommended_turns: turns, recommended_volume_bbl: volume,
         recommended_brew_date: today.toISOString().slice(0, 10), equipment_sequence: [], blocked_reason: reason,
@@ -94,7 +83,7 @@ export async function GET() {
       const volume = batchFillBbl(turns);
 
       // Work backwards from the stockout; never recommend a brew date in the past.
-      const ideal = addDays(parseISO(row.stockout_date), -row.lead_time_days);
+      const ideal = addDays(parseISO(row.action_date), -row.lead_time_days);
       const plan = planTankSlots({
         tanks, entries, volumeBbl: volume, turns,
         startDate: ideal < today ? today : ideal,

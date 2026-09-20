@@ -513,6 +513,21 @@ function AllocationPlanSection({
         })}
       </div>
 
+      {/* A deal this batch only partly covers — said out loud, so the rest is a
+          decision (second batch, or resize the deal) and not a surprise later. */}
+      {allocs.map((a) => {
+        const c = commitments.find((x) => x.id === a.contract_request_id);
+        if (!c) return null;
+        const got = ((parseFloat(a.percentage) || 0) / 100) * row.volume_bbl;
+        const left = uncoveredBbl(c) - got;
+        if (left < 0.1) return null;
+        return (
+          <p key={a.id} className="text-xs text-accent-soft">
+            {c.contract_brewing_partners?.company_name ?? "This deal"} gets {got.toFixed(1)} of the {uncoveredBbl(c).toFixed(1)} bbl it still needs — {left.toFixed(1)} bbl will need another batch, or a smaller commitment.
+          </p>
+        );
+      })}
+
       {/* Totals bar */}
       {allocs.length > 0 && (
         <div className="flex items-center gap-3">

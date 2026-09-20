@@ -47,6 +47,26 @@ describe("buildDemandCalendar", () => {
     expect(row.stockout_date).toBeNull();
   });
 
+  it("a shortfall that a batch in tanks cures before a new one could land is not actionable", () => {
+    const [row] = calendar({
+      commitments: [commitment({ desired_delivery_date: null, unshipped_bbl: 5 })],
+      batchInflows: [{ recipe_id: "r1", expected_delivery_date: "2026-09-30", remaining_bbl: 18 }],
+    });
+    expect(row.stockout_date).toBe("2026-09-21"); // short today
+    expect(row.action_date).toBeNull();           // but nothing to schedule
+    expect(row.status).toBe("green");
+  });
+
+  it("stays actionable when the shortfall outlasts the incoming batch, sized by what is still missing", () => {
+    const [row] = calendar({
+      commitments: [commitment({ desired_delivery_date: null, unshipped_bbl: 30 })],
+      batchInflows: [{ recipe_id: "r1", expected_delivery_date: "2026-09-30", remaining_bbl: 18 }],
+    });
+    expect(row.action_date).toBe("2026-09-21");
+    expect(row.short_bbl).toBe(12);
+    expect(row.status).toBe("red");
+  });
+
   it("warns only inside 1.5x lead time; a far-off stockout stays green", () => {
     const lead = 21;
     const at = (date: string) => calendar({ commitments: [commitment({ desired_delivery_date: date })] })[0].status;

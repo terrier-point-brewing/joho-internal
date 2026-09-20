@@ -28,7 +28,43 @@ function verdict(row: PlanRow): { label: string; tone: Tone; needsBatch: boolean
   if (row.status === "red") return { label: "Brew now", tone: "danger", needsBatch: true };
   if (row.status === "yellow") return { label: "Brew soon", tone: "accent", needsBatch: true };
   if (row.uncovered_bbl >= 0.1) return { label: "Needs a batch", tone: "accent", needsBatch: true };
+  // Short today, but beer already in tanks covers it: nothing to schedule.
+  if (row.stockout_date && !row.action_date && row.incoming.length > 0) return { label: "Batch on the way", tone: "info", needsBatch: false };
   return { label: "OK", tone: "success", needsBatch: false };
+}
+
+const batchLabel = (b: PlanRow["incoming"][number]) => `${b.batch_number ? `#${b.batch_number}` : "A batch"} lands ${fmtDateLong(b.lands_on)} (+${b.bbl.toFixed(1)})`;
+
+/** The "Runs out" cell answers one thing: is there anything to do, and by when? */
+function RunsOut({ row }: { row: PlanRow }) {
+  if (row.is_retired) return <span className="text-faint">—</span>;
+  const next = row.incoming[0];
+  if (row.action_date) {
+    return (
+      <div className="leading-5">
+        <div className={row.status === "red" ? "text-danger" : row.status === "yellow" ? "text-[var(--cat-amber-fg)]" : "text-secondary"}>
+          week of {fmtDateLong(row.action_date)}
+        </div>
+        <div className="text-xs text-muted">
+          short {row.short_bbl.toFixed(1)} bbl{next ? ` even after ${batchLabel(next)}` : ""}
+        </div>
+      </div>
+    );
+  }
+  if (row.stockout_date && next) {
+    return (
+      <div className="leading-5">
+        <div className="text-secondary">Covered — {batchLabel(next)}</div>
+        <div className="text-xs text-muted">short until then; a new batch would not arrive sooner</div>
+      </div>
+    );
+  }
+  return (
+    <div className="leading-5">
+      <div className="text-faint">not in 12 weeks</div>
+      {next && <div className="text-xs text-muted">{batchLabel(next)}</div>}
+    </div>
+  );
 }
 
 const CHANNELS: { key: keyof DemandWeek & `${string}_outflow_bbl`; label: string }[] = [
@@ -78,7 +114,7 @@ export default function PlanTab({ onSchedule }: { onSchedule: (recipeId: string 
     Number(a.is_retired) - Number(b.is_retired)
     || Number(verdict(b).needsBatch) - Number(verdict(a).needsBatch)
     || rank[a.status] - rank[b.status]
-    || (a.stockout_date ?? "9999").localeCompare(b.stockout_date ?? "9999")
+    || (a.action_date ?? "9999").localeCompare(b.action_date ?? "9999")
     || a.style.localeCompare(b.style));
   const actionRows = sorted.filter((r) => verdict(r).needsBatch);
   const shown = view === "action" ? actionRows : sorted;
@@ -136,11 +172,9 @@ export default function PlanTab({ onSchedule }: { onSchedule: (recipeId: string 
                       <td className="px-4 py-2.5 text-right tabular-nums text-body">{bbl(row.taproom_bbl_per_week)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-body">
                         {bbl(row.owed_bbl)}
-                        {row.uncovered_bbl >= 0.1 && <span className="block text-xs text-accent-soft">{row.uncovered_bbl.toFixed(1)} with no batch</span>}
+                        {row.uncovered_bbl >= 0.1 && <span className="block text-xs text-accent-soft">{row.uncovered_bbl.toFixed(1)} not on any batch</span>}
                       </td>
-                      <td className={`px-4 py-2.5 whitespace-nowrap ${row.status === "red" ? "text-danger" : "text-secondary"}`}>
-                        {row.stockout_date ? `week of ${fmtDateLong(row.stockout_date)}` : "not in 12 weeks"}
-                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap"><RunsOut row={row} /></td>
                       <td className="px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                         {!row.is_retired && (
                           <button onClick={() => onSchedule(row.recipe_id)} className={v.needsBatch ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}>

@@ -27,6 +27,8 @@ export interface PlanRow extends DemandRow {
   owed_bbl: number;
   /** Of that, what no batch covers yet. */
   uncovered_bbl: number;
+  /** Batches already in tanks for this beer, soonest first. */
+  incoming: Array<{ batch_number: string | null; lands_on: string; bbl: number }>;
   /** Retired from the taproom: never recommended, hidden from "needs action". */
   is_retired: boolean;
 }
@@ -97,7 +99,7 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
       .select("id, recipe_id, channel, volume_bbl, desired_delivery_date")
       .eq("status", "open"),
     supabase.from("brew_batches")
-      .select("id, recipe_id, turns, volume_bbl, expected_delivery_date")
+      .select("id, batch_number, recipe_id, turns, volume_bbl, expected_delivery_date")
       .in("status", ACTIVE_BATCH_STATUSES),
     supabase.from("taproom_recipe_settings").select("recipe_id").eq("is_retired", true),
   ]);
@@ -105,7 +107,7 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
   const recipes = must<Recipe>("recipes", recipesRes);
   const floors = must<SafetyStockFloor>("safety stock", floorsRes);
   const openCommitments = must<{ id: string; recipe_id: string | null; channel: CommitmentChannel; volume_bbl: number; desired_delivery_date: string | null }>("commitments", commitmentsRes);
-  const activeBatches = must<{ id: string; recipe_id: string | null; turns: number | null; volume_bbl: number | null; expected_delivery_date: string | null }>("batches", batchesRes);
+  const activeBatches = must<{ id: string; batch_number: string | null; recipe_id: string | null; turns: number | null; volume_bbl: number | null; expected_delivery_date: string | null }>("batches", batchesRes);
   const recipeById = new Map(recipes.map((r) => [r.id, r]));
 
   // ── Cold storage on hand (net of shipments) ───────────────────────────────
@@ -178,6 +180,7 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
     const yieldPerTurn = recipeById.get(b.recipe_id)?.expected_yield_bbl;
     const expectedBbl = yieldPerTurn != null ? yieldPerTurn * (b.turns ?? 1) : Number(b.volume_bbl ?? 0);
     batchInflows.push({
+      batch_number: b.batch_number,
       recipe_id: b.recipe_id,
       expected_delivery_date: b.expected_delivery_date,
       remaining_bbl: inTankRemainingBbl({ expectedBbl, packagedBbl: packagedByBatch.get(b.id) ?? 0 }),
@@ -209,6 +212,10 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
       ...row,
       owed_bbl: round2(mine.reduce((s, c) => s + (c.pieces ?? []).reduce((p, x) => p + x.bbl, 0), 0)),
       uncovered_bbl: round2(mine.reduce((s, c) => s + c.unallocated_bbl, 0)),
+      incoming: batchInflows
+        .filter((b) => b.recipe_id === row.recipe_id && b.remaining_bbl > 0)
+        .map((b) => ({ batch_number: b.batch_number ?? null, lands_on: b.expected_delivery_date, bbl: round2(b.remaining_bbl) }))
+        .sort((a, b) => a.lands_on.localeCompare(b.lands_on)),
       is_retired: retired.has(row.recipe_id),
     };
   });
