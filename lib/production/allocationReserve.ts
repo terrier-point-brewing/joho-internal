@@ -178,12 +178,13 @@ export interface ShipmentCandidate {
   allocationId: string;
   batchId: string;
   channel: AllocationChannel;
-  bookedRemainingBbl: number | null; // contract: max(0, booked − exported); soft: null (uncapped)
+  bookedRemainingBbl: number | null; // contract: max(0, booked − exported); soft: null (no booking cap)
   // contract: max(0, percentage × produced − exported) — the entitlement the
   // batch has ACTUALLY made. `booked` is a pre-shrinkage estimate, so a fully
   // delivered batch keeps a booked remainder equal to its shrinkage; crediting
   // against that lets one batch absorb another batch's beer. Undefined on
-  // legacy callers → this term does not cap. Soft channels: null (uncapped).
+  // legacy callers → this term does not cap. Soft channels fill to this share
+  // batch by batch; only the overflow beyond every share lands uncapped.
   realizableRemainingBbl?: number | null;
   /**
    * Contract only: the allocation's ingredient deposit has been paid (or the
@@ -214,7 +215,8 @@ export interface ShipmentPlan {
 /**
  * Plans how a shipment is credited across a partner's allocations and which
  * advisory warnings it raises. Contract allocations are credited up to their
- * booked remaining; soft allocations are uncapped; anything beyond all bookable
+ * booked remaining; soft allocations fill to each batch's share with the overflow
+ * kept on the first-ranked one; the drawn batch is credited first; anything beyond all bookable
  * claims becomes an explicit over-delivery record (never inflates an allocation
  * past its booked amount). Pure — no I/O; the caller supplies produced/exported
  * figures and the simulated FIFO draw.
@@ -224,21 +226,41 @@ export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
   const warnings: ShipmentWarning[] = [];
 
   // ── Crediting ──────────────────────────────────────────────────────────────
+  // The batch the beer is physically drawn from is credited before an older
+  // batch of the same recipe: oldest-first alone let B-029 absorb shipments of
+  // B-034's kegs, so B-034's commitments could never close. Contract still
+  // outranks soft; the incoming order breaks ties.
+  const drawn = new Set(input.perBatchDrawBbl.filter((d) => d.drawBbl > EPS).map((d) => d.batchId));
+  const rank = (c: ShipmentCandidate) => (isDepositBacked(c.channel) ? 0 : 2) + (drawn.has(c.batchId) ? 0 : 1);
+  const ordered = input.candidates
+    .map((c, i) => ({ c, i }))
+    .sort((x, y) => rank(x.c) - rank(y.c) || x.i - y.i)
+    .map(({ c }) => c);
+
   let bblLeft = input.requestedBbl;
-  for (const c of input.candidates) {
+  const take = (c: ShipmentCandidate, cap: number) => {
+    const bbl = Math.min(cap, bblLeft);
+    if (bbl <= EPS) return;
+    const prior = credits.find((cr) => cr.allocationId === c.allocationId);
+    if (prior) prior.bbl = round4(prior.bbl + bbl);
+    else credits.push({ allocationId: c.allocationId, bbl: round4(bbl), overAllocation: false });
+    bblLeft -= bbl;
+  };
+  for (const c of ordered) {
     if (bblLeft <= EPS) break;
-    // A contract credit can never exceed either the pre-paid booking or the
-    // share the batch actually produced — whichever is smaller.
+    // A credit can never exceed the share the batch actually produced; a
+    // contract credit is also held to the pre-paid booking.
     const realizableCap = c.realizableRemainingBbl == null ? Infinity : Math.max(0, c.realizableRemainingBbl);
     const cap = isDepositBacked(c.channel)
       ? Math.min(Math.max(0, c.bookedRemainingBbl ?? 0), realizableCap)
-      : Infinity;
-    const take = Math.min(cap, bblLeft);
-    if (take > EPS) {
-      credits.push({ allocationId: c.allocationId, bbl: round4(take), overAllocation: false });
-      bblLeft -= take;
-    }
+      : realizableCap;
+    take(c, cap);
   }
+  // A soft channel has no booking to breach, so beer beyond every soft share
+  // stays on the partner's first-ranked soft allocation rather than becoming
+  // over-delivery — but only after each batch's own share has been filled.
+  const softHome = ordered.find((c) => !isDepositBacked(c.channel));
+  if (bblLeft > EPS && softHome) take(softHome, Infinity);
   if (bblLeft > EPS) {
     credits.push({ allocationId: null, bbl: round4(bblLeft), overAllocation: true });
     warnings.push({ type: "over_booked", overBbl: round4(bblLeft) });

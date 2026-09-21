@@ -499,3 +499,58 @@ describe("owed is capped at booked on an over-yielding batch (the #542 rule)", (
     expect(rec.underDeliveredBbl).toBeCloseTo(0.48);
   });
 });
+
+// B-034: two batches of one recipe, same distributor on both. Oldest-first with
+// an uncapped soft channel put every keg on the older batch, so the newer
+// batch's commitment could never close.
+describe("planShipment — back-to-back batches of one recipe", () => {
+  const older = { allocationId: "old", batchId: "b29", channel: "distribution" as const, bookedRemainingBbl: null, realizableRemainingBbl: 0 };
+  const newer = { allocationId: "new", batchId: "b34", channel: "distribution" as const, bookedRemainingBbl: null, realizableRemainingBbl: 3.26 };
+
+  it("credits the batch the beer is drawn from before an older one", () => {
+    const plan = planShipment({
+      requestedBbl: 3,
+      candidates: [{ ...older, realizableRemainingBbl: 3.15 }, newer],
+      perBatchDrawBbl: [{ batchId: "b34", drawBbl: 3 }],
+      batches: [],
+    });
+    expect(plan.credits).toEqual([{ allocationId: "new", bbl: 3, overAllocation: false }]);
+  });
+
+  it("fills each soft share, then keeps the overflow on the drawn batch — never over-delivery", () => {
+    const plan = planShipment({
+      requestedBbl: 7.33,
+      candidates: [{ ...older, realizableRemainingBbl: 1 }, newer],
+      perBatchDrawBbl: [{ batchId: "b34", drawBbl: 7.33 }],
+      batches: [],
+    });
+    expect(plan.credits).toEqual([
+      { allocationId: "new", bbl: 6.33, overAllocation: false },
+      { allocationId: "old", bbl: 1, overAllocation: false },
+    ]);
+    expect(hasType(plan.warnings, "over_booked")).toBe(false);
+  });
+
+  it("a filled older soft allocation no longer absorbs the shipment", () => {
+    const plan = planShipment({
+      requestedBbl: 2,
+      candidates: [older, newer],
+      perBatchDrawBbl: [],
+      batches: [],
+    });
+    expect(plan.credits).toEqual([{ allocationId: "new", bbl: 2, overAllocation: false }]);
+  });
+
+  it("contract still outranks soft even when only the soft batch is drawn", () => {
+    const plan = planShipment({
+      requestedBbl: 2,
+      candidates: [
+        { allocationId: "C", batchId: "b29", channel: "contract_brewing", bookedRemainingBbl: 5, realizableRemainingBbl: 5 },
+        newer,
+      ],
+      perBatchDrawBbl: [{ batchId: "b34", drawBbl: 2 }],
+      batches: [],
+    });
+    expect(plan.credits).toEqual([{ allocationId: "C", bbl: 2, overAllocation: false }]);
+  });
+});
