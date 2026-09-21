@@ -12,7 +12,7 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
 import {
   FORMATS,
-  needsPaktech, needsTray, needsBreaksInto,
+  needsPaktech, needsTray, needsBreaksInto, findLooseSibling,
   PACKAGING_VARIATION_CONTROLS as PKGVAR_CONTROLS,
   PKGVAR_TYPE_OPTIONS as TYPE_OPTIONS,
   PKGVAR_FORMAT_OPTIONS as FORMAT_OPTIONS,
@@ -273,7 +273,10 @@ export default function PackagingVariationsPanel() {
               {displayed.map((v, i) => {
                 const vIsKeg = v.container?.type === "keg";
                 const formatLabel = vIsKeg ? "Keg" : (FORMATS.find((f) => f.value === v.format)?.label ?? v.format);
-                const breaksIntoName = v.breaks_into_variation_id ? nameById.get(v.breaks_into_variation_id) ?? null : null;
+                // Cases store their target; packs derive it (always the family's loose can).
+                const breaksIntoName = v.breaks_into_variation_id
+                  ? nameById.get(v.breaks_into_variation_id) ?? null
+                  : findLooseSibling(v, variations)?.name ?? null;
                 return (
                   <tr
                     key={v.id}
