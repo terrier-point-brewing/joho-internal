@@ -182,6 +182,23 @@ export function needsPaktech(format: PackagingVariationFormat)   { return format
 export function needsTray(format: PackagingVariationFormat)       { return format === "case"; }
 export function needsBreaksInto(format: PackagingVariationFormat) { return format === "case"; }
 
+// A 4-pack/6-pack never stores a break target: it always cracks into its
+// can-identity family's loose can (same container + lid + label + partner).
+// Mirrors the looseId resolution in applyBreakDown — for display only.
+export function findLooseSibling<T extends { id: string; format: string; container_id: string; lid_id: string | null; label_id: string | null; partner_id: string | null }>(
+  pack: { format: string; container_id: string; lid_id: string | null; label_id: string | null; partner_id: string | null },
+  variations: T[],
+): T | null {
+  if (pack.format !== "4-pack" && pack.format !== "6-pack") return null;
+  return variations.find((v) =>
+    v.format === "loose" &&
+    v.container_id === pack.container_id &&
+    (v.lid_id ?? null) === (pack.lid_id ?? null) &&
+    (v.label_id ?? null) === (pack.label_id ?? null) &&
+    (v.partner_id ?? null) === (pack.partner_id ?? null)
+  ) ?? null;
+}
+
 export interface VariationCombo {
   container_id: string;
   format: string;
