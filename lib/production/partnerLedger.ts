@@ -1,5 +1,6 @@
-import { owedBbl, sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
-import { deriveCommitmentStage, type CommitmentStage } from "./commitmentStage";
+import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
+import type { CommitmentStage } from "./commitmentStage";
+import { commitmentDelivery } from "./commitmentDelivery";
 import { classifyAdditions, type AdditionsStatus, type CoverageAllocFields } from "./depositCoverage";
 import type { DepositChargesSummary } from "./depositCharges";
 
@@ -342,11 +343,21 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
       .filter((c) => c.partner_id === p.id)
       .map((c): LedgerCommitment => {
         const booked = Number(c.volume_bbl ?? 0);
-        const allocs = (allocsByCommitment.get(c.id) ?? []).map((a): LedgerAllocation => {
-          const produced = input.producedByBatch.get(a.batch_id) ?? 0;
+        const allocRows = allocsByCommitment.get(c.id) ?? [];
+        // The same arithmetic Intake → Commitments shows (lib/production/commitmentDelivery).
+        const delivery = commitmentDelivery({
+          storedStatus: c.status,
+          bookedBbl: booked,
+          allocations: allocRows.map((a) => ({
+            id: a.id, batch_id: a.batch_id, channel: a.channel, percentage: a.percentage,
+            batch_status: a.batch_status, written_off: a.written_off_bbl != null,
+          })),
+          producedByBatch: input.producedByBatch,
+          exportedByAllocation,
+        });
+        const allocs = allocRows.map((a, i): LedgerAllocation => {
+          const { produced_bbl: produced, owed_bbl: owed, exported_bbl: exported } = delivery.allocations[i];
           const pct = Number(a.percentage);
-          const owed = owedBbl({ channel: a.channel, percentage: pct, producedBbl: produced, bookedBbl: a.channel === "contract_brewing" && booked > 0 ? booked : null });
-          const exported = exportedByAllocation.get(a.id) ?? 0;
           const charges = input.chargesByAllocation.get(a.id) ?? null;
           const additions = classifyAdditions(a, charges);
           const depositInvoice = (a.square_deposit_invoice_id ? depositInvoiceBySquareId.get(a.square_deposit_invoice_id) : undefined)
@@ -408,13 +419,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
         totals.export_billed_cents = exportInvoices.filter((i) => i.status !== "voided").reduce((s, i) => s + i.total_cents, 0);
         totals.export_paid_cents = exportInvoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.total_cents, 0);
 
-        const stage = deriveCommitmentStage({
-          storedStatus: c.status,
-          allocations: allocs.map((a) => ({
-            exportedBbl: a.exported_bbl, owedBbl: a.owed_bbl, writtenOff: a.written_off_bbl != null,
-            batchComplete: a.batch_status === "complete",
-          })),
-        });
+        const stage = delivery.stage;
 
         return {
           id: c.id,

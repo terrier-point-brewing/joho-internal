@@ -3,8 +3,8 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
-import { owedBbl, sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
-import { deriveCommitmentStage, type StageAllocation } from "@/lib/production/commitmentStage";
+import { sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
+import { commitmentDelivery, type CommitmentDelivery } from "@/lib/production/commitmentDelivery";
 import { loadDepositCharges } from "@/lib/production/depositCharges";
 import { lockedFieldsChanged, unlockNote } from "@/lib/production/commitmentLock";
 import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
@@ -68,16 +68,31 @@ export async function GET(req: NextRequest) {
     producedByBatch.set(t.batch_id, (producedByBatch.get(t.batch_id) ?? 0) + Number(t.volume_bbl ?? 0));
   }
   const exportedByAllocation = sumExportedByAllocation((exportRows ?? []) as ExportVolumeRow[]);
-  const bookedById = new Map(withPrefs.map((c) => [c.id, Number(c.volume_bbl ?? 0)]));
+  // Where each deal stands — the same function the Partner Ledger is built
+  // from (lib/production/commitmentDelivery), so the two screens cannot disagree.
+  const deliveryById = new Map<string, CommitmentDelivery>();
+  for (const c of withPrefs) {
+    deliveryById.set(c.id, commitmentDelivery({
+      storedStatus: c.status,
+      bookedBbl: Number(c.volume_bbl ?? 0),
+      allocations: (allocs ?? []).filter((a) => a.contract_request_id === c.id).map((a) => ({
+        id: a.id,
+        batch_id: a.batch_id as string,
+        channel: a.channel,
+        percentage: a.percentage,
+        batch_status: (a.brew_batches as { status?: string } | null)?.status ?? null,
+        written_off: !!(a as { written_off_at?: string | null }).written_off_at,
+      })),
+      producedByBatch,
+      exportedByAllocation,
+    }));
+  }
   const deliveryOf = (a: NonNullable<typeof allocs>[number]) => {
-    const producedBbl = producedByBatch.get(a.batch_id as string) ?? 0;
-    const exportedBbl = exportedByAllocation.get(a.id) ?? 0;
-    const booked = a.contract_request_id ? (bookedById.get(a.contract_request_id) ?? null) : null;
-    const owed = owedBbl({ channel: a.channel, percentage: Number(a.percentage), producedBbl, bookedBbl: booked && booked > 0 ? booked : null });
+    const figures = deliveryById.get(a.contract_request_id as string)?.allocations.find((x) => x.id === a.id);
     return {
-      produced_bbl: producedBbl,
-      exported_bbl: exportedBbl,
-      owed_bbl: owed,
+      produced_bbl: figures?.produced_bbl ?? 0,
+      exported_bbl: figures?.exported_bbl ?? 0,
+      owed_bbl: figures?.owed_bbl ?? 0,
       batch_status: (a.brew_batches as { status?: string } | null)?.status ?? "",
     };
   };
@@ -107,7 +122,6 @@ export async function GET(req: NextRequest) {
 
   const committedById: Record<string, number> = {};
   const allocsById: Record<string, typeof allocs> = {};
-  const stageInputById: Record<string, Array<StageAllocation & { producedBbl: number }>> = {};
   for (const a of allocs ?? []) {
     if (!a.contract_request_id) continue;
     const vol = Number((a.brew_batches as { volume_bbl?: number } | null)?.volume_bbl ?? 0);
@@ -115,15 +129,6 @@ export async function GET(req: NextRequest) {
     if (a.channel === "contract_brewing") {
       (allocsById[a.contract_request_id] ??= []).push(a);
     }
-    const d = deliveryOf(a);
-    (stageInputById[a.contract_request_id] ??= []).push({
-      exportedBbl: d.exported_bbl,
-      owedBbl: d.owed_bbl,
-      batchComplete: d.batch_status === "complete",
-      writtenOff: !!(a as { written_off_at?: string | null }).written_off_at,
-      // kept for the rollups below
-      producedBbl: d.produced_bbl,
-    });
   }
 
   // Fetch invoice numbers for deposit invoices and for export invoices that
@@ -171,12 +176,12 @@ export async function GET(req: NextRequest) {
   const enriched = withPrefs.map((c) => ({
     ...c,
     committed_allocated_bbl: committedById[c.id] ?? 0,
-    stage: deriveCommitmentStage({ storedStatus: c.status, allocations: stageInputById[c.id] ?? [] }),
+    stage: deliveryById.get(c.id)!.stage,
     // Rolled up across every allocation on the deal (any channel), so the
     // Commitments row can show booked → owed → shipped without a second screen.
-    produced_bbl: (stageInputById[c.id] ?? []).reduce((s, a) => s + a.producedBbl, 0),
-    owed_bbl: (stageInputById[c.id] ?? []).reduce((s, a) => s + a.owedBbl, 0),
-    exported_bbl: (stageInputById[c.id] ?? []).reduce((s, a) => s + a.exportedBbl, 0),
+    produced_bbl: deliveryById.get(c.id)!.produced_bbl,
+    owed_bbl: deliveryById.get(c.id)!.owed_bbl,
+    exported_bbl: deliveryById.get(c.id)!.exported_bbl,
     batch_numbers: (allocs ?? [])
       .filter((a) => a.contract_request_id === c.id)
       .map((a) => (a.brew_batches as { batch_number?: string | null } | null)?.batch_number ?? null)

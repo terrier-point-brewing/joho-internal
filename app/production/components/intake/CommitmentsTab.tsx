@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -646,6 +647,8 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1 whitespace-nowrap">
+                      {/* Every drop, invoice and share for this deal lives in the ledger — linked, not rebuilt here. */}
+                      {q.partner_id && <Link href={`/production/export?commitment=${q.id}`} className="btn-secondary btn-xxs">History</Link>}
                       <button onClick={() => setEditing(q)} className="btn-secondary btn-xxs">Edit</button>
                       <button onClick={() => handleDelete(q)} className="btn-danger btn-xxs">Delete</button>
                     </div>

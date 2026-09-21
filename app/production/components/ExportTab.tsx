@@ -10,16 +10,18 @@ import type { ExportTopTab } from "../export/page";
 
 export default function ExportTab({
   tab,
+  focusCommitmentId,
   highlightInvoiceId,
   onNavigateToInvoice,
 }: {
   tab: ExportTopTab;
+  focusCommitmentId?: string;
   highlightInvoiceId: string | undefined;
   onNavigateToInvoice: (invoiceId: string) => void;
 }) {
   return (
     <>
-      {tab === "ledger" && <PartnerLedgerTab onNavigateToInvoice={onNavigateToInvoice} />}
+      {tab === "ledger" && <PartnerLedgerTab focusCommitmentId={focusCommitmentId} onNavigateToInvoice={onNavigateToInvoice} />}
       {tab === "export_bay" && <ExportBayTab />}
       {tab === "shipments" && <ShipmentsTab onNavigateToInvoice={onNavigateToInvoice} />}
       {tab === "export_invoices" && <ExportInvoicesTab highlightInvoiceId={highlightInvoiceId} />}
