@@ -6,7 +6,7 @@ import {
   Equipment, BatchTankAssignment, PackagingItem, BatchTransfer,
   ContractBrewingPartner, Supplier, ExciseTaxRate, ExportServiceMapping, SquareCatalogOptions,
   PackagingVariation, RecipePackagingVariation,
-  RecipeSquareLinkRow, BatchConversion, MappingGridResponse,
+  RecipeSquareLinkRow, BatchConversion, MappingGridResponse, MappingCellVariation,
 } from "../types";
 import { queryKeys } from "@/lib/query-keys";
 import type { IngredientUnit } from "@/lib/production/units";
@@ -195,6 +195,42 @@ export function invalidateSquareMappings(qc: QueryClient): Promise<void> {
     qc.invalidateQueries({ queryKey: queryKeys.production.squareMappingGrid() }),
     qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() }),
   ]).then(() => undefined);
+}
+
+/**
+ * Show a confirmed write in the grid straight away, ahead of the refetch.
+ *
+ * Call only AFTER the server has accepted the write, so there is nothing to
+ * roll back; invalidateSquareMappings still follows and brings the real row
+ * (suggestions, shared-button state) in behind it.
+ */
+export function patchSquareMappingCell(
+  qc: QueryClient,
+  recipeId: string,
+  colKey: string,
+  variationId: string,
+  patch: Partial<MappingCellVariation>,
+): void {
+  qc.setQueryData<MappingGridResponse>(queryKeys.production.squareMappingGrid(), (old) => {
+    if (!old) return old;
+    return {
+      ...old,
+      rows: old.rows.map((row) => {
+        const cell = row.recipeId === recipeId ? row.cells[colKey] : null;
+        if (!cell) return row;
+        return {
+          ...row,
+          cells: {
+            ...row.cells,
+            [colKey]: {
+              ...cell,
+              variations: cell.variations.map((v) => (v.variationId === variationId ? { ...v, ...patch } : v)),
+            },
+          },
+        };
+      }),
+    };
+  });
 }
 
 export function useTransfersQuery() {

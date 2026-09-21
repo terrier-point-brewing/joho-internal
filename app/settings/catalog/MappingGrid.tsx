@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useSquareMappingGridQuery, invalidateSquareMappings } from "@/app/production/hooks/queries";
+import { useSquareMappingGridQuery, invalidateSquareMappings, patchSquareMappingCell } from "@/app/production/hooks/queries";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { queryKeys } from "@/lib/query-keys";
@@ -33,7 +33,7 @@ async function acceptSuggestion(
   packaging: "draft" | "keg" | "can",
   variationId: string | null,
   suggestion: NonNullable<MappingCellVariation["suggestion"]>
-): Promise<"linked" | "conflict"> {
+): Promise<{ linkId: string } | "conflict"> {
   const body: Record<string, unknown> = {
     recipe_id: recipeId,
     packaging,
@@ -58,7 +58,8 @@ async function acceptSuggestion(
     const json = await res.json().catch(() => ({}));
     throw new Error((json as { error?: string }).error ?? "Accept failed");
   }
-  return "linked";
+  // The real id, so a Remove clicked before the refetch lands still hits the row.
+  return { linkId: ((await res.json()) as { id: string }).id };
 }
 
 function colPackaging(col: MappingColumn): "draft" | "keg" | "can" {
@@ -85,7 +86,7 @@ export default function MappingGrid({
 }: {
   onCellClick: (recipeId: string, colKey: string) => void;
 }) {
-  const { data, isLoading, error } = useSquareMappingGridQuery();
+  const { data, isLoading, isFetching, error } = useSquareMappingGridQuery();
   const qc = useQueryClient();
   // "Refresh from Square" posts to /api/finance/sync-catalog, which is gated
   // finance.transactions:manage — a different domain from the `catalog` scope
@@ -147,6 +148,15 @@ export default function MappingGrid({
   const highByCol = new Map(columns.map((c) => [c.key, countHighConfidence(c.key)]));
   const totalHigh = [...highByCol.values()].reduce((s, vs) => s + vs.length, 0);
 
+  // The write is confirmed; draw it now rather than after the refetch lands.
+  function showLinked(recipeId: string, colKey: string, v: MappingCellVariation, linkId: string) {
+    patchSquareMappingCell(qc, recipeId, colKey, v.variationId, {
+      linkId,
+      linkedSquareName: v.suggestion?.squareName ?? null,
+      suggestion: null,
+    });
+  }
+
   async function fillColumn(col: MappingColumn): Promise<number> {
     const outcomes = await Promise.all(
       rows.flatMap((row) => {
@@ -154,14 +164,16 @@ export default function MappingGrid({
         if (!cell) return [];
         return cell.variations
           .filter((v) => !v.linkId && !v.ignored && v.suggestion?.confidence === "high")
-          .map((v) =>
-            acceptSuggestion(
+          .map(async (v) => {
+            const outcome = await acceptSuggestion(
               row.recipeId,
               colPackaging(col),
               v.variationId === "draft" ? null : v.variationId,
               v.suggestion!
-            )
-          );
+            );
+            if (outcome !== "conflict") showLinked(row.recipeId, col.key, v, outcome.linkId);
+            return outcome;
+          });
       })
     );
     const skipped = outcomes.filter((o) => o === "conflict").length;
@@ -190,6 +202,7 @@ export default function MappingGrid({
       v.suggestion
     );
     setConflictsSkipped(outcome === "conflict" ? 1 : 0);
+    if (outcome !== "conflict") showLinked(row.recipeId, col.key, v, outcome.linkId);
     invalidateSquareMappings(qc);
   }
 
@@ -208,6 +221,7 @@ export default function MappingGrid({
           {syncedLabel && (
             <span className="text-xs text-muted">Catalog synced {syncedLabel}</span>
           )}
+          {isFetching && <span className="text-xs text-muted">Updating…</span>}
         </div>
         {syncError && <span className="text-xs text-danger">{syncError}</span>}
       </div>
