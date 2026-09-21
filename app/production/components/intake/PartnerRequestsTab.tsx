@@ -41,7 +41,8 @@ const STATUS: Record<InboxRequest["status"], { label: string; tone: Tone }> = {
   declined: { label: "Declined", tone: "danger" },
   withdrawn: { label: "Withdrawn", tone: "neutral" },
 };
-const QUERY_KEY = ["production", "partner-requests"];
+export const PARTNER_REQUESTS_QUERY_KEY = ["production", "partner-requests"];
+const QUERY_KEY = PARTNER_REQUESTS_QUERY_KEY;
 const day = (iso: string | null) => (iso ? new Date(iso.length <= 10 ? `${iso}T12:00:00` : iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—");
 
 type View = "open" | "all";
