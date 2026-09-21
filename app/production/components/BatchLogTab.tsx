@@ -9,6 +9,7 @@ import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { BrewBatch, BatchTransfer, BrewActivityEntry, BatchAllocation, AllocationChannel, ContractBrewingRequest } from "../types";
 import { BREWHOUSE_BBL, StatusBadge, Modal, Field, ModalActions } from "./shared";
+import ScheduleBatchModal from "./intake/ScheduleBatchModal";
 import { fmtDateLong, fmtBbl2, fmtCents } from "@/lib/utils/formatting";
 import { EQ } from "../equipmentMeta";
 import { computeLocationBreakdown } from "@/lib/production/volumeLedger";
@@ -105,7 +106,6 @@ export default function BatchLogTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBatch, setEditingBatch] = useState<BrewBatch | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [isConversionBatch, setIsConversionBatch] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Derive computed volume from form state
@@ -141,7 +141,10 @@ export default function BatchLogTab() {
     }));
   }
 
-  function openNew() { setForm(BATCH_EMPTY); setEditingId(null); setIsConversionBatch(false); setShowModal(true); }
+  // New batches are created by the one Schedule form (tanks + allocations at
+  // birth). This tab's own modal only EDITS a batch.
+  const [showSchedule, setShowSchedule] = useState(false);
+  function openNew() { setShowSchedule(true); }
 
   function openEdit(b: BrewBatch) {
     setForm({
@@ -166,9 +169,9 @@ export default function BatchLogTab() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.recipe_id) { alert("Please select a recipe."); return; }
-    if (!editingId && !form.expected_delivery_date) { alert("Expected delivery date is required."); return; }
+    if (!editingId) return; // creating happens in the Schedule form
     const turns = parseInt(form.turns) || 1;
-    const isConversion = !!editingBatch?.converted_from_batch_id || isConversionBatch;
+    const isConversion = !!editingBatch?.converted_from_batch_id;
     const volume_bbl = isConversion && form.volume_override !== ""
       ? Number(form.volume_override)
       : BREWHOUSE_BBL * turns;
@@ -189,9 +192,7 @@ export default function BatchLogTab() {
         final_gravity:     form.final_gravity !== "" ? parseFloat(form.final_gravity) : null,
         dissolved_oxygen_ppb: form.dissolved_oxygen_ppb !== "" ? parseFloat(form.dissolved_oxygen_ppb) : null,
       };
-      const res = editingId
-        ? await fetch(`/api/production/batches/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
-        : await fetch("/api/production/batches",              { method: "POST",  headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res = await fetch(`/api/production/batches/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       setShowModal(false);
       setEditingBatch(null);
@@ -304,8 +305,16 @@ export default function BatchLogTab() {
         />
       )}
 
-      {showModal && (
-        <Modal title={editingId ? "Edit Batch" : "New Batch"} onClose={() => { setShowModal(false); setEditingBatch(null); }} wide={!!editingId}>
+      {showSchedule && (
+        <ScheduleBatchModal
+          recipeId={null}
+          onClose={() => setShowSchedule(false)}
+          onCommitted={async () => { setShowSchedule(false); await refresh(); }}
+        />
+      )}
+
+      {showModal && editingId && (
+        <Modal title="Edit Batch" onClose={() => { setShowModal(false); setEditingBatch(null); }} wide>
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field label="Recipe" required>
               <select className="inp" value={form.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
@@ -324,16 +333,9 @@ export default function BatchLogTab() {
                 <input type="date" className="inp" value={form.planned_brew_date} required
                   onChange={(e) => handleBrewDateChange(e.target.value)} />
               </Field>
-              <Field label="Expected Delivery Date" required={!editingId}>
+              <Field label="Expected Delivery Date">
                 <input type="date" className="inp" value={form.expected_delivery_date}
-                  required={!editingId}
                   onChange={(e) => setForm((f) => ({ ...f, expected_delivery_date: e.target.value }))} />
-                {!editingId && selectedRecipe && (() => {
-                  const leadDays = (selectedRecipe.days_brewhouse ?? 0) + (selectedRecipe.days_fermenter ?? 0) + (selectedRecipe.days_brite ?? 0);
-                  return leadDays > 0
-                    ? <p className="text-xs text-faint mt-1">Auto-set from recipe lead time: {leadDays} days</p>
-                    : null;
-                })()}
               </Field>
             </div>
             {editingBatch?.converted_from_batch_id ? (
@@ -355,33 +357,7 @@ export default function BatchLogTab() {
                   )}
                 </p>
               </Field>
-            ) : (
-              <>
-                <label className="flex items-center gap-2 text-sm text-secondary cursor-pointer select-none">
-                  <input type="checkbox" className="accent-amber-500" checked={isConversionBatch}
-                    onChange={(e) => { setIsConversionBatch(e.target.checked); setForm((f) => ({ ...f, volume_override: "" })); }} />
-                  Conversion batch (set volume directly)
-                </label>
-                {isConversionBatch ? (
-                  <Field label="Volume (BBL)" required>
-                    <input type="number" min="0" step="0.01" className="inp" value={form.volume_override} required
-                      onChange={(e) => setForm((f) => ({ ...f, volume_override: e.target.value }))} />
-                    <p className="text-xs text-muted mt-1">Enter the exact volume received from the source batch.</p>
-                  </Field>
-                ) : (
-                  <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
-                    <input type="number" min="1" step="1" className="inp" value={form.turns} required
-                      onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))} />
-                    <p className="text-xs text-muted mt-1">
-                      Brew volume: <span className="text-body font-medium">{computedVolume} BBL</span>
-                      {selectedRecipe?.expected_yield_bbl && (
-                        <span className="text-faint ml-1">· expected yield {(selectedRecipe.expected_yield_bbl * (parseInt(form.turns) || 1)).toFixed(2)} BBL after shrinkage</span>
-                      )}
-                    </p>
-                  </Field>
-                )}
-              </>
-            )}
+            ) : null}
             <Field label="Notes">
               <textarea className="inp resize-none" rows={2} value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
@@ -428,7 +404,7 @@ export default function BatchLogTab() {
             )}
 
             <ModalActions submitting={submitting} onCancel={() => { setShowModal(false); setEditingBatch(null); }}
-              label={editingId ? "Save Changes" : "Create Batch"} />
+              label="Save Changes" />
           </form>
         </Modal>
       )}

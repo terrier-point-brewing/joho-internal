@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import SubNav from "@/app/components/SubNav";
 import PageHeader from "@/app/components/PageHeader";
 import StickyHeader from "@/app/components/StickyHeader";
@@ -25,8 +26,16 @@ const TOP_TABS: TabDef<ExportTopTab>[] = [
   { key: "adjustments", label: "Adjustments" },
 ];
 
-export default function ExportPage() {
-  const [tab, setTab] = useState<ExportTopTab>("ledger");
+/** The tab lives in the URL (?tab=shipments) so other pages can link to it;
+ *  ?commitment=<id> opens the ledger on that deal (Intake → Commitments links here). */
+function ExportContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const requested = params.get("tab") as ExportTopTab | null;
+  const tab: ExportTopTab = requested && TOP_TABS.some((t) => t.key === requested) ? requested : "ledger";
+  const setTab = (key: ExportTopTab) => router.replace(key === "ledger" ? pathname : `${pathname}?tab=${key}`, { scroll: false });
+  const focusCommitmentId = tab === "ledger" ? params.get("commitment") ?? undefined : undefined;
   const [highlightInvoiceId, setHighlightInvoiceId] = useState<string | undefined>();
 
   function navigateToInvoice(invoiceId: string) {
@@ -45,8 +54,12 @@ export default function ExportPage() {
         <TabBar tabs={TOP_TABS} activeKey={tab} onSelect={setTab} className="mb-0" />
       </StickyHeader>
       <div className="mt-6 pb-4 sm:pb-8">
-        <ExportTab tab={tab} highlightInvoiceId={highlightInvoiceId} onNavigateToInvoice={navigateToInvoice} />
+        <ExportTab tab={tab} focusCommitmentId={focusCommitmentId} highlightInvoiceId={highlightInvoiceId} onNavigateToInvoice={navigateToInvoice} />
       </div>
     </main>
   );
+}
+
+export default function ExportPage() {
+  return <Suspense><ExportContent /></Suspense>;
 }

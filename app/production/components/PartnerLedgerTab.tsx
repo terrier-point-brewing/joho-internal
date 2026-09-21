@@ -473,7 +473,11 @@ const LEDGER_RECIPE_SEARCH: ControlsConfig<LedgerCommitment> = {
   search: [{ param: "q", accessor: (c) => c.recipe_name ?? "" }],
 };
 
-export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateToInvoice: (invoiceId: string) => void }) {
+export default function PartnerLedgerTab({ onNavigateToInvoice, focusCommitmentId }: {
+  onNavigateToInvoice: (invoiceId: string) => void;
+  /** Arriving from Intake → Commitments: show this deal, expanded. */
+  focusCommitmentId?: string;
+}) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: queryKeys.production.partnerLedger() });
   const { data: ledger = [], isPending, error } = useQuery({
@@ -481,12 +485,14 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
     queryFn: () => fetchJson<LedgerPartner[]>("/api/production/partner-ledger"),
   });
 
-  const [view, setView] = useState<View>("attention");
+  // A linked deal may need no attention, so the link opens on "Everything".
+  const [view, setView] = useState<View>(focusCommitmentId ? "all" : "attention");
   const [partnerFilter, setPartnerFilter] = useState<string[]>([]);
   const [recipeQ, setRecipeQ] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(focusCommitmentId ?? null);
   // Billing starts from the row that shows what is unbilled: the same preview
   // modal the Shipments tab uses, fed the deal's uninvoiced shipment ids.
+  const scrolledToFocus = React.useRef(false);
   const [invoiceFor, setInvoiceFor] = useState<string[] | null>(null);
   const [rehome, setRehome] = useState<{ partner: LedgerPartner; shipment: LedgerShipment } | null>(null);
 
@@ -615,7 +621,9 @@ export default function PartnerLedgerTab({ onNavigateToInvoice }: { onNavigateTo
                     const open = expandedId === c.id;
                     return (
                       <React.Fragment key={c.id}>
-                        <tr className="border-b border-line/60 hover:bg-surface/30 cursor-pointer transition-colors align-top" onClick={() => setExpandedId(open ? null : c.id)}>
+                        <tr
+                          ref={c.id === focusCommitmentId ? (el) => { if (el && !scrolledToFocus.current) { scrolledToFocus.current = true; el.scrollIntoView({ block: "center" }); } } : undefined}
+                          className="border-b border-line/60 hover:bg-surface/30 cursor-pointer transition-colors align-top" onClick={() => setExpandedId(open ? null : c.id)}>
                           <td className="px-3 py-2.5 text-muted text-xs">{open ? "▾" : "▸"}</td>
                           <td className="px-3 py-2.5">
                             <div className="text-primary font-medium">{c.recipe_name ?? "—"}{c.is_split && <span className="ml-1.5 text-xs text-muted font-normal">split</span>}</div>

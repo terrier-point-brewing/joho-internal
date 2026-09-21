@@ -5,16 +5,15 @@ import Link from "next/link";
 import PlanTab from "./intake/PlanTab";
 import CommitmentsTab from "./intake/CommitmentsTab";
 import PartnerRequestsTab from "./intake/PartnerRequestsTab";
-import ScheduleBatchForm, { type CommittedBatch } from "./intake/ScheduleBatchForm";
+import ScheduleBatchModal from "./intake/ScheduleBatchModal";
+import type { CommittedBatch } from "./intake/ScheduleBatchForm";
 import Banner from "@/app/components/ui/Banner";
-import { Modal } from "@/app/components/ui/Modal";
 import { fmtDateLong } from "@/lib/utils/formatting";
-import { useRecipesQuery, useEquipmentQuery, useContractPartnersQuery } from "../hooks/queries";
+import { useRecipesQuery, useContractPartnersQuery } from "../hooks/queries";
 import type { IntakeSubtab } from "../intake/page";
 
 export default function IntakeTab({ sub }: { sub: IntakeSubtab }) {
   const { data: recipes = [] }  = useRecipesQuery();
-  const { data: tanks = [] }    = useEquipmentQuery();
   const { data: partners = [] } = useContractPartnersQuery();
 
   // One schedule form for the whole section: a Plan row and a commitment both open it.
@@ -41,17 +40,11 @@ export default function IntakeTab({ sub }: { sub: IntakeSubtab }) {
       )}
 
       {scheduling !== undefined && (
-        <Modal title="Schedule a batch" onClose={() => setScheduling(undefined)} extraWide>
-          <ScheduleBatchForm
-            key={scheduling ?? "new"}
-            recipes={recipes}
-            tanks={tanks}
-            partners={partners}
-            recipeId={scheduling}
-            onCancel={() => setScheduling(undefined)}
-            onCommitted={(batch) => { setCommitted(batch); setScheduling(undefined); }}
-          />
-        </Modal>
+        <ScheduleBatchModal
+          recipeId={scheduling}
+          onClose={() => setScheduling(undefined)}
+          onCommitted={(batch) => { setCommitted(batch); setScheduling(undefined); }}
+        />
       )}
     </>
   );

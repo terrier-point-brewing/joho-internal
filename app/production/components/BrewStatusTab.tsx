@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Equipment, BrewBatch, BatchTankAssignment, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { computeTankVolumes, hasLedgerActivity } from "@/lib/production/volumeLedger";
-import { BREWHOUSE_BBL, Modal, Field, ModalActions } from "./shared";
+import { Modal, Field, ModalActions } from "./shared";
 import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
 import { fmtDate } from "@/lib/utils/formatting";
@@ -24,16 +24,8 @@ import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { STAGE_LABELS } from "./EquipmentSchedule/constants";
 import ToggleChip from "@/app/components/ui/ToggleChip";
+import ScheduleBatchModal from "./intake/ScheduleBatchModal";
 
-
-const BATCH_EMPTY = {
-  recipe_id: "",
-  beer_name: "",
-  planned_brew_date: new Date().toISOString().slice(0, 10),
-  expected_delivery_date: "",
-  turns: "1",
-  notes: "",
-};
 
 const TANK_TYPES = new Set(["fermenter", "brite", "brewhouse"]);
 // Stages whose schedule entries carry a packaging volume that can be fulfilled
@@ -133,60 +125,8 @@ export default function BrewStatusTab() {
   const [gridCols, setGridCols] = useState(GRID_COLS);
   const [gridRows, setGridRows] = useState(GRID_ROWS);
 
-  // New batch modal state
+  // New batches are created by the one Schedule form (tanks + allocations at birth).
   const [showNewBatch, setShowNewBatch] = useState(false);
-  const [batchForm, setBatchForm] = useState(BATCH_EMPTY);
-  const [batchSubmitting, setBatchSubmitting] = useState(false);
-
-  function handleRecipeChange(recipeId: string) {
-    const r = recipes.find((rec) => rec.id === recipeId);
-    const leadDays = r ? ((r.days_brewhouse ?? 0) + (r.days_fermenter ?? 0) + (r.days_brite ?? 0)) : 0;
-    const autoDelivery = leadDays > 0
-      ? (() => {
-          const d = new Date(batchForm.planned_brew_date || new Date().toISOString().slice(0, 10));
-          d.setDate(d.getDate() + leadDays);
-          return d.toISOString().slice(0, 10);
-        })()
-      : "";
-    setBatchForm((f) => ({
-      ...f,
-      recipe_id: recipeId,
-      beer_name: r?.beer_name ?? f.beer_name,
-      turns: "1",
-      expected_delivery_date: autoDelivery || f.expected_delivery_date,
-    }));
-  }
-
-  async function handleNewBatchSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!batchForm.recipe_id) { alert("Please select a recipe."); return; }
-    if (!batchForm.expected_delivery_date) { alert("Expected delivery date is required."); return; }
-    const recipe = recipes.find((r) => r.id === batchForm.recipe_id);
-    const turns = parseInt(batchForm.turns) || 1;
-    const volume_bbl = BREWHOUSE_BBL * turns;
-    setBatchSubmitting(true);
-    try {
-      const payload = {
-        recipe_id:              batchForm.recipe_id,
-        beer_name:              batchForm.beer_name,
-        planned_brew_date:      batchForm.planned_brew_date,
-        expected_delivery_date: batchForm.expected_delivery_date,
-        volume_bbl,
-        turns,
-        notes:                  batchForm.notes || null,
-      };
-      const res = await fetch("/api/production/batches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setShowNewBatch(false);
-      setBatchForm(BATCH_EMPTY);
-      await onBatchCreated();
-      await onRefresh();
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Error saving batch");
-    } finally {
-      setBatchSubmitting(false);
-    }
-  }
 
   // Load shared grid size from server once after mount.
   useEffect(() => {
@@ -486,7 +426,7 @@ export default function BrewStatusTab() {
       <div className="flex items-center justify-between gap-2 mb-4">
         {/* Mobile: New Batch shortcut */}
         <button
-          onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
+          onClick={() => setShowNewBatch(true)}
           className="md:hidden btn-primary"
         >
           + New Batch
@@ -904,7 +844,7 @@ export default function BrewStatusTab() {
                         {!editMode && (
                           <div className="shrink-0">
                             <button
-                              onClick={() => { setBatchForm(BATCH_EMPTY); setShowNewBatch(true); }}
+                              onClick={() => setShowNewBatch(true)}
                               onMouseDown={(e) => e.stopPropagation()}
                               className="btn-primary btn-xxs w-full"
                             >
@@ -1378,68 +1318,13 @@ export default function BrewStatusTab() {
         />
       )}
 
-      {/* New batch modal (triggered from Backlog) */}
+      {/* New batch (triggered from Backlog) */}
       {showNewBatch && (
-        <Modal title="New Batch" onClose={() => setShowNewBatch(false)}>
-          <form onSubmit={handleNewBatchSubmit} className="space-y-4">
-            <Field label="Recipe" required>
-              <select className="inp" value={batchForm.recipe_id} onChange={(e) => handleRecipeChange(e.target.value)} required>
-                <option value="">— select a recipe —</option>
-                {recipes.map((r) => (
-                  <option key={r.id} value={r.id}>{r.beer_name}{r.partner?.company_name ? ` · ${r.partner.company_name}` : ""}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Beer Name" required>
-              <input className="inp" value={batchForm.beer_name} required
-                onChange={(e) => setBatchForm((f) => ({ ...f, beer_name: e.target.value }))} />
-            </Field>
-            <Field label="Planned Brew Date" required>
-              <input type="date" className="inp" value={batchForm.planned_brew_date} required
-                onChange={(e) => {
-                  const newDate = e.target.value;
-                  setBatchForm((f) => {
-                    const recipe = recipes.find((r) => r.id === f.recipe_id);
-                    const leadDays = recipe ? ((recipe.days_brewhouse ?? 0) + (recipe.days_fermenter ?? 0) + (recipe.days_brite ?? 0)) : 0;
-                    const autoDelivery = leadDays > 0 && newDate
-                      ? (() => { const d = new Date(newDate); d.setDate(d.getDate() + leadDays); return d.toISOString().slice(0, 10); })()
-                      : f.expected_delivery_date;
-                    return { ...f, planned_brew_date: newDate, expected_delivery_date: autoDelivery };
-                  });
-                }} />
-            </Field>
-            <Field label="Expected Delivery Date" required>
-              <input type="date" className="inp" value={batchForm.expected_delivery_date} required
-                onChange={(e) => setBatchForm((f) => ({ ...f, expected_delivery_date: e.target.value }))} />
-              {batchForm.recipe_id && (() => {
-                const recipe = recipes.find((r) => r.id === batchForm.recipe_id);
-                const leadDays = recipe ? ((recipe.days_brewhouse ?? 0) + (recipe.days_fermenter ?? 0) + (recipe.days_brite ?? 0)) : 0;
-                return leadDays > 0 ? (
-                  <p className="text-xs text-faint mt-1">Auto-set from recipe lead time: {leadDays} days</p>
-                ) : null;
-              })()}
-            </Field>
-            <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
-              <input type="number" min="1" step="1" className="inp" value={batchForm.turns} required
-                onChange={(e) => setBatchForm((f) => ({ ...f, turns: e.target.value }))} />
-              {(() => {
-                const r = recipes.find((r) => r.id === batchForm.recipe_id);
-                const brewVol = (BREWHOUSE_BBL * (parseInt(batchForm.turns) || 1)).toFixed(2);
-                const expectedYield = r?.expected_yield_bbl != null ? (r.expected_yield_bbl * (parseInt(batchForm.turns) || 1)).toFixed(2) : null;
-                return (
-                  <p className="text-xs text-muted mt-1">
-                    Brew volume: <span className="text-body font-medium">{brewVol} BBL</span>
-                    {expectedYield && <span className="text-faint ml-1">· expected yield {expectedYield} BBL after shrinkage</span>}
-                  </p>
-                );
-              })()}</Field>
-            <Field label="Notes">
-              <textarea className="inp resize-none" rows={2} value={batchForm.notes}
-                onChange={(e) => setBatchForm((f) => ({ ...f, notes: e.target.value }))} />
-            </Field>
-            <ModalActions submitting={batchSubmitting} onCancel={() => setShowNewBatch(false)} label="Create Batch" />
-          </form>
-        </Modal>
+        <ScheduleBatchModal
+          recipeId={null}
+          onClose={() => setShowNewBatch(false)}
+          onCommitted={async () => { setShowNewBatch(false); await onBatchCreated(); await onRefresh(); }}
+        />
       )}
 
       {/* Upcoming plans for a single piece of equipment */}
