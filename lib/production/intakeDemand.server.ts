@@ -15,7 +15,7 @@ import {
   buildDemandCalendar,
   type BatchInflow, type CommitmentDemand, type DemandRow,
 } from "@/app/production/lib/demandCalendar";
-import type { CommitmentChannel, Recipe, SafetyStockFloor } from "@/app/production/types";
+import type { CommitmentChannel, Recipe } from "@/app/production/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbClient = { from: (table: string) => any };
@@ -100,9 +100,8 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
     return res.data ?? [];
   };
 
-  const [recipesRes, floorsRes, commitmentsRes, batchesRes, retiredRes] = await Promise.all([
+  const [recipesRes, commitmentsRes, batchesRes, retiredRes] = await Promise.all([
     supabase.from("recipes").select("*"),
-    supabase.from("safety_stock_floors").select("*"),
     supabase.from("commitments")
       .select("id, recipe_id, channel, volume_bbl, desired_delivery_date")
       .eq("status", "open"),
@@ -113,7 +112,6 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
   ]);
   const retired = new Set(must<{ recipe_id: string }>("taproom settings", retiredRes).map((r) => r.recipe_id));
   const recipes = must<Recipe>("recipes", recipesRes);
-  const floors = must<SafetyStockFloor>("safety stock", floorsRes);
   const openCommitments = must<{ id: string; recipe_id: string | null; channel: CommitmentChannel; volume_bbl: number; desired_delivery_date: string | null }>("commitments", commitmentsRes);
   const activeBatches = must<{ id: string; batch_number: string | null; recipe_id: string | null; turns: number | null; volume_bbl: number | null; expected_delivery_date: string | null; converted_from_batch_id: string | null }>("batches", batchesRes);
   const recipeById = new Map(recipes.map((r) => [r.id, r]));
@@ -210,7 +208,7 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
 
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const rows: PlanRow[] = buildDemandCalendar({
-    currentBblByRecipe, commitments, batchInflows, recipes, safetyFloors: floors,
+    currentBblByRecipe, commitments, batchInflows, recipes,
     taproomDailyBblByRecipe, taproomCurrentBblByRecipe, today,
   }).map((row) => {
     const mine = commitments.filter((c) => c.recipe_id === row.recipe_id);

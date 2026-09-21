@@ -50,7 +50,6 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
   // and the bulk paths stay at manage. See inventory-write-gates.test.ts.
   ingredientMasterCreate: { scope: "production.inventory", level: "operate" },
   packagingMasterCreate: { scope: "production.inventory", level: "operate" },
-  safetyStockManage: { scope: "production.inventory", level: "manage" },
   inventoryOperate: { scope: "production.inventory", level: "operate" },
 
   equipmentManage: { scope: "production.equipment", level: "manage" },
