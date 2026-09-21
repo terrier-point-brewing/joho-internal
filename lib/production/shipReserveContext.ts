@@ -124,7 +124,7 @@ export async function loadShipReserveContext(
       // shipped. Caps the credit alongside booked so a batch that finished below
       // its booked estimate (shrinkage) cannot keep absorbing other batches' beer.
       const realizable = (Number(a.percentage) / 100) * (producedByBatch[a.batch_id] ?? 0);
-      const realizableRemainingBbl = channel === "contract_brewing" ? Math.max(0, realizable - exported) : null;
+      const realizableRemainingBbl = Math.max(0, realizable - exported);
       const depositSettled = channel === "contract_brewing" ? !!a.invoice_paid_at : undefined;
       return { allocationId: a.id, batchId: a.batch_id, channel, bookedRemainingBbl, realizableRemainingBbl, depositSettled, _createdAt: a.brew_batches.created_at };
     })

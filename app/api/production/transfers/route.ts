@@ -436,6 +436,8 @@ async function reconcileSchedule(
   // and silently drop the floorplan tile (the RPC always releases the from_tank
   // assignment; see the reassignment block below).
   let tankVolsForSrc: Record<string, number> = {};
+  // Everything that has left from_tank_id for this batch (volume + shrinkage).
+  let departedFromSrc = 0;
   if (from_tank_id) {
     const { data: batchVolRow } = await supabase.from("brew_batches").select("volume_bbl").eq("id", batch_id).single();
     const { data: allBatchLedger } = await supabase
@@ -443,6 +445,9 @@ async function reconcileSchedule(
       .select("batch_id, from_tank_id, to_tank_id, to_batch_id, volume_bbl, shrinkage_bbl, transferred_at")
       .or(`batch_id.eq.${batch_id},to_batch_id.eq.${batch_id}`);
     tankVolsForSrc = computeTankVolumes(batch_id, Number(batchVolRow?.volume_bbl ?? 0), allBatchLedger ?? []);
+    departedFromSrc = (allBatchLedger ?? [])
+      .filter((t) => t.batch_id === batch_id && t.from_tank_id === from_tank_id && t.to_tank_id !== from_tank_id)
+      .reduce((sum, t) => sum + Number(t.volume_bbl) + Number(t.shrinkage_bbl ?? 0), 0);
   }
 
   // 2. Handle departure (from_tank drains to zero — close out its schedule entry).
@@ -489,9 +494,12 @@ async function reconcileSchedule(
 
         const activeEntry = activeEntries?.[0];
         if (activeEntry) {
+          // Partial draws overwrite volume_bbl with "still in the tank". A closed
+          // entry means "what passed through", so put the total back — otherwise
+          // it keeps the last partial figure (B-034 showed 13.9 bbl in an empty tank).
           await supabase
             .from("batch_schedule_entries")
-            .update({ actual_end: today })
+            .update({ actual_end: today, ...(departedFromSrc > 0.001 ? { volume_bbl: departedFromSrc } : {}) })
             .eq("id", activeEntry.id);
           scheduleUpdate.push({ action: "actual_end_set", entry_id: activeEntry.id, equipment_name: srcTankInfo.name });
           // Deliberately NOT closing activeEntry.downstream_entry_id here. The

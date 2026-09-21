@@ -199,7 +199,9 @@ export default function GanttTab() {
     // Unified bar: always spans barStart→barEnd as one visual element.
     // "Split point" separates the solid (actual/elapsed) left from the dashed (planned/remaining) right.
     const barStart    = aStart ?? pStart;
-    const barEnd      = pEnd;
+    // Once the beer has left, the bar ends there — a finished stage must not
+    // keep the tank looking booked out to its old planned end.
+    const barEnd      = aEnd ?? pEnd;
     const splitPoint  = aEnd ?? (aStart ? today : null); // where solid ends
 
     const barOffset = differenceInDays(barStart, viewStart);
