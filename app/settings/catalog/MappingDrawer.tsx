@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { useSquareMappingGridQuery, invalidateSquareMappings, fetchJson } from "@/app/production/hooks/queries";
+import { useSquareMappingGridQuery, invalidateSquareMappings, patchSquareMappingCell, fetchJson } from "@/app/production/hooks/queries";
 import type { MappingCellVariation } from "@/app/production/types";
 import { applyControls } from "@/lib/table/applyControls";
 import type { ControlsConfig } from "@/lib/table/types";
@@ -213,6 +213,15 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
         const json = await res.json().catch(() => ({}));
         throw new Error((json as { error?: string }).error ?? "Save failed");
       }
+      // Confirmed — draw it now; the refetch below fills in the rest.
+      const saved = (await res.json()) as { id: string };
+      patchSquareMappingCell(qc, recipeId, colKey, v.variationId, {
+        linkId: saved.id,
+        linkedSquareName: sv ? `${sv.item_name}${sv.variation_name ? ` · ${sv.variation_name}` : ""}` : v.linkedSquareName,
+        suggestion: null,
+        ignored: false,
+        ignoreId: null,
+      });
       setPendingSelections((p) => {
         const n = { ...p };
         delete n[v.variationId];
@@ -239,6 +248,9 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Remove failed");
+      patchSquareMappingCell(qc, recipeId, colKey, v.variationId, {
+        linkId: null, linkedSquareCatalogVariationId: null, linkedSquareName: null, shared: null,
+      });
       invalidateSquareMappings(qc);
     } catch (err) {
       setErrors((e) => ({ ...e, [v.variationId]: (err as Error).message }));
@@ -262,6 +274,8 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
         const json = await res.json().catch(() => ({}));
         throw new Error((json as { error?: string }).error ?? "Ignore failed");
       }
+      const ignore = (await res.json().catch(() => null)) as { id?: string } | null;
+      patchSquareMappingCell(qc, recipeId, colKey, v.variationId, { ignored: true, ignoreId: ignore?.id ?? null });
       invalidateSquareMappings(qc);
     } catch (err) {
       setErrors((e) => ({ ...e, [v.variationId]: (err as Error).message }));
@@ -278,6 +292,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Un-ignore failed");
+      patchSquareMappingCell(qc, recipeId, colKey, v.variationId, { ignored: false, ignoreId: null });
       invalidateSquareMappings(qc);
     } catch (err) {
       setErrors((e) => ({ ...e, [v.variationId]: (err as Error).message }));
