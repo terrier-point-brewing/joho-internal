@@ -33,6 +33,9 @@ function verdict(row: PlanRow): { label: string; tone: Tone; needsBatch: boolean
   return { label: "OK", tone: "success", needsBatch: false };
 }
 
+/** Does this beer belong on the "Needs a batch" list? (Also the Plan tab's count.) */
+export const needsBatch = (row: PlanRow) => verdict(row).needsBatch;
+
 const batchLabel = (b: PlanRow["incoming"][number]) => `${b.batch_number ? `#${b.batch_number}` : "A batch"} lands ${fmtDateLong(b.lands_on)} (+${b.bbl.toFixed(1)})`;
 
 /** The "Runs out" cell answers one thing: is there anything to do, and by when? */
