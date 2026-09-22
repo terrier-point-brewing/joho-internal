@@ -37,14 +37,21 @@ interface Props {
    *  tips + bonus), from the Summary tab's effective totals. Drives the taproom
    *  check below; omit it and that block simply doesn't render. */
   appTaproomWagesCents?: number | null;
+  /** Names of the staff behind appTaproomWagesCents (the bartender table).
+   *  A Gusto Bonus line for one of them booked under a non-taproom department
+   *  is still money the app expects, so it's added to the Gusto side. */
+  appStaffNames?: { firstName: string; lastName: string }[];
 }
+
+const nameKey = (first: string, last: string) => `${first.trim()} ${last.trim()}`.toLowerCase();
 
 // Upload/parse a Gusto payroll journal CSV for this pay period, and show the
 // audit trail (parsed employees, GL totals, unmapped-department warnings,
 // and reconciliation against expenses already matched to this period).
-export function GustoUploadPanel({ periodId, appTaproomWagesCents = null }: Props) {
+export function GustoUploadPanel({ periodId, appTaproomWagesCents = null, appStaffNames = [] }: Props) {
   const [accounts, setAccounts] = useState<CoARef[]>([]);
   const [taproomAccountId, setTaproomAccountId] = useState<string | null>(null);
+  const [departmentAccounts, setDepartmentAccounts] = useState<Map<string, string>>(new Map());
   const [state, setState] = useState<GustoReportState | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -65,7 +72,16 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null }: Prop
       setState(report as GustoReportState);
       // Best-effort: the taproom check is an extra, so a settings read that
       // fails shouldn't take the upload panel down with it.
-      setTaproomAccountId(settingsRes.ok ? ((await settingsRes.json())?.taproomAccountId ?? null) : null);
+      const settings = settingsRes.ok ? await settingsRes.json() : null;
+      setTaproomAccountId(settings?.taproomAccountId ?? null);
+      setDepartmentAccounts(
+        new Map(
+          ((settings?.mappings ?? []) as { department_name: string; chart_of_accounts_id: string }[]).map((m) => [
+            m.department_name.trim(),
+            m.chart_of_accounts_id,
+          ]),
+        ),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load Gusto report.");
     } finally {
@@ -135,8 +151,23 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null }: Prop
         .reduce((s, t) => s + t.amount_cents, 0)
     : null;
   const gustoTipsCents = totals.filter((t) => t.bucket_kind === "tips").reduce((s, t) => s + t.amount_cents, 0);
+  // A bartender-table employee whose Gusto department maps elsewhere (e.g. a
+  // salaried manager who also pulls shifts) has their Bonus folded into that
+  // other account's wages, where the taproom filter above can't see it. The
+  // app still expects it, so it comes back in here. Taproom-mapped departments
+  // are skipped — their bonus is already inside gustoTaproomWagesCents.
+  const appStaffKeys = new Set(appStaffNames.map((n) => nameKey(n.firstName, n.lastName)));
+  const gustoOffAccountBonusCents = taproomAccountId
+    ? employees
+        .filter(
+          (e) =>
+            appStaffKeys.has(nameKey(e.first_name, e.last_name)) &&
+            departmentAccounts.get(e.department.trim()) !== taproomAccountId,
+        )
+        .reduce((s, e) => s + (e.bonus_cents ?? 0), 0)
+    : 0;
   const gustoTaproomTotalCents =
-    gustoTaproomWagesCents === null ? null : gustoTaproomWagesCents + gustoTipsCents;
+    gustoTaproomWagesCents === null ? null : gustoTaproomWagesCents + gustoTipsCents + gustoOffAccountBonusCents;
   const showTaproomCheck =
     report != null && appTaproomWagesCents !== null && gustoTaproomTotalCents !== null;
   const taproomVarianceCents = showTaproomCheck ? appTaproomWagesCents! - gustoTaproomTotalCents! : 0;
@@ -220,7 +251,8 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null }: Prop
                   </tr>
                   <tr className="border-b border-line">
                     <td className="py-2 px-3 text-body">
-                      Gusto paid ({accountLabel(accounts, taproomAccountId!)} + tips)
+                      Gusto paid ({accountLabel(accounts, taproomAccountId!)} + tips
+                      {gustoOffAccountBonusCents > 0 && ` + ${fmtCents(gustoOffAccountBonusCents)} bonus booked elsewhere`})
                     </td>
                     <td className="py-2 px-3 text-right font-mono text-body">{fmtCents(gustoTaproomTotalCents!)}</td>
                   </tr>

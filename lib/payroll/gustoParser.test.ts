@@ -155,6 +155,15 @@ describe("parseGustoPayrollJournal", () => {
     expect(hastings?.grossAmountCents).toBe(25354); // Regular only; unchanged by tips
   });
 
+  it("records the Bonus sub-row in bonusCents while still folding it into grossAmountCents", () => {
+    const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
+    const carver = parsed.employees.find((e) => e.lastName === "Carver");
+    const hastings = parsed.employees.find((e) => e.lastName === "Hastings");
+    expect(carver?.bonusCents).toBe(767);
+    expect(carver?.grossAmountCents).toBe(6423); // 5656 Regular + 767 Bonus
+    expect(hastings?.bonusCents).toBe(0);
+  });
+
   it("leaves paycheckTipsCents at 0 for employees with no Paycheck Tips sub-row", () => {
     const parsed = parseGustoPayrollJournal(SAMPLE_CSV);
     const ashford = parsed.employees.find((e) => e.lastName === "Ashford");

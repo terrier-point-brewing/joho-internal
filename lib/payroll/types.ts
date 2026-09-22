@@ -181,6 +181,8 @@ export interface PayrollGlReportEmployee {
   pay_type: string | null;
   gross_amount_cents: number;
   employer_tax_cents: number;
+  /** Gusto "Bonus" sub-rows for this employee; already inside gross_amount_cents. */
+  bonus_cents: number;
 }
 
 export interface PayrollGlReportTotal {
