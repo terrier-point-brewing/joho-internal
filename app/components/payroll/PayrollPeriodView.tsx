@@ -206,7 +206,14 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
       ) : activeTab === "gustoUpload" ? (
         // Wages only — cash tips never move company money, so they're excluded
         // from both sides of the taproom check (see GustoUploadPanel).
-        <GustoUploadPanel periodId={periodId} appTaproomWagesCents={taproomBasisCents} />
+        <GustoUploadPanel
+          periodId={periodId}
+          appTaproomWagesCents={taproomBasisCents}
+          appStaffNames={entries.flatMap((e) => {
+            const emp = empById.get(e.employee_id);
+            return emp ? [{ firstName: emp.first_name, lastName: emp.last_name }] : [];
+          })}
+        />
       ) : (
         <>
           {/* Cash-tips basis toggle: actual (drives bonus) vs Gusto-reported (÷ ratio) */}

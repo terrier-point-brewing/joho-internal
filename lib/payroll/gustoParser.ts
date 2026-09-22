@@ -60,6 +60,10 @@ export interface ParsedGustoEmployee {
    *  employee has no Paycheck Tips sub-row. Never folded into grossAmountCents —
    *  tips are a balance-sheet pass-through, not wage expense. */
   paycheckTipsCents: number;
+  /** Sum of this employee's "Bonus" sub-rows, in cents. ALSO folded into
+   *  grossAmountCents (a bonus is wage expense); kept separately so the taproom
+   *  check can see a bonus Gusto booked under a non-taproom department. */
+  bonusCents: number;
   // ── Cash-movement columns ────────────────────────────────────────────────
   // The fields above describe what payroll COST (they drive the GL buckets).
   // These describe what LEAVES THE BANK, which is a different number and the
@@ -240,6 +244,7 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
         grossAmountCents: parseAmountCents(cell(row, COL.amount)),
         employerTaxCents: parseAmountCents(cell(row, COL.employerTaxes)),
         paycheckTipsCents: 0,
+        bonusCents: 0,
         // Cash columns live ONLY on the employee's own row — the blank-Last-Name
         // sub-rows leave every one of them empty (verified against the real
         // export), so they are read here and never accumulated below. That also
@@ -264,6 +269,7 @@ export function parseGustoPayrollJournal(csvText: string): ParsedGustoReport {
     if (label === "Bonus" || label === "Commission" || label === "Additional Earnings") {
       const amountCents = parseAmountCents(cell(row, COL.amount));
       current.grossAmountCents += amountCents;
+      if (label === "Bonus") current.bonusCents += amountCents;
       wageSubRowCents.set(label, (wageSubRowCents.get(label) ?? 0) + amountCents);
     } else if (label === "Paycheck Tips") {
       current.paycheckTipsCents += parseAmountCents(cell(row, COL.amount));

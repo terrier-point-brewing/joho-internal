@@ -137,6 +137,7 @@ export async function uploadGustoReport(sb: SupabaseClient, input: UploadGustoRe
         pay_type: employee.payType,
         gross_amount_cents: employee.grossAmountCents,
         employer_tax_cents: employee.employerTaxCents,
+        bonus_cents: employee.bonusCents,
       })),
     );
     if (employeesError) {
