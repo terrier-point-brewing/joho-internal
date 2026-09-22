@@ -666,8 +666,13 @@ export default function DraftStatsTab() {
             // has beer and only greys out (dashed "retired" style) once it hits
             // critical (empty / ≤3 days) — a retired keg is meant to blow, not
             // be reordered. An unassigned slot stays neutral "none".
+            // A tap with beer on hand but no pours yet has no rate to forecast
+            // from (daysLeft null) — that is "fresh", not critical; only a null
+            // forecast with nothing left on tap is truly critical.
+            const hasBeer = (tap?.metrics?.current_fl_oz ?? 0) > 0;
             const urgency: DraftUrgency =
               !tap?.recipe_id                      ? "none"
+              : daysLeft === null && hasBeer       ? "fresh"
               : daysLeft === null || daysLeft <= 3 ? (isRetired ? "retired" : "critical")
               : daysLeft <= 7                      ? "low"
               : "good";
@@ -853,7 +858,7 @@ export default function DraftStatsTab() {
                       <div>
                         <span className="text-faint">days left</span>
                         <p className={`tabular-nums font-semibold ${daysLeftCls}`}>
-                          {daysLeft !== null ? `~${daysLeft}d` : "—"}
+                          {daysLeft !== null ? `~${daysLeft}d` : urgency === "fresh" ? "no pours yet" : "—"}
                         </p>
                       </div>
                     </div>
