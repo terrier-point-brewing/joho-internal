@@ -66,4 +66,42 @@ describe("aggregateDailyTips", () => {
     expect(rows.find(r => r.date === "2026-07-16")?.tipsPooledCents).toBe(0);
     expect(rows.find(r => r.date === "2026-07-17")).toBeUndefined();
   });
+
+  it("adds an order's automatic gratuity to the day's pool (Sep 24 large party)", () => {
+    const rows = aggregateDailyTips(
+      [{ id: "pay", status: "COMPLETED", created_at: "2026-09-24T22:00:29Z", tip_money: { amount: 0 } }],
+      [],
+      [{
+        id: "ord", state: "COMPLETED", created_at: "2026-09-24T22:00:29Z",
+        tenders: [{ payment_id: "pay" }],
+        service_charges: [{ type: "AUTO_GRATUITY", name: "20% for Large Parties", applied_money: { amount: 15298, currency: "USD" } }],
+      }]
+    );
+    expect(rows.find(r => r.date === "2026-09-24")?.tipsPooledCents).toBe(15298);
+  });
+
+  it("ignores CUSTOM service charges and non-COMPLETED orders", () => {
+    const rows = aggregateDailyTips([], [], [
+      { id: "a", state: "COMPLETED", created_at: "2026-09-24T22:00:29Z",
+        service_charges: [{ type: "CUSTOM", applied_money: { amount: 5000, currency: "USD" } }] },
+      { id: "b", state: "CANCELED", created_at: "2026-09-24T22:00:29Z",
+        service_charges: [{ type: "AUTO_GRATUITY", applied_money: { amount: 5000, currency: "USD" } }] },
+    ]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("a refund comes out of the tip first, then the auto gratuity, never below zero", () => {
+    const orders = [{
+      id: "ord", state: "COMPLETED", created_at: "2026-09-24T22:00:29Z",
+      tenders: [{ payment_id: "pay" }],
+      service_charges: [{ type: "AUTO_GRATUITY", applied_money: { amount: 1000, currency: "USD" } }],
+    }];
+    const pay = [{ id: "pay", status: "COMPLETED", created_at: "2026-09-24T22:00:29Z", tip_money: { amount: 300 } }];
+    const pool = (refund: number) =>
+      aggregateDailyTips(pay, [{ payment_id: "pay", status: "COMPLETED", amount_money: { amount: refund } }], orders)
+        .find(r => r.date === "2026-09-24")?.tipsPooledCents;
+    expect(pool(200)).toBe(100 + 1000);   // tip absorbs it
+    expect(pool(700)).toBe(0 + 600);      // tip gone, 400 out of gratuity
+    expect(pool(5000)).toBe(0);           // full refund: nothing pooled
+  });
 });
