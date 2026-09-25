@@ -117,6 +117,7 @@ function makeChain(rows: Record<string, unknown>[], filterKey?: string) {
 function fakeClient(t: Record<string, Record<string, unknown>[]>): SupabaseClient {
   const filterKeys: Record<string, string> = {
     payroll_gl_report_totals: "report_id",
+    payroll_gl_report_employees: "report_id",
     expenses: "id",
     expense_gl_splits: "expense_id",
   };
@@ -184,6 +185,7 @@ describe("getPeriodSummaries", () => {
       gustoTaproomWagesCents: 15000,
       gustoSalariedWagesCents: 40000,
       gustoTipsCents: 500,
+      gustoOffAccountBonusCents: 0,
       gustoEmployerTaxCents: 3000,
       gustoTotalCents: 58500, // 15000 + 40000 + 500 + 3000
       // 15700 − (15000 taproom + 500 tips). The residual is the bonus: the app
@@ -252,5 +254,43 @@ describe("getPeriodSummaries", () => {
     expect(a.taproomVarianceCents).toBeNull();
     expect(a.gustoSalariedWagesCents).toBe(55000); // every wage bucket, still adding to the total
     expect(a.gustoTotalCents).toBe(58500);
+  });
+  it("adds a bartender-table employee's bonus back when Gusto booked it under a non-taproom department", async () => {
+    // A salaried taproom manager who also pulls shifts: Gusto files her under
+    // Sales & Admin, so her $10.38 bonus sits in the salaried wage bucket. The
+    // app's bartender table expects it, so without the add-back the taproom
+    // check shows a 1038-cent variance that is nothing but her bonus.
+    const summaries = await getPeriodSummaries(
+      fakeClient({
+        ...reportFixture(CONFIGURED),
+        payroll_entries: [
+          { pay_period_id: "A", employee_id: "emp-bar", hours_worked: 10, paycheck_tips_cents: 500, cash_tips_cents: 100, bonus_cents: 0 },
+          { pay_period_id: "A", employee_id: "emp-mgr", hours_worked: 0, paycheck_tips_cents: 0, cash_tips_cents: 0, bonus_cents: 1038 },
+        ],
+        employees: [
+          { id: "emp-bar", first_name: "Dylan", last_name: "Wolford" },
+          { id: "emp-mgr", first_name: "Aliza", last_name: "Wolford" },
+        ],
+        payroll_department_gl_mappings: [
+          { department_name: "Front of House", chart_of_accounts_id: "coa-taproom" },
+          { department_name: "Sales & Admin", chart_of_accounts_id: "coa-salaried" },
+        ],
+        payroll_gl_report_totals: [
+          { report_id: "r1", chart_of_accounts_id: "coa-taproom", amount_cents: 10000, bucket_kind: "wages" },
+          { report_id: "r1", chart_of_accounts_id: "coa-salaried", amount_cents: 41038, bucket_kind: "wages" },
+          { report_id: "r1", chart_of_accounts_id: "coa-tips-liability", amount_cents: 500, bucket_kind: "tips" },
+        ],
+        payroll_gl_report_employees: [
+          { report_id: "r1", first_name: "Dylan", last_name: "Wolford", department: "Front of House", bonus_cents: 0 },
+          { report_id: "r1", first_name: "Aliza ", last_name: "wolford", department: "Sales & Admin", bonus_cents: 1038 },
+          { report_id: "r1", first_name: "Chris", last_name: "Atkins", department: "Production", bonus_cents: 5000 },
+        ],
+      }),
+    );
+
+    const a = summaries.find((s) => s.id === "A")!;
+    expect(a.appWagesCents).toBe(11538); // 10000 base + 500 paycheck + 1038 bonus
+    expect(a.gustoOffAccountBonusCents).toBe(1038); // Aliza only — Chris isn't in the bartender table
+    expect(a.taproomVarianceCents).toBe(0); // 11538 − (10000 + 500 + 1038)
   });
 });
