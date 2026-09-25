@@ -294,6 +294,22 @@ describe("planShipment", () => {
     ]);
   });
 
+  it("soft allocation is held to its realizable share → over_booked beyond it", () => {
+    // Fortnight on B-027: 12.5% of 36.34 produced = 4.54 bbl share. A 6.5 bbl
+    // shipment must not park the extra 1.96 on the allocation uncapped.
+    const plan = planShipment({
+      requestedBbl: 6.5,
+      candidates: [{ allocationId: "S", batchId: "b1", channel: "distribution", bookedRemainingBbl: null, realizableRemainingBbl: 4.54 }],
+      perBatchDrawBbl: [{ batchId: "b1", drawBbl: 6.5 }],
+      batches: [contractBatch()],
+    });
+    expect(plan.credits).toEqual([
+      { allocationId: "S", bbl: 4.54, overAllocation: false },
+      { allocationId: null, bbl: 1.96, overAllocation: true },
+    ]);
+    expect(plan.warnings.find((x) => x.type === "over_booked")).toMatchObject({ overBbl: 1.96 });
+  });
+
   it("a deposit holder consuming its own reserve does not warn", () => {
     const b = batch({
       batchId: "b1",
@@ -517,7 +533,9 @@ describe("planShipment — back-to-back batches of one recipe", () => {
     expect(plan.credits).toEqual([{ allocationId: "new", bbl: 3, overAllocation: false }]);
   });
 
-  it("fills each soft share, then keeps the overflow on the drawn batch — never over-delivery", () => {
+  it("fills each soft share, drawn batch first; the rest is over-delivery that needs a home", () => {
+    // Parking the overflow on the drawn allocation uncapped let Fortnight's
+    // 12.5% of B-027 carry 52% of the batch with the breakdown unchanged.
     const plan = planShipment({
       requestedBbl: 7.33,
       candidates: [{ ...older, realizableRemainingBbl: 1 }, newer],
@@ -525,10 +543,11 @@ describe("planShipment — back-to-back batches of one recipe", () => {
       batches: [],
     });
     expect(plan.credits).toEqual([
-      { allocationId: "new", bbl: 6.33, overAllocation: false },
+      { allocationId: "new", bbl: 3.26, overAllocation: false },
       { allocationId: "old", bbl: 1, overAllocation: false },
+      { allocationId: null, bbl: 3.07, overAllocation: true },
     ]);
-    expect(hasType(plan.warnings, "over_booked")).toBe(false);
+    expect(plan.warnings.find((x) => x.type === "over_booked")).toMatchObject({ overBbl: 3.07 });
   });
 
   it("a filled older soft allocation no longer absorbs the shipment", () => {

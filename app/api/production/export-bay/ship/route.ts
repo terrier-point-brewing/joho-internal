@@ -34,8 +34,8 @@ interface ShipRequest extends ShipLinesInput {
 
 // POST /api/production/export-bay/ship
 // Ships finished goods to a contract/wholesale/distribution partner, CREDITING
-// that partner's allocations (contract up to booked, soft absorbs, over-delivery
-// flagged). Accepts several packaging variations of the same recipe in one
+// that partner's allocations (contract up to booked, every channel up to its
+// share; beyond that the beer must be given a home first). Accepts several packaging variations of the same recipe in one
 // shipment — e.g. 2× 1/2 keg and 3× 1/6 keg of the same beer against one
 // allocation. Delegates the deplete → credit → write pipeline to the shared
 // writeColdStorageShipment; returns the created rows plus reserve advisories.

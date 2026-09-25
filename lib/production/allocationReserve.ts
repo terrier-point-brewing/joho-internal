@@ -6,7 +6,12 @@
 // the definite amount owed is `percentage × actual produced`, and the produced
 // beer must be reserved so an early soft (wholesale/distribution) shipment can't
 // strand a deposit holder. Wholesale/distribution allocations are SOFT — no
-// deposit, billed at product price for whatever ships — so they carry no cap.
+// deposit, billed at product price for whatever ships — so they carry no
+// BOOKING cap, but they are still held to the share the batch actually made:
+// beer beyond that is over-delivery and must be given a home (the share moves
+// on the batch) before it ships, exactly like a contract over-ship. Fortnight's
+// 12.5% of B-027 silently absorbed 20.84 bbl (52%) while the breakdown still
+// read 100% — the batch's picture has to move with the beer.
 //
 // See docs/superpowers/plans/2026-07-04-allocation-reserve-and-shipping-warnings.md.
 // Decisions of record: produced = sum(volume_bbl) net fill (no shrinkage
@@ -171,7 +176,7 @@ export type ShipmentWarning =
   // A complete batch no longer holds enough beer to settle what its deposit
   // holders are still owed — beer went somewhere else.
   | { type: "reserve_shortfall"; batchId: string; onHandBbl: number; owedBbl: number }
-  // Shipped beyond every bookable claim (contract booked, with no soft allocation to absorb).
+  // Shipped beyond every claim: contract booked, or any allocation's realizable share.
   | { type: "over_booked"; overBbl: number };
 
 export interface ShipmentCandidate {
@@ -183,8 +188,8 @@ export interface ShipmentCandidate {
   // batch has ACTUALLY made. `booked` is a pre-shrinkage estimate, so a fully
   // delivered batch keeps a booked remainder equal to its shrinkage; crediting
   // against that lets one batch absorb another batch's beer. Undefined on
-  // legacy callers → this term does not cap. Soft channels fill to this share
-  // batch by batch; only the overflow beyond every share lands uncapped.
+  // legacy callers → this term does not cap. Soft channels are held to this
+  // share too; beyond every share the beer is over-delivery and needs a home.
   realizableRemainingBbl?: number | null;
   /**
    * Contract only: the allocation's ingredient deposit has been paid (or the
@@ -215,11 +220,11 @@ export interface ShipmentPlan {
 /**
  * Plans how a shipment is credited across a partner's allocations and which
  * advisory warnings it raises. Contract allocations are credited up to their
- * booked remaining; soft allocations fill to each batch's share with the overflow
- * kept on the first-ranked one; the drawn batch is credited first; anything beyond all bookable
- * claims becomes an explicit over-delivery record (never inflates an allocation
- * past its booked amount). Pure — no I/O; the caller supplies produced/exported
- * figures and the simulated FIFO draw.
+ * booked remaining; soft allocations fill to each batch's share; the drawn batch
+ * is credited first; anything beyond every claim becomes an explicit
+ * over-delivery record (never inflates an allocation past its booking or its
+ * share). Pure — no I/O; the caller supplies produced/exported figures and the
+ * simulated FIFO draw.
  */
 export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
   const credits: ShipmentCredit[] = [];
@@ -256,11 +261,10 @@ export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
       : realizableCap;
     take(c, cap);
   }
-  // A soft channel has no booking to breach, so beer beyond every soft share
-  // stays on the partner's first-ranked soft allocation rather than becoming
-  // over-delivery — but only after each batch's own share has been filled.
-  const softHome = ordered.find((c) => !isDepositBacked(c.channel));
-  if (bblLeft > EPS && softHome) take(softHome, Infinity);
+  // Beyond every share — soft or contract — the beer is over-delivery. It used
+  // to be parked on the first soft allocation uncapped, which let a 12.5%
+  // allocation quietly carry 52% of the batch; now the ship route makes the
+  // operator give it a home so the percentages move with the beer.
   if (bblLeft > EPS) {
     credits.push({ allocationId: null, bbl: round4(bblLeft), overAllocation: true });
     warnings.push({ type: "over_booked", overBbl: round4(bblLeft) });

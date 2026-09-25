@@ -1559,7 +1559,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                   const enough = h.freeBbl + 0.0001 >= over.bbl;
                   const disabled = h.requires === "refund" || !enough;
                   const who = h.kind === "unallocated" ? "Unallocated share of the batch"
-                    : h.kind === "self" ? "This commitment's own unshipped share (nothing moves; the booking rises)"
+                    : h.kind === "self" ? "This commitment's own unshipped share (nothing moves; the booking catches up)"
                     : h.partnerName ?? (h.channel === "taproom" ? "Taproom" : h.channel === "safety_stock" ? "Safety stock" : h.channel ?? "");
                   return (
                     <label key={key} className={`flex items-start gap-2 text-xs ${disabled ? "text-faint" : "text-body cursor-pointer"}`}>
