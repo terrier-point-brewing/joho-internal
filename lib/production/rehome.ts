@@ -17,7 +17,8 @@ import { recheckCommitmentFulfillment } from "./commitmentFulfillment";
  *   source   −Δpct   (unless the source is the unallocated remainder)
  *   target   +Δpct
  *   booking  +bbl    (the commitment's volume_bbl, so owed's cap rises with it;
- *                     not when the target's own share already covered it)
+ *                     from the target's own share it only catches up to
+ *                     credited + bbl, so it never invents volume)
  * and, when re-homing rows that already shipped, those rows are credited to
  * the target instead of standing as over-delivery.
  */
@@ -247,16 +248,28 @@ export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs):
     if (tErr) throw new Error(tErr.message);
   }
 
-  // The booking rises only when share is actually taken from somewhere. If
-  // the target's own share already covered the beer ("self"), the deal was
-  // sized right all along — bumping it would invent volume the partner never
-  // asked for (B-063 read 5.67 booked after a 0.50 self re-home; it was 5.17).
+  // Taking share from somewhere raises the booking by the bbl. From the
+  // target's own share ("self") the booking only CATCHES UP: it becomes
+  // max(current, already credited + bbl). Adding bbl blindly invented volume
+  // (B-063 read 5.67 after a 0.50 self re-home of a row its 5.17 already
+  // covered, #585); never raising it left a contract over-ship on an
+  // over-yielding batch still over after the "home" was chosen, so the ship
+  // route wrote an over-delivery row anyway.
   let bookedBbl: number | null = null;
-  if (target.contract_request_id && source.kind !== "self") {
+  if (target.contract_request_id) {
     const current = Number((target.commitments as unknown as { volume_bbl?: number | null } | null)?.volume_bbl ?? 0);
-    bookedBbl = round2(current + Number(args.bbl));
-    const { error } = await supabase.from("commitments").update({ volume_bbl: bookedBbl }).eq("id", target.contract_request_id);
-    if (error) throw new Error(error.message);
+    let next = round2(current + Number(args.bbl));
+    if (source.kind === "self") {
+      const { data: credited } = await supabase
+        .from("export_transactions").select("volume_bbl").eq("allocation_id", target.id);
+      const creditedBbl = (credited ?? []).reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0);
+      next = round2(Math.max(current, creditedBbl + Number(args.bbl)));
+    }
+    if (Math.abs(next - current) > EPS) {
+      const { error } = await supabase.from("commitments").update({ volume_bbl: next }).eq("id", target.contract_request_id);
+      if (error) throw new Error(error.message);
+      bookedBbl = next;
+    }
   }
 
   let rehomedRows = 0;

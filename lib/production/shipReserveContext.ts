@@ -265,7 +265,13 @@ export async function simulateShipment(
 
   let over: SimulatedShipment["over"] = null;
   if (overBbl > 1e-4 && !noCommitment) {
-    const target = candidates.find((c) => c.channel === "contract_brewing") ?? candidates[0] ?? null;
+    // Grow the allocation on the batch the beer actually comes from when the
+    // partner has one there; a home on another batch moves the wrong picture.
+    const onDrawn = (c: ShipmentCandidate) => perBatchDrawBbl.some((d) => d.batchId === c.batchId && d.drawBbl > 1e-4);
+    const target = candidates.find((c) => c.channel === "contract_brewing" && onDrawn(c))
+      ?? candidates.find(onDrawn)
+      ?? candidates.find((c) => c.channel === "contract_brewing")
+      ?? candidates[0] ?? null;
     let targetAllocationId: string | null = target?.allocationId ?? null;
     let batchId: string | null = target?.batchId ?? perBatchDrawBbl[0]?.batchId ?? null;
     if (!target) {
