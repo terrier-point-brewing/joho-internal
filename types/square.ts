@@ -198,6 +198,26 @@ export interface OrderReturn {
   };
 }
 
+// Square applies an "automatic gratuity" (e.g. 20% for large parties) as an
+// order-level service charge, NOT as tip_money — so tip reports miss it unless
+// it is read from here. `type` is AUTO_GRATUITY for those; CUSTOM otherwise.
+export interface OrderServiceCharge {
+  uid?: string;
+  name?: string;
+  type?: "AUTO_GRATUITY" | "CUSTOM" | string;
+  applied_money?: Money;
+  total_money?: Money;
+  total_tax_money?: Money;
+  taxable?: boolean;
+}
+
+export interface OrderTender {
+  id?: string;
+  type?: string;
+  payment_id?: string;
+  amount_money?: Money;
+}
+
 export interface Order {
   id: string;
   location_id: string;
@@ -218,6 +238,8 @@ export interface Order {
   returns?: OrderReturn[];
   discounts?: OrderDiscount[];
   taxes?: OrderTax[];
+  service_charges?: OrderServiceCharge[];
+  tenders?: OrderTender[];
   total_money?: Money;
   total_tax_money?: Money;
   total_discount_money?: Money;
