@@ -5,6 +5,7 @@ import Badge from "@/app/components/ui/Badge";
 import { fmtCents } from "@/lib/utils/formatting";
 import type { CoARef } from "@/app/finance/AccountSelect";
 import type { PayrollGlReport, PayrollGlReportTotal, PayrollGlReportEmployee } from "@/lib/payroll/types";
+import { computeOffAccountBonusCents, staffNameKey } from "@/lib/payroll/offAccountBonus";
 
 interface MatchedExpense {
   expenseId: string;
@@ -43,7 +44,6 @@ interface Props {
   appStaffNames?: { firstName: string; lastName: string }[];
 }
 
-const nameKey = (first: string, last: string) => `${first.trim()} ${last.trim()}`.toLowerCase();
 
 // Upload/parse a Gusto payroll journal CSV for this pay period, and show the
 // audit trail (parsed employees, GL totals, unmapped-department warnings,
@@ -151,21 +151,10 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null, appSta
         .reduce((s, t) => s + t.amount_cents, 0)
     : null;
   const gustoTipsCents = totals.filter((t) => t.bucket_kind === "tips").reduce((s, t) => s + t.amount_cents, 0);
-  // A bartender-table employee whose Gusto department maps elsewhere (e.g. a
-  // salaried manager who also pulls shifts) has their Bonus folded into that
-  // other account's wages, where the taproom filter above can't see it. The
-  // app still expects it, so it comes back in here. Taproom-mapped departments
-  // are skipped — their bonus is already inside gustoTaproomWagesCents.
-  const appStaffKeys = new Set(appStaffNames.map((n) => nameKey(n.firstName, n.lastName)));
-  const gustoOffAccountBonusCents = taproomAccountId
-    ? employees
-        .filter(
-          (e) =>
-            appStaffKeys.has(nameKey(e.first_name, e.last_name)) &&
-            departmentAccounts.get(e.department.trim()) !== taproomAccountId,
-        )
-        .reduce((s, e) => s + (e.bonus_cents ?? 0), 0)
-    : 0;
+  // A bonus Gusto booked under a non-taproom department for a bartender-table
+  // employee — see lib/payroll/offAccountBonus.ts.
+  const appStaffKeys = new Set(appStaffNames.map((n) => staffNameKey(n.firstName, n.lastName)));
+  const gustoOffAccountBonusCents = computeOffAccountBonusCents(employees, appStaffKeys, departmentAccounts, taproomAccountId);
   const gustoTaproomTotalCents =
     gustoTaproomWagesCents === null ? null : gustoTaproomWagesCents + gustoTipsCents + gustoOffAccountBonusCents;
   const showTaproomCheck =

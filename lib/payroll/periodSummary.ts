@@ -14,6 +14,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PayPeriod, PayPeriodSummary } from "./types";
+import { computeOffAccountBonusCents, staffNameKey } from "./offAccountBonus";
 
 /** Default drift/reconciliation tolerance: $1. Gusto debit timing and per-entry
  *  cent rounding make sub-dollar variance meaningless. */
@@ -106,12 +107,16 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
     { data: settingsRow },
     { data: reportRows },
     { data: matchRows },
+    { data: employeeRows },
+    { data: mappingRows },
   ] = await Promise.all([
     sb.from("payroll_config").select("effective_from, base_rate_cents"),
-    sb.from("payroll_entries").select("pay_period_id, hours_worked, paycheck_tips_cents, cash_tips_cents, bonus_cents"),
+    sb.from("payroll_entries").select("pay_period_id, employee_id, hours_worked, paycheck_tips_cents, cash_tips_cents, bonus_cents"),
     sb.from("payroll_gl_settings").select("payroll_taxes_chart_of_accounts_id, taproom_chart_of_accounts_id").maybeSingle(),
     sb.from("payroll_gl_reports").select("id, pay_period_id, uploaded_at, original_filename").is("superseded_at", null),
     sb.from("payroll_period_expense_matches").select("pay_period_id, expense_id"),
+    sb.from("employees").select("id, first_name, last_name"),
+    sb.from("payroll_department_gl_mappings").select("department_name, chart_of_accounts_id"),
   ]);
 
   const configs = (configRows ?? []) as { effective_from: string; base_rate_cents: number }[];
@@ -121,9 +126,23 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
   const taxesAccountId = settings?.payroll_taxes_chart_of_accounts_id ?? null;
   const taproomAccountId = settings?.taproom_chart_of_accounts_id ?? null;
 
+  const staffKeyById = new Map(
+    ((employeeRows ?? []) as { id: string; first_name: string; last_name: string }[]).map((e) => [
+      e.id,
+      staffNameKey(e.first_name, e.last_name),
+    ]),
+  );
+  const departmentAccounts = new Map(
+    ((mappingRows ?? []) as { department_name: string; chart_of_accounts_id: string }[]).map((m) => [
+      m.department_name.trim(),
+      m.chart_of_accounts_id,
+    ]),
+  );
+
   // entries grouped by period
-  const entriesByPeriod = new Map<string, BasisEntry[]>();
-  for (const e of (entryRows ?? []) as ({ pay_period_id: string } & BasisEntry)[]) {
+  type EntryRow = { pay_period_id: string; employee_id: string } & BasisEntry;
+  const entriesByPeriod = new Map<string, EntryRow[]>();
+  for (const e of (entryRows ?? []) as EntryRow[]) {
     const arr = entriesByPeriod.get(e.pay_period_id) ?? [];
     arr.push(e);
     entriesByPeriod.set(e.pay_period_id, arr);
@@ -137,8 +156,10 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
     if (!cur || r.uploaded_at > cur.uploaded_at) reportByPeriod.set(r.pay_period_id, r);
   }
 
-  // report GL totals for the active reports
+  // report GL totals and per-employee rows for the active reports
   const activeReportIds = [...reportByPeriod.values()].map((r) => r.id);
+  type ReportEmployee = { report_id: string; first_name: string; last_name: string; department: string; bonus_cents: number | null };
+  const employeesByReport = new Map<string, ReportEmployee[]>();
   const totalsByReport = new Map<string, { chart_of_accounts_id: string; amount_cents: number; bucket_kind: string | null }[]>();
   if (activeReportIds.length > 0) {
     const { data: totalRows } = await sb
@@ -149,6 +170,15 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
       const arr = totalsByReport.get(t.report_id) ?? [];
       arr.push({ chart_of_accounts_id: t.chart_of_accounts_id, amount_cents: t.amount_cents, bucket_kind: t.bucket_kind });
       totalsByReport.set(t.report_id, arr);
+    }
+    const { data: reportEmployeeRows } = await sb
+      .from("payroll_gl_report_employees")
+      .select("report_id, first_name, last_name, department, bonus_cents")
+      .in("report_id", activeReportIds);
+    for (const e of (reportEmployeeRows ?? []) as ReportEmployee[]) {
+      const arr = employeesByReport.get(e.report_id) ?? [];
+      arr.push(e);
+      employeesByReport.set(e.report_id, arr);
     }
   }
 
@@ -222,9 +252,16 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
     // them, so a gap is a real finding rather than a definitional artifact.
     // The whole tips bucket belongs to the taproom side — tipped staff are
     // exactly the staff the app has shifts for.
+    // A bartender-table employee's bonus that Gusto booked under a non-taproom
+    // department sits in the salaried slice above, where the taproom filter
+    // can't see it. The app still expects it — see lib/payroll/offAccountBonus.ts.
+    const appStaffKeys = new Set(entries.flatMap((e) => staffKeyById.get(e.employee_id) ?? []));
+    const gustoOffAccountBonusCents = report
+      ? computeOffAccountBonusCents(employeesByReport.get(report.id) ?? [], appStaffKeys, departmentAccounts, taproomAccountId)
+      : null;
     const gustoTaproomTotalCents =
       gustoTaproomWagesCents !== null && gustoTipsCents !== null
-        ? gustoTaproomWagesCents + gustoTipsCents
+        ? gustoTaproomWagesCents + gustoTipsCents + (gustoOffAccountBonusCents ?? 0)
         : null;
     const taproomVarianceCents =
       basis && gustoTaproomTotalCents !== null ? basis.wagesCents - gustoTaproomTotalCents : null;
@@ -241,6 +278,7 @@ export async function getPeriodSummaries(sb: SupabaseClient): Promise<PayPeriodS
       gustoTaproomWagesCents,
       gustoSalariedWagesCents,
       gustoTipsCents,
+      gustoOffAccountBonusCents,
       gustoEmployerTaxCents: employerTaxCents,
       reportUploadedAt: report?.uploaded_at ?? null,
       reportFilename: report?.original_filename ?? null,

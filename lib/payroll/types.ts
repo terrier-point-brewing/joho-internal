@@ -79,11 +79,16 @@ export interface PayPeriodSummary extends PayPeriod {
   /** Paycheck tips from the active Gusto report — a balance-sheet pass-through,
    *  but real money in the bank debit, so it belongs in the total. */
   gustoTipsCents: number | null;
+  /** Bonus Gusto booked under a non-taproom department for a bartender-table
+   *  employee (a salaried manager who also pulls shifts). Lives inside
+   *  gustoSalariedWagesCents but the app expects it, so the taproom check adds
+   *  it back. Null if no report. */
+  gustoOffAccountBonusCents: number | null;
   /** Employer payroll-tax total from the active Gusto report; null if no report or no taxes account configured. */
   gustoEmployerTaxCents: number | null;
   reportUploadedAt: string | null;
   reportFilename: string | null;
-  /** appWagesCents − (gustoTaproomWagesCents + gustoTipsCents); null if either
+  /** appWagesCents − (gustoTaproomWagesCents + gustoTipsCents + gustoOffAccountBonusCents); null if either
    *  side is missing. Tips count on both sides — they're disbursed through the
    *  paycheck and the app has its own tip-pool expectation for them. */
   taproomVarianceCents: number | null;
