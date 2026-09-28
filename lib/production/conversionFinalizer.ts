@@ -135,7 +135,6 @@ export async function createConversionTargetBatch(
   const { data: child, error } = await supabase
     .from("brew_batches")
     .insert({
-      beer_name:               beerName,
       recipe_id:               recipeId,
       volume_bbl:              volumeBbl,
       status:                  "planning",

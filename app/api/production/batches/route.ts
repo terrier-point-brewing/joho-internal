@@ -18,7 +18,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log:brew_activities(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
+    .select("*, beer_name, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log:brew_activities(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
     .order("planned_brew_date", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const {
-    beer_name, planned_brew_date, expected_delivery_date, turns,
+    planned_brew_date, expected_delivery_date, turns,
     status = "planning", notes, recipe_id,
     converted_from_batch_id, converted_volume_bbl,
   } = body;
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
   // Always fetch recipe lead time — used for delivery date and brewhouse schedule entry.
   const { data: recipeData, error: recipeErr } = await supabase
     .from("recipes")
-    .select("days_brewhouse, days_fermenter, days_brite")
+    .select("beer_name, days_brewhouse, days_fermenter, days_brite")
     .eq("id", recipe_id)
     .single();
   if (recipeErr) return NextResponse.json({ error: recipeErr.message }, { status: 500 });
@@ -109,7 +109,6 @@ export async function POST(req: NextRequest) {
   // the initial status, and consume recipe ingredients with cost tracking.
   const { data: batch, error: batchErr } = await supabase
     .rpc("create_batch_with_consumption", {
-      p_beer_name:              beer_name,
       p_planned_brew_date:      planned_brew_date ?? null,
       p_expected_delivery_date: resolvedDeliveryDate,
       p_volume_bbl:             volume_bbl,
@@ -218,7 +217,7 @@ export async function POST(req: NextRequest) {
   if (resolvedDeliveryDate) {
     squareInvoiceId = await createBatchSquareProject(supabase, {
       batchId: batch.id,
-      beerName: beer_name,
+      beerName: recipeData.beer_name,
       volumeBbl: volume_bbl,
       plannedBrewDate: planned_brew_date,
       expectedDeliveryDate: resolvedDeliveryDate,
@@ -228,7 +227,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log:brew_activities(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
+    .select("*, beer_name, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log:brew_activities(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
     .eq("id", batch.id)
     .single();
 

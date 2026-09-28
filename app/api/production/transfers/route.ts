@@ -1255,11 +1255,13 @@ export async function POST(req: NextRequest) {
           .eq("id", targetBatchId);
       }
     }
-    if (!targetBatchId && new_batch?.beer_name && new_batch?.recipe_id) {
+    if (!targetBatchId && new_batch?.recipe_id) {
       try {
+        const { data: newRecipe } = await supabase
+          .from("recipes").select("beer_name").eq("id", new_batch.recipe_id).maybeSingle();
         targetBatchId = await createConversionTargetBatch(supabase, {
           sourceBatchId: batch_id,
-          beerName:      new_batch.beer_name,
+          beerName:      (newRecipe as { beer_name: string | null } | null)?.beer_name ?? "Converted batch",
           recipeId:      new_batch.recipe_id,
           volumeBbl:     convertedVol,
           conversionDate: new_batch.conversion_date || new Date().toISOString().split("T")[0],

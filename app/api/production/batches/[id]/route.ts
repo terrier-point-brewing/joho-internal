@@ -23,7 +23,7 @@ export async function PATCH(
   // Whitelist updatable columns — never trust the raw body (prevents
   // overwriting id/batch_number/created_at via mass assignment).
   const UPDATABLE = [
-    "beer_name", "planned_brew_date", "expected_delivery_date",
+    "planned_brew_date", "expected_delivery_date",
     "volume_bbl", "turns", "status", "notes", "recipe_id",
     "ibu", "color_srm", "original_gravity", "final_gravity", "dissolved_oxygen_ppb",
   ] as const;
@@ -156,7 +156,7 @@ export async function PATCH(
 
   const { data, error: fetchErr } = await supabase
     .from("brew_batches")
-    .select("*, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log:brew_activities(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
+    .select("*, beer_name, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log:brew_activities(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
     .eq("id", id)
     .single();
 
