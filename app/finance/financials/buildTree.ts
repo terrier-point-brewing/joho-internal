@@ -37,6 +37,8 @@ export interface TreeNode {
   isSection: boolean;
   /** Marks an operator-entered exception line broken out from its parent account's own postings (currently only a manual entry -- see lib/finance/financials/manualAdjustment.ts). Like a channel slice it is a DECOMPOSITION of the parent's already-rolled-up total, not an extra addend on top of it; FinancialsTable renders it italic so it reads as an exception building INTO the account rather than as a real sub-account of its own. */
   isAdjustment?: boolean;
+  /** A management-reporting memo line (currently only EBITDA). It is NOT one of the statement's real subtotals: nothing below it sums from it and Net Income is computed without it. FinancialsTable renders it italic so it reads as a side calculation rather than a figure the statement chains through. */
+  isMemo?: boolean;
 }
 
 /** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below), to sort siblings by GL number, and to seed a real-but-currently-unused root account as a $0 line (see seedEmptyRootAccounts). `statementSection` is the SAME derived value aggregateRows.ts's coaSection() would assign this account if it ever got a posting -- computed once server-side (buildFinancials.ts) for every CoA account, not just posted-to ones. */
@@ -499,6 +501,18 @@ function buildPl(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): Tr
   const grossProfit = subtotal("Gross Profit", [revenue, cogs], months);
 
   const opEx = buildSection(rows, "expenses", "Operating Expenses", months, coaMap);
+  // Operating Income = Gross Profit - Operating Expenses. Other Income sits
+  // outside it for the same reason it sits outside Gross Profit (I1 above):
+  // interest earned is not an operating result.
+  const operatingIncome = subtotal("Operating Income", [revenue, cogs, opEx], months);
+  // EBITDA = Operating Income + depreciation & amortization booked ABOVE it.
+  // Interest and income taxes have no operating accounts in this chart (they
+  // are Other Income / Other Expense, already below Operating Income), so the
+  // only add-back is D&A. Today the derived depreciation row posts to an
+  // Other Expense account (GL 7020), which is also below the line, so the
+  // add-back is $0 and EBITDA equals Operating Income; it activates on its
+  // own if a schedule is ever pointed at a COGS or Operating Expense account.
+  const ebitda = memo("EBITDA", [operatingIncome, depreciationAddBack([cogs, opEx], months)], months);
   const otherExp = buildSection(rows, "other_expense", "Other Expenses", months, coaMap);
   // M1: rows whose statementSection isn't one of the 5 known P&L sections
   // (unrecognized/missing CoA accountType) still render, and still count
@@ -509,7 +523,24 @@ function buildPl(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): Tr
   const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, BS_KNOWN_SECTIONS, months, coaMap);
   const netIncome = subtotal("Net Income", [revenue, otherIncome, cogs, opEx, otherExp, other], months);
 
-  return [revenue, otherIncome, totalIncome, cogs, grossProfit, opEx, otherExp, other, netIncome];
+  return [revenue, otherIncome, totalIncome, cogs, grossProfit, opEx, operatingIncome, ebitda, otherExp, other, netIncome];
+}
+
+/** The derived depreciation rows (lib/finance/financials/derivedStatementRows.ts, sourceRef.table "depreciation_schedules") found anywhere inside the given sections, negated so they ADD BACK to a subtotal that already deducted them. Walks the whole subtree because a schedule's account may be nested under a grouping account. */
+function depreciationAddBack(sections: TreeNode[], months: string[]): TreeNode {
+  const found: FinancialsRow[] = [];
+  const walk = (n: TreeNode) => {
+    if (n.row && n.row.sourceRef?.table === "depreciation_schedules") found.push(n.row);
+    n.children.forEach(walk);
+  };
+  sections.forEach(walk);
+  const summed = sumRows(found, months, { coaId: null, parentId: null, accountName: "D&A add-back", statementSection: "other", channel: "unknown" });
+  return { row: negateRow(summed), label: "D&A add-back", children: [], depth: 0, isSection: false };
+}
+
+/** A memo line: a subtotal-shaped node flagged isMemo (see TreeNode). Summed like any subtotal, but no later subtotal includes it. */
+function memo(label: string, parts: TreeNode[], months: string[]): TreeNode {
+  return { ...subtotal(label, parts, months), isMemo: true };
 }
 
 function buildCashFlow(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): TreeNode[] {
