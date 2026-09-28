@@ -31,14 +31,13 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  // Ad-hoc is for beer that leaves with no partner behind it (taproom pulls).
-  // A partner shipment always sits inside a commitment: that is what the
-  // deposit, the crediting, the ledger and its warnings hang off. A partner
-  // with no commitment for this beer gets one on Intake → Commitments, an
-  // allocation on the batch, and then ships from that card.
+  // This route is taproom pulls only. A partner shipment always sits inside a
+  // commitment — the deposit, the crediting, the ledger and its warnings hang
+  // off it — so the Ad-Hoc Export modal sends partners through
+  // /export-bay/ship, which books a commitment on the spot when there is none.
   if (channel !== "taproom") {
     return NextResponse.json(
-      { error: "Ad-hoc export is taproom-only. Ship to a partner from their allocation card; if they have no commitment for this beer, create one on Intake → Commitments and allocate it to the batch first." },
+      { error: "This route ships to the taproom only. Choose \"A partner\" in Ad-Hoc Export to ship to a partner; it books a commitment if they have none." },
       { status: 422 },
     );
   }

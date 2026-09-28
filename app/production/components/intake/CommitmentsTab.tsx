@@ -539,6 +539,17 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
     alert(body.error ?? "Couldn't delete this commitment");
   }
 
+  // A deal booked at the Export Bay as it shipped: nothing to change, just
+  // someone who sells saying the price and terms stand.
+  async function handleConfirm(q: ContractBrewingRequest) {
+    const r = await fetch(`/api/production/contract-requests?id=${q.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ review_needed_at: null }),
+    });
+    if (r.ok) { load(); return; }
+    const body = await r.json().catch(() => ({}));
+    alert(body.error ?? "Couldn't confirm this commitment");
+  }
+
   function scheduleLabel(q: ContractBrewingRequest): string {
     return q.desired_delivery_date ? fmtDateLong(q.desired_delivery_date) : "—";
   }
@@ -614,7 +625,14 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                   <td className="px-4 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
                   <td className="px-4 py-2.5"><StageBadge stage={stageOf(q)} /></td>
                   <td className="px-4 py-2.5 text-primary font-medium">{q.recipe_name || "—"}</td>
-                  <td className="px-4 py-2.5 text-body">{q.contract_brewing_partners?.company_name ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-body">
+                    {q.contract_brewing_partners?.company_name ?? "—"}
+                    {q.review_needed_at && (
+                      <div className="text-xs text-accent-soft whitespace-nowrap" title="Booked at the Export Bay as the beer shipped. Check the price and terms, then Confirm.">
+                        Booked at the Export Bay
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-body tabular-nums">{Number(q.volume_bbl)}</td>
                   <td className="px-4 py-2.5">
                     <ProgressCell q={q} />
@@ -649,6 +667,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                     <div className="flex items-center gap-1 whitespace-nowrap">
                       {/* Every drop, invoice and share for this deal lives in the ledger — linked, not rebuilt here. */}
                       {q.partner_id && <Link href={`/production/export?commitment=${q.id}`} className="btn-secondary btn-xxs">History</Link>}
+                      {q.review_needed_at && <button onClick={() => handleConfirm(q)} className="btn-primary btn-xxs">Confirm</button>}
                       <button onClick={() => setEditing(q)} className="btn-secondary btn-xxs">Edit</button>
                       <button onClick={() => handleDelete(q)} className="btn-danger btn-xxs">Delete</button>
                     </div>

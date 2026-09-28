@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
-import type { AvailableInventoryLine, BatchAllocation, ExportChannel } from "../types";
+import type { AvailableInventoryLine, BatchAllocation } from "../types";
 import { assessWriteOff, type ShipmentWarning } from "@/lib/production/allocationReserve";
 import type { HomesForBatch } from "@/lib/production/rehome";
 import { queryKeys } from "@/lib/query-keys";
@@ -1364,7 +1364,7 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
 // ── ShipModal ──────────────────────────────────────────────────────────────────
 
 function ShipModal({ group, inventoryLines, onClose, onDone }: {
-  group: CustomerRecipeGroup;
+  group: Pick<CustomerRecipeGroup, "partnerId" | "partnerName" | "recipeId" | "recipeName">;
   inventoryLines: AvailableInventoryLine[];
   onClose: () => void;
   onDone: () => void;
@@ -1386,10 +1386,17 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
     unpaidDepositBatches?: { batchId: string; batchNumber: string | null; allocationId: string }[];
     noCommitment?: boolean;
     over?: { bbl: number; targetAllocationId: string | null; homes: HomesForBatch } | null;
+    book?: { bbl: number; homes: HomesForBatch | null; refusal: string | null } | null;
   } | null>(null);
   // Beer beyond the booking has to take its share from somewhere on the
   // batch before it ships; the operator picks the source here.
   const [homeSource, setHomeSource] = useState<string>(""); // "unallocated" | allocation id
+  // No commitment at all: the shipment books one on the spot (see bookCommitmentForShipment).
+  const book = preview?.noCommitment ? (preview.book ?? null) : null;
+  const [bookChannel, setBookChannel] = useState<"contract_brewing" | "distribution">("contract_brewing");
+  const [bookSource,  setBookSource]  = useState<string>("");
+  const chosenBookSource = book?.homes?.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === bookSource) ?? null;
+  const bookOk = !book || (!!book.homes && !!chosenBookSource && chosenBookSource.requires !== "refund" && chosenBookSource.freeBbl + 0.0001 >= book.bbl);
   const over = preview?.over ?? null;
   const overNeedsHome = !!over && over.bbl > 0.0001;
   const chosenHome = over?.homes.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === homeSource) ?? null;
@@ -1399,6 +1406,8 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   // records that the beer left on credit.
   const [ackUnpaidDeposit, setAckUnpaidDeposit] = useState(false);
   const unpaidDeposit = preview?.unpaidDepositBatches ?? [];
+  // A contract commitment booked on the spot has, by definition, no deposit paid.
+  const bookNeedsDepositAck = !!book && bookChannel === "contract_brewing";
 
   // Only complete lines are worth previewing or submitting.
   const filledLines = shipLines
@@ -1440,7 +1449,13 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           recipe_id:  group.recipeId,
           lines:      filledLines,
           notes:      notes || null,
-          acknowledge_unpaid_deposit: unpaidDeposit.length > 0 ? ackUnpaidDeposit : undefined,
+          acknowledge_unpaid_deposit: unpaidDeposit.length > 0 || bookNeedsDepositAck ? ackUnpaidDeposit : undefined,
+          book: book && chosenBookSource
+            ? {
+                channel: bookChannel,
+                source: chosenBookSource.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocation_id: chosenBookSource.allocationId },
+              }
+            : undefined,
           home: overNeedsHome && chosenHome && over?.targetAllocationId
             ? {
                 target_allocation_id: over.targetAllocationId,
@@ -1534,12 +1549,49 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <label className="text-xs text-secondary block mb-1">Notes</label>
             <input className="inp w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
-          {preview?.noCommitment && (
-            <div className="rounded border border-danger-border bg-danger-surface/30 px-3 py-2">
-              <p className="text-xs font-medium text-danger">No commitment for this beer</p>
-              <p className="text-xs text-secondary">
-                A partner shipment always sits inside a commitment. Create one on Intake → Commitments, allocate it to the batch, and ship from that card.
+          {book && (
+            <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1.5">
+              <p className="text-xs font-medium text-accent-soft">
+                No commitment for this beer — this shipment books one for {book.bbl.toFixed(2)} bbl
               </p>
+              {book.refusal ? (
+                <p className="text-xs text-danger">{book.refusal}</p>
+              ) : book.homes && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-secondary">Channel</label>
+                    <select className="inp-sm" value={bookChannel} onChange={(e) => setBookChannel(e.target.value as "contract_brewing" | "distribution")}>
+                      <option value="contract_brewing">Contract brewing</option>
+                      <option value="distribution">Distribution</option>
+                    </select>
+                  </div>
+                  <p className="text-xs text-secondary">
+                    Its share of #{book.homes.batchNumber ?? "?"} comes from:
+                  </p>
+                  <div className="space-y-1">
+                    {book.homes.sources.map((h) => {
+                      const key = h.kind === "unallocated" ? "unallocated" : (h.allocationId ?? "");
+                      const enough = h.freeBbl + 0.0001 >= book.bbl;
+                      const disabled = h.requires === "refund" || !enough;
+                      const who = h.kind === "unallocated" ? "Unallocated share of the batch"
+                        : h.partnerName ?? (h.channel === "taproom" ? "Taproom" : h.channel === "safety_stock" ? "Safety stock" : h.channel ?? "");
+                      return (
+                        <label key={key} className={`flex items-start gap-2 text-xs ${disabled ? "text-faint" : "text-body cursor-pointer"}`}>
+                          <input type="radio" name="book-home" className="mt-0.5" disabled={disabled} checked={bookSource === key} onChange={() => setBookSource(key)} />
+                          <span>
+                            {who} · {h.freeBbl.toFixed(2)} bbl free
+                            {h.requires === "refund" && " — deposit paid; refund part of it in Batch Log first"}
+                            {h.requires === "regenerate_deposit" && " — their draft deposit invoice will need regenerating"}
+                            {!enough && h.requires !== "refund" && " — not enough"}
+                          </span>
+                        </label>
+                      );
+                    })}
+                    {book.homes.sources.length === 0 && <p className="text-xs text-danger">Nothing on this batch can give up share.</p>}
+                  </div>
+                  <p className="text-xs text-faint">The commitment is flagged for someone on Intake → Commitments to confirm its price and terms.</p>
+                </>
+              )}
             </div>
           )}
           {overNeedsHome && over && (
@@ -1577,10 +1629,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
               </div>
             </div>
           )}
-          {unpaidDeposit.length > 0 && (
+          {(unpaidDeposit.length > 0 || bookNeedsDepositAck) && (
             <div className="rounded border border-danger-border bg-danger-surface/30 px-3 py-2 space-y-1.5">
               <p className="text-xs font-medium text-danger">
-                Deposit not paid — {unpaidDeposit.map((u) => `#${u.batchNumber ?? u.batchId.slice(0, 8)}`).join(", ")}
+                Deposit not paid{unpaidDeposit.length > 0 ? ` — ${unpaidDeposit.map((u) => `#${u.batchNumber ?? u.batchId.slice(0, 8)}`).join(", ")}` : " — new commitment"}
               </p>
               <p className="text-xs text-secondary">
                 This shipment credits a contract allocation whose ingredient deposit has not been paid.
@@ -1607,10 +1659,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button
               type="submit"
-              disabled={submitting || inventoryLines.length === 0 || filledLines.length === 0 || preview?.insufficientStock || (unpaidDeposit.length > 0 && !ackUnpaidDeposit) || preview?.noCommitment || !homeOk}
+              disabled={submitting || inventoryLines.length === 0 || filledLines.length === 0 || preview?.insufficientStock || ((unpaidDeposit.length > 0 || bookNeedsDepositAck) && !ackUnpaidDeposit) || (preview?.noCommitment && !book?.homes) || !bookOk || !homeOk}
               className="btn-primary"
             >
-              {submitting ? "Shipping…" : overNeedsHome ? `Re-home ${over!.bbl.toFixed(2)} bbl and ship` : unpaidDeposit.length > 0 ? "Ship before deposit" : "Ship"}
+              {submitting ? "Shipping…" : book ? "Book and ship" : overNeedsHome ? `Re-home ${over!.bbl.toFixed(2)} bbl and ship` : unpaidDeposit.length > 0 ? "Ship before deposit" : "Ship"}
             </button>
           </div>
         </form>
@@ -1631,7 +1683,10 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
   const { data: partners = [] } = useContractPartnersQuery();
 
   const recipeIds = [...inventoryByRecipe.keys()];
-  const [channel,       setChannel]       = useState<ExportChannel>("taproom");
+  // Taproom pulls ship here; a partner hands off to the same Ship flow an
+  // allocation card opens, which books a commitment when there is none.
+  const [channel,       setChannel]       = useState<"taproom" | "partner">("taproom");
+  const [shipTo,        setShipTo]        = useState<{ partnerId: string; partnerName: string; recipeId: string; recipeName: string } | null>(null);
   const [partnerId,     setPartnerId]     = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [recipeId,      setRecipeId]      = useState(recipeIds[0] ?? "");
@@ -1652,17 +1707,24 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
     e.preventDefault();
     setError(null);
 
-    // A partner with an allocation for this beer is refused by the route (409)
-    // and told to ship from the allocation card; the message lands in `error`.
+    if (channel === "partner") {
+      setShipTo({
+        partnerId,
+        partnerName: partners.find((p) => p.id === partnerId)?.company_name ?? "partner",
+        recipeId,
+        recipeName: recipeNameById.get(recipeId) ?? "Unknown recipe",
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await fetch("/api/production/export-bay/ship-adhoc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channel,
-          partner_id:     channel === "taproom" ? null : partnerId,
-          recipient_name: channel === "taproom" ? (recipientName || null) : null,
+          channel:        "taproom",
+          recipient_name: recipientName || null,
           recipe_id:      recipeId,
           variation_id:   variationId,
           quantity:       parseFloat(quantity),
@@ -1678,22 +1740,28 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
     }
   }
 
+  if (shipTo) {
+    return <ShipModal group={shipTo} inventoryLines={linesForRecipe} onClose={onClose} onDone={onDone} />;
+  }
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div className="bg-surface border border-line-strong rounded-lg p-5 w-full max-w-md space-y-4">
         <h3 className="text-sm font-medium text-primary">Ad-Hoc Export</h3>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="text-xs text-secondary block mb-1">Channel</label>
-            <select className="inp w-full" value={channel} onChange={(e) => setChannel(e.target.value as ExportChannel)}>
+            <label className="text-xs text-secondary block mb-1">Ship to</label>
+            <select className="inp w-full" value={channel} onChange={(e) => setChannel(e.target.value as "taproom" | "partner")}>
               <option value="taproom">Taproom</option>
+              <option value="partner">A partner</option>
             </select>
-            <p className="text-xs text-faint mt-1">
-              Partner shipments always go through the partner&rsquo;s allocation card, so they sit inside a commitment.
-              No commitment for this beer yet? Create one on Intake → Commitments and allocate it to the batch.
-            </p>
+            {channel === "partner" && (
+              <p className="text-xs text-faint mt-1">
+                Credited to the partner&rsquo;s commitment for this beer. If they have none, the next step books one as it ships.
+              </p>
+            )}
           </div>
-          {channel !== "taproom" && (
+          {channel === "partner" && (
             <div>
               <label className="text-xs text-secondary block mb-1">Partner</label>
               <select className="inp w-full" required value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
@@ -1718,6 +1786,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
               ))}
             </select>
           </div>
+          {channel === "taproom" && (<>
           <div>
             <label className="text-xs text-secondary block mb-1">Packaging</label>
             <select className="inp w-full" value={variationId} onChange={(e) => setVariationId(e.target.value)}>
@@ -1736,15 +1805,16 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
             <label className="text-xs text-secondary block mb-1">Notes</label>
             <input className="inp w-full" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
+          </>)}
           {error && <p className="text-xs text-danger">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button
               type="submit"
-              disabled={submitting || linesForRecipe.length === 0}
+              disabled={submitting || linesForRecipe.length === 0 || (channel === "partner" && !partnerId)}
               className="btn-primary"
             >
-              {submitting ? "Shipping…" : "Ship"}
+              {submitting ? "Shipping…" : channel === "partner" ? "Next" : "Ship"}
             </button>
           </div>
         </form>

@@ -304,3 +304,92 @@ export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs):
 
   return { deltaPct: plan.deltaPct, targetNewPct: plan.targetNewPct, sourceNewPct: plan.sourceNewPct, bookedBbl, rehomedRows };
 }
+
+export interface BookForShipmentArgs {
+  partnerId: string;
+  recipeId: string;
+  batchId: string;
+  /** The commitment's channel — contract (deposit-backed) or distribution. */
+  channel: "contract_brewing" | "distribution";
+  source: { kind: "unallocated" } | { kind: "allocation"; allocationId: string };
+  bbl: number;
+  notes?: string | null;
+}
+
+/**
+ * A partner shipment with no commitment behind it books one on the spot: a
+ * commitment for exactly what is leaving, and an allocation on the batch the
+ * beer is drawn from whose share is taken from `source` — the same move a
+ * re-home makes, from a target that holds nothing yet. Marked for review so
+ * someone with Intake access confirms the price and terms afterwards.
+ *
+ * Validated before anything is written; a failure after the commitment insert
+ * removes what this call created, so a refused shipment leaves no half-booked deal.
+ */
+export async function bookCommitmentForShipment(
+  supabase: SupabaseClient,
+  args: BookForShipmentArgs,
+): Promise<{ commitmentId: string; allocationId: string; deltaPct: number }> {
+  const bbl = round2(Number(args.bbl));
+  const homes = await listHomes(supabase, { batchId: args.batchId, targetAllocationId: null });
+  const wantedId = args.source.kind === "allocation" ? args.source.allocationId : null;
+  const source = wantedId == null
+    ? homes.sources.find((s) => s.kind === "unallocated")
+    : homes.sources.find((s) => s.allocationId === wantedId);
+  if (!source) throw new Error(args.source.kind === "unallocated" ? "This batch has no unallocated share." : "That source allocation is not on this batch.");
+  const plan = planRehome({ bbl: args.bbl, yieldBbl: homes.yieldBbl, plannedBbl: homes.plannedBbl, targetPct: 0, source });
+  // Emptying an internal plan (taproom, safety stock) removes it; emptying a
+  // partner's allocation would strand their commitment, so that is refused.
+  const emptiesSource = source.kind === "allocation" && (plan.sourceNewPct ?? 0) <= EPS;
+  if (emptiesSource && source.channel !== "taproom" && source.channel !== "safety_stock") {
+    throw new Error(`That would take all of ${sourceLabel(source)}'s share. Pick another source, or change their commitment on Intake first.`);
+  }
+
+  const { data: commitment, error: cErr } = await supabase
+    .from("commitments")
+    .insert({
+      recipe_id: args.recipeId,
+      partner_id: args.partnerId,
+      volume_bbl: bbl,
+      channel: args.channel,
+      status: "open",
+      notes: args.notes?.trim() || `Booked at the Export Bay when #${homes.batchNumber ?? "?"} shipped.`,
+      review_needed_at: new Date().toISOString(),
+      last_edited_on: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+  if (cErr || !commitment) throw new Error(cErr?.message ?? "Could not create the commitment.");
+
+  const undo = async () => { await supabase.from("commitments").delete().eq("id", commitment.id); };
+
+  const { data: alloc, error: aErr } = await supabase
+    .from("batch_allocations")
+    .insert({
+      batch_id: args.batchId,
+      channel: args.channel,
+      percentage: plan.targetNewPct,
+      partner_id: args.partnerId,
+      contract_request_id: commitment.id,
+    })
+    .select("id")
+    .single();
+  if (aErr || !alloc) { await undo(); throw new Error(aErr?.message ?? "Could not allocate the batch."); }
+
+  if (source.kind === "allocation" && source.allocationId) {
+    const patch: Record<string, unknown> = { percentage: plan.sourceNewPct };
+    if (source.requires === "regenerate_deposit") { patch.invoice_generated_at = null; patch.invoice_sent_at = null; }
+    // A source given up entirely leaves the batch: the CHECK forbids a 0% row.
+    const { error } = emptiesSource
+      ? await supabase.from("batch_allocations").delete().eq("id", source.allocationId)
+      : await supabase.from("batch_allocations").update(patch).eq("id", source.allocationId);
+    if (error) {
+      await supabase.from("batch_allocations").delete().eq("id", alloc.id);
+      await undo();
+      throw new Error(error.message);
+    }
+    if (!emptiesSource) await recheckCommitmentFulfillment(supabase, source.allocationId);
+  }
+
+  return { commitmentId: commitment.id, allocationId: alloc.id, deltaPct: plan.deltaPct };
+}

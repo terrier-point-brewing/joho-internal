@@ -393,6 +393,8 @@ export interface Commitment {
   received_on: string | null;
   last_edited_on: string | null;
   locked_on: string | null;
+  /** Booked at the Export Bay as a shipment left; cleared when someone confirms or edits it. */
+  review_needed_at?: string | null;
   created_at: string;
   recipes?: { beer_name: string; style?: string | null } | null;
   contract_brewing_partners?: { company_name: string } | null;

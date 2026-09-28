@@ -290,7 +290,16 @@ export async function PATCH(req: NextRequest) {
   if ("status" in patch && !["open", "cancelled"].includes(String(patch.status))) {
     return NextResponse.json({ error: "status can only be set to open or cancelled — fulfilment is derived from shipments" }, { status: 400 });
   }
+  // Any edit here is someone who sells looking at the deal; an explicit
+  // `review_needed_at: null` is the same confirmation with nothing to change.
+  const confirmOnly = b.review_needed_at === null && Object.keys(patch).length === 0;
+  if (confirmOnly) {
+    const { data, error } = await supabase.from("commitments").update({ review_needed_at: null }).eq("id", id).select(COMMITMENT_SELECT).single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data);
+  }
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: "no fields to update" }, { status: 400 });
+  patch.review_needed_at = null;
 
   if (Object.keys(patch).length > 0) {
     // A locked deal (deposit paid) does not quietly change beer, partner,

@@ -213,6 +213,12 @@ export interface SimulatedShipment {
    * first drawn batch). Null when nothing is over.
    */
   over: { bbl: number; targetAllocationId: string | null; homes: HomesForBatch } | null;
+  /**
+   * No commitment yet: the whole shipment is booked on the spot, on the one
+   * batch it is drawn from, taking its share from one of `homes.sources`.
+   * `refusal` says why it cannot be (a draw spanning several batches).
+   */
+  book: { bbl: number; homes: HomesForBatch | null; refusal: string | null } | null;
 }
 
 /**
@@ -292,5 +298,19 @@ export async function simulateShipment(
     }
   }
 
-  return { plan, candidates, batches, perBatchDrawBbl, requestedBbl, lines: lineAvailability, overBbl, noCommitment, over };
+  let book: SimulatedShipment["book"] = null;
+  if (noCommitment && requestedBbl > 1e-4) {
+    const drawn = perBatchDrawBbl.filter((d) => d.drawBbl > 1e-4);
+    if (drawn.length === 1) {
+      book = { bbl: Math.round(requestedBbl * 100) / 100, homes: await listHomes(supabase, { batchId: drawn[0].batchId, targetAllocationId: null }), refusal: null };
+    } else if (drawn.length > 1) {
+      // One booking lives on one batch. A drop that spans two lots is two
+      // bookings; shipping it as one would put half of it outside the deal.
+      const { data: rows } = await supabase.from("brew_batches").select("batch_number").in("id", drawn.map((d) => d.batchId));
+      const nums = ((rows ?? []) as Array<{ batch_number: string | null }>).map((r) => `#${r.batch_number ?? "?"}`).join(" and ");
+      book = { bbl: Math.round(requestedBbl * 100) / 100, homes: null, refusal: `This quantity draws from ${nums}. Ship what the oldest lot holds first, then the rest as a second shipment.` };
+    }
+  }
+
+  return { plan, candidates, batches, perBatchDrawBbl, requestedBbl, lines: lineAvailability, overBbl, noCommitment, over, book };
 }

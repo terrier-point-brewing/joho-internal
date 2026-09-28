@@ -120,6 +120,36 @@ export const partnerRequests: AlertSource = {
   },
 };
 
+// ── Commitments booked at the Export Bay ─────────────────────────────────────
+// A partner shipment that left with no deal behind it booked one on the spot
+// (lib/production/rehome bookCommitmentForShipment). It is real from that
+// moment; the price and terms still want someone who sells to confirm them.
+
+export const exportBayBookings: AlertSource = {
+  key: "export-bay-bookings",
+  label: "Commitments booked at the Export Bay",
+  section: "production",
+  href: "/production/intake",
+  requires: CAP.partnersOperate,
+  async load(admin, { today }) {
+    const { data, error } = await admin
+      .from("commitments")
+      .select("id, volume_bbl, channel, review_needed_at, contract_brewing_partners(company_name), recipes(beer_name)")
+      .not("review_needed_at", "is", null)
+      .order("review_needed_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    type Row = { id: string; volume_bbl: number | string; channel: string; review_needed_at: string; contract_brewing_partners: { company_name: string } | { company_name: string }[] | null; recipes: { beer_name: string } | { beer_name: string }[] | null };
+    return ((data ?? []) as Row[]).map((r) => ({
+      key: `export-bay-booking:${r.id}`,
+      title: `${one(r.contract_brewing_partners)?.company_name ?? "A partner"} — ${one(r.recipes)?.beer_name?.trim() ?? "a beer"} booked as it shipped`,
+      detail: `${bbl(r.volume_bbl)} ${r.channel === "contract_brewing" ? "contract" : "distribution"} commitment created at the Export Bay. Confirm the price and terms.`,
+      href: "/production/intake",
+      severity: agedSeverity(r.review_needed_at, today, 3),
+      when: isoDate(r.review_needed_at),
+    }));
+  },
+};
+
 // ── Partner deals needing attention ──────────────────────────────────────────
 // The ledger's own "needs attention" flags, minus not_invoiced, which the
 // Invoices-to-issue group already lists shipment by shipment.
@@ -219,6 +249,7 @@ export const PRODUCTION_SOURCES: AlertSource[] = [
   phantomShipments,
   invoicesToIssue,
   partnerRequests,
+  exportBayBookings,
   partnerDeals,
   allocationPlans,
 ];

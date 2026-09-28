@@ -41,3 +41,12 @@ describe("planRehome — self", () => {
       .toEqual({ deltaPct: 0, basisBbl: 5.17, sourceNewPct: null, targetNewPct: 100 });
   });
 });
+
+describe("planRehome — booking a new commitment at the Export Bay", () => {
+  it("sizes the new allocation from zero and takes the same share off the taproom plan", () => {
+    // B-064 shape: 100% taproom; Argus ships 3.1 bbl with no commitment.
+    const fullTaproom: HomeSource = { kind: "allocation", allocationId: "t", channel: "taproom", partnerName: null, percentage: 100, freeBbl: 31, requires: "none" };
+    expect(planRehome({ bbl: 3.1, yieldBbl: 31, plannedBbl: 40, targetPct: 0, source: fullTaproom }))
+      .toEqual({ deltaPct: 10, basisBbl: 31, sourceNewPct: 90, targetNewPct: 10 });
+  });
+});
