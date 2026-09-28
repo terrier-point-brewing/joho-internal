@@ -137,6 +137,31 @@ describe("packaging shrinkage attribution", () => {
     expect((fermNode?.data as { stageShrinkageBbl?: number }).stageShrinkageBbl).toBeCloseTo(2, 6);
   });
 
+  it("branches the beer a partial transfer left behind instead of calling it 'more expected'", () => {
+    // B-062: 40 bbl into FV 23, 0.67 kegged straight out of it, 16 moved to
+    // brite 24, 23.33 still in FV 23. Nothing is lost and nothing is en route.
+    const entries: ScheduleEntry[] = [
+      { ...keggingEntry("entry-ferm", 23.334, "2026-09-11"), stage: "fermenting", equipment_id: "fv-23",
+        actual_end: null, equipment: { id: "fv-23", name: "23", type: "fermenter" } } as ScheduleEntry,
+      { ...keggingEntry("entry-cond", 16, "2026-09-25"), stage: "conditioning", equipment_id: "bt-24", actual_end: null },
+    ];
+    const transfers: BatchTransfer[] = [
+      { ...keggingTransfer("tx-in", 40, 0, "2026-09-11"), transfer_type: "transfer", from_tank_id: "b-1", to_tank_id: "fv-23" },
+      { ...keggingTransfer("tx-keg", 0.667, 0, "2026-09-21"), from_tank_id: "fv-23" },
+      { ...keggingTransfer("tx-move", 16, 0, "2026-09-25"), transfer_type: "transfer", from_tank_id: "fv-23", to_tank_id: "bt-24" },
+    ];
+
+    const { nodes, edges } = buildGraphData(entries, [batch], batch, transfers);
+
+    const remainder = nodes.find((n) => n.type === "remainderNode");
+    expect(remainder?.data).toMatchObject({ tankName: "23" });
+    expect((remainder?.data as { volumeBbl: number }).volumeBbl).toBeCloseTo(23.334, 6);
+    expect(edges.find((e) => e.target === remainder?.id)?.source).toBe("entry-ferm");
+    expect(edges.some((e) => String(e.label ?? "").includes("more expected"))).toBe(false);
+    const fermNode = nodes.find((n) => n.id === "entry-ferm");
+    expect((fermNode?.data as { stageShrinkageBbl?: number }).stageShrinkageBbl).toBeUndefined();
+  });
+
   it("does not let a later run claim an earlier run's transfers", () => {
     const entries = [keggingEntry("entry-jun", 4.0, "2026-06-18"), keggingEntry("entry-aug", 1.5, "2026-08-07")];
     const transfers = [

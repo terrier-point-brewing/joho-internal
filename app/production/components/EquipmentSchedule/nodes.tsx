@@ -192,6 +192,32 @@ export function GhostNode({ data }: NodeProps) {
   );
 }
 
+// ── Remainder node ────────────────────────────────────────────────────────
+// Beer left behind in the upstream tank by a partial transfer onward. It is a
+// branch of the batch that has no next stage yet — not volume "on its way" to
+// the tank the first draw went to.
+export type RemainderNodeData = {
+  tankName:  string | null;
+  volumeBbl: number;
+};
+
+export function RemainderNode({ data }: NodeProps) {
+  const { tankName, volumeBbl } = data as RemainderNodeData;
+  return (
+    <div className="w-44 rounded-lg border border-dashed border-info-border bg-surface/20 select-none">
+      <Handle type="target" position={Position.Left}  style={HS} />
+      <Handle type="source" position={Position.Right} style={HS} />
+      <div className="h-0.5 w-full rounded-t-lg bg-info-border" />
+      <div className="p-3 min-h-[96px] flex flex-col justify-center gap-1">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-info">Still in tank</span>
+        <p className="text-xs font-semibold text-strong truncate">{tankName ?? "Upstream tank"}</p>
+        <p className="text-[11px] text-muted">{fmtBbl2(volumeBbl)}</p>
+        <p className="text-[10px] text-faint">Awaiting its next transfer</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Conversion node ───────────────────────────────────────────────────────
 export type ConversionNodeData = {
   toBatch:                  { beer_name: string; batch_number: string | null };

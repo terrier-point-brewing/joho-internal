@@ -323,18 +323,22 @@ export function buildGraphData(
 
   // ── Shrinkage between pipeline stages (prior to packaging) ─────────────
   // Shrinkage = upstream stage volume minus the sum of everything that came
-  // out of it downstream (main track, any splits that forked there, and any
-  // amount converted away directly from that stage's equipment).
+  // out of it downstream (main track, any splits that forked there, anything
+  // converted away, and anything packaged straight out of that tank).
   // Displayed inside the upstream node body (same pattern as packaging nodes).
   const shrinkageBblByNodeId = new Map<string, number>();
-  // Still-arriving alternative: upstream tank mid partial-drain while downstream
-  // is already filling — the gap is "en route", not lost. Shown on the edge.
-  const partialFillLabelByUpstreamNodeId = new Map<string, string>();
+  // A partial transfer onward leaves beer behind in the upstream tank. That
+  // remainder is a branch of its own — it will be conditioned in place, moved
+  // to a different tank, or packaged — not "more expected" in the tank the
+  // first draw went to. B-062: 16 bbl FV 23 → brite 24, 23.3 bbl still in FV 23.
+  const remainderBranches: { upstreamNodeId: string; col: number; tankName: string | null; volume: number }[] = [];
   for (let i = 0; i < MAIN_PIPELINE.length - 1; i++) {
     const upstreamStage   = MAIN_PIPELINE[i];
     const downstreamStage = MAIN_PIPELINE[i + 1];
     const upstreamEntry = mainEntries.find(e => normStage(e.stage) === upstreamStage);
     if (!upstreamEntry?.volume_bbl) continue;
+    const upstreamNodeId = mainNodeIdByStage.get(upstreamStage);
+    if (!upstreamNodeId) continue;
 
     const upstreamVol = arrivedVolume(upstreamEntry, batch, allTransfers);
 
@@ -349,42 +353,50 @@ export function buildGraphData(
     }
     if (upstreamEntry.equipment_id) {
       downstreamTotal += conversionVolumeBySourceEquipmentId.get(upstreamEntry.equipment_id) ?? 0;
+      // Kegged/canned straight out of the upstream tank: a legitimate sink.
+      if (batch) {
+        downstreamTotal += allTransfers
+          .filter(t => t.batch_id === batch.id && t.from_tank_id === upstreamEntry.equipment_id
+            && (t.transfer_type === "kegging" || t.transfer_type === "canning"))
+          .reduce((sum, t) => sum + Number(t.volume_bbl) + Number(t.shrinkage_bbl ?? 0), 0);
+      }
     }
 
-    const gap = upstreamVol - downstreamTotal;
-    if (gap <= 0.01) continue;
-
-    const upstreamNodeId = mainNodeIdByStage.get(upstreamStage);
-    if (!upstreamNodeId) continue;
-
-    // Upstream tank still open (not fully drained) and downstream has started
-    // receiving but hasn't closed out — this is an in-progress partial transfer.
-    const stillArriving =
-      upstreamEntry.actual_end == null &&
-      mainDownstreamEntry?.actual_start != null &&
-      mainDownstreamEntry?.actual_end == null;
-
-    if (stillArriving) {
-      partialFillLabelByUpstreamNodeId.set(upstreamNodeId, `+${gap.toFixed(2)} BBL more expected`);
-    } else if (upstreamEntry.actual_end == null) {
-      // Tank still open and downstream isn't mid-fill (it may not exist yet):
-      // whatever hasn't left the tank is still sitting in it, not lost. Only
-      // volume that departed and never landed anywhere downstream can be lost
-      // — for an open entry, arrivedVolume = remaining + departed, so the
-      // departed total is the difference.
-      const departedTotal = upstreamVol - Number(upstreamEntry.volume_bbl);
-      const lost = departedTotal - downstreamTotal;
+    if (upstreamEntry.actual_end == null) {
+      // Tank still open: whatever hasn't left it is still sitting in it, not
+      // lost. For an open entry arrivedVolume = remaining + departed, so only
+      // departed volume that landed nowhere downstream can be lost.
+      const remaining = Number(upstreamEntry.volume_bbl);
+      const lost = (upstreamVol - remaining) - downstreamTotal;
       if (lost > 0.01) shrinkageBblByNodeId.set(upstreamNodeId, lost);
+      if (remaining > 0.01 && mainDownstreamEntry?.actual_start != null) {
+        remainderBranches.push({
+          upstreamNodeId,
+          col: STAGE_COL[downstreamStage],
+          tankName: upstreamEntry.equipment?.name ?? null,
+          volume: remaining,
+        });
+      }
     } else {
-      shrinkageBblByNodeId.set(upstreamNodeId, gap);
+      const gap = upstreamVol - downstreamTotal;
+      if (gap > 0.01) shrinkageBblByNodeId.set(upstreamNodeId, gap);
     }
+  }
+
+  // Remainder branches sit below the split tracks, above conversions.
+  let nextExtraRow = 1 + branchNames.length;
+  for (const r of remainderBranches) {
+    const id = `remainder-${r.upstreamNodeId}`;
+    addNode(id, "remainderNode", r.col, nextExtraRow++, { tankName: r.tankName, volumeBbl: r.volume });
+    addEdge(r.upstreamNodeId, id);
+    splitForkEdges.set(`${r.upstreamNodeId}->${id}`, r.volume);
   }
 
   // ── Converted batches ───────────────────────────────────────────────────
   // Treat a conversion like a branch: it gets its own row below all other
   // tracks rather than sitting in-line with the row it forked from.
   if (batch) {
-    let nextConvRow = 1 + branchNames.length;
+    let nextConvRow = nextExtraRow;
 
     for (const cb of allBatches.filter(b => b.converted_from_batch_id === batch.id)) {
       // Prefer already-executed transfers (the conversion physically happened);
@@ -464,20 +476,9 @@ export function buildGraphData(
     };
   });
 
-  // ── Edge labels: partialFill (yellow, on edge) + split fork vol (indigo) ─
+  // ── Edge labels: split fork vol (indigo) ─────────────────────────────────
   const finalEdges: Edge[] = allEdges.map(edge => {
-    const partialFillLabel = partialFillLabelByUpstreamNodeId.get(edge.source);
-    const splitVol         = splitForkEdges.get(edge.id);
-    if (partialFillLabel) {
-      return {
-        ...edge,
-        label: partialFillLabel,
-        labelStyle: { fill: "var(--cat-yellow-fg)", fontSize: 10, fontWeight: 600 },
-        labelBgStyle: { fill: "var(--color-surface-mid)", fillOpacity: 0.9 },
-        labelBgPadding: [4, 2] as [number, number],
-        labelBgBorderRadius: 4,
-      };
-    }
+    const splitVol = splitForkEdges.get(edge.id);
     if (splitVol != null && splitVol > 0.001) {
       return {
         ...edge,
