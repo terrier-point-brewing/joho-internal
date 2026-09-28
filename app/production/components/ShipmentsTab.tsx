@@ -277,8 +277,14 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
       group.status = displayStatus;
     }
 
+    // A draft recount and a real sale of the same keg on the same day are
+    // different events — merged, the "Draft recount" tag swallowed the sale.
+    const isRecount = isDraftRecountRef(row.source_ref);
     let product = group.products.find(
-      (p) => p.recipe_id === row.recipe_id && p.variant_label === row.variant_label
+      (p) =>
+        p.recipe_id === row.recipe_id &&
+        p.variant_label === row.variant_label &&
+        p.isDraftRecount === isRecount
     );
     if (!product) {
       const { label, sortKey } = getPackagingCategory(row);
@@ -297,7 +303,7 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
         total_quantity: 0,
         total_volume_bbl: 0,
         total_excise_tax_usd: 0,
-        isDraftRecount: false,
+        isDraftRecount: isRecount,
         isAdHoc: false,
         reconcileState: null,
         allocations: [],
@@ -305,7 +311,6 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
       group.products.push(product);
     }
 
-    if (isDraftRecountRef(row.source_ref)) product.isDraftRecount = true;
     if (row.is_ad_hoc) product.isAdHoc = true;
     product.reconcileState = worseReconcileState(product.reconcileState, rowReconcileState(row));
 
