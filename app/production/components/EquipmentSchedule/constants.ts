@@ -112,6 +112,8 @@ export const EQ_TYPES_FOR_SLOT: Record<BuildSlot["stage"], string[]> = {
 // Stages after which a split makes sense
 export const SPLITTABLE_STAGES = new Set(["brewhouse", "fermenting", "conditioning"]);
 export const CONVERTIBLE_STAGES = new Set(["fermenting", "conditioning"]);
+// Packaging runs a conversion can happen IN: dosed in the keg/can as it fills.
+export const IN_PACKAGE_STAGES = new Set(["kegging", "canning"]);
 
 export function stageDuration(entry: ScheduleEntry): number {
   const s = (entry.actual_start ?? entry.planned_start).slice(0, 10);

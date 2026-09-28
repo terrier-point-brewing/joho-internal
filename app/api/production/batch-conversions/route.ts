@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 const BATCH_CONVERSION_SELECT = `
   id, source_batch_id, target_batch_id, source_equipment_id,
-  volume_bbl, planned_date, converted_at, notes, created_at,
+  volume_bbl, planned_date, converted_at, notes, created_at, method,
   target_batch:brew_batches!target_batch_id(id, beer_name, batch_number),
   source_batch:brew_batches!source_batch_id(id, beer_name, batch_number)
 `.trim();
@@ -49,6 +49,8 @@ export async function POST(req: NextRequest) {
     expected_delivery_date,
     notes,
     new_target,
+    method: rawMethod,
+    destination_equipment_id,
   } = body as {
     source_batch_id:     string;
     target_batch_id?:    string | null;
@@ -68,7 +70,16 @@ export async function POST(req: NextRequest) {
      * that later declares this recipe as `packaged_as` resolves onto it.
      */
     new_target?: { recipe_id: string } | null;
+    /**
+     * 'tank' (default): the beer moves into a vessel and conditions there.
+     * 'in_package': dosed in each keg/can as the source is packaged —
+     * `source_equipment_id` is then the kegging/canning station.
+     */
+    method?: "tank" | "in_package";
+    /** tank + new child: the operator's pick of conditioning vessel. */
+    destination_equipment_id?: string | null;
   };
+  const method = rawMethod === "in_package" ? "in_package" : "tank";
   let target_batch_id = (body as { target_batch_id?: string | null }).target_batch_id ?? null;
 
   if (!source_batch_id || !volume_bbl || (!target_batch_id && !new_target?.recipe_id)) {
@@ -98,7 +109,8 @@ export async function POST(req: NextRequest) {
           recipeId:      new_target.recipe_id,
           volumeBbl:     Number(volume_bbl),
           conversionDate: planned_date ?? null,
-          expectedDeliveryDate: expected_delivery_date ?? null,
+          // In-package: finished the moment it is packaged — no conditioning.
+          expectedDeliveryDate: method === "in_package" ? (planned_date ?? null) : (expected_delivery_date ?? null),
         });
       } catch (createErr) {
         return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
@@ -118,6 +130,7 @@ export async function POST(req: NextRequest) {
       volume_bbl,
       planned_date:        planned_date ?? null,
       notes:               notes ?? null,
+      method,
     })
     .select(BATCH_CONVERSION_SELECT)
     .single();
@@ -161,23 +174,28 @@ export async function POST(req: NextRequest) {
     console.error("[batch-conversions] Reserving conversion additions failed (plan saved):", reserveErr);
   }
 
-  // A freshly minted plan child gets its downstream schedule now — the
-  // conditioning span and the default packaging split — so the planned
-  // conversion's work shows on the Equipment Schedule from day one. Only for
-  // children this plan just created: an existing/reused target's schedule is
-  // already someone's plan, not ours to overwrite.
+  // A freshly minted plan child gets its downstream schedule now, with its
+  // equipment checked and assigned — so the planned conversion's work shows on
+  // the Equipment Schedule from day one. Only for children this plan just
+  // created: an existing/reused target's schedule is already someone's plan,
+  // not ours to overwrite.
+  let scheduleWarning: string | null = null;
   if (mintedNewChild && new_target?.recipe_id) {
     try {
-      await seedConversionChildSchedule(supabase, {
+      const seeded = await seedConversionChildSchedule(supabase, {
         childBatchId:   target_batch_id,
         recipeId:       new_target.recipe_id,
         volumeBbl:      Number(volume_bbl),
         conversionDate: planned_date ?? new Date().toISOString().split("T")[0],
+        method,
+        packagingStationId: method === "in_package" ? source_equipment_id : null,
+        conditioningTankId: destination_equipment_id ?? null,
       });
+      scheduleWarning = seeded.unassignedReason;
     } catch (seedErr) {
       console.error("[batch-conversions] Seeding child schedule failed (plan saved):", seedErr);
     }
   }
 
-  return NextResponse.json(data, { status: 201 });
+  return NextResponse.json({ ...(data as unknown as Record<string, unknown>), schedule_warning: scheduleWarning }, { status: 201 });
 }

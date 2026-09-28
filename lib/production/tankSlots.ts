@@ -146,3 +146,46 @@ export function planTankSlots(input: {
 
   return { feasible: true, reason: null, sequence };
 }
+
+/**
+ * The vessel a planned tank conversion lands in: a tank that can hold the
+ * volume and is free for the whole conditioning window. The conversion date is
+ * fixed by the plan, so unlike planTankSlots this never slides the window — a
+ * tank that frees up later is no answer. Brites before fermenters (a fermenter
+ * only doubles as a brite), then smallest tank that fits so big tanks stay
+ * open. `preferredId` (the tank the plan already holds, or the operator's
+ * pick) wins whenever it is still valid. null = nothing fits; the caller
+ * leaves the stage unassigned and says so.
+ */
+export function pickConversionTank(input: {
+  tanks: SlotTank[];
+  entries: SlotBusyEntry[];
+  volumeBbl: number;
+  start: string; // YYYY-MM-DD
+  end: string;   // YYYY-MM-DD
+  preferredId?: string | null;
+}): SlotTank | null {
+  const { tanks, entries, volumeBbl, start, end, preferredId } = input;
+  const s = parseISO(start.slice(0, 10));
+  // A same-day window still occupies the tank for that day.
+  const e = end.slice(0, 10) > start.slice(0, 10) ? parseISO(end.slice(0, 10)) : addDays(s, 1);
+  const TYPE_RANK: Record<string, number> = { brite: 0, fermenter: 1 };
+  const fits = (t: SlotTank) =>
+    t.type in TYPE_RANK &&
+    (t.capacity_bbl == null || volumeBbl <= Number(t.capacity_bbl) + 0.001) &&
+    !entries.some((b) => {
+      if (b.equipment_id !== t.id || b.cancelled_at) return false;
+      const bs = parseISO((b.actual_start ?? b.planned_start).slice(0, 10));
+      const be = parseISO((b.actual_end ?? b.planned_end).slice(0, 10));
+      return s < be && e > bs;
+    });
+
+  const preferred = preferredId ? tanks.find((t) => t.id === preferredId) : undefined;
+  if (preferred && fits(preferred)) return preferred;
+  return tanks
+    .filter(fits)
+    .sort((a, b) =>
+      TYPE_RANK[a.type] - TYPE_RANK[b.type] ||
+      Number(a.capacity_bbl ?? Infinity) - Number(b.capacity_bbl ?? Infinity) ||
+      a.name.localeCompare(b.name, undefined, { numeric: true }))[0] ?? null;
+}

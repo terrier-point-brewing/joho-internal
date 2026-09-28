@@ -127,21 +127,64 @@ describe("createConversionTargetBatch", () => {
 });
 
 describe("seedConversionChildSchedule", () => {
-  function scheduleStub(briteDays: number | null) {
+  const EQUIPMENT = [
+    { id: "b24", name: "24", type: "brite", capacity_bbl: 60 },
+    { id: "b33", name: "33", type: "brite", capacity_bbl: 40 },
+    { id: "keg", name: "Kegging", type: "kegging", capacity_bbl: null },
+    { id: "can", name: "Canning", type: "canning", capacity_bbl: null },
+  ];
+  function scheduleStub(briteDays: number | null, busy: Array<Record<string, unknown>> = []) {
     const recorded: Array<{ op: string; payload?: unknown }> = [];
     const from = (table: string) => {
       const b: Record<string, unknown> = {};
+      let deleting = false;
       b.select = () => b;
-      b.eq = () => b;
-      b.is = () => b;
+      b.eq = () => b; b.is = () => b; b.in = () => b; b.neq = () => b; b.not = () => b;
       b.maybeSingle = () => Promise.resolve({ data: table === "recipes" ? { days_brite: briteDays } : null, error: null });
-      b.delete = () => { recorded.push({ op: "delete" }); return b; };
+      b.delete = () => { deleting = true; recorded.push({ op: "delete" }); return b; };
       b.insert = (payload: unknown) => { recorded.push({ op: "insert", payload }); return Promise.resolve({ data: null, error: null }); };
-      b.then = (resolve: (v: unknown) => void) => resolve({ data: null, error: null });
+      b.then = (resolve: (v: unknown) => void) => resolve({
+        data: deleting ? null
+          : table === "equipment" ? EQUIPMENT
+          : table === "batch_schedule_entries" ? busy
+          : [],
+        error: null,
+      });
       return b;
     };
     return { client: { from } as unknown as SupabaseClient, recorded };
   }
+
+  it("books a free conditioning tank and the packaging stations", async () => {
+    const busy = [{ equipment_id: "b33", planned_start: "2026-07-25", planned_end: "2026-08-10", actual_start: null, actual_end: null, cancelled_at: null }];
+    const { client, recorded } = scheduleStub(7, busy);
+    const result = await seedConversionChildSchedule(client, {
+      childBatchId: "child", recipeId: "r1", volumeBbl: 24, conversionDate: "2026-07-30",
+    });
+    const inserted = recorded[1].payload as Array<Record<string, unknown>>;
+    expect(inserted.map(e => e.equipment_id)).toEqual(["b24", "keg", "can"]);
+    expect(result).toEqual({ conditioningTankId: "b24", unassignedReason: null });
+  });
+
+  it("leaves conditioning unassigned — and says why — when no tank is free", async () => {
+    const { client, recorded } = scheduleStub(7);
+    const result = await seedConversionChildSchedule(client, {
+      childBatchId: "child", recipeId: "r1", volumeBbl: 70, conversionDate: "2026-07-30",
+    });
+    expect((recorded[1].payload as Array<Record<string, unknown>>)[0].equipment_id).toBeNull();
+    expect(result.unassignedReason).toMatch(/No brite or fermenter/);
+  });
+
+  it("an in-package plan is ONE run on the station on the conversion day — no conditioning", async () => {
+    const { client, recorded } = scheduleStub(7);
+    await seedConversionChildSchedule(client, {
+      childBatchId: "child", recipeId: "r1", volumeBbl: 2, conversionDate: "2026-10-10",
+      method: "in_package", packagingStationId: "can",
+    });
+    expect(recorded[1].payload).toEqual(expect.objectContaining({
+      stage: "canning", equipment_id: "can", planned_start: "2026-10-10", planned_end: "2026-10-10", volume_bbl: 2,
+    }));
+  });
 
   it("replaces marker ghosts with conditioning + the 70/30 packaging split on plan dates", async () => {
     const { client, recorded } = scheduleStub(7);

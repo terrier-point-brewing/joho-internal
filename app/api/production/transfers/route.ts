@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
-import { finalizeConversion, createConversionTargetBatch, completeConversionChild, findPendingConversionPlan, reconcileConvertedBatchVolume, findExistingConversionChild, priorConversionInflowBbl, recordExecutedConversion } from "@/lib/production/conversionFinalizer";
+import { finalizeConversion, createConversionTargetBatch, completeConversionChild, findPendingConversionPlan, reconcileConvertedBatchVolume, findExistingConversionChild, priorConversionInflowBbl, recordExecutedConversion, CONVERSION_PLAN_SCHEDULE_NOTE } from "@/lib/production/conversionFinalizer";
 import { consumeConversionAdditions, isChargeableConversion } from "@/lib/production/conversionIngredients";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
@@ -1097,7 +1097,7 @@ export async function POST(req: NextRequest) {
     // this covers ad-hoc in-keg runs (and keeps a reused child's recorded
     // volume equal to its total delivered across runs).
     try {
-      await recordExecutedConversion(supabase, { sourceBatchId: batch_id, targetBatchId: childBatchId });
+      await recordExecutedConversion(supabase, { sourceBatchId: batch_id, targetBatchId: childBatchId, method: "in_package" });
     } catch (recordErr) {
       console.error("[transfers] Recording executed in-keg conversion failed (run committed):", recordErr);
     }
@@ -1167,6 +1167,14 @@ export async function POST(req: NextRequest) {
     if (to_tank_id) {
       try {
         const today = new Date().toISOString().split("T")[0];
+        // A planned in-keg conversion left a placeholder run on the child
+        // (seedConversionChildSchedule); this real run replaces it rather
+        // than sitting next to a plan that will never start.
+        await supabase.from("batch_schedule_entries")
+          .delete()
+          .eq("batch_id", childBatchId)
+          .eq("notes", CONVERSION_PLAN_SCHEDULE_NOTE)
+          .is("actual_start", null);
         await supabase.from("batch_schedule_entries").insert({
           batch_id:      childBatchId,
           equipment_id:  to_tank_id,

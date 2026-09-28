@@ -12,7 +12,7 @@ type RouteParams = { params: Promise<{ id: string }> };
 
 const BATCH_CONVERSION_SELECT = `
   id, source_batch_id, target_batch_id, source_equipment_id,
-  volume_bbl, planned_date, converted_at, notes, created_at,
+  volume_bbl, planned_date, converted_at, notes, created_at, method,
   target_batch:brew_batches!target_batch_id(id, beer_name, batch_number),
   source_batch:brew_batches!source_batch_id(id, beer_name, batch_number)
 `.trim();
@@ -24,6 +24,8 @@ interface PlanRow {
   volume_bbl: number;
   planned_date: string | null;
   converted_at: string | null;
+  source_equipment_id: string | null;
+  method: "tank" | "in_package";
 }
 
 interface TargetBatch {
@@ -40,7 +42,7 @@ interface TargetBatch {
 async function loadPlan(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, id: string) {
   const { data } = await supabase
     .from("batch_conversions")
-    .select("id, source_batch_id, target_batch_id, volume_bbl, planned_date, converted_at")
+    .select("id, source_batch_id, target_batch_id, volume_bbl, planned_date, converted_at, source_equipment_id, method")
     .eq("id", id)
     .maybeSingle();
   return data as PlanRow | null;
@@ -88,9 +90,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const newVolume = updates.volume_bbl != null ? Number(updates.volume_bbl) : Number(plan.volume_bbl);
   const newDate   = updates.planned_date !== undefined ? (updates.planned_date as string | null) : plan.planned_date;
 
-  // Keep a plan-born child in step with its plan. Only a PURE conversion child
-  // is touched — one whose headline volume IS the plan's volume — never a
-  // pre-existing batch the plan merely points at.
+  // Keep a plan-born child in step with its plan. Only a conversion-born child
+  // is touched (converted_volume_bbl is stamped only when a conversion mints
+  // the batch) — never a pre-existing batch the plan merely points at. Its
+  // headline volume may already differ from the plan: that drift (B-070, edited
+  // to 28 on the batch while the plan said 30) is exactly what this repairs.
   const { data: targetRow } = await supabase
     .from("brew_batches")
     .select("id, status, recipe_id, volume_bbl, converted_volume_bbl, converted_from_batch_id")
@@ -100,8 +104,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const planBorn = target
     && target.converted_from_batch_id === plan.source_batch_id
     && target.status === "planning"
-    && target.converted_volume_bbl != null
-    && Math.abs(Number(target.volume_bbl ?? 0) - Number(target.converted_volume_bbl)) < 0.001;
+    && target.converted_volume_bbl != null;
 
   if (planBorn && target) {
     const childUpdates: Record<string, unknown> = {};
@@ -111,7 +114,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
     if (updates.planned_date !== undefined && newDate && target.recipe_id) {
       childUpdates.planned_brew_date = newDate;
-      childUpdates.expected_delivery_date = await deriveConversionDeliveryDate(supabase, target.recipe_id, newDate);
+      // In-package: the beer is finished the moment it is packaged.
+      childUpdates.expected_delivery_date = plan.method === "in_package"
+        ? newDate
+        : await deriveConversionDeliveryDate(supabase, target.recipe_id, newDate);
     }
     if (Object.keys(childUpdates).length > 0) {
       await supabase.from("brew_batches").update(childUpdates).eq("id", target.id);
@@ -126,6 +132,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
           recipeId:       target.recipe_id,
           volumeBbl:      newVolume,
           conversionDate: newDate ?? new Date().toISOString().split("T")[0],
+          method:         plan.method,
+          packagingStationId: plan.method === "in_package" ? plan.source_equipment_id : null,
         });
       } catch (seedErr) {
         console.error("[batch-conversions] Re-seeding child schedule failed (plan updated):", seedErr);

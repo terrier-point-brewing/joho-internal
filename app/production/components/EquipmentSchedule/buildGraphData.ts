@@ -90,6 +90,13 @@ export function buildGraphData(
     active.filter(e => e.planned_branch).map(e => e.planned_branch!),
   )].sort();
 
+  // Converted in the keg/can: born in the container on one packaging run, so
+  // it has no vessel stage at all — only that run.
+  const isInPackageChild = !!batch?.converted_from_batch_id && (
+    allBatchConversions.some(c => c.target_batch_id === batch.id && c.method === "in_package") ||
+    allTransfers.some(t => t.to_batch_id === batch.id && t.transfer_type === "conversion" && !!t.packaged_as_recipe_id)
+  );
+
   const allNodes: Node[] = [];
   const allEdges: Edge[] = [];
 
@@ -168,9 +175,11 @@ export function buildGraphData(
       // Main track: fill in the full pipeline, adding ghosts for missing stages.
       // A batch created from a conversion never has upstream (brewhouse/fermenting)
       // stages — it starts directly at conditioning, in the receiving tank.
-      const pipelineForThisBatch = batch?.converted_from_batch_id
-        ? MAIN_PIPELINE.filter(s => s === "conditioning")
-        : MAIN_PIPELINE;
+      const pipelineForThisBatch = isInPackageChild
+        ? []
+        : batch?.converted_from_batch_id
+          ? MAIN_PIPELINE.filter(s => s === "conditioning")
+          : MAIN_PIPELINE;
       for (const stage of pipelineForThisBatch) {
         const entry = nonPkgMap.get(stage);
         const col   = STAGE_COL[stage];
@@ -236,6 +245,7 @@ export function buildGraphData(
     const isSameLine = (a: number | null | undefined, b: number | null | undefined) =>
       a != null && b != null && Math.round(Number(a) * 1000) === Math.round(Number(b) * 1000);
 
+    const pkgCol0 = isInPackageChild && branch === null ? 0 : 3;
     for (let i = 0; i < pkgEntries.length; i++) {
       const e = pkgEntries[i];
       // Only attribute shrinkage to a completed run (actual_end set). Without this
@@ -258,20 +268,21 @@ export function buildGraphData(
         for (const t of lines) claimedTransferIds.add(t.id);
       }
       const pkgShrinkage = lines.reduce((sum, t) => sum + Number(t.shrinkage_bbl ?? 0), 0);
-      addNode(e.id, "entryNode", 3 + i, row, {
+      addNode(e.id, "entryNode", pkgCol0 + i, row, {
         entry: e,
         packagingShrinkageBbl: pkgShrinkage > 0.001 ? pkgShrinkage : undefined,
       });
       connect(e.id);
     }
 
-    let ghostPkgCol = 3 + pkgEntries.length;
-    if (!hasCan) {
+    let ghostPkgCol = pkgCol0 + pkgEntries.length;
+    // An in-package child is exactly its run: no "+ add packaging" offers.
+    if (!hasCan && !isInPackageChild) {
       const id = `ghost-canning-${branch ?? "main"}`;
       addNode(id, "ghostNode", ghostPkgCol++, row, { stage: "canning", label: "Canning", isRequired: false });
       connect(id);
     }
-    if (!hasKeg) {
+    if (!hasKeg && !isInPackageChild) {
       const id = `ghost-kegging-${branch ?? "main"}`;
       addNode(id, "ghostNode", ghostPkgCol++, row, { stage: "kegging", label: "Kegging", isRequired: false });
       connect(id);
@@ -409,25 +420,41 @@ export function buildGraphData(
         .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime());
       const sourceTx = sourceTxs[0];
 
+      const conv = allBatchConversions.find(c => c.source_batch_id === batch.id && c.target_batch_id === cb.id);
+      // In-keg/in-can: hangs off the packaging RUN it happened on (the
+      // station), not the brite the beer was drawn from.
+      const inPackage = conv?.method === "in_package" || !!sourceTx?.packaged_as_recipe_id;
+
       let sourceEquipmentId: string | null = null;
       let volumeBbl: number;
       if (sourceTx) {
-        sourceEquipmentId = sourceTx.from_tank_id;
+        sourceEquipmentId = inPackage ? sourceTx.to_tank_id : sourceTx.from_tank_id;
         volumeBbl = sourceTxs.reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
       } else {
-        const conv = allBatchConversions.find(c => c.source_batch_id === batch.id && c.target_batch_id === cb.id);
         if (!conv?.source_equipment_id) continue;
         sourceEquipmentId = conv.source_equipment_id;
         volumeBbl = Number(conv.volume_bbl);
       }
 
-      // Find the node whose entry uses this source tank (any track), else fall
-      // back to that track's terminal node. Prefer the most downstream stage
-      // (conditioning > fermenting) when the same tank hosts multiple stages.
-      const CONVERSION_STAGE_RANK: Record<string, number> = { brewhouse: 0, fermenting: 1, fermenter: 1, conditioning: 2 };
-      const sourceEntry = [...active]
-        .filter(e => e.equipment_id === sourceEquipmentId)
-        .sort((a, b) => (CONVERSION_STAGE_RANK[b.stage] ?? 0) - (CONVERSION_STAGE_RANK[a.stage] ?? 0))[0];
+      let sourceEntry: ScheduleEntry | undefined;
+      if (inPackage) {
+        // The run on that station closest to when the conversion happens.
+        const when = (sourceTx?.transferred_at ?? conv?.planned_date ?? "").slice(0, 10);
+        const dayDist = (e: ScheduleEntry) =>
+          Math.abs(new Date((e.actual_start ?? e.planned_start).slice(0, 10)).getTime() - new Date(when || "2000-01-01").getTime());
+        sourceEntry = active
+          .filter(e => e.equipment_id === sourceEquipmentId && (e.stage === "kegging" || e.stage === "canning"))
+          .sort((a, b) => dayDist(a) - dayDist(b))[0];
+      }
+      if (!sourceEntry) {
+        // Find the node whose entry uses this source tank (any track), else
+        // fall back to that track's terminal node. Prefer the most downstream
+        // stage (conditioning > fermenting) when a tank hosts multiple stages.
+        const CONVERSION_STAGE_RANK: Record<string, number> = { brewhouse: 0, fermenting: 1, fermenter: 1, conditioning: 2 };
+        sourceEntry = [...active]
+          .filter(e => e.equipment_id === (inPackage ? sourceTx?.from_tank_id ?? sourceEquipmentId : sourceEquipmentId))
+          .sort((a, b) => (CONVERSION_STAGE_RANK[b.stage] ?? 0) - (CONVERSION_STAGE_RANK[a.stage] ?? 0))[0];
+      }
       const sourceNodeId = sourceEntry
         ? sourceEntry.id
         : trackEndNodeId.get(null);
@@ -446,7 +473,8 @@ export function buildGraphData(
         .sort((a, b) => (a.planned_start ?? "").localeCompare(b.planned_start ?? ""))[0];
 
       const convRow = nextConvRow++;
-      const sourceCol = sourceEntry ? (STAGE_COL[normStage(sourceEntry.stage)] ?? 2) : 2;
+      const sourceNode = allNodes.find(n => n.id === sourceNodeId);
+      const sourceCol = sourceNode ? Math.round(sourceNode.position.x / COL_STEP) : 2;
       const convId = `conv-${cb.id}`;
       addNode(convId, "conversionNode", sourceCol + 1, convRow, {
         toBatch: cb,
@@ -454,6 +482,7 @@ export function buildGraphData(
         plannedDate: childFirstEntry?.planned_start ?? null,
         destinationEquipmentName: childFirstEntry?.equipment?.name ?? null,
         isExecuted: !!sourceTx,
+        inPackage: inPackage ? (sourceEntry?.stage === "canning" ? "can" : "keg") : null,
       });
       addEdge(sourceNodeId, convId);
     }

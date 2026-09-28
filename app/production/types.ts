@@ -436,6 +436,8 @@ export interface BatchConversion {
   converted_at:        string | null;
   notes:               string | null;
   created_at:          string;
+  /** 'in_package': dosed in the keg/can; source_equipment_id is then the station. */
+  method?:             "tank" | "in_package";
   // joined
   target_batch?:  { id: string; beer_name: string; batch_number: string | null };
   source_batch?:  { id: string; beer_name: string; batch_number: string | null };
