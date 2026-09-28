@@ -22,7 +22,7 @@ export async function GET() {
 
   const admin = createSupabaseAdminClient();
   const [profilesRes, authRes] = await Promise.all([
-    admin.from("profiles").select("id, email, role, partner_id, created_at").order("created_at", { ascending: true }),
+    admin.from("profiles").select("id, email, role, partner_id, alert_emails_enabled, created_at").order("created_at", { ascending: true }),
     admin.auth.admin.listUsers({ perPage: 1000 }),
   ]);
 

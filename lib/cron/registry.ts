@@ -173,4 +173,17 @@ export const CRON_JOBS: CronJobMeta[] = [
     manualRun:     "wait",
     manualNote:    "This posts publicly, straight away, to every connected channel with an entry that is due. A post cannot be taken back once it has gone out. Anything already published is recognised and not sent a second time, and an entry whose time has not yet come is left alone.",
   },
+  {
+    job:           "alert-digest",
+    path:          "/api/cron/alert-digest",
+    // Last of the morning, after every sync above has had its turn, so the
+    // email describes the books as they stand today rather than yesterday.
+    // 12:00 UTC is 08:00 in the brewery's summer and 07:00 in its winter.
+    schedule:      "0 12 * * *",
+    scheduleLabel: "Daily · 12:00 UTC (morning ET)",
+    description:   "Emails each person who has alert emails switched on a morning list of everything on the Home alert center that they can act on: shipments to reconcile, invoices to issue, partner requests, the month-end close, tax filings due, and so on. Nobody with nothing to do is emailed.",
+    maxAgeHours:   25,
+    manualRun:     "wait",
+    manualNote:    "This sends the digest email straight away to everyone who has alert emails switched on, even if this morning's copy already went out. It changes nothing else.",
+  },
 ];
