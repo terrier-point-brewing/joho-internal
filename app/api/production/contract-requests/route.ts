@@ -7,6 +7,7 @@ import { sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/
 import { commitmentDelivery, type CommitmentDelivery } from "@/lib/production/commitmentDelivery";
 import { loadBatchYields } from "@/lib/production/batchYieldProjection.server";
 import { loadDepositCharges } from "@/lib/production/depositCharges";
+import { coverageTransferred, loadCoverageTransfers } from "@/lib/production/coverageTransfers";
 import { lockedFieldsChanged, unlockNote } from "@/lib/production/commitmentLock";
 import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
 import { todayLocalDate } from "@/lib/utils/datetime";
@@ -121,6 +122,15 @@ export async function GET(req: NextRequest) {
     for (const b of parentBatches ?? []) parentBatchNumberById.set(b.id, (b as { batch_number: string | null }).batch_number ?? null);
   }
 
+  // A parent deposit covers a child's base only once it was carried over.
+  const coverageTransfers = await loadCoverageTransfers(
+    adminForCharges,
+    (allocs ?? [])
+      .filter((a) => a.channel === "contract_brewing"
+        && (a.brew_batches as { converted_from_batch_id?: string | null } | null)?.converted_from_batch_id)
+      .map((a) => a.batch_id as string),
+  );
+
   const committedById: Record<string, number> = {};
   const allocsById: Record<string, typeof allocs> = {};
   for (const a of allocs ?? []) {
@@ -201,7 +211,7 @@ export async function GET(req: NextRequest) {
         ? (parentAllocByKey.get(`${parentBatchId}:${(a as { partner_id?: string | null }).partner_id ?? ""}`) ?? null) as (CoverageAllocFields & { square_deposit_invoice_id: string | null }) | null
         : null;
       const additions = classifyAdditions(a as unknown as CoverageAllocFields, charges);
-      const base = classifyBase(!!parentBatchId, parent);
+      const base = classifyBase(!!parentBatchId, parent, coverageTransferred(coverageTransfers, a.batch_id as string, parent));
 
       return {
         ...a,

@@ -15,6 +15,7 @@ import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfill
 import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
 import { sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
 import { loadDepositCharges } from "@/lib/production/depositCharges";
+import { coverageTransferred, loadCoverageTransfers } from "@/lib/production/coverageTransfers";
 
 export const dynamic = "force-dynamic";
 
@@ -231,6 +232,14 @@ export async function GET(req: NextRequest) {
     admin2,
     withInvoiceNumbers.filter((a) => a.channel === "contract_brewing").map((a) => a.id),
   );
+  // A parent deposit covers a child's base only once it was carried over.
+  const coverageTransfers = await loadCoverageTransfers(
+    admin2,
+    withInvoiceNumbers
+      .filter((a) => a.channel === "contract_brewing"
+        && (a.brew_batches as { converted_from_batch_id?: string | null } | null)?.converted_from_batch_id)
+      .map((a) => a.batch_id as string),
+  );
 
   const withCoverage = withInvoiceNumbers.map((a) => {
     if (a.channel !== "contract_brewing") return a;
@@ -240,8 +249,8 @@ export async function GET(req: NextRequest) {
       ? (parentAllocByKey.get(`${parentBatchId}:${a.partner_id ?? ""}`) ?? null) as CoverageAllocFields | null
       : null;
     const additions = classifyAdditions(a as unknown as CoverageAllocFields, charges);
-    const base = classifyBase(!!parentBatchId, parent);
     const parentP = parent as (CoverageAllocFields & { square_deposit_invoice_id: string | null }) | null;
+    const base = classifyBase(!!parentBatchId, parent, coverageTransferred(coverageTransfers, a.batch_id as string, parentP));
     return {
       ...a,
       deposit_charged_cents: additions.chargedCents,

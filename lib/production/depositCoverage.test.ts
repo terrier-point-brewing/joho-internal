@@ -49,7 +49,7 @@ describe("classifyBase", () => {
     expect(classifyBase(false, null).status).toBe("not_conversion");
   });
   it("covered by the parent's paid deposit (B-025 -> B-057 before the refund)", () => {
-    expect(classifyBase(true, fields({ invoice_paid_at: "t" })).status).toBe("covered");
+    expect(classifyBase(true, fields({ invoice_paid_at: "t" }), true).status).toBe("covered");
   });
   it("REFUNDED parent deposit makes base chargeable — the agreed rule", () => {
     const b = classifyBase(true, fields({ invoice_paid_at: "t", refund_amount_cents: 99950 }));
@@ -59,11 +59,15 @@ describe("classifyBase", () => {
   it("no parent contract allocation at all → uncovered", () => {
     expect(classifyBase(true, null).status).toBe("uncovered");
   });
-  it("parent deposit not yet billed/paid → pending on the parent's side, never re-billed here", () => {
-    expect(classifyBase(true, fields()).status).toBe("pending_parent");
-    expect(classifyBase(true, fields({ invoice_sent_at: "t" })).status).toBe("pending_parent");
+  it("a parent deposit that was NOT carried over never covers the child (B-069 -> B-070)", () => {
+    expect(classifyBase(true, fields({ invoice_paid_at: "t" })).status).toBe("uncovered");
+    expect(classifyBase(true, fields({ invoice_sent_at: "t" })).status).toBe("uncovered");
+    expect(classifyBase(true, fields()).status).toBe("uncovered");
+  });
+  it("carried over but not yet paid → pending on the parent's side", () => {
+    expect(classifyBase(true, fields({ invoice_sent_at: "t" }), true).status).toBe("pending_parent");
   });
   it("a written-off parent deposit still counts as covered (claim settled)", () => {
-    expect(classifyBase(true, fields({ written_off_at: "t" })).status).toBe("covered");
+    expect(classifyBase(true, fields({ written_off_at: "t" }), true).status).toBe("covered");
   });
 });
