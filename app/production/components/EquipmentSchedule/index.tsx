@@ -16,6 +16,7 @@ import type { BrewBatch, Equipment, Recipe } from "../../types";
 import {
   PLANNING_STAGES, STAGE_LABELS, STAGE_TO_EQ_TYPES, computeBranchPackagingStatus,
   findEquipmentConflict, conflictBatchLabel, suggestAlternativeEquipment,
+  suggestMainPackagingBbl,
 } from "./constants";
 import { buildGraphData } from "./buildGraphData";
 import { useBrandTheme } from "@/app/components/brand/useBrandTheme";
@@ -163,33 +164,30 @@ export function EquipmentScheduleSection({
         });
       }
 
-      // Packaging: schedule kegging + canning to exhaust the batch's expected yield.
-      // Target = turns × recipe.expected_yield_bbl (falls back to batch volume_bbl).
-      // Any existing packaging volume counts toward the target.
-      // Default split: 70% kegging / 30% canning, 1 day each starting at condEnd.
+      // Packaging: schedule kegging + canning for what the main flow will
+      // actually package — expected yield (turns × recipe yield, falling back to
+      // batch volume) net of conversions, split branches and packaging already
+      // planned. Both are same-day tasks anchored to condEnd.
       if (condEnd) {
         const yieldPerTurn = Number(batch.recipes?.expected_yield_bbl ?? 0);
         const turns        = Number(batch.turns ?? 1);
         const targetBbl    = yieldPerTurn > 0 ? yieldPerTurn * turns : Number(batch.volume_bbl ?? 0);
-
-        const existingKegBbl = mainEntries
-          .filter(e => e.stage === "kegging").reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
-        const existingCanBbl = mainEntries
-          .filter(e => e.stage === "canning").reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
-        const allocatedBbl = existingKegBbl + existingCanBbl;
-        const remainingBbl = Math.max(0, targetBbl - allocatedBbl);
-
-        // Both kegging and canning are same-day tasks anchored to condEnd
-        const existingKegDate = mainEntries.find(e => e.stage === "kegging")?.planned_start?.slice(0, 10) ?? condEnd;
-        const existingCanDate = mainEntries.find(e => e.stage === "canning")?.planned_start?.slice(0, 10) ?? condEnd;
+        const pkgBbl = suggestMainPackagingBbl({
+          expectedYieldBbl: targetBbl,
+          entries:          activeEntries,
+          batchId,
+          batchConversions: allBatchConversions,
+        });
 
         const pkgSlots = [
-          { stage: "kegging", type: "kegging", startDate: existingKegDate, volBbl: remainingBbl * 0.7 },
-          { stage: "canning", type: "canning", startDate: existingCanDate, volBbl: remainingBbl * 0.3 },
+          { stage: "kegging", type: "kegging", startDate: condEnd, volBbl: pkgBbl.kegging },
+          { stage: "canning", type: "canning", startDate: condEnd, volBbl: pkgBbl.canning },
         ];
 
         for (const slot of pkgSlots) {
-          if (existingStages.has(slot.stage)) continue;
+          // Nothing left to package (e.g. the whole batch is converted away) —
+          // don't create an empty run.
+          if (existingStages.has(slot.stage) || slot.volBbl <= 0) continue;
           const eq = equipment.find(eq => eq.type === slot.type);
           await fetch("/api/production/batch-schedule", {
             method: "POST",
@@ -200,7 +198,7 @@ export function EquipmentScheduleSection({
               stage:         slot.stage,
               planned_start: slot.startDate + "T12:00:00",
               planned_end:   slot.startDate + "T12:00:00",
-              volume_bbl:    slot.volBbl > 0 ? slot.volBbl : null,
+              volume_bbl:    slot.volBbl,
             }),
           });
         }
