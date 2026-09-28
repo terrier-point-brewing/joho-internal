@@ -16,6 +16,7 @@ import { fetchInventoryValueSeries, type InventoryValueSeries } from "@/lib/fina
 import { fetchSquareFeeSeries, type SquareFeeSeries } from "@/lib/finance/squareFees";
 import { fetchExciseExpenseByMonth } from "@/lib/finance/exciseExpense";
 import { fetchAllRows, PAGE_SIZE } from "@/lib/supabase/paginate";
+import { chunk } from "@/lib/utils/chunk";
 import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
 import { applyExpenseStatementFilters } from "./expenseFilters";
 import { loadBankLedgerInclusion, INCLUSION_COLUMNS } from "@/lib/finance/bankLedgerInclusion";
@@ -359,9 +360,19 @@ export async function fetchInvoiceLines(supabase: SupabaseClient, range: DateRan
 }
 
 /**
- * Batch-fetches expense_gl_splits for a set of expense ids (one .in() query,
- * not one per expense) and groups them by expense_id for attachment onto
- * ExpenseRecord.splitLines. Empty map -- no query at all -- when ids is empty.
+ * A PostgREST `.in()` filter travels in the request URL, and a uuid list of a
+ * few hundred ids pushes it past Node's default ~16KB header limit -- undici
+ * then rejects the whole request with a bare "fetch failed" before it leaves
+ * the process (the P&L broke at ~400 expenses). Cap each request at this many
+ * ids (~8KB of URL) and join the pages in JS.
+ */
+const IN_FILTER_CHUNK = 200;
+
+/**
+ * Batch-fetches expense_gl_splits for a set of expense ids (one .in() query
+ * per IN_FILTER_CHUNK ids, not one per expense) and groups them by expense_id
+ * for attachment onto ExpenseRecord.splitLines. Empty map -- no query at all
+ * -- when ids is empty.
  */
 async function fetchExpenseGlSplitsByExpenseId(
   supabase: SupabaseClient,
@@ -370,18 +381,23 @@ async function fetchExpenseGlSplitsByExpenseId(
   const byExpenseId = new Map<string, NonNullable<ExpenseRecord["splitLines"]>>();
   if (expenseIds.length === 0) return byExpenseId;
 
-  const rows = await fetchAllRows<{
-    expense_id: string;
-    chart_of_accounts_id: string;
-    amount_cents: number;
-    split_source: "payroll_auto" | "manual";
-  }>(() =>
-    supabase
-      .from("expense_gl_splits")
-      .select("expense_id, chart_of_accounts_id, amount_cents, split_source")
-      .in("expense_id", expenseIds)
-      .order("id", { ascending: true }),
+  const pages = await Promise.all(
+    chunk(expenseIds, IN_FILTER_CHUNK).map((ids) =>
+      fetchAllRows<{
+        expense_id: string;
+        chart_of_accounts_id: string;
+        amount_cents: number;
+        split_source: "payroll_auto" | "manual";
+      }>(() =>
+        supabase
+          .from("expense_gl_splits")
+          .select("expense_id, chart_of_accounts_id, amount_cents, split_source")
+          .in("expense_id", ids)
+          .order("id", { ascending: true }),
+      ),
+    ),
   );
+  const rows = pages.flat();
 
   for (const r of rows) {
     const list = byExpenseId.get(r.expense_id) ?? [];
@@ -406,13 +422,18 @@ async function fetchPayrollPeriodsByExpenseId(
   const byExpenseId = new Map<string, { start: string; end: string }>();
   if (expenseIds.length === 0) return byExpenseId;
 
-  const matchRows = await fetchAllRows<{ expense_id: string; pay_period_id: string }>(() =>
-    supabase
-      .from("payroll_period_expense_matches")
-      .select("expense_id, pay_period_id")
-      .in("expense_id", expenseIds)
-      .order("expense_id", { ascending: true }),
+  const matchPages = await Promise.all(
+    chunk(expenseIds, IN_FILTER_CHUNK).map((ids) =>
+      fetchAllRows<{ expense_id: string; pay_period_id: string }>(() =>
+        supabase
+          .from("payroll_period_expense_matches")
+          .select("expense_id, pay_period_id")
+          .in("expense_id", ids)
+          .order("expense_id", { ascending: true }),
+      ),
+    ),
   );
+  const matchRows = matchPages.flat();
   if (matchRows.length === 0) return byExpenseId;
 
   const payPeriodIds = Array.from(new Set(matchRows.map((r) => r.pay_period_id)));
