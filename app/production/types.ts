@@ -185,10 +185,10 @@ export interface ExportTransactionTax {
   created_at: string;
 }
 
-export type IngredientCategory = "Malts" | "Hops" | "Yeast" | "Brewing Aids" | "Adjuncts" | "Terpenes";
+export type IngredientCategory = "Malts" | "Hops" | "Yeast" | "Brewing Aids" | "Adjuncts";
 
 export const INGREDIENT_CATEGORIES: IngredientCategory[] = [
-  "Malts", "Hops", "Yeast", "Brewing Aids", "Adjuncts", "Terpenes",
+  "Malts", "Hops", "Yeast", "Brewing Aids", "Adjuncts",
 ];
 
 export interface Ingredient {
