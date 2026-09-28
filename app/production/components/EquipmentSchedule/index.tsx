@@ -19,7 +19,7 @@ import {
 } from "./constants";
 import { buildGraphData } from "./buildGraphData";
 import { useBrandTheme } from "@/app/components/brand/useBrandTheme";
-import { EntryNode, GhostNode, ConversionNode } from "./nodes";
+import { EntryNode, GhostNode, ConversionNode, RemainderNode } from "./nodes";
 import { GhostFlowChain } from "./GhostFlowChain";
 import { AddStagePanel } from "./AddStagePanel";
 import { BuildSchedulePanel } from "./BuildSchedulePanel";
@@ -309,6 +309,7 @@ export function EquipmentScheduleSection({
     entryNode:      EntryNode,
     ghostNode:      GhostNode,
     conversionNode: ConversionNode,
+    remainderNode:  RemainderNode,
   }), []);
 
   const onBuild = useCallback(() => { setEditing(null); setPanel({ kind: "build" }); }, []);

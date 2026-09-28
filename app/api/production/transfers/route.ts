@@ -235,6 +235,9 @@ async function reconcileSchedule(
   let arrivedEntryId:   string | null = null;
   let arrivedTankType:  string | null = null;
   let arrivedStageResolved: string | null = null;
+  // Set when the arrival was booked as a parallel branch, so the same-stage
+  // split annotation below doesn't re-branch it.
+  let arrivedAsParallelBranch = false;
 
   // 1. Handle arrival (to_tank is fermenter or brite)
   if (to_tank_id) {
@@ -312,11 +315,63 @@ async function reconcileSchedule(
         .order("planned_start", { ascending: true })
         .limit(1);
       if (isPackagingStageEarly) existingQuery = existingQuery.is("actual_start", null);
-      const { data: existingEntries } = accumulating ? { data: null } : await existingQuery;
+      // Parallel branch (non-packaging only): the batch is already active at this
+      // stage in a DIFFERENT tank that is not the one this beer is leaving. That
+      // happens when a partial transfer left beer behind (B-062: 16 bbl FV 23 →
+      // brite 24, 23.3 bbl stayed in FV 23) and the remainder now moves on. It
+      // is a second branch of the batch — never "a deviation" that cancels the
+      // tank the first draw is still sitting in.
+      let parallelBranch = false;
+      if (!accumulating && !isPackagingStageEarly) {
+        let parallelQuery = supabase
+          .from("batch_schedule_entries")
+          .select("id")
+          .eq("batch_id", batch_id)
+          .eq("stage", targetStage)
+          .neq("equipment_id", to_tank_id)
+          .is("cancelled_at", null)
+          .not("actual_start", "is", null)
+          .is("actual_end", null)
+          .limit(1);
+        if (from_tank_id) parallelQuery = parallelQuery.neq("equipment_id", from_tank_id);
+        const { data: parallelActive } = await parallelQuery;
+        parallelBranch = (parallelActive?.length ?? 0) > 0;
+        arrivedAsParallelBranch = parallelBranch;
+      }
+
+      const { data: existingEntries } = accumulating || parallelBranch ? { data: null } : await existingQuery;
 
       const existing = existingEntries?.[0];
 
-      if (accumulating) {
+      if (parallelBranch) {
+        const { data: existingBranches } = await supabase
+          .from("batch_schedule_entries")
+          .select("planned_branch")
+          .eq("batch_id", batch_id)
+          .not("planned_branch", "is", null)
+          .is("cancelled_at", null);
+        const branchNums = (existingBranches ?? [])
+          .map(r => { const m = String(r.planned_branch).match(/(\d+)$/); return m ? Number(m[1]) : 0; });
+        const branchName = `Split ${(branchNums.length > 0 ? Math.max(...branchNums) : 0) + 1}`;
+        const defaultDays = targetStage === "fermenting" ? 14 : 21;
+        const { data: newEntry } = await supabase
+          .from("batch_schedule_entries")
+          .insert({
+            batch_id, equipment_id: to_tank_id, stage: targetStage,
+            planned_start: today,
+            planned_end: new Date(Date.now() + defaultDays * 86400000).toISOString().split("T")[0],
+            actual_start: today, actual_end: null,
+            volume_bbl: volume_bbl ?? null,
+            planned_branch: branchName,
+            notes: `Auto-created: ${branchName} — remainder of a partial transfer`,
+          })
+          .select("id")
+          .single();
+        // Deliberately not wiring the upstream chain: the main track's
+        // downstream_entry_id stays on the first draw's tank.
+        if (newEntry) arrivedEntryId = newEntry.id;
+        scheduleUpdate.push({ action: "split_branch_created", entry_id: newEntry?.id ?? "", equipment_name: destTankInfo.name, was_deviation: false });
+      } else if (accumulating) {
         const newVol = Number(accumulating.volume_bbl ?? 0) + Number(volume_bbl ?? 0);
         await supabase
           .from("batch_schedule_entries")
@@ -569,6 +624,7 @@ async function reconcileSchedule(
       // same-stage split. Annotate the destination entry with a planned_branch
       // and create packaging ghosts for the new branch.
       const isSameStageSplit =
+        !arrivedAsParallelBranch &&
         arrivedEntryId &&
         resolvedSrcStage &&
         arrivedStageResolved === resolvedSrcStage &&
