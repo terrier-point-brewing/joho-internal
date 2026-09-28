@@ -482,6 +482,8 @@ export interface BatchAllocation {
       invoice_number: string | null;
     };
   } | null;
+  /** Export invoice carrying this allocation's back-charged deposit; null when the deposit bills through its own invoice. */
+  deposit_backcharged_invoice_id?: string | null;
   /** Cents of deposit billed / paid on export invoices (back-charges). */
   deposit_charged_cents?: number;
   deposit_collected_cents?: number;

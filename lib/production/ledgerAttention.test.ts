@@ -57,9 +57,9 @@ describe("commitmentAttention", () => {
     expect(attentionRank(c)).toBe(99);
   });
 
-  it("deposit not charged only once there is beer; needs a batch when nothing is allocated", () => {
+  it("deposit not charged as soon as there is a batch; needs a batch when nothing is allocated", () => {
     const brewing = commitment({ stage: "open", allocations: [alloc({ produced_bbl: 0, exported_bbl: 0, owed_bbl: 0 })] }, { uninvoiced_bbl: 0, shipped_bbl: 0, owed_bbl: 0 });
-    expect(commitmentAttention(brewing)).toEqual([]);
+    expect(commitmentAttention(brewing).map((f) => f.kind)).toEqual(["deposit_uncharged"]);
     const packaged = commitment({ stage: "open", allocations: [alloc({ produced_bbl: 10, exported_bbl: 0, owed_bbl: 7 })] }, { uninvoiced_bbl: 0, shipped_bbl: 0, owed_bbl: 7 });
     expect(commitmentAttention(packaged).map((f) => f.kind)).toEqual(["deposit_uncharged"]);
     expect(commitmentAttention(commitment({ stage: "open", allocations: [] }, { uninvoiced_bbl: 0, shipped_bbl: 0, owed_bbl: 0 })).map((f) => f.kind)).toEqual(["needs_batch"]);

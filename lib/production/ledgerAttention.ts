@@ -12,7 +12,7 @@ import type { LedgerCommitment } from "./partnerLedger";
  */
 export type AttentionKind =
   | "not_invoiced"        // beer left, no export invoice
-  | "deposit_uncharged"   // contract deal has beer packaged or shipped and no deposit raised
+  | "deposit_uncharged"   // contract deal has a batch and no deposit raised
   | "deposit_unpaid"      // deposit invoiced (or being collected) but money not in
   | "needs_batch"         // no allocation yet
   | "over_delivered"      // shipped more than owed — bill it while open; a note once closed
@@ -51,9 +51,10 @@ export function commitmentAttention(c: LedgerCommitment): Attention[] {
     push("not_invoiced", `${t.uninvoiced_bbl.toFixed(2)} bbl shipped, not invoiced`);
   }
   if (contract && c.stage !== "cancelled") {
+    // The deposit pays for ingredients, which are bought before brew day, so
+    // it is owed as soon as the deal has a batch, not once beer is packaged.
     const states = c.allocations.map((a) => a.deposit.state);
-    const beerExists = c.allocations.some((a) => a.produced_bbl > 0 || a.exported_bbl > 0);
-    if (beerExists && states.some((s) => s === "uncharged")) {
+    if (states.some((s) => s === "uncharged")) {
       push("deposit_uncharged", "deposit not charged");
     } else if (states.some((s) => s === "pending_invoice" || s === "collecting")) {
       push("deposit_unpaid", "deposit awaiting payment");

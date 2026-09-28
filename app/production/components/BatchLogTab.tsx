@@ -30,6 +30,7 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
 import SortableTh from "@/app/components/ui/SortableTh";
 import DepositCoverageLine from "./DepositCoverageLine";
+import { useDepositInvoiceActions } from "./useDepositInvoiceActions";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig, SortState } from "@/lib/table/types";
 
@@ -548,6 +549,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
     qc.invalidateQueries({ queryKey: allocKey }),
     qc.invalidateQueries({ queryKey: queryKeys.production.commitments() }),
   ]);
+  const invoice = useDepositInvoiceActions(refresh);
   const batchVol = Number(batch.volume_bbl);
   // Always display allocations sorted by allocation % descending.
   const sortedAllocations = [...allocations].sort((a, b) => Number(b.percentage) - Number(a.percentage));
@@ -838,9 +840,27 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     <span className="text-xs tabular-nums text-secondary text-right">
                       {allocBbl != null ? `${allocBbl.toFixed(1)} BBL` : ""}
                     </span>
-                    {/* Deposit invoicing lives on Intake → Commitments; a paid
-                        deposit can be partly refunded from here, on purpose. */}
+                    {/* Raise and send the deposit invoice here or on Intake →
+                        Commitments (same actions); a back-charged deposit is
+                        already billed on an export invoice, so no own invoice.
+                        A paid deposit can be partly refunded, on purpose. */}
                     <div className="flex items-center justify-end">
+                      {a.channel === "contract_brewing" && !a.invoice_paid_at && !a.deposit_backcharged_invoice_id && !a.invoice_generated_at && (
+                        <button type="button"
+                          onClick={() => invoice.openPreview(a)}
+                          disabled={invoice.actionLoading === a.id}
+                          className="btn-primary btn-xxs whitespace-nowrap">
+                          Generate Invoice
+                        </button>
+                      )}
+                      {a.channel === "contract_brewing" && !a.invoice_paid_at && !a.deposit_backcharged_invoice_id && a.invoice_generated_at && !a.invoice_sent_at && (
+                        <button type="button"
+                          onClick={() => invoice.send(a.id)}
+                          disabled={invoice.actionLoading === a.id}
+                          className="btn-primary btn-xxs whitespace-nowrap">
+                          {invoice.actionLoading === a.id ? "Sending…" : "Send Invoice"}
+                        </button>
+                      )}
                       {a.channel === "contract_brewing" && a.invoice_paid_at && !a.written_off_at && (
                         <button type="button"
                           onClick={() => { setRefundError(null); setRefundAlloc({ allocation: a, newPercentage: Number(a.percentage) }); }}
@@ -864,6 +884,8 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
           })}
         </div>
       )}
+
+      {invoice.modal}
 
       {/* Read-only conversion rows (pending and completed) */}
       {batchConversions.length > 0 && (
