@@ -256,18 +256,9 @@ export default function PartnerPortal() {
 
       {tab === "batches" && (
         <section>
-          <p className="text-sm text-secondary mb-4">
-            Every open commitment — beer we are brewing for you and beer you have claimed — with where it is right now. Once a
-            batch is fully shipped it moves to History.
-          </p>
           {history.isLoading && <p className="text-sm text-muted">Loading…</p>}
           {history.error && <Banner className="mb-4">{(history.error as Error).message}</Banner>}
-          {history.data && history.data.deals.filter((d) => d.status === "open").length === 0 && (
-            <Card><p className="text-sm text-muted">Nothing in progress right now. Request a batch from Capacity, or claim some from Available beer.</p></Card>
-          )}
-          <div className="flex flex-col gap-2">
-            {(history.data?.deals ?? []).filter((d) => d.status === "open").map((d) => <DealCard key={d.id} deal={d} />)}
-          </div>
+          {history.data && <BatchesTab deals={history.data.deals.filter((d) => d.status === "open")} />}
         </section>
       )}
 
@@ -406,88 +397,164 @@ function ShipmentList({ shipments }: { shipments: PortalShipment[] }) {
   );
 }
 
-/** Six dots: where this deal's beer is between "scheduled" and "ready". */
-function ProgressSteps({ deal }: { deal: PortalDeal }) {
-  const p = deal.progress;
+/**
+ * Open deals in the order the beer will land, under three headings a partner
+ * can scan: what is ready to ship now, what is still being made, and what has
+ * not been brewed yet. Money that needs them is on the card, not in a footnote.
+ */
+function BatchesTab({ deals }: { deals: PortalDeal[] }) {
+  const groups: Array<{ key: string; title: string; note: string; deals: PortalDeal[] }> = [
+    { key: "ready", title: "Ready to ship", note: "Packaged and on our floor. Tell us when you want it.", deals: deals.filter((d) => d.progress.step === 5) },
+    { key: "brewing", title: "Being made", note: "Brewing, fermenting or packaging. Dates are our best estimate.", deals: deals.filter((d) => d.progress.step >= 0 && d.progress.step < 5) },
+    { key: "scheduled", title: "Waiting for a brew date", note: "Committed, not yet on the schedule.", deals: deals.filter((d) => d.progress.step < 0) },
+  ].filter((g) => g.deals.length > 0);
+  const owed = deals.flatMap((d) => d.unpaid_invoices);
+  const owedCents = [...new Map(owed.map((i) => [i.id, i])).values()].reduce((s, i) => s + i.total_cents, 0);
   return (
-    <div className="mt-3">
-      <div className="flex items-center gap-1" aria-hidden>
-        {PROGRESS_STEPS.map((name, i) => (
-          <div key={name} className={`h-1 flex-1 rounded-full ${i <= p.step ? (p.step === 5 ? "bg-success-emphasis" : "bg-info-emphasis") : "bg-surface-mid"}`} title={name} />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-3 text-xs mt-1">
-        <span className={p.step === 5 ? "text-success" : p.step < 0 ? "text-muted" : "text-info"}>{p.label}</span>
-        {p.step <= 0 && p.brew_date && <span className="text-muted">brew date {longDate(p.brew_date)}</span>}
-        {p.ready_by && <span className="text-muted">ready around {longDate(p.ready_by)}</span>}
-      </div>
+    <>
+      <p className="text-sm text-secondary mb-4">
+        Every open commitment, in the order it will reach you. A batch moves to History once it is fully shipped.
+        {owedCents > 0 && <span className="text-danger"> {dollars(owedCents)} is unpaid across these batches — each invoice is on its card.</span>}
+      </p>
+      {deals.length === 0 && (
+        <Card><p className="text-sm text-muted">Nothing in progress right now. Request a batch from Capacity, or claim some from Available beer.</p></Card>
+      )}
+      {groups.map((g) => (
+        <div key={g.key} className="mb-5">
+          <div className="flex items-baseline gap-2 mb-2">
+            <h2 className="text-sm font-semibold text-primary">{g.title}</h2>
+            <span className="text-xs text-muted">{g.deals.length} · {g.note}</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {g.deals.map((d) => <DealCard key={d.id} deal={d} />)}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** One line per unpaid invoice with a way to pay it; the deposit's own row when that is what is owed. */
+function PayLine({ invoice, label }: { invoice: PortalInvoice; label: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span className={invoice.overdue ? "text-danger font-medium" : "text-body"}>
+        {label} {invoice.number ?? ""} · {dollars(invoice.total_cents)}
+        {invoice.overdue ? ` · overdue ${invoice.days_overdue}d` : invoice.due_date ? ` · due ${shortDate(invoice.due_date)}` : ""}
+      </span>
+      {invoice.pay_url && <a href={invoice.pay_url} target="_blank" rel="noreferrer" className="btn-secondary btn-xxs">View / pay</a>}
     </div>
   );
 }
 
+/**
+ * A deal answers three questions, left to right: what you asked for (and
+ * whether the deposit is paid), where the beer is and when it lands, and what
+ * has shipped and whether you owe for it. Shipment rows stay folded away.
+ */
 function DealCard({ deal }: { deal: PortalDeal }) {
-  const [open, setOpen] = useState(deal.status === "open");
+  const [open, setOpen] = useState(false);
   const isOpen = deal.status === "open";
-  const scale = Math.max(deal.expected_bbl, deal.shipped_bbl, 0.0001);
-  const w = (v: number) => `${Math.max(0, Math.min(100, (v / scale) * 100))}%`;
+  const p = deal.progress;
   const inTank = isOpen ? deal.in_tank_bbl : 0;
   const waiting = Math.max(0, Math.min(deal.produced_bbl, deal.expected_bbl) - deal.shipped_bbl);
-  const unpaid = deal.shipments.filter((s) => s.payment === "unpaid").length;
-  // The booking is whole turns before shrinkage; what the batch really gave is
-  // smaller. Only worth a sentence when the two differ.
-  const shrunk = deal.has_batch && deal.booked_bbl - deal.expected_bbl > 0.05;
+  const toCome = Math.max(0, deal.expected_bbl - deal.shipped_bbl);
+  const shipmentInvoices = deal.unpaid_invoices.filter((i) => i.kind === "shipment");
+  const depositInvoice = deal.deposit?.status === "unpaid" && deal.deposit.billed_on === "own_invoice" ? deal.deposit.invoice : null;
+  const depositOnShipment = deal.deposit?.status === "unpaid" && deal.deposit.billed_on === "shipment_invoice" ? deal.deposit.invoice : null;
+  const delivered = deal.shipped_bbl + 0.005 >= deal.expected_bbl;
+  const shipmentsMade = deal.shipments.filter((s) => s.kind === "shipment").length;
+  const status: { label: string; tone: Tone } = !isOpen
+    ? { label: deal.status === "closed" ? "Complete" : "Cancelled", tone: deal.status === "closed" ? "success" : "neutral" }
+    : p.step === 5 ? { label: toCome > 0.005 ? "Ready to ship" : "Shipped", tone: "success" }
+    : p.step < 0 ? { label: "Awaiting brew date", tone: "neutral" }
+    : { label: p.label, tone: "info" };
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-primary">
-            {deal.beer_name ?? "Beer"}{deal.style ? <span className="font-normal text-muted"> · {deal.style}</span> : null}
-          </div>
-          <div className="text-xs text-muted mt-0.5">
-            {deal.received_on ? `Committed ${longDate(deal.received_on)}` : "Commitment"}
-            {deal.desired_delivery_date ? ` · wanted by ${longDate(deal.desired_delivery_date)}` : ""}
-            {` · booked ${bbl(deal.booked_bbl)}`}
-          </div>
+        <div className="text-sm font-semibold text-primary">
+          {deal.beer_name ?? "Beer"}{deal.style ? <span className="font-normal text-muted"> · {deal.style}</span> : null}
         </div>
         <div className="flex items-center gap-2">
-          {unpaid > 0 && <Badge tone="danger">{unpaid} unpaid invoice{unpaid === 1 ? "" : "s"}</Badge>}
-          <Badge tone={isOpen ? "info" : deal.status === "closed" ? "success" : "neutral"}>
-            {isOpen ? "Open" : deal.status === "closed" ? "Complete" : "Cancelled"}
-          </Badge>
+          {deal.unpaid_invoices.length > 0 && (
+            <Badge tone="danger">{deal.unpaid_invoices.length === 1 ? "1 invoice unpaid" : `${deal.unpaid_invoices.length} invoices unpaid`}</Badge>
+          )}
+          <Badge tone={status.tone}>{status.label}</Badge>
         </div>
       </div>
 
-      {isOpen && <ProgressSteps deal={deal} />}
+      <div className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-3 text-xs">
+        <div>
+          <div className="text-faint">Your order</div>
+          <div className="text-strong font-semibold text-sm mt-0.5">{bbl(deal.booked_bbl)} booked</div>
+          <div className="text-muted mt-0.5">
+            {deal.received_on ? `Committed ${shortDate(deal.received_on)}` : "Committed"}
+            {deal.desired_delivery_date ? ` · wanted by ${shortDate(deal.desired_delivery_date)}` : ""}
+          </div>
+          {deal.has_batch && deal.booked_bbl - deal.expected_bbl > 0.05 && (
+            <div className="text-secondary mt-0.5">
+              {isOpen && inTank > 0.005 ? "Expect about" : "Packaged out at"} {bbl(deal.expected_bbl)} after normal brewing losses
+            </div>
+          )}
+          {deal.deposit && (
+            <div className="mt-1.5">
+              {deal.deposit.status === "paid" && <span className="text-success">Deposit paid{deal.deposit.billed_cents > 0 ? ` · ${dollars(deal.deposit.billed_cents)}` : ""}</span>}
+              {deal.deposit.status === "not_invoiced" && <span className="text-muted">Deposit not yet invoiced</span>}
+              {deal.deposit.status === "unpaid" && (depositInvoice
+                ? <PayLine invoice={depositInvoice} label="Deposit invoice" />
+                : depositOnShipment
+                ? <span className="text-danger">Deposit {dollars(deal.deposit.billed_cents)} · billed on invoice {depositOnShipment.number ?? ""}</span>
+                : <span className="text-danger">Deposit unpaid · {dollars(deal.deposit.paid_cents)} of {dollars(deal.deposit.billed_cents)} received</span>)}
+            </div>
+          )}
+        </div>
 
-      <div className="mt-3 h-1.5 rounded-full bg-surface-mid overflow-hidden flex" aria-hidden>
-        <div className="h-full bg-success-emphasis" style={{ width: w(deal.shipped_bbl) }} />
-        {waiting > 0.005 && <div className="h-full bg-info-emphasis" style={{ width: w(waiting) }} />}
-        {inTank > 0.005 && <div className="h-full bg-[repeating-linear-gradient(45deg,var(--color-line-subtle)_0_3px,transparent_3px_6px)]" style={{ width: w(inTank) }} />}
+        <div>
+          <div className="text-faint">Where it is</div>
+          {isOpen ? (
+            <>
+              <div className={`text-sm font-semibold mt-0.5 ${p.step === 5 ? "text-success" : p.step < 0 ? "text-muted" : "text-info"}`}>{p.label}</div>
+              <div className="flex items-center gap-1 mt-1.5" aria-hidden>
+                {PROGRESS_STEPS.map((name, i) => (
+                  <div key={name} className={`h-1 flex-1 rounded-full ${i <= p.step ? (p.step === 5 ? "bg-success-emphasis" : "bg-info-emphasis") : "bg-surface-mid"}`} title={name} />
+                ))}
+              </div>
+              <div className="text-muted mt-1">
+                {p.step === 5 && toCome > 0.005 && `${bbl(toCome)} packaged, waiting to ship`}
+                {p.step === 5 && toCome <= 0.005 && "Everything has shipped"}
+                {p.step >= 0 && p.step < 5 && (p.ready_by ? `Ready around ${longDate(p.ready_by)}` : "Ready date to follow")}
+                {p.step >= 0 && p.step < 5 && !delivered && inTank > 0.005 && ` · ${bbl(inTank)} still in tank`}
+                {p.step >= 0 && p.step < 5 && !delivered && waiting > 0.005 && ` · ${bbl(waiting)} already packaged`}
+                {p.step >= 0 && p.step < 5 && delivered && " · everything you booked has shipped"}
+                {p.step < 0 && (p.brew_date ? `Brew date ${longDate(p.brew_date)}` : "We will confirm a brew date")}
+              </div>
+            </>
+          ) : (
+            <div className="text-sm font-semibold mt-0.5 text-secondary">{status.label}</div>
+          )}
+        </div>
+
+        <div>
+          <div className="text-faint">Shipped to you</div>
+          <div className="text-strong font-semibold text-sm mt-0.5">
+            {deal.shipped_bbl > 0.005 ? `${bbl(deal.shipped_bbl)} of ${bbl(deal.expected_bbl)}` : "Nothing yet"}
+          </div>
+          {shipmentsMade > 0 && (
+            <button className="text-muted underline mt-0.5" onClick={() => setOpen((o) => !o)}>
+              {open ? "Hide" : "See"} {shipmentsMade} shipment{shipmentsMade === 1 ? "" : "s"}
+            </button>
+          )}
+          <div className="mt-1.5 flex flex-col gap-0.5">
+            {shipmentInvoices.map((i) => <PayLine key={i.id} invoice={i} label="Invoice" />)}
+            {shipmentInvoices.length === 0 && shipmentsMade > 0 && (
+              <span className={deal.shipments.some((s) => s.payment === "not_invoiced") ? "text-muted" : "text-success"}>
+                {deal.shipments.some((s) => s.payment === "not_invoiced") ? "Invoice to follow" : "All shipments paid"}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-secondary mt-2">
-        <span>
-          {bbl(deal.shipped_bbl)} shipped of {deal.has_batch ? `${inTank > 0.005 ? "about " : ""}${bbl(deal.expected_bbl)}` : `${bbl(deal.booked_bbl)} booked`}
-        </span>
-        {waiting > 0.005 && <span className="text-info">{bbl(waiting)} packaged, waiting to ship</span>}
-        {inTank > 0.005 && <span>{bbl(inTank)} still in tank (estimate)</span>}
-        {deal.deposit && (
-          <span className="flex items-center gap-2">
-            Deposit{deal.deposit.billed_cents > 0 ? ` ${dollars(deal.deposit.paid_cents)} of ${dollars(deal.deposit.billed_cents)}` : ""}
-            <Badge tone={PAYMENT[deal.deposit.status].tone}>{PAYMENT[deal.deposit.status].label}</Badge>
-          </span>
-        )}
-      </div>
-      {shrunk && (
-        <p className="text-xs text-muted mt-1.5">
-          You booked {bbl(deal.booked_bbl)} — that is the brew size before shrinkage. {isOpen && inTank > 0.005 ? "We expect it to package out at about" : "The batch packaged out at"}{" "}
-          {bbl(deal.expected_bbl)} for you, after the normal losses in fermentation and packaging.
-        </p>
-      )}
-      {deal.shipments.length > 0 && (
-        <button className="btn-secondary btn-xxs mt-3" onClick={() => setOpen((o) => !o)}>
-          {open ? "Hide" : "Show"} {deal.shipments.length} shipment{deal.shipments.length === 1 ? "" : "s"}
-        </button>
-      )}
+
       {open && deal.shipments.length > 0 && <ShipmentList shipments={deal.shipments} />}
     </Card>
   );

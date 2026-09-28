@@ -156,3 +156,62 @@ describe("toPortalHistory — corrections, returns and shrinkage", () => {
     expect(late.summary.overdue_cents).toBe(500);
   });
 });
+
+describe("toPortalHistory — a shipment is what the partner received", () => {
+  const unpaid = inv("inv-one", "open", 50_000, "2026-09-19");
+  const line = (label: string, quantity: number, volume_bbl: number, over = false) =>
+    ({ variant_label: label, quantity, volume_bbl, over_allocation: over, is_ad_hoc: false, shipped_before_deposit: false });
+  const ledger = {
+    partner_id: "p", company_name: "Argus", unallocated_bbl: 0.14, unallocated_uninvoiced_transaction_ids: [], totals: totals(),
+    allocations_by_batch: { "hop-roar-batch": [{ allocation_id: "a-hr", commitment_id: "hop-roar", recipe_name: "Hop Roar", batch_number: "B-070" }] },
+    // The 21-case drop outran the deal's share of what had packaged, so the
+    // ledger holds it as 19.6 credited + 1.4 uncredited on the same shipment id.
+    unallocated: [
+      shipment("2026-09-25", 0.14, null, { shipment_id: "drop", batch_id: "hop-roar-batch", lines: [line("Case", 1.4001, 0.14, true)] }),
+      shipment("2026-09-20", 0.5, null, { shipment_id: "stray", batch_id: "no-deal-batch", lines: [line("1/6 Keg", 3, 0.5)] }),
+    ],
+    commitments: [
+      deal({
+        id: "hop-roar", recipe_name: "Hop Roar", stage: "open", channel: "contract_brewing", received_on: "2026-09-12", booked_bbl: 14,
+        shipments: [
+          shipment("2026-09-25", 1.9, null, { shipment_id: "drop", batch_id: "hop-roar-batch", lines: [line("Case", 19.5999, 1.9)] }),
+          shipment("2026-09-19", 1, unpaid, { shipment_id: "s1", batch_id: "hop-roar-batch" }),
+          shipment("2026-09-15", 1, unpaid, { shipment_id: "s2", batch_id: "hop-roar-batch" }),
+        ],
+        export_invoices: [unpaid],
+        allocations: [{ id: "a-hr", batch_status: "fermenting", produced_bbl: 3.38, in_tank_bbl: 11.6, owed_bbl: 2.36, percentage: 70, batch_planned_bbl: 20,
+          deposit: deposit({ invoice: inv("dep", "open", 30_000), sent_at: "2026-09-13" }) }],
+        totals: totals({ shipped_bbl: 3.9, owed_bbl: 2.36, remaining_bbl: 0, in_tank_bbl: 11.6, deposit_billed_cents: 30_000 }),
+      }),
+      deal({ id: "later", stage: "open", received_on: "2026-09-01", allocations: [{ id: "a2", batch_status: "brewing", produced_bbl: 0, in_tank_bbl: 17, owed_bbl: 0, percentage: 100, batch_planned_bbl: 20, deposit: deposit() }], totals: totals({ in_tank_bbl: 17 }) }),
+      deal({ id: "ready", stage: "open", received_on: "2026-08-01", allocations: [{ id: "a3", batch_status: "complete", produced_bbl: 17, in_tank_bbl: 0, owed_bbl: 17, percentage: 100, batch_planned_bbl: 20, deposit: deposit() }], totals: totals({ owed_bbl: 17, remaining_bbl: 17 }) }),
+      deal({ id: "no-batch", stage: "open", received_on: "2026-09-20" }),
+    ],
+  } as unknown as LedgerPartner;
+  const extras = { today: "2026-09-27", invoices: new Map(), batches: new Map([["a2", { planned_brew_date: "2026-09-01", expected_delivery_date: "2026-10-20" }], ["a-hr", { planned_brew_date: "2026-08-21", expected_delivery_date: "2026-10-10" }]]) };
+  const h = toPortalHistory(ledger, undefined, extras);
+  const hr = h.deals.find((d) => d.id === "hop-roar")!;
+
+  it("shows the whole drop under the deal: 21 cases, one shipment, all counted as shipped", () => {
+    const drop = hr.shipments.find((s) => s.date === "2026-09-25")!;
+    expect(drop.lines).toEqual([{ label: "Case", quantity: 21 }]);
+    expect(drop.volume_bbl).toBe(2.04);
+    expect(hr.shipments).toHaveLength(3);
+    expect(hr.shipped_bbl).toBe(4.04);
+    expect(hr.expected_bbl).toBe(13.96); // owed 2.36 + 11.6 in tank ≥ shipped, so the estimate stands
+  });
+
+  it("keeps only beer from a batch the partner has no deal on as 'other'", () => {
+    expect(h.other_shipments.map((s) => s.volume_bbl)).toEqual([0.5]);
+    expect(h.summary.shipped_bbl).toBe(4.54);
+  });
+
+  it("counts one invoice once however many shipments it bills, and the deposit alongside it", () => {
+    expect(hr.unpaid_invoices.map((i) => i.id)).toEqual(["dep", "inv-one"]);
+    expect(hr.deposit).toMatchObject({ status: "unpaid", invoice: { id: "dep", total_cents: 30_000 } });
+  });
+
+  it("orders open deals by when the beer lands: ready, then by ready date, then no brew date", () => {
+    expect(h.deals.map((d) => d.id)).toEqual(["ready", "hop-roar", "later", "no-batch"]);
+  });
+});
