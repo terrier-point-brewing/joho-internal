@@ -7,7 +7,7 @@ import type { ShipmentWarning } from "@/lib/production/allocationReserve";
 import { normalizeShipLines, dedupeWarnings, type ShipLinesInput } from "@/lib/production/shipLines";
 import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 import { unpaidDepositBatches, simulateShipment, type SimulatedShipment } from "@/lib/production/shipReserveContext";
-import { executeRehome } from "@/lib/production/rehome";
+import { executeRehome, bookCommitmentForShipment } from "@/lib/production/rehome";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,13 @@ interface ShipRequest extends ShipLinesInput {
    * so the credit lands inside the commitment instead of as over-delivery.
    */
   home?: { target_allocation_id: string; source: { kind: "unallocated" } | { kind: "allocation"; allocation_id: string }; bbl: number };
+  /**
+   * The partner has no commitment for this beer: book one for exactly this
+   * shipment, on the batch it is drawn from, taking the share from `source`
+   * (the preview's `book.homes`). Created before the shipment is written and
+   * flagged for someone on Intake to confirm price and terms.
+   */
+  book?: { channel: "contract_brewing" | "distribution"; source: { kind: "unallocated" } | { kind: "allocation"; allocation_id: string } };
 }
 
 // POST /api/production/export-bay/ship
@@ -83,10 +90,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Could not plan the shipment" }, { status: 422 });
   }
   if (sim.noCommitment) {
-    return NextResponse.json(
-      { error: "This partner has no commitment for this beer. Create one on Intake → Commitments and allocate it to the batch, then ship from that card." },
-      { status: 409 },
-    );
+    const book = body.book;
+    if (!sim.book || !sim.book.homes) {
+      return NextResponse.json({ error: sim.book?.refusal ?? "Nothing to ship." }, { status: 409 });
+    }
+    if (!book || !["contract_brewing", "distribution"].includes(book.channel) || !book.source?.kind) {
+      return NextResponse.json(
+        { error: "This partner has no commitment for this beer. Choose the channel and where its share of the batch comes from, and it is booked as it ships.", book: sim.book },
+        { status: 409 },
+      );
+    }
+    // A new contract allocation has no deposit paid by definition. Ask BEFORE
+    // booking, so a refused ship never leaves a commitment behind.
+    if (book.channel === "contract_brewing" && body.acknowledge_unpaid_deposit !== true) {
+      return NextResponse.json(
+        { error: "A new contract commitment has no ingredient deposit paid. Ship anyway and it is back-charged on the export invoice — confirm to continue." },
+        { status: 409 },
+      );
+    }
+    try {
+      await bookCommitmentForShipment(supabase, {
+        partnerId: partner_id,
+        recipeId: recipe_id,
+        batchId: sim.book.homes.batchId,
+        channel: book.channel,
+        source: book.source.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocationId: book.source.allocation_id },
+        bbl: sim.book.bbl,
+      });
+      sim = await simulateShipment(supabase, { recipeId: recipe_id, partnerId: partner_id, lines });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Could not book the commitment" }, { status: 422 });
+    }
   }
   // Beer beyond the booking must be given a home first: take its share from
   // somewhere on the batch and raise the booking, so the credit is inside the

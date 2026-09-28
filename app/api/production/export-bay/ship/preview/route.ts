@@ -56,6 +56,8 @@ export async function POST(req: NextRequest) {
     unpaidDepositBatches: unpaid.map((c) => ({ batchId: c.batchId, batchNumber: numberById.get(c.batchId) ?? null, allocationId: c.allocationId })),
     // Beer beyond the booking must be given a home before it ships.
     noCommitment: sim.noCommitment,
+    // …or, with no commitment at all, booked on the spot as part of the ship.
+    book: sim.book,
     over: sim.over,
     warnings: plan.warnings,
     insufficientStock: lineAvailability.some((l) => l.insufficient),
