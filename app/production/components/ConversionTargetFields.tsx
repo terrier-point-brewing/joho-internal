@@ -62,6 +62,8 @@ export default function ConversionTargetFields({
   volumeMax,
   showNotes = false,
   newModeHint,
+  newOnly = false,
+  hideDelivery = false,
 }: {
   sourceBeerName: string;
   /** Recipe of the batch being drawn from — the base a target may be linked to. */
@@ -75,6 +77,10 @@ export default function ConversionTargetFields({
   showNotes?: boolean;
   /** Per-path hint rendered under the new-batch recipe select. */
   newModeHint?: string;
+  /** Only a new batch can be the target (in-keg/in-can: nothing exists yet). */
+  newOnly?: boolean;
+  /** Delivery IS the conversion day (in-keg/in-can): don't ask for it. */
+  hideDelivery?: boolean;
 }) {
   // The last delivery date this component derived on its own. While the field
   // still holds that value the operator hasn't touched it, so recipe/date
@@ -116,14 +122,14 @@ export default function ConversionTargetFields({
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-1">
+      {!newOnly && <div className="flex gap-1">
         <ToggleChip active={value.targetMode === "existing"} onClick={() => update({ targetMode: "existing" })}>
           Existing batch
         </ToggleChip>
         <ToggleChip active={value.targetMode === "new"} onClick={() => update({ targetMode: "new" })}>
           New batch
         </ToggleChip>
-      </div>
+      </div>}
 
       {value.targetMode === "existing" ? (
         <div>
@@ -184,7 +190,7 @@ export default function ConversionTargetFields({
         </p>
       )}
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className={`grid gap-3 ${hideDelivery ? "grid-cols-2" : "grid-cols-3"}`}>
         <div>
           <label className="block text-xs mb-1 text-muted">Volume (BBL) <span className="text-danger">*</span></label>
           <input type="number" step="0.001" min="0.001" {...(volumeMax != null ? { max: volumeMax } : {})}
@@ -196,7 +202,7 @@ export default function ConversionTargetFields({
           <input type="date" className="inp text-xs w-full"
             value={value.conversionDate} onChange={e => update({ conversionDate: e.target.value })} />
         </div>
-        <div>
+        {!hideDelivery && <div>
           <label className="block text-xs mb-1 text-muted">Expected Delivery</label>
           <input type="date" className="inp text-xs w-full"
             value={value.expectedDeliveryDate}
@@ -208,7 +214,7 @@ export default function ConversionTargetFields({
                 : "Auto: same day (no conditioning time on recipe)"}
             </p>
           )}
-        </div>
+        </div>}
       </div>
 
       {showNotes && (

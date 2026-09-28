@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { CONVERSION_PLAN_SCHEDULE_NOTE, syncPendingPlanVolume } from "@/lib/production/conversionFinalizer";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Fetch current row before update to detect first-time actual_start on brewhouse
   const { data: before } = await supabase
     .from("batch_schedule_entries")
-    .select("stage, batch_id, equipment_id, volume_bbl, actual_start")
+    .select("stage, batch_id, equipment_id, volume_bbl, actual_start, notes")
     .eq("id", id)
     .single();
 
@@ -70,6 +71,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       transferred_at: actual_start,
       notes:         "Moved from backlog into brewing",
     });
+  }
+
+  // The volume of a planned conversion child's vessel (or its one in-keg run)
+  // is the plan's volume: carry the edit to the plan so the source batch's
+  // schedule shows the same number. Packaging-entry edits on a tank plan are
+  // just a keg/can split and stay local.
+  const volumeEdited = volume_bbl != null && Number(volume_bbl) !== Number(before?.volume_bbl ?? NaN);
+  if (volumeEdited && before?.notes === CONVERSION_PLAN_SCHEDULE_NOTE && !before.actual_start) {
+    const { data: siblings } = await supabase
+      .from("batch_schedule_entries").select("stage")
+      .eq("batch_id", before.batch_id).eq("notes", CONVERSION_PLAN_SCHEDULE_NOTE).is("cancelled_at", null);
+    const hasVessel = (siblings ?? []).some((e) => (e as { stage: string }).stage === "conditioning");
+    if (before.stage === "conditioning" || !hasVessel) {
+      try {
+        await syncPendingPlanVolume(supabase, { childBatchId: before.batch_id, volumeBbl: Number(volume_bbl) });
+      } catch (syncErr) {
+        console.error("[batch-schedule] Syncing conversion plan volume failed (entry updated):", syncErr);
+      }
+    }
   }
 
   // Cascade: when planned_start changes, update the planned_end of any upstream

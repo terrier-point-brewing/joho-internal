@@ -5,7 +5,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { fmtBbl2 } from "@/lib/utils/formatting";
 import type { ScheduleEntry } from "../../hooks/queries";
 import {
-  STAGE_LABELS, STAGE_CARD_STYLE, SPLITTABLE_STAGES, CONVERTIBLE_STAGES,
+  STAGE_LABELS, STAGE_CARD_STYLE, SPLITTABLE_STAGES, CONVERTIBLE_STAGES, IN_PACKAGE_STAGES,
   stageDuration, fmtShort,
 } from "./constants";
 
@@ -51,7 +51,9 @@ export function EntryNode({ data }: NodeProps) {
   const isActive  = !!entry.actual_start && !isDone;
   const days      = stageDuration(entry);
   const canSplit  = SPLITTABLE_STAGES.has(norm);
-  const canConvert = CONVERTIBLE_STAGES.has(norm);
+  // A finished packaging run can't be dosed any more; plan it before it runs.
+  const inPackage  = IN_PACKAGE_STAGES.has(norm);
+  const canConvert = CONVERTIBLE_STAGES.has(norm) || (inPackage && !isDone);
 
   return (
     <div
@@ -146,7 +148,7 @@ export function EntryNode({ data }: NodeProps) {
             <button type="button"
               onClick={ev => { ev.stopPropagation(); (onConvert as EntryNodeCallbacks["onConvert"])(entry); }}
               className="text-[10px] text-[var(--cat-amber-fg)] border border-[var(--cat-amber-bd)] px-1.5 py-0.5 rounded transition-colors bg-surface/80">
-              → Convert
+              {inPackage ? `→ Convert in ${norm === "canning" ? "can" : "keg"}` : "→ Convert"}
             </button>
           )}
         </div>
@@ -225,17 +227,20 @@ export type ConversionNodeData = {
   plannedDate?:              string | null;
   destinationEquipmentName?: string | null;
   isExecuted?:               boolean;
+  /** Dosed in the container on a packaging run, not moved to a tank. */
+  inPackage?:                "keg" | "can" | null;
 };
 
 export function ConversionNode({ data }: NodeProps) {
-  const { toBatch, volumeBbl, plannedDate, destinationEquipmentName, isExecuted } = data as ConversionNodeData;
+  const { toBatch, volumeBbl, plannedDate, destinationEquipmentName, isExecuted, inPackage } = data as ConversionNodeData;
+  const how = inPackage ? ` in ${inPackage}` : "";
   return (
     <div className="w-44 rounded-lg border border-dashed border-[var(--cat-amber-bd)] bg-[var(--cat-amber-bg)] select-none">
       <Handle type="target" position={Position.Left} style={HS} />
       <div className="h-0.5 w-full rounded-t-lg bg-[var(--cat-amber-bd)]" />
       <div className="p-3 min-h-[96px] flex flex-col justify-center gap-1">
         <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--cat-amber-fg)]">
-          {isExecuted ? "Converted →" : "Planned conversion →"}
+          {isExecuted ? `Converted${how} →` : `Planned conversion${how} →`}
         </span>
         <p className="text-xs font-semibold text-[var(--cat-amber-fg)] truncate">{toBatch.beer_name}</p>
         {toBatch.batch_number && (

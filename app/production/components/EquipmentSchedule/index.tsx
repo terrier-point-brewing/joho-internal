@@ -425,7 +425,9 @@ export function EquipmentScheduleSection({
           allBatches={allBatches}
           sourceRecipeId={batch?.recipe_id ?? null}
           recipes={recipes ?? []}
-          onSaved={() => { reload(); qc.invalidateQueries({ queryKey: productionKeys.batchConversions }); }}
+          equipment={equipment}
+          allScheduleEntries={allScheduleEntries}
+          onSaved={() => { reload(); qc.invalidateQueries({ queryKey: productionKeys.batchConversions }); qc.invalidateQueries({ queryKey: productionKeys.batches }); }}
           onClose={closePanel}
         />
       )}

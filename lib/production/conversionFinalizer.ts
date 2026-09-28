@@ -1,11 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkAndCompleteBatch } from "./batchCompletion";
 import { releaseCommitments, upsertCommitments, upsertConversionCommitments } from "./commitments";
-import { resolveConversionBase } from "./conversionIngredients";
+import { reserveConversionAdditions, resolveConversionBase } from "./conversionIngredients";
 import { seedBatchActivities, type RecipeActivityRow } from "./brewActivities";
 import { clawBackPlannedPackaging } from "./packagingClawback";
 import { createBatchSquareProject } from "@/lib/square/projects";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
+import { occupiedTanksAsEntries, pickConversionTank, type SlotBusyEntry, type SlotTank } from "./tankSlots";
 
 /**
  * Marker stamped on schedule entries this module seeds for a PLANNED
@@ -180,25 +181,50 @@ export async function createConversionTargetBatch(
   return childId;
 }
 
+export type ConversionMethod = "tank" | "in_package";
+
+export interface SeededConversionSchedule {
+  /** The vessel the child conditions in; null when none was free (or in-package). */
+  conditioningTankId: string | null;
+  /** Plain-words reason the conditioning stage was left unassigned. */
+  unassignedReason: string | null;
+}
+
 /**
- * Seed (or re-seed) a plan-born child's schedule from its conversion plan: a
- * conditioning span from the conversion day to the delivery date, plus the
- * house-default 70/30 kegging/canning split on the delivery date — the same
- * ghost shape a same-stage split branch gets. This is what puts a planned
- * conversion's downstream work on the Equipment Schedule and in "Up Next"
- * instead of it appearing from nowhere on conversion day.
+ * Seed (or re-seed) a plan-born child's schedule from its conversion plan.
+ *
+ * - `tank`: a conditioning span from the conversion day to the delivery date
+ *   in a vessel that is free for that whole window and holds the volume, plus
+ *   the house-default 70/30 kegging/canning split on the delivery date at the
+ *   packaging stations. A plan used to leave every stage "No tank assigned",
+ *   so nothing was checked until someone typed a tank in by hand.
+ * - `in_package`: the dose goes into each keg/can as the source is packaged,
+ *   so the child's whole schedule is ONE packaging run on the station, on the
+ *   conversion day. No conditioning — there is no vessel.
  *
  * Idempotent by marker: only entries bearing CONVERSION_PLAN_SCHEDULE_NOTE
- * that no transfer has started are replaced. Anything an operator scheduled
- * by hand, or that has begun, is left alone.
+ * that no transfer has started are replaced; the tank a previous seed (or an
+ * operator's edit of it) chose is kept whenever it is still free. Anything an
+ * operator scheduled by hand, or that has begun, is left alone.
  */
 export async function seedConversionChildSchedule(
   supabase: SupabaseClient,
-  { childBatchId, recipeId, volumeBbl, conversionDate }: {
+  { childBatchId, recipeId, volumeBbl, conversionDate, method = "tank", packagingStationId, conditioningTankId }: {
     childBatchId: string; recipeId: string; volumeBbl: number; conversionDate: string;
+    method?: ConversionMethod;
+    /** in_package: the kegging/canning station the run happens on. */
+    packagingStationId?: string | null;
+    /** tank: the operator's pick; kept if it is free, else a free one is chosen. */
+    conditioningTankId?: string | null;
   },
-): Promise<void> {
-  const deliveryDate = await deriveConversionDeliveryDate(supabase, recipeId, conversionDate);
+): Promise<SeededConversionSchedule> {
+  const { data: priorRows } = await supabase
+    .from("batch_schedule_entries")
+    .select("stage, equipment_id")
+    .eq("batch_id", childBatchId)
+    .eq("notes", CONVERSION_PLAN_SCHEDULE_NOTE)
+    .is("actual_start", null);
+  const prior = (priorRows ?? []) as { stage: string; equipment_id: string | null }[];
 
   await supabase
     .from("batch_schedule_entries")
@@ -207,25 +233,139 @@ export async function seedConversionChildSchedule(
     .eq("notes", CONVERSION_PLAN_SCHEDULE_NOTE)
     .is("actual_start", null);
 
+  const { data: eqRows } = await supabase
+    .from("equipment").select("id, name, type, capacity_bbl")
+    .in("type", ["brite", "fermenter", "kegging", "canning"]);
+  const equipment = (eqRows ?? []) as SlotTank[];
+  const station = (type: string) =>
+    equipment.filter((e) => e.type === type).sort((a, b) => a.name.localeCompare(b.name))[0]?.id ?? null;
+
+  if (method === "in_package") {
+    const stationRow = equipment.find((e) => e.id === packagingStationId);
+    const stage = stationRow?.type === "canning" ? "canning" : "kegging";
+    await supabase.from("batch_schedule_entries").insert({
+      batch_id: childBatchId, equipment_id: stationRow?.id ?? station(stage), stage,
+      planned_start: conversionDate, planned_end: conversionDate,
+      volume_bbl: volumeBbl, notes: CONVERSION_PLAN_SCHEDULE_NOTE,
+    });
+    return { conditioningTankId: null, unassignedReason: null };
+  }
+
+  const deliveryDate = await deriveConversionDeliveryDate(supabase, recipeId, conversionDate);
+
+  // Everyone else's bookings, plus tanks physically holding beer with no entry.
+  const [{ data: busyRows }, { data: occupiedRows }] = await Promise.all([
+    supabase.from("batch_schedule_entries")
+      .select("equipment_id, planned_start, planned_end, actual_start, actual_end, cancelled_at")
+      .neq("batch_id", childBatchId).is("cancelled_at", null).not("equipment_id", "is", null),
+    supabase.from("batch_tank_assignments")
+      .select("tank_id, assigned_at").neq("batch_id", childBatchId).is("released_at", null),
+  ]);
+  const busy = (busyRows ?? []) as SlotBusyEntry[];
+  const busyAll = [...busy, ...occupiedTanksAsEntries((occupiedRows ?? []) as { tank_id: string; assigned_at: string }[], busy)];
+
+  const tank = pickConversionTank({
+    tanks: equipment, entries: busyAll, volumeBbl,
+    start: conversionDate, end: deliveryDate,
+    preferredId: conditioningTankId ?? prior.find((p) => p.stage === "conditioning")?.equipment_id ?? null,
+  });
+
   const kegVol = Math.round(volumeBbl * 0.7 * 100) / 100;
   const canVol = Math.round((volumeBbl - kegVol) * 100) / 100;
   await supabase.from("batch_schedule_entries").insert([
     {
-      batch_id: childBatchId, equipment_id: null, stage: "conditioning",
+      batch_id: childBatchId, equipment_id: tank?.id ?? null, stage: "conditioning",
       planned_start: conversionDate, planned_end: deliveryDate,
       volume_bbl: volumeBbl, notes: CONVERSION_PLAN_SCHEDULE_NOTE,
     },
     {
-      batch_id: childBatchId, equipment_id: null, stage: "kegging",
+      batch_id: childBatchId, equipment_id: station("kegging"), stage: "kegging",
       planned_start: deliveryDate, planned_end: deliveryDate,
       volume_bbl: kegVol, notes: CONVERSION_PLAN_SCHEDULE_NOTE,
     },
     {
-      batch_id: childBatchId, equipment_id: null, stage: "canning",
+      batch_id: childBatchId, equipment_id: station("canning"), stage: "canning",
       planned_start: deliveryDate, planned_end: deliveryDate,
       volume_bbl: canVol, notes: CONVERSION_PLAN_SCHEDULE_NOTE,
     },
   ]);
+
+  return {
+    conditioningTankId: tank?.id ?? null,
+    unassignedReason: tank
+      ? null
+      : `No brite or fermenter that holds ${volumeBbl.toFixed(2)} bbl is free ${conversionDate} → ${deliveryDate}. Conditioning was left unassigned.`,
+  };
+}
+
+/**
+ * A pending plan's volume, restated from the CHILD's side — someone edited the
+ * new batch's BBL (Batch Log) or its plan conditioning/packaging entry.
+ *
+ * The plan record is what the SOURCE's Equipment Schedule reads ("→ 28 BBL
+ * converting", the packaging-status netting) and what reserves the additions,
+ * so a child-only edit left the source still showing the old number (B-070:
+ * child set to 28, source kept 30). This makes the plan, the child's headline
+ * and its unstarted plan entries agree: conditioning (or an in-package run)
+ * takes the new volume, packaging entries rescale in proportion.
+ * No-op (false) when the child has no pending plan.
+ */
+export async function syncPendingPlanVolume(
+  supabase: SupabaseClient,
+  { childBatchId, volumeBbl }: { childBatchId: string; volumeBbl: number },
+): Promise<boolean> {
+  if (!(volumeBbl > 0)) return false;
+  const { data: planRow } = await supabase
+    .from("batch_conversions")
+    .select("id, source_batch_id, volume_bbl, method")
+    .eq("target_batch_id", childBatchId)
+    .is("converted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const plan = planRow as { id: string; source_batch_id: string; volume_bbl: number; method: ConversionMethod | null } | null;
+  if (!plan) return false;
+  const oldVol = Number(plan.volume_bbl);
+  if (Math.abs(oldVol - volumeBbl) < 0.0005) return true;
+
+  await supabase.from("batch_conversions").update({ volume_bbl: volumeBbl }).eq("id", plan.id);
+  await supabase.from("brew_batches")
+    .update({ volume_bbl: volumeBbl, converted_volume_bbl: volumeBbl })
+    .eq("id", childBatchId);
+
+  const { data: entryRows } = await supabase
+    .from("batch_schedule_entries")
+    .select("id, stage, volume_bbl")
+    .eq("batch_id", childBatchId)
+    .eq("notes", CONVERSION_PLAN_SCHEDULE_NOTE)
+    .is("actual_start", null).is("cancelled_at", null)
+    .order("stage");
+  const entries = (entryRows ?? []) as { id: string; stage: string; volume_bbl: number | null }[];
+  const pkg = entries.filter((e) => e.stage === "kegging" || e.stage === "canning");
+  const pkgTotal = pkg.reduce((sum, e) => sum + Number(e.volume_bbl ?? 0), 0);
+  let pkgLeft = volumeBbl;
+  for (const e of entries) {
+    let next: number;
+    if (e.stage === "kegging" || e.stage === "canning") {
+      const isLast = e.id === pkg[pkg.length - 1].id;
+      next = isLast
+        ? Math.round(pkgLeft * 1000) / 1000
+        : Math.round(volumeBbl * (pkgTotal > 0 ? Number(e.volume_bbl ?? 0) / pkgTotal : 1 / pkg.length) * 100) / 100;
+      pkgLeft -= next;
+    } else {
+      next = volumeBbl;
+    }
+    await supabase.from("batch_schedule_entries").update({ volume_bbl: next }).eq("id", e.id);
+  }
+
+  try {
+    await reserveConversionAdditions(supabase, {
+      sourceBatchId: plan.source_batch_id, targetBatchId: childBatchId, volumeBbl,
+    });
+  } catch (reserveErr) {
+    console.error("[conversion] Re-reserving after child volume edit failed (plan synced):", reserveErr);
+  }
+  return true;
 }
 
 /**
@@ -243,7 +383,11 @@ export async function seedConversionChildSchedule(
  */
 export async function recordExecutedConversion(
   supabase: SupabaseClient,
-  { sourceBatchId, targetBatchId }: { sourceBatchId: string; targetBatchId: string },
+  { sourceBatchId, targetBatchId, method }: {
+    sourceBatchId: string; targetBatchId: string;
+    /** How it physically happened; stamped on the record (default 'tank'). */
+    method?: ConversionMethod;
+  },
 ): Promise<void> {
   const { data: rows } = await supabase
     .from("batch_transfers")
@@ -270,6 +414,7 @@ export async function recordExecutedConversion(
       .update({
         volume_bbl:   delivered,
         converted_at: existing.converted_at ?? new Date().toISOString(),
+        ...(method ? { method } : {}),
       })
       .eq("id", existing.id);
   } else {
@@ -281,6 +426,7 @@ export async function recordExecutedConversion(
       planned_date:    today,
       converted_at:    new Date().toISOString(),
       notes:           "Auto: recorded on execution (no pre-plan)",
+      method:          method ?? "tank",
     });
   }
 }
@@ -502,10 +648,11 @@ export async function finalizeConversion(
     }
 
     // 6. Stamp (or create) the target's schedule entry on the destination tank.
-    //    A plan-born child carries an equipment-less ghost for this stage
-    //    (seedConversionChildSchedule); claim it first — assigning the tank and
-    //    stamping the start — so execution lands ON the plan instead of leaving
-    //    the ghost open next to a duplicate.
+    //    A plan-born child carries an unstarted plan entry for its vessel
+    //    (seedConversionChildSchedule) — possibly already holding a DIFFERENT
+    //    tank than the one the beer actually went into. Claim it first,
+    //    re-pointing it at the real tank and stamping the start, so execution
+    //    lands ON the plan instead of leaving it open next to a duplicate.
     if (stage) {
       const { data: entry } = await supabase
         .from("batch_schedule_entries")
@@ -523,8 +670,7 @@ export async function finalizeConversion(
         const { data: ghostRow } = await supabase
           .from("batch_schedule_entries")
           .select("id")
-          .eq("batch_id", targetBatchId).eq("stage", stage)
-          .is("equipment_id", null)
+          .eq("batch_id", targetBatchId).in("stage", [stage, "conditioning"])
           .eq("notes", CONVERSION_PLAN_SCHEDULE_NOTE)
           .is("cancelled_at", null).is("actual_start", null)
           .order("planned_start", { ascending: true }).limit(1)
@@ -532,7 +678,7 @@ export async function finalizeConversion(
         const ghost = ghostRow as { id: string } | null;
         if (ghost) {
           await supabase.from("batch_schedule_entries").update({
-            equipment_id: toTankId, actual_start: today, volume_bbl: volumeBbl,
+            equipment_id: toTankId, stage, actual_start: today, volume_bbl: volumeBbl,
           }).eq("id", ghost.id);
         } else {
           await supabase.from("batch_schedule_entries").insert({

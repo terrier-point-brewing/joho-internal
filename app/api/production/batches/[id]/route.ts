@@ -4,6 +4,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { upsertCommitments, releaseCommitments } from "@/lib/production/commitments";
 import { recheckBatchCommitments } from "@/lib/production/commitmentFulfillment";
 import { batchFillBbl } from "@/lib/production/batchVolume";
+import { syncPendingPlanVolume } from "@/lib/production/conversionFinalizer";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +91,16 @@ export async function PATCH(
   // here, but a volume change moves the booked ÷ planned reading everywhere;
   // re-judge the batch's commitments so nothing sits on a stale figure.
   if (volumeChanged) await recheckBatchCommitments(supabase, id);
+
+  // A planned conversion child's volume IS its plan's volume — push the edit
+  // onto the plan so the source batch's schedule and reservations follow.
+  if (volumeChanged && current?.converted_from_batch_id) {
+    try {
+      await syncPendingPlanVolume(supabase, { childBatchId: id, volumeBbl: Number(updates.volume_bbl) });
+    } catch (syncErr) {
+      console.error("[batches] Syncing conversion plan volume failed (batch updated):", syncErr);
+    }
+  }
 
   // Log status change
   if (statusChanged) {
