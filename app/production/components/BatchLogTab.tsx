@@ -76,7 +76,6 @@ const BATCH_CONTROLS: ControlsConfig<BrewBatch> = {
 
 const BATCH_EMPTY = {
   recipe_id: "",
-  beer_name: "",
   planned_brew_date: new Date().toISOString().slice(0, 10),
   expected_delivery_date: "",
   turns: "1",
@@ -127,7 +126,6 @@ export default function BatchLogTab() {
     setForm((f) => ({
       ...f,
       recipe_id: recipeId,
-      beer_name: r?.beer_name ?? f.beer_name,
       turns: "1",
       expected_delivery_date: delivery || f.expected_delivery_date,
     }));
@@ -150,7 +148,6 @@ export default function BatchLogTab() {
   function openEdit(b: BrewBatch) {
     setForm({
       recipe_id:              b.recipe_id ?? "",
-      beer_name:              b.beer_name,
       planned_brew_date:      b.planned_brew_date,
       expected_delivery_date: b.expected_delivery_date ?? "",
       turns:                  String(b.turns),
@@ -181,7 +178,6 @@ export default function BatchLogTab() {
     try {
       const payload = {
         recipe_id:              form.recipe_id,
-        beer_name:              form.beer_name,
         planned_brew_date:      form.planned_brew_date,
         expected_delivery_date: form.expected_delivery_date || null,
         volume_bbl,
@@ -324,10 +320,6 @@ export default function BatchLogTab() {
                   <option key={r.id} value={r.id}>{r.beer_name}{r.partner?.company_name ? ` · ${r.partner.company_name}` : ""}</option>
                 ))}
               </select>
-            </Field>
-            <Field label="Beer Name" required>
-              <input className="inp" value={form.beer_name} required
-                onChange={(e) => setForm((f) => ({ ...f, beer_name: e.target.value }))} />
             </Field>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Planned Brew Date" required>

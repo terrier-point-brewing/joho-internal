@@ -83,8 +83,10 @@ describe("createConversionTargetBatch", () => {
     });
     expect(id).toBe("child-1");
     const ins = recorded.find(r => r.table === "brew_batches");
+    // The name is the recipe's, served by the database — never written.
+    expect(ins?.payload).not.toHaveProperty("beer_name");
     expect(ins?.payload).toMatchObject({
-      beer_name: "Pumpkin Ale", recipe_id: "r1", volume_bbl: 24.5,
+      recipe_id: "r1", volume_bbl: 24.5,
       status: "planning", converted_from_batch_id: "S", converted_volume_bbl: 24.5,
       planned_brew_date: "2026-07-30",
       expected_delivery_date: "2026-08-09",

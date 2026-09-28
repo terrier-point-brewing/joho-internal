@@ -406,7 +406,6 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         }
 
         // The child's name IS the recipe's beer — nothing to type, nothing to typo.
-        const newRecipeName = recipes.find((r) => r.id === convert.newRecipeId)?.beer_name ?? "Converted batch";
         const res = await fetch("/api/production/transfers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -418,7 +417,6 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             // For an existing target the date is inherit-if-null server-side.
             expected_delivery_date: convert.expectedDeliveryDate || null,
             new_batch:     usingExisting ? null : {
-              beer_name:              newRecipeName,
               recipe_id:              convert.newRecipeId,
               conversion_date:        convert.conversionDate || null,
               expected_delivery_date: convert.expectedDeliveryDate || null,

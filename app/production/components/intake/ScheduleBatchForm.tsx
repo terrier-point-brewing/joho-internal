@@ -736,8 +736,6 @@ export default function ScheduleBatchForm({
 
     setCommitting(true);
     try {
-      const recipe = recipes.find((r) => r.id === row.recipe_id);
-
       // One call: the server checks the whole plan, then saves the batch, its
       // tank bookings and its allocations together — or nothing at all.
       const batchRes = await fetch("/api/production/batches", {
@@ -745,7 +743,6 @@ export default function ScheduleBatchForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           recipe_id: row.recipe_id,
-          beer_name: recipe?.beer_name ?? row.style,
           planned_brew_date: row.brew_date,
           expected_delivery_date: row.expected_delivery_date || null,
           volume_bbl: row.volume_bbl,
