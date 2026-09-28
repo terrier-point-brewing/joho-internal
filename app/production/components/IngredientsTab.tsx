@@ -23,7 +23,6 @@ const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = 
   "Yeast":        { color: CC.yellow },
   "Brewing Aids": { color: "border-info-border bg-info-surface/30 text-info" },
   "Adjuncts":     { color: CC.rose },
-  "Terpenes":     { color: CC.purple },
 };
 
 const INGREDIENT_CONTROLS: ControlsConfig<Ingredient> = {
