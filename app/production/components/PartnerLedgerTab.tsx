@@ -208,25 +208,29 @@ function AttentionChips({ flags }: { flags: Attention[] }) {
 function DeliveryCell({ c }: { c: LedgerCommitment }) {
   const t = c.totals;
   if (c.allocations.length === 0) return <span className="text-faint text-xs">no batch yet</span>;
+  // Owed is the deal's share of what the batch WILL make, so while it is open
+  // it already includes the share still in tank: "to go" is everything still
+  // to deliver, and "in tank" is the part of that not yet in a container.
   const owed = t.owed_bbl;
-  const inTank = c.stage === "open" ? t.in_tank_bbl : 0;
-  const over = owed > 0 && t.shipped_bbl > owed + 0.01;
   const closed = c.stage !== "open";
-  // One scale for the bar: everything this deal will end up with — what is
-  // owed so far plus what is still in tank, or what shipped if that is more.
-  // NOT the booking: owed is capped at what the batch produced, so on an
-  // under-yielding batch a fully delivered deal would never fill the bar.
-  const scale = Math.max(t.shipped_bbl, owed + inTank, 0.0001);
+  const toGo = Math.max(0, owed - t.shipped_bbl);
+  const inTank = closed ? 0 : Math.min(t.in_tank_bbl, toGo);
+  const over = owed > 0 && t.shipped_bbl > owed + 0.01;
+  // One scale for the bar: everything this deal will end up with, or what
+  // shipped if that is more. NOT the booking: owed is capped at what the
+  // batch makes, so on an under-yielding batch a fully delivered deal would
+  // never fill the bar.
+  const scale = Math.max(t.shipped_bbl, owed, 0.0001);
   const w = (v: number) => `${Math.max(0, Math.min(100, (v / scale) * 100))}%`;
-  const packagedUnshipped = Math.max(0, owed - t.shipped_bbl);
+  const packagedUnshipped = Math.max(0, toGo - inTank);
   return (
     <div className="min-w-[150px]">
       <div className="text-xs tabular-nums font-mono">
         <span className={over ? "text-[var(--cat-amber-fg)] font-medium" : "text-body"}>{bbl(t.shipped_bbl)}</span>
         <span className="text-faint"> / </span>
         <span className="text-body">{owed > 0 ? bbl(owed) : `${bbl(c.booked_bbl)} booked`}</span>
-        {!closed && owed > 0 && t.remaining_bbl > 0.005 && <span className="text-muted"> · {bbl(t.remaining_bbl)} to go</span>}
-        {inTank > 0.005 && <span className="text-muted"> · {bbl(inTank)} in tank</span>}
+        {!closed && owed > 0 && toGo > 0.005 && <span className="text-muted"> · {bbl(toGo)} to go</span>}
+        {inTank > 0.005 && <span className="text-muted"> · {bbl(inTank)} of it in tank</span>}
       </div>
       <div className="mt-1 h-1.5 rounded-full bg-surface-mid overflow-hidden flex" title={`${bbl(t.shipped_bbl)} shipped · ${bbl(packagedUnshipped)} packaged, not shipped · ${bbl(inTank)} still in tank`}>
         <div className={`h-full ${over ? "bg-[var(--cat-amber-fg)]" : "bg-success-emphasis"}`} style={{ width: w(Math.min(t.shipped_bbl, over ? t.shipped_bbl : owed)) }} />
@@ -325,7 +329,11 @@ function DepositCell({ c }: { c: LedgerCommitment }) {
 
 function ShareExplainer({ a, booked, channel }: { a: LedgerAllocation; booked: number; channel: string }) {
   const contract = channel === "contract_brewing";
-  const share = (a.percentage / 100) * a.produced_bbl;
+  // The share is of what the batch will make: packaged so far plus what is
+  // still in tank at the expected yield. Packaging is one partner at a time,
+  // so "packaged so far" says nothing about whose beer it is.
+  const fromTank = Math.max(0, a.projected_bbl - a.produced_bbl);
+  const share = (a.percentage / 100) * a.projected_bbl;
   return (
     <div className="text-xs text-muted leading-5">
       <div>
@@ -341,7 +349,10 @@ function ShareExplainer({ a, booked, channel }: { a: LedgerAllocation; booked: n
         )}
       </div>
       <div>
-        Produced {bbl(a.produced_bbl)} bbl → share {bbl(share)}
+        {fromTank > 0.005
+          ? <>Packaged {bbl(a.produced_bbl)} + {bbl(fromTank)} expected from tank = {bbl(a.projected_bbl)} bbl</>
+          : <>Produced {bbl(a.produced_bbl)} bbl</>}
+        {" "}→ share {bbl(share)}
         {contract && booked > 0 && share > booked + 0.005 && <> → capped at booked {bbl(booked)}</>}
         {" "}= <span className="text-secondary font-medium">owed {bbl(a.owed_bbl)} bbl</span>
         {" "}· shipped {bbl(a.exported_bbl)} · remaining {bbl(a.remaining_bbl)}

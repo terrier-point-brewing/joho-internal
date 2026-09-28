@@ -112,6 +112,7 @@ export interface LedgerInput {
   /**
    * bbl still in tank per batch, counted at the expected packaging yield —
    * what the batch is still going to produce. 0 once a batch is complete.
+   * produced + this is the yield every share is measured against.
    */
   inTankByBatch: Map<string, number>;
   /** every non-taproom export row for these partners (credited or not) */
@@ -162,16 +163,23 @@ export interface LedgerAllocation {
   percentage: number;
   /** How the % was derived: booked ÷ planned batch volume. */
   batch_planned_bbl: number;
+  /**
+   * What the batch will make — produced once complete, else produced plus the
+   * in-tank volume at the expected packaging yield. Owed is the share of THIS.
+   */
+  projected_bbl: number;
   /** Share of the batch nobody has claimed (100 − Σ allocations − converted), in %. */
   batch_unallocated_pct: number;
   /** Share of the batch converted into other beers, and which. */
   batch_converted_pct: number;
   batch_converted_to: string[];
   produced_bbl: number;
+  /** Share of projected yield, capped at the booking for a contract deal. Includes the in-tank share while open. */
   owed_bbl: number;
   exported_bbl: number;
+  /** owed − shipped: everything still to deliver, packaged or not. */
   remaining_bbl: number;
-  /** This allocation's share of what the batch is still expected to package. */
+  /** This allocation's share of what the batch is still expected to package — the part of `remaining_bbl` not yet in a container. */
   in_tank_bbl: number;
   written_off_bbl: number | null;
   write_off_note: string | null;
@@ -345,6 +353,8 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
         const booked = Number(c.volume_bbl ?? 0);
         const allocRows = allocsByCommitment.get(c.id) ?? [];
         // The same arithmetic Intake → Commitments shows (lib/production/commitmentDelivery).
+        // A share is of what the batch will make (produced + in tank at the
+        // expected yield), not of what happens to be packaged today.
         const delivery = commitmentDelivery({
           storedStatus: c.status,
           bookedBbl: booked,
@@ -353,10 +363,11 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
             batch_status: a.batch_status, written_off: a.written_off_bbl != null,
           })),
           producedByBatch: input.producedByBatch,
+          projectedByBatch: new Map(allocRows.map((a) => [a.batch_id, (input.producedByBatch.get(a.batch_id) ?? 0) + (input.inTankByBatch.get(a.batch_id) ?? 0)])),
           exportedByAllocation,
         });
         const allocs = allocRows.map((a, i): LedgerAllocation => {
-          const { produced_bbl: produced, owed_bbl: owed, exported_bbl: exported } = delivery.allocations[i];
+          const { produced_bbl: produced, projected_bbl: projected, owed_bbl: owed, exported_bbl: exported } = delivery.allocations[i];
           const pct = Number(a.percentage);
           const charges = input.chargesByAllocation.get(a.id) ?? null;
           const additions = classifyAdditions(a, charges);
@@ -372,6 +383,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
             beer_name: a.beer_name,
             percentage: pct,
             batch_planned_bbl: a.batch_planned_bbl,
+            projected_bbl: r2(projected),
             batch_unallocated_pct: r2(Math.max(0, 100 - (input.allocatedPctByBatch.get(a.batch_id) ?? 0) - (input.convertedByBatch.get(a.batch_id)?.pct ?? 0))),
             batch_converted_pct: r2(input.convertedByBatch.get(a.batch_id)?.pct ?? 0),
             batch_converted_to: input.convertedByBatch.get(a.batch_id)?.targets ?? [],

@@ -277,6 +277,20 @@ describe("planShipment", () => {
     expect(w).toMatchObject({ type: "over_booked", overBbl: 1 });
   });
 
+  it("float dust beyond the last cap rides on that credit instead of becoming an over-delivery row", () => {
+    // B-058: 35 cases against a share that missed the request by 0.0002 bbl
+    // wrote a 34.9979-case credit plus a 0.0021-case "over-delivery" that sat
+    // under the partner as 0.00 bbl needing a home.
+    const plan = planShipment({
+      requestedBbl: 13.5517,
+      candidates: [{ allocationId: "A", batchId: "b1", channel: "contract_brewing", bookedRemainingBbl: 20, realizableRemainingBbl: 13.5515 }],
+      perBatchDrawBbl: [{ batchId: "b1", drawBbl: 13.5517 }],
+      batches: [contractBatch()],
+    });
+    expect(plan.credits).toEqual([{ allocationId: "A", bbl: 13.5517, overAllocation: false }]);
+    expect(hasType(plan.warnings, "over_booked")).toBe(false);
+  });
+
   it("soft allocation absorbs the remainder → no over_booked", () => {
     const plan = planShipment({
       requestedBbl: 16,

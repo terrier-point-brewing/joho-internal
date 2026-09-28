@@ -9,6 +9,7 @@ import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDeliv
 import { planShipment, type ShipmentPlan } from "./allocationReserve";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { listHomes, type HomesForBatch } from "./rehome";
+import { loadBatchYields, shareBasisBbl } from "./batchYieldProjection.server";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 
@@ -58,16 +59,12 @@ export async function loadShipReserveContext(
     .in("batch_id", inList)
     .neq("channel", "taproom");
 
-  // produced = sum(volume_bbl) of kegging/canning (net fill, NOT minus shrinkage)
-  const { data: prodTransfers } = await supabase
-    .from("batch_transfers")
-    .select("batch_id, volume_bbl")
-    .in("batch_id", inList)
-    .in("transfer_type", ["kegging", "canning"]);
+  // produced = sum(volume_bbl) of kegging/canning (net fill, NOT minus
+  // shrinkage); projected = what the batch will make while it is still in
+  // tank (lib/production/batchYieldProjection.server).
+  const yields = await loadBatchYields(supabase, inList);
   const producedByBatch: Record<string, number> = {};
-  for (const t of prodTransfers ?? []) {
-    producedByBatch[t.batch_id] = (producedByBatch[t.batch_id] ?? 0) + Number(t.volume_bbl);
-  }
+  for (const [bid, y] of yields) producedByBatch[bid] = y.producedBbl;
 
   // Credited volume is read by allocation_id — the unit of record. Rows with
   // no allocation (over-delivery, ad-hoc) still count against the batch total.
@@ -120,10 +117,14 @@ export async function loadShipReserveContext(
       const exported = exportedByAllocation.get(a.id) ?? 0;
       const booked = channel === "contract_brewing" ? (a.commitments?.volume_bbl ?? 0) : null;
       const bookedRemainingBbl = channel === "contract_brewing" ? Math.max(0, (booked ?? 0) - exported) : null;
-      // What the batch has actually made for this allocation, less what already
-      // shipped. Caps the credit alongside booked so a batch that finished below
-      // its booked estimate (shrinkage) cannot keep absorbing other batches' beer.
-      const realizable = (Number(a.percentage) / 100) * (producedByBatch[a.batch_id] ?? 0);
+      // What the batch makes for this allocation, less what already shipped.
+      // Caps the credit alongside booked so a batch that finished below its
+      // booked estimate (shrinkage) cannot keep absorbing other batches' beer.
+      // While the batch is still in tank the share is of its PROJECTED yield:
+      // we package for one partner at a time, so what has been canned so far
+      // says nothing about whose beer it is (B-033 shipped Argus 8.1 bbl off
+      // 12.9 packaged with 27 still in tank — inside their 75%, not over).
+      const realizable = (Number(a.percentage) / 100) * shareBasisBbl(yields, a.batch_id);
       const realizableRemainingBbl = Math.max(0, realizable - exported);
       const depositSettled = channel === "contract_brewing" ? !!a.invoice_paid_at : undefined;
       return { allocationId: a.id, batchId: a.batch_id, channel, bookedRemainingBbl, realizableRemainingBbl, depositSettled, _createdAt: a.brew_batches.created_at };
