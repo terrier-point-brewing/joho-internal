@@ -13,6 +13,7 @@ import { applyPackagingLoss } from "@/lib/production/packagingMaterials";
 import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 import { upsertColdStorageInventory } from "@/lib/production/coldStorageUpsert";
 import { clawBackPlannedPackaging } from "@/lib/production/packagingClawback";
+import { recordInPlaceSwitchOnDeparture } from "@/lib/production/inPlaceConditioning";
 
 export const dynamic = "force-dynamic";
 
@@ -229,6 +230,23 @@ async function reconcileSchedule(
   }[] = [];
 
   const today = new Date().toISOString().split("T")[0];
+
+  // Beer leaving a fermenter for anything other than another vessel (packaging,
+  // a conversion) while conditioning is booked in that same fermenter: record
+  // the in-place switch first, so the departure below draws from and closes
+  // the conditioning entry rather than the fermenting one. A move to a brite
+  // or another fermenter is left to the deviation logic below.
+  if (from_tank_id && from_tank_id !== to_tank_id) {
+    const { data: tankTypes } = await supabase
+      .from("equipment")
+      .select("id, type")
+      .in("id", to_tank_id ? [from_tank_id, to_tank_id] : [from_tank_id]);
+    const typeOf = (id: string | null) => (tankTypes ?? []).find((t) => t.id === id)?.type;
+    const destType = typeOf(to_tank_id);
+    if (typeOf(from_tank_id) === "fermenter" && destType !== "fermenter" && destType !== "brite" && destType !== "brewhouse") {
+      await recordInPlaceSwitchOnDeparture(supabase, batch_id, from_tank_id, today);
+    }
+  }
 
   // Tracks the newly created/updated destination entry and its tank type
   // so the partial-transfer section can annotate it as a split branch.

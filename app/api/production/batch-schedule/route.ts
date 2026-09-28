@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { planInPlaceSwitches, recordInPlaceSwitches, type ConditioningScheduleRow } from "@/lib/production/inPlaceConditioning";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,26 @@ export async function GET(req: NextRequest) {
   if (!includeCanc) query = query.is("cancelled_at", null);
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Conditioning in the same fermenter starts on its planned date without
+  // anyone confirming it. Recorded here, the first time the schedule is read
+  // on or after that date, and backdated to it — so no cron timing matters.
+  const today = new Date().toISOString().split("T")[0];
+  const switches = planInPlaceSwitches((data ?? []) as ConditioningScheduleRow[], today);
+  if (switches.length > 0) {
+    try {
+      const recorded = await recordInPlaceSwitches(createSupabaseAdminClient(), switches);
+      const byId = new Map((data ?? []).map((e) => [e.id as string, e as Record<string, unknown>]));
+      for (const s of recorded) {
+        const f = byId.get(s.fermentingId);
+        const c = byId.get(s.conditioningId);
+        if (f) Object.assign(f, { actual_end: s.switchDate, downstream_entry_id: s.conditioningId, ...(s.fermentingVolumeBbl != null ? { volume_bbl: s.fermentingVolumeBbl } : {}) });
+        if (c) Object.assign(c, { actual_start: s.switchDate, ...(s.conditioningVolumeBbl != null ? { volume_bbl: s.conditioningVolumeBbl } : {}) });
+      }
+    } catch (err) {
+      console.error("[batch-schedule] In-place conditioning switch failed:", err);
+    }
+  }
   return NextResponse.json(data);
 }
 

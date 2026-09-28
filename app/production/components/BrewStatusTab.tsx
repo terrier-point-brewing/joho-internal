@@ -23,6 +23,7 @@ import {
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { STAGE_LABELS } from "./EquipmentSchedule/constants";
+import { isInPlaceConditioning } from "@/lib/production/inPlaceConditioning";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import ScheduleBatchModal from "./intake/ScheduleBatchModal";
 
@@ -242,6 +243,18 @@ export default function BrewStatusTab() {
     return map;
   }, [upcomingTasks]);
 
+  // The Up Next banner is for things a brewer has to do. Conditioning in the
+  // same fermenter isn't one — it starts on its planned date by itself. Nor is
+  // a leftover plan for a vessel stage the batch has already entered in that
+  // same tank (B-033 kept a stale 8/1 brite 34 card after moving in on 8/14).
+  const upNextTasks = React.useMemo(() => {
+    const alreadyThere = (e: ScheduleEntry) => !PACKAGING_STAGES.has(e.stage) && scheduleEntries.some((o) =>
+      o.id !== e.id && o.batch_id === e.batch_id && o.stage === e.stage
+      && o.equipment_id === e.equipment_id && !o.cancelled_at && !!o.actual_start,
+    );
+    return upcomingTasks.filter((e) => !isInPlaceConditioning(e, scheduleEntries) && !alreadyThere(e));
+  }, [upcomingTasks, scheduleEntries]);
+
   // Resolve the right click-through action for an Up Next card: prefer a
   // direct Transfer/Convert action over the tank's current occupant, falling
   // back to the read-only "Upcoming plans" popup when there's no current
@@ -252,8 +265,7 @@ export default function BrewStatusTab() {
       if (e.equipment_id) setPlansEquipmentId(e.equipment_id);
       return;
     }
-    // In-place fermenting→conditioning, or any other transfer to a specific
-    // planned tank: open Transfer mode with that tank pre-selected as the
+    // A transfer to a specific planned tank: open Transfer mode with that tank pre-selected as the
     // destination (TransferModal falls back to its own first-valid-option
     // default if this tank isn't actually a legal destination).
     setTransferTankId(currentTank.id);
@@ -350,20 +362,16 @@ export default function BrewStatusTab() {
       )}
 
       {/* What's next — upcoming equipment-schedule tasks + pending conversions, soonest first */}
-      {(upcomingTasks.length > 0 || pendingConversions.length > 0) && (
+      {(upNextTasks.length > 0 || pendingConversions.length > 0) && (
         <div className="mb-4 rounded-lg border border-line bg-surface/50 px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted mb-1.5">Up next</p>
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {upcomingTasks.slice(0, 10).map((e) => {
+            {upNextTasks.slice(0, 10).map((e) => {
               const b = e.brew_batches ?? (e.batch_id ? batchById[e.batch_id] : null);
               const eqName = e.equipment?.name ?? tanks.find(t => t.id === e.equipment_id)?.name ?? "—";
               const overdue = e.planned_start.slice(0, 10) < new Date().toISOString().slice(0, 10);
               const currentTank = currentTankByBatchId[e.batch_id];
-              const actionLabel = !currentTank
-                ? null
-                : e.stage === "conditioning" && e.equipment_id === currentTank.id
-                ? "Confirm Conditioning"
-                : "Transfer";
+              const actionLabel = currentTank ? "Transfer" : null;
               return (
                 <button
                   key={e.id}
