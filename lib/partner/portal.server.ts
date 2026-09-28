@@ -3,7 +3,7 @@ import { requirePermission, CAP, type Session } from "@/lib/auth";
 import { can } from "@/lib/auth/resolve";
 import { todayLocalDate } from "@/lib/utils/datetime";
 import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
-import type { LedgerInvoiceRef, LedgerPartner } from "@/lib/production/partnerLedger";
+import type { LedgerInvoiceRef, LedgerPartner, LedgerShipment } from "@/lib/production/partnerLedger";
 import { loadPackagingYieldPct, projectBatchYield } from "@/lib/production/exportIngredientDeposit";
 import type { LedgerTransfer } from "@/lib/production/volumeLedger";
 import { getInvoiceStatus } from "@/lib/square/square-invoices";
@@ -286,7 +286,14 @@ export interface PortalDeal {
   desired_delivery_date: string | null;
   received_on: string | null;
   /** Ingredient deposit, contract brewing only. Null when the deal has none. */
-  deposit: { billed_cents: number; paid_cents: number; status: PaymentStatus } | null;
+  deposit: {
+    billed_cents: number; paid_cents: number; status: PaymentStatus;
+    /** The invoice carrying the deposit: its own, or the shipment invoice it was back-charged onto. */
+    invoice: PortalInvoice | null;
+    billed_on: "own_invoice" | "shipment_invoice" | null;
+  } | null;
+  /** Every invoice on this deal (deposit, shipments, back-charges) still to be paid — one entry per invoice. */
+  unpaid_invoices: PortalInvoice[];
   shipments: Array<{
     /** A return is beer that came back: negative volume, no invoice of its own. */
     kind: "shipment" | "return";
@@ -400,6 +407,42 @@ export async function loadInvoiceExtras(admin: SupabaseClient, partnerId: string
   return { today, invoices, batches };
 }
 
+/**
+ * One drop, one row. The ledger keeps a shipment's rows apart by how they were
+ * credited (a 21-case drop that outran the deal's share at ship time is a
+ * 19.6-case row and a 1.4-case one). The partner took 21 cases: rows with the
+ * same shipment id become one shipment, and lines with the same label one line.
+ */
+export function mergeShipments(rows: LedgerShipment[]): LedgerShipment[] {
+  const byKey = new Map<string, LedgerShipment>();
+  for (const s of rows) {
+    const key = s.shipment_id ?? `row:${s.transaction_ids.join(",") || s.date}`;
+    const have = byKey.get(key);
+    if (!have) { byKey.set(key, { ...s, lines: s.lines.map((l) => ({ ...l })) }); continue; }
+    have.date = s.date < have.date ? s.date : have.date;
+    have.volume_bbl = Math.round((have.volume_bbl + s.volume_bbl) * 100) / 100;
+    have.transaction_ids = [...have.transaction_ids, ...s.transaction_ids];
+    have.invoice = have.invoice ?? s.invoice;
+    have.lines = [...have.lines, ...s.lines];
+  }
+  for (const s of byKey.values()) {
+    const byLabel = new Map<string, LedgerShipment["lines"][number]>();
+    for (const l of s.lines) {
+      const have = byLabel.get(l.variant_label ?? "");
+      if (!have) { byLabel.set(l.variant_label ?? "", { ...l }); continue; }
+      have.quantity += l.quantity;
+      have.volume_bbl = Math.round((have.volume_bbl + l.volume_bbl) * 100) / 100;
+      have.over_allocation = have.over_allocation || l.over_allocation;
+      have.is_ad_hoc = have.is_ad_hoc || l.is_ad_hoc;
+      have.shipped_before_deposit = have.shipped_before_deposit || l.shipped_before_deposit;
+    }
+    // A split row leaves 19.5999 + 1.4001 behind; the partner shipped 21.
+    s.lines = [...byLabel.values()].map((l) => ({ ...l, quantity: Math.round(l.quantity * 100) / 100 }));
+  }
+  // The ledger already orders its rows; keep that order.
+  return [...byKey.values()];
+}
+
 export function toPortalHistory(ledger: LedgerPartner | undefined, excise: PartnerExcise = EMPTY_HISTORY.excise, extras: InvoiceExtras = NO_EXTRAS): PortalHistory {
   if (!ledger) return { ...EMPTY_HISTORY, excise };
 
@@ -442,7 +485,7 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
     !s.reverses_shipment_id && s.kind !== "revision" && s.kind !== "reversal" && !(s.shipment_id && erased.has(s.shipment_id));
 
   const shipmentsOf = (rows: LedgerPartner["unallocated"], beer: string | null): PortalDeal["shipments"] =>
-    rows.filter(real).map((s) => {
+    mergeShipments(rows.filter(real)).map((s) => {
       const isReturn = s.kind === "refund";
       const invoice = isReturn ? null : note(s.invoice, "shipment");
       if (!isReturn) covers(invoice, beer, s.volume_bbl);
@@ -455,24 +498,69 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
       };
     });
 
+  // Beer that reached this partner from a batch they have a deal on, but was
+  // not credited to that deal — an over-delivery beyond their share of what
+  // had packaged at ship time, or an ad-hoc drop. The partner received it and
+  // is billed for it; to them it is simply part of that batch's shipments, so
+  // it is folded into the deal here (and its rows merged back into the
+  // shipment they were split from). Only beer from a batch they hold no deal
+  // on is "other". Staff still see the over-delivery flag on the ledger.
+  const stageOf = new Map(ledger.commitments.map((c) => [c.id, c.stage]));
+  const dealForBatch = (batchId: string | null): string | null => {
+    const targets = batchId ? (ledger.allocations_by_batch?.[batchId] ?? []) : [];
+    const open = targets.find((t) => stageOf.get(t.commitment_id) === "open");
+    return (open ?? targets[0])?.commitment_id ?? null;
+  };
+  const folded = new Map<string, LedgerPartner["unallocated"]>();
+  const strays: LedgerPartner["unallocated"] = [];
+  for (const s of ledger.unallocated) {
+    const dealId = dealForBatch(s.batch_id);
+    if (dealId) (folded.get(dealId) ?? folded.set(dealId, []).get(dealId)!).push(s);
+    else strays.push(s);
+  }
+
   let looseDepositPaid = 0;
   let refunded = 0;
   const deals: PortalDeal[] = ledger.commitments.map((c) => {
+    const beer = beerLabel(c.recipe_name, c.recipe_style);
     for (const ref of c.export_invoices) note(ref, "shipment");
     let depositStatus: PaymentStatus = "not_invoiced";
+    let depositInvoice: PortalInvoice | null = null;
+    const backcharges: PortalInvoice[] = [];
     for (const a of c.allocations) {
-      for (const ref of a.deposit.backcharge_invoices) note(ref, "shipment");
+      for (const ref of a.deposit.backcharge_invoices) {
+        const inv = note(ref, "shipment");
+        if (inv) backcharges.push(inv);
+      }
       refunded += a.deposit.refunded_cents;
       const sentOrPaid = a.deposit.invoice && (a.deposit.sent_at || a.deposit.invoice.status === "paid");
-      if (sentOrPaid) covers(note(a.deposit.invoice, "deposit"), beerLabel(c.recipe_name, c.recipe_style),
-        // Before anything is packaged nothing is "owed" yet; the deposit is for the booked share of the planned batch.
-        a.owed_bbl > 0 ? a.owed_bbl : (a.percentage / 100) * a.batch_planned_bbl);
+      if (sentOrPaid) {
+        const inv = note(a.deposit.invoice, "deposit");
+        covers(inv, beer,
+          // Before anything is packaged nothing is "owed" yet; the deposit is for the booked share of the planned batch.
+          a.owed_bbl > 0 ? a.owed_bbl : (a.percentage / 100) * a.batch_planned_bbl);
+        // The one still to pay is the one worth a link; otherwise any of them.
+        if (inv && (!depositInvoice || inv.status === "unpaid")) depositInvoice = inv;
+      }
       // Marked paid from QuickBooks: money received with no invoice row to carry it.
       else if (!a.deposit.invoice && a.deposit.paid_cents > 0) looseDepositPaid += a.deposit.paid_cents;
     }
     if (c.channel === "contract_brewing") {
       const billed = c.totals.deposit_billed_cents, paid = c.totals.deposit_paid_cents;
       depositStatus = billed <= 0 && paid <= 0 ? "not_invoiced" : paid >= billed ? "paid" : "unpaid";
+    }
+    // A deposit not paid up front rides as a line on the first shipment
+    // invoice. Point the partner at that invoice rather than at nothing.
+    const depositBackcharge = backcharges.find((i) => i.status === "unpaid") ?? backcharges[0] ?? null;
+    const depositBilledOn = depositInvoice ? "own_invoice" as const : depositBackcharge ? "shipment_invoice" as const : null;
+    const extra = folded.get(c.id) ?? [];
+    const shipments = shipmentsOf([...c.shipments, ...extra], beer);
+    const extraBbl = extra.filter(real).reduce((s, x) => s + x.volume_bbl, 0);
+    const shipped = Math.round((c.totals.shipped_bbl + extraBbl) * 100) / 100;
+    // One entry per invoice, however many shipments it bills.
+    const unpaid = new Map<string, PortalInvoice>();
+    for (const inv of [...shipments.map((s) => s.invoice), depositInvoice, ...backcharges]) {
+      if (inv && inv.status === "unpaid") unpaid.set(inv.id, inv);
     }
     return {
       id: c.id,
@@ -485,25 +573,31 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
       // owed is capped at what the batch produced, so measuring against the
       // booking would leave a fully delivered deal looking short forever.
       expected_bbl: c.allocations.length === 0 ? c.booked_bbl
-        : Math.round(Math.max(c.totals.shipped_bbl, c.totals.owed_bbl + (c.stage === "open" ? c.totals.in_tank_bbl : 0)) * 100) / 100,
+        : Math.round(Math.max(shipped, c.totals.owed_bbl + (c.stage === "open" ? c.totals.in_tank_bbl : 0)) * 100) / 100,
       has_batch: c.allocations.length > 0,
       progress: dealProgress(c, extras),
-      shipped_bbl: c.totals.shipped_bbl,
-      remaining_bbl: c.totals.remaining_bbl,
+      shipped_bbl: shipped,
+      remaining_bbl: Math.round(Math.max(0, c.totals.remaining_bbl - extraBbl) * 100) / 100,
       in_tank_bbl: c.totals.in_tank_bbl,
       desired_delivery_date: c.desired_delivery_date,
       received_on: c.received_on,
       deposit: c.channel === "contract_brewing"
-        ? { billed_cents: c.totals.deposit_billed_cents, paid_cents: c.totals.deposit_paid_cents - c.totals.deposit_refunded_cents, status: depositStatus }
+        ? { billed_cents: c.totals.deposit_billed_cents, paid_cents: c.totals.deposit_paid_cents - c.totals.deposit_refunded_cents, status: depositStatus, invoice: depositInvoice ?? depositBackcharge, billed_on: depositBilledOn }
         : null,
-      shipments: shipmentsOf(c.shipments, beerLabel(c.recipe_name, c.recipe_style)),
+      shipments,
+      unpaid_invoices: [...unpaid.values()].sort((a, b) => Number(b.overdue) - Number(a.overdue) || (a.due_date ?? a.date ?? "").localeCompare(b.due_date ?? b.date ?? "")),
     };
   });
-  // Open deals first — they are the ones with something still to happen.
+  // Open deals first, in the order they will land: beer that is packaged
+  // and ready, then batches by the date they should be ready, then deals
+  // still waiting for a brew date. Closed deals after, newest first.
   const rank = { open: 0, closed: 1, cancelled: 2 } as const;
-  deals.sort((a, b) => rank[a.status] - rank[b.status] || (b.received_on ?? "").localeCompare(a.received_on ?? ""));
+  const landing = (d: PortalDeal) => d.progress.step === 5 ? "0" : d.progress.step < 0 ? "9" : `5${d.progress.ready_by ?? "9999-99-99"}`;
+  deals.sort((a, b) => rank[a.status] - rank[b.status]
+    || (a.status === "open" ? landing(a).localeCompare(landing(b)) : 0)
+    || (b.received_on ?? "").localeCompare(a.received_on ?? ""));
 
-  const other_shipments = shipmentsOf(ledger.unallocated, null);
+  const other_shipments = shipmentsOf(strays, null);
   const all = [...invoices.values()];
   const open = deals.filter((d) => d.status === "open");
   return {

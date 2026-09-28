@@ -26,8 +26,10 @@ export interface PortalShipment {
 export interface PortalDeal {
   id: string; beer_name: string | null; status: "open" | "closed" | "cancelled"; booked_bbl: number; produced_bbl: number; expected_bbl: number; has_batch: boolean; progress: DealProgress; shipped_bbl: number;
   remaining_bbl: number; in_tank_bbl: number; style?: string | null; desired_delivery_date: string | null; received_on: string | null;
-  deposit: { billed_cents: number; paid_cents: number; status: PaymentStatus } | null;
+  deposit: { billed_cents: number; paid_cents: number; status: PaymentStatus; invoice: PortalInvoice | null; billed_on: "own_invoice" | "shipment_invoice" | null } | null;
   shipments: PortalShipment[];
+  /** Every invoice on this deal (deposit, shipments, back-charges) still to be paid — one entry per invoice. */
+  unpaid_invoices: PortalInvoice[];
 }
 export interface PortalHistory {
   summary: { shipped_bbl: number; paid_cents: number; outstanding_cents: number; overdue_cents: number; open_deals: number; to_come_bbl: number };
