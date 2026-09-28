@@ -59,6 +59,13 @@ const MarketingIcon = () => (
     <path d="M1.5 5.5h11M4.5 1.5v2M9.5 1.5v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
   </svg>
 );
+// The wordmark's collapsed twin: a house, for the Home alert center.
+const HomeIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
+    <path d="M2 6.5L7 2.5l5 4V12H2V6.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+    <path d="M5.5 12V8.5h3V12" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+  </svg>
+);
 const SettingsIcon = () => (
   <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
     <circle cx="7" cy="7" r="2" stroke="currentColor" strokeWidth="1.3"/>
@@ -111,6 +118,7 @@ export default function NavBar() {
   const isBrand      = pathname === "/brand"      || pathname.startsWith("/brand/");
   const isMarketing  = pathname === "/marketing"  || pathname.startsWith("/marketing/");
   const isSettings   = pathname.startsWith("/settings");
+  const isHome       = pathname === "/home" || pathname.startsWith("/home/");
 
   // Derived permissions — only evaluated after loading is done. Reuses the
   // same capabilities their respective layouts gate on, so NavBar visibility
@@ -137,8 +145,16 @@ export default function NavBar() {
       >
         {/* Logo / toggle row */}
         <div className={`flex items-center border-b border-line ${collapsed ? "justify-center px-0 py-5" : "px-4 py-5"}`}>
+          {/* The wordmark is the way into the Home alert center — the one page
+              that lists everything needing a decision, across every section. */}
           {!collapsed && (
-            <span className="text-base font-bold text-primary tracking-wide flex-1">TPB</span>
+            <Link
+              href="/home"
+              title="Home — alerts and things to do"
+              className={`text-base font-bold tracking-wide flex-1 transition-colors ${isHome ? "text-accent" : "text-primary hover:text-accent"}`}
+            >
+              TPB
+            </Link>
           )}
           <button
             onClick={() => setCollapsed((c) => !c)}
@@ -309,6 +325,10 @@ export default function NavBar() {
         {/* Collapsed: icon-only nav */}
         {collapsed && (
           <nav className="flex flex-col items-center gap-1 p-1 pt-2">
+            <Link href="/home" title="Home — alerts and things to do"
+              className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isHome ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
+              <HomeIcon />
+            </Link>
             <Link href="/taproom/performance" title="Taproom Management"
               className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${isTaproom ? "bg-surface-mid text-accent" : "text-faint hover:text-body hover:bg-surface-mid/50"}`}>
               <TaproomIcon />
@@ -373,7 +393,7 @@ export default function NavBar() {
 
       {/* ── Mobile top bar ───────────────────────────────────────────────────── */}
       <div className="md:hidden fixed top-0 inset-x-0 z-50 bg-surface border-b border-line flex items-center justify-between px-4 h-11">
-        <span className="text-sm font-bold text-primary tracking-wide">TPB</span>
+        <Link href="/home" className={`text-sm font-bold tracking-wide ${isHome ? "text-accent" : "text-primary"}`}>TPB</Link>
         {!loading && user && (
           <div className="text-right">
             <div className="text-xs text-body truncate max-w-[200px]">{user.email}</div>

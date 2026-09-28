@@ -13,6 +13,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CRON_JOBS, type CronJobMeta } from "@/lib/cron/registry";
+import { runAlertDigest } from "./alertDigest";
 import { runBalanceCapture } from "./balanceCapture";
 import { runBalanceClose } from "./balanceClose";
 import { runBankTransactionsSync } from "./bankTransactionsSync";
@@ -45,6 +46,7 @@ export interface CronJobDefinition extends CronJobMeta {
  * "no such job" in production.
  */
 const WORK_BY_JOB: Record<string, CronJobWork> = {
+  "alert-digest":             runAlertDigest,
   "balance-capture":          runBalanceCapture,
   "balance-close":            runBalanceClose,
   "bank-transactions-sync":   runBankTransactionsSync,

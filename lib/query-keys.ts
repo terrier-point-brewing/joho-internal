@@ -26,6 +26,13 @@ export const queryKeys = {
     me:  () => ["auth", "me"] as const,
   },
 
+  // ─── Home ────────────────────────────────────────────────────────────────
+  home: {
+    all:    () => ["home"] as const,
+    /** The alert center's one read; the sidebar badge shares the entry. */
+    alerts: () => ["home", "alerts"] as const,
+  },
+
   // ─── Admin ───────────────────────────────────────────────────────────────
   admin: {
     all: () => ["admin"] as const,

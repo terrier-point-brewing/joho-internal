@@ -17,6 +17,8 @@ interface Profile {
   role: UserRole;
   /** The company an external partner login belongs to; null for staff. */
   partner_id: string | null;
+  /** Gets the morning alert digest (lib/cron/jobs/alertDigest.ts). Never true for a partner. */
+  alert_emails_enabled: boolean;
   created_at: string;
   email_confirmed: boolean;
 }
@@ -129,6 +131,23 @@ export default function UserManagement() {
     }
   }
 
+  async function handleAlertEmails(userId: string, enabled: boolean) {
+    setApiError(null);
+    qc.setQueryData<Profile[]>(QUERY_KEY, (prev) =>
+      prev?.map((u) => (u.id === userId ? { ...u, alert_emails_enabled: enabled } : u))
+    );
+    const res = await fetch(`/api/admin/users/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alert_emails_enabled: enabled }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setApiError(data.error ?? "Failed to change alert emails");
+      qc.invalidateQueries({ queryKey: QUERY_KEY });
+    }
+  }
+
   async function handleDeleteUser(userId: string) {
     if (!confirm("Delete this user? This cannot be undone.")) return;
     const res = await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
@@ -190,6 +209,7 @@ export default function UserManagement() {
                   <th className="text-left px-4 py-3 font-medium">Email</th>
                   <th className="text-left px-4 py-3 font-medium">Role</th>
                   <th className="text-left px-4 py-3 font-medium">Confirmed</th>
+                  <th className="text-left px-4 py-3 font-medium" title="A morning email listing everything on the Home alert center this person can act on.">Alert emails</th>
                   <th className="text-left px-4 py-3 font-medium">Joined</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -238,6 +258,22 @@ export default function UserManagement() {
                         </button>
                       )}
                     </td>
+                    <td className="px-4 py-3">
+                      {u.role === "partner" || awaitingCompany.has(u.id) ? (
+                        <span className="text-xs text-faint">—</span>
+                      ) : (
+                        <label className="inline-flex items-center gap-2 text-xs text-secondary cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={u.alert_emails_enabled}
+                            onChange={(e) => handleAlertEmails(u.id, e.target.checked)}
+                            className="accent-[var(--color-accent-emphasis)]"
+                            aria-label={`Alert emails for ${u.email}`}
+                          />
+                          {u.alert_emails_enabled ? "Daily" : "Off"}
+                        </label>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-muted">
                       {new Date(u.created_at).toLocaleDateString()}
                     </td>
@@ -274,7 +310,7 @@ export default function UserManagement() {
                 ))}
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-faint text-sm">
+                    <td colSpan={6} className="px-4 py-6 text-center text-faint text-sm">
                       No users yet
                     </td>
                   </tr>
