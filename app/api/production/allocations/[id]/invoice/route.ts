@@ -130,6 +130,11 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     if (allocation.invoice_paid_at) {
       return NextResponse.json({ error: "Invoice has already been paid — allocation is locked" }, { status: 422 });
     }
+    // A back-charged deposit is already being collected as a line on an export
+    // invoice; a deposit invoice of its own would bill the partner twice.
+    if (allocation.deposit_backcharged_invoice_id) {
+      return NextResponse.json({ error: "This deposit is already billed on an export invoice — a separate deposit invoice would charge the partner twice" }, { status: 409 });
+    }
 
     // Conversion-born batch → net the parent's bill out; see the GET handler.
     const excludedRecipes = await conversionDepositExclusions(supabase, batch.id, { partnerId: allocation.partner_id });
@@ -292,6 +297,9 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     }
     if (allocation.invoice_sent_at) {
       return NextResponse.json({ error: "Invoice has already been sent — sync to check payment status" }, { status: 400 });
+    }
+    if (allocation.deposit_backcharged_invoice_id) {
+      return NextResponse.json({ error: "This deposit is already billed on an export invoice — delete this draft instead of sending it" }, { status: 409 });
     }
 
     // Check Square status first — if the invoice is already UNPAID/PAID (e.g. a

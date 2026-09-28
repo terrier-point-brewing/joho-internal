@@ -11,9 +11,8 @@ import {
 import { fmtDateLong } from "@/lib/utils/formatting";
 import { Modal, Field, ModalActions } from "../shared";
 import { fetchJson } from "../../hooks/queries";
-import { DepositInvoiceModal } from "../DepositInvoiceModal";
+import { useDepositInvoiceActions } from "../useDepositInvoiceActions";
 import DepositCoverageLine from "../DepositCoverageLine";
-import type { DepositCalculation } from "@/lib/square/square-invoices";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
 import { lockedFieldsChanged } from "@/lib/production/commitmentLock";
 import { useTableControls } from "@/app/components/ui/useTableControls";
@@ -423,108 +422,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
   const [editing, setEditing] = useState<ContractBrewingRequest | null>(null);
 
   // ── Invoicing actions (shared with Batch Log > Allocations) ──────────────
-  const [invoiceModalAlloc, setInvoiceModalAlloc] = useState<CommitmentAllocationSummary | null>(null);
-  const [invoicePreview, setInvoicePreview] = useState<{ calculation: DepositCalculation } | null>(null);
-  const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
-  const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null);
-
-  async function openInvoicePreview(a: CommitmentAllocationSummary) {
-    setInvoiceModalAlloc(a);
-    setInvoicePreview(null);
-    setInvoicePreviewLoading(true);
-    try {
-      const data = await fetchJson<{ calculation: DepositCalculation }>(`/api/production/allocations/${a.id}/invoice`);
-      setInvoicePreview(data);
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to load invoice preview");
-      setInvoiceModalAlloc(null);
-    } finally {
-      setInvoicePreviewLoading(false);
-    }
-  }
-
-  async function handleGenerateInvoice(allocId: string) {
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate" }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setInvoiceModalAlloc(null);
-      await load();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to generate invoice");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
-  async function handleMarkPaid(allocId: string, data: import("../DepositInvoiceModal").MarkPaidData) {
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mark_paid", ...data }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      setInvoiceModalAlloc(null);
-      await load();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to mark as paid");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
-  async function handleSendInvoice(allocId: string) {
-    if (!confirm("Send this invoice to the partner via email?")) return;
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send" }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      await load();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to send invoice");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
-  async function handleViewInSquare(allocId: string) {
-    setInvoiceActionLoading(allocId);
-    try {
-      const data = await fetchJson<{ invoiceUrl: string | null }>(`/api/production/allocations/${allocId}/invoice`);
-      if (data.invoiceUrl) {
-        window.open(data.invoiceUrl, "_blank", "noopener,noreferrer");
-      } else {
-        alert("No public URL available for this invoice yet.");
-      }
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to fetch invoice URL");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
-
-  async function handleDeleteInvoice(allocId: string, sent: boolean) {
-    const msg = sent
-      ? "Cancel and delete this sent invoice? The partner may receive a cancellation notice. A new invoice can then be generated."
-      : "Delete this draft invoice? A new one can be generated.";
-    if (!confirm(msg)) return;
-    setInvoiceActionLoading(allocId);
-    try {
-      const res = await fetch(`/api/production/allocations/${allocId}/invoice`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete" }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
-      await load();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Failed to delete invoice");
-    } finally {
-      setInvoiceActionLoading(null);
-    }
-  }
+  const invoice = useDepositInvoiceActions(load);
 
   async function handleDelete(q: ContractBrewingRequest) {
     const batches = q.batch_numbers ?? [];
@@ -653,11 +551,11 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                   <td className="px-4 py-2.5 min-w-[180px]">
                     <InvoicingCell
                       commitment={q}
-                      onPreview={openInvoicePreview}
-                      onViewInSquare={handleViewInSquare}
-                      actionLoading={invoiceActionLoading}
-                      onSend={handleSendInvoice}
-                      onDelete={handleDeleteInvoice}
+                      onPreview={invoice.openPreview}
+                      onViewInSquare={invoice.viewInSquare}
+                      actionLoading={invoice.actionLoading}
+                      onSend={invoice.send}
+                      onDelete={invoice.remove}
                     />
                   </td>
                   <td className="px-4 py-2.5 text-muted text-xs">
@@ -682,18 +580,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
       {showModal && <CommitmentModal recipes={recipes} partners={partners} onClose={() => setShowModal(false)} onDone={load} />}
       {editing && <CommitmentModal recipes={recipes} partners={partners} existing={editing} onClose={() => setEditing(null)} onDone={load} />}
 
-      {invoiceModalAlloc && (
-        <DepositInvoiceModal
-          allocation={invoiceModalAlloc}
-          preview={invoicePreview}
-          loading={invoicePreviewLoading}
-          generating={invoiceActionLoading === invoiceModalAlloc.id}
-          onGenerate={() => handleGenerateInvoice(invoiceModalAlloc.id)}
-          onMarkPaid={(data) => handleMarkPaid(invoiceModalAlloc.id, data)}
-          markingPaid={invoiceActionLoading === invoiceModalAlloc.id}
-          onClose={() => setInvoiceModalAlloc(null)}
-        />
-      )}
+      {invoice.modal}
     </div>
   );
 }
