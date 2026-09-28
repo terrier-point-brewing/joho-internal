@@ -288,3 +288,38 @@ export function nextRequiredStageAfter(stage: string): { dbStage: string; label:
   const idx = REQUIRED_PIPELINE.findIndex(s => s.dbStage === norm);
   return (idx >= 0 && idx < REQUIRED_PIPELINE.length - 1) ? REQUIRED_PIPELINE[idx + 1] : null;
 }
+
+// Auto-suggest's packaging plan for the main flow. The liquid main has to
+// package is the batch's expected yield MINUS every other sink already
+// declared for it: conversions out of this batch (planned or done) and the
+// volume handed to split branches, which plan their own packaging. Packaging
+// already on the main flow counts toward it. Whatever is left goes 70/30
+// kegging/canning — or all of it to whichever of the two is still missing.
+export function suggestMainPackagingBbl(opts: {
+  expectedYieldBbl: number;
+  entries: ScheduleEntry[];
+  batchId: string;
+  batchConversions: BatchConversion[];
+}): { kegging: number; canning: number } {
+  const active = opts.entries.filter(e => !e.cancelled_at);
+  const main = active.filter(e => !e.planned_branch);
+  const convertedAway = opts.batchConversions
+    .filter(c => c.source_batch_id === opts.batchId)
+    .reduce((s, c) => s + Number(c.volume_bbl ?? 0), 0);
+  const toBranches = active
+    .filter(e => e.planned_branch && e.stage === "conditioning")
+    .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
+  const alreadyPlanned = main
+    .filter(e => e.stage === "kegging" || e.stage === "canning")
+    .reduce((s, e) => s + Number(e.volume_bbl ?? 0), 0);
+  const remaining = Math.max(0, opts.expectedYieldBbl - convertedAway - toBranches - alreadyPlanned);
+  const round = (n: number) => Math.round(n * 100) / 100;
+
+  const hasKeg = main.some(e => e.stage === "kegging");
+  const hasCan = main.some(e => e.stage === "canning");
+  if (hasKeg && hasCan) return { kegging: 0, canning: 0 };
+  if (hasKeg) return { kegging: 0, canning: round(remaining) };
+  if (hasCan) return { kegging: round(remaining), canning: 0 };
+  const kegging = round(remaining * 0.7);
+  return { kegging, canning: round(remaining - kegging) };
+}
