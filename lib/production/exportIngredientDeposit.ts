@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculateIngredientDeposit } from "@/lib/square/square-invoices";
 import { computeLocationBreakdown, type LedgerTransfer } from "@/lib/production/volumeLedger";
 import { baseMapOf, isDerivedFrom, lineageAncestors } from "@/lib/production/recipeLineage";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
+import { coverageTransferred, loadCoverageTransfers } from "@/lib/production/coverageTransfers";
 
 /**
  * Ingredient deposit for a shipment that is being billed as contract brewing
@@ -190,11 +193,12 @@ export interface RecipeRef {
  * source whose recipe is not actually in the target's chain (a blend or one-off
  * experiment) — there the full bill stands, because nothing provably covers it.
  *
- * Also empty — the base becomes CHARGEABLE — when the parent batch's deposit
- * for the same partner was REFUNDED (`opts.partnerId`): the money that covered
- * that grain went back, so nothing covers it any more and the child's deposit
- * must bill the full bill (rule agreed 2026-09-13; see depositCoverage.ts,
- * which is the display-side twin of this decision).
+ * Also empty — the base is CHARGEABLE — unless the partner's parent deposit
+ * was carried over to this child (transfer-coverage) and not refunded. A
+ * parent share alone pays for the beer that stayed the parent recipe, not for
+ * the liquid converted: B-069 Oatmeal Stout's 15% deposit never paid for the
+ * 75% that became B-070 Cherry Chocolate Stout (rule agreed 2026-09-28; see
+ * depositCoverage.ts, the display-side twin of this decision).
  */
 export async function conversionDepositExclusions(
   supabase: SupabaseClient,
@@ -207,21 +211,18 @@ export async function conversionDepositExclusions(
     .eq("id", batchId)
     .maybeSingle();
   const batch = batchRow as { recipe_id: string | null; converted_from_batch_id: string | null } | null;
-  if (!batch?.recipe_id || !batch.converted_from_batch_id) return [];
+  if (!batch?.recipe_id || !batch.converted_from_batch_id || !opts?.partnerId) return [];
 
-  if (opts?.partnerId) {
-    const { data: parentAllocRow } = await supabase
-      .from("batch_allocations")
-      .select("refund_amount_cents")
-      .eq("batch_id", batch.converted_from_batch_id)
-      .eq("channel", "contract_brewing")
-      .eq("partner_id", opts.partnerId)
-      .maybeSingle();
-    const parentRefund = Number(
-      (parentAllocRow as { refund_amount_cents: number | null } | null)?.refund_amount_cents ?? 0,
-    );
-    if (parentRefund > 0) return [];
-  }
+  const { data: parentAllocRow } = await supabase
+    .from("batch_allocations")
+    .select("invoice_paid_at, invoice_sent_at, invoice_generated_at, deposit_backcharged_invoice_id, square_deposit_invoice_id, refund_amount_cents, written_off_at")
+    .eq("batch_id", batch.converted_from_batch_id)
+    .eq("channel", "contract_brewing")
+    .eq("partner_id", opts.partnerId)
+    .maybeSingle();
+  const parent = parentAllocRow as (CoverageAllocFields & { square_deposit_invoice_id: string | null }) | null;
+  const transfers = await loadCoverageTransfers(createSupabaseAdminClient(), [batchId]);
+  if (classifyBase(true, parent, coverageTransferred(transfers, batchId, parent)).status !== "covered") return [];
 
   const { data: sourceRow } = await supabase
     .from("brew_batches")

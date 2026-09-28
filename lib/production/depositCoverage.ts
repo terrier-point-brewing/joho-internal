@@ -4,17 +4,18 @@
  * judgment buried in code.
  *
  * A conversion child's deposit splits into two components:
- *  - BASE: the parent beer's bill. Consumed (and deposit-billed) where the
- *    liquid was brewed, so the child never re-bills it — UNLESS the parent's
- *    deposit was refunded, in which case nobody has paid for that grain and
- *    the child's export invoice must charge it (rule agreed 2026-09-13).
+ *  - BASE: the parent beer's bill. The child skips it only when the parent's
+ *    paid deposit was carried over to the child (transfer-coverage). Otherwise
+ *    — no transfer, or the parent deposit was refunded — nobody has paid for
+ *    that grain and the child's deposit must charge it (rules agreed
+ *    2026-09-13 and 2026-09-28).
  *  - ADDITIONS: the child recipe's own delta (the ginger, the orange). Billed
  *    through the child allocation's own deposit invoice or back-charged onto
  *    its export invoice.
  *
  * The pure classifiers here feed BOTH the display (a coverage line on the
  * allocation cards) and the billing decision (conversionDepositExclusions
- * drops the base exclusion when the parent deposit was refunded) — one source,
+ * keeps the base exclusion only for a transferred, unrefunded parent deposit) — one source,
  * so what the operator sees is what gets charged.
  */
 
@@ -89,23 +90,23 @@ export function classifyAdditions(a: CoverageAllocFields, charges?: CoverageChar
 
 /**
  * Whether the base bill behind a conversion child is paid for, judged from the
- * PARENT batch's matching contract allocation. `refunded_chargeable` is the
- * one state where the child's invoices must charge base: the parent's deposit
- * money went back, so nothing covers that grain any more.
+ * PARENT batch's matching contract allocation. The parent's deposit covers the
+ * child's base ONLY when it was carried over to the child
+ * (`coverageTransferred` — the transfer-coverage route's invoice_batch_links
+ * row). A parent share that merely exists paid for the beer that stayed the
+ * parent recipe, not the liquid that was converted, so without a transfer the
+ * child's own deposit bills the full bill (`uncovered`).
  */
 export function classifyBase(
   isConversionChild: boolean,
   parent: CoverageAllocFields | null,
+  coverageTransferred = false,
 ): BaseCoverage {
   if (!isConversionChild) return { status: "not_conversion", parentRefundCents: null };
   if (!parent) return { status: "uncovered", parentRefundCents: null };
   const refund = Number(parent.refund_amount_cents ?? 0);
   if (refund > 0) return { status: "refunded_chargeable", parentRefundCents: refund };
+  if (!coverageTransferred) return { status: "uncovered", parentRefundCents: null };
   if (parent.invoice_paid_at || parent.written_off_at) return { status: "covered", parentRefundCents: null };
-  if (parent.deposit_backcharged_invoice_id || parent.invoice_sent_at || parent.invoice_generated_at) {
-    return { status: "pending_parent", parentRefundCents: null };
-  }
-  // The parent's own deposit is simply not billed yet — it will be, on the
-  // parent's side; the child still never re-bills the base.
   return { status: "pending_parent", parentRefundCents: null };
 }

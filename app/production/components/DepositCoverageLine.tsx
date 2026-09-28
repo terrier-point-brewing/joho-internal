@@ -34,7 +34,7 @@ function baseCopy(base: Coverage["base"]): { text: string; cls: string } | null 
     case "pending_parent":
       return { text: `Base — parent deposit pending${from}`, cls: "text-muted" };
     case "uncovered":
-      return { text: "Base ⚠ no parent deposit found — full bill stands", cls: "text-[var(--cat-amber-fg)]" };
+      return { text: `Base — not carried over from parent${base.parent_batch_number ? ` ${base.parent_batch_number}` : ""} — full bill charged here`, cls: "text-muted" };
   }
 }
 
