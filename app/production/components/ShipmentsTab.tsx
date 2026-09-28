@@ -372,6 +372,8 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
   const [mpAmount, setMpAmount] = useState("");
   const [mpLoading, setMpLoading] = useState(false);
   const [mpError, setMpError] = useState<string | null>(null);
+  const [sendingKey, setSendingKey] = useState<string | null>(null);
+  const [sendMessage, setSendMessage] = useState<{ key: string; text: string; isError: boolean } | null>(null);
 
   const partnerById = useMemo(() => new Map(partners.map((p) => [p.id, p])), [partners]);
   const partnerNameById = useMemo(() => new Map(partners.map((p) => [p.id, p.company_name])), [partners]);
@@ -459,6 +461,30 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
     setSelected(null);
     qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
     qc.invalidateQueries({ queryKey: queryKeys.production.exportInvoices() });
+  }
+
+  // Publishes a drafted Square invoice — same `send` action as the Invoices tab.
+  async function handleSendInvoice(group: InvoiceGroup) {
+    if (!confirm("Send this invoice to the customer via email?")) return;
+    setSendingKey(group.key); setSendMessage(null);
+    try {
+      const res = await fetch("/api/production/export/invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send", transactionIds: group.rows.map((r) => r.id) }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Error");
+      // The invoice went out either way; a missed Square inventory credit is a
+      // warning, not a send failure.
+      if (Array.isArray(body.warnings) && body.warnings.length) {
+        setSendMessage({ key: group.key, text: body.warnings.join(" "), isError: false });
+      }
+      qc.invalidateQueries({ queryKey: queryKeys.production.exports() });
+      qc.invalidateQueries({ queryKey: queryKeys.production.exportInvoices() });
+    } catch (e: unknown) {
+      setSendMessage({ key: group.key, text: e instanceof Error ? e.message : "Failed to send", isError: true });
+    } finally { setSendingKey(null); }
   }
 
   function openMarkPaid() {
@@ -631,6 +657,15 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                     <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-surface-mid text-secondary"}`}>
                       {STATUS_LABELS[group.status] ?? group.status}
                     </span>
+                    {group.status === "draft" && group.invoice_id && (
+                      <button
+                        onClick={() => handleSendInvoice(group)}
+                        disabled={sendingKey !== null}
+                        className="btn-primary"
+                      >
+                        {sendingKey === group.key ? "Sending…" : "Send Invoice"}
+                      </button>
+                    )}
                     {isShipmentEditable(group.rows) && (
                       <button
                         onClick={() => setEditing(group)}
@@ -659,6 +694,12 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                     })()}
                   </div>
                 </div>
+
+                {sendMessage?.key === group.key && (
+                  <div className={`px-4 py-2 text-xs border-b border-line ${sendMessage.isError ? "text-danger" : "text-secondary"}`}>
+                    {sendMessage.text}
+                  </div>
+                )}
 
                 {/* Product rows — each shows date, channel, beer, packaging, qty */}
                 {group.products.map((product, pi) => {
