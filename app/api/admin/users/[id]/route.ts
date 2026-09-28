@@ -30,8 +30,21 @@ export async function PATCH(
     return NextResponse.json({ ok: true });
   }
 
+  // The morning alert digest switch. Its own branch, and its own write: it must
+  // never ride along with a role change, and a partner login has no digest to
+  // switch on — the job excludes the role and the screen offers no control.
+  if (typeof body.alert_emails_enabled === "boolean") {
+    const { data: profile } = await admin.from("profiles").select("role").eq("id", id).maybeSingle();
+    if ((profile as { role?: string } | null)?.role === "partner") {
+      return NextResponse.json({ error: "A partner login cannot receive alert emails." }, { status: 400 });
+    }
+    const { error } = await admin.from("profiles").update({ alert_emails_enabled: body.alert_emails_enabled }).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ id, alert_emails_enabled: body.alert_emails_enabled });
+  }
+
   const { role } = body;
-  if (!role) return NextResponse.json({ error: "role or password is required" }, { status: 400 });
+  if (!role) return NextResponse.json({ error: "role, password, email_confirm or alert_emails_enabled is required" }, { status: 400 });
 
   // Role and company move together, in one write: the DB refuses a partner
   // with no company and a staff login with one.
