@@ -268,9 +268,13 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
 
 /** Top-level subtotal (Total Income, Gross Profit, Net Income, Total Cash In/Out, Net Operating, Total Assets/Liabilities/L+E, ...) — a single bold rollup line, no drill-down (its constituent sections already rendered their own detail above it). */
 function SubtotalBar({ node, months, measure, totalMode }: { node: TreeNode; months: string[]; measure: Measure; totalMode: TotalMode }) {
+  // A memo line (EBITDA) is a side calculation, not a figure the statement
+  // chains through: italic, no heavy rule, so it can't be misread as the
+  // next real subtotal.
+  const memo = node.isMemo === true;
   return (
-    <tr className="border-t-2 border-line-subtle bg-surface-mid">
-      <td className={`py-2 px-4 text-xs font-semibold text-primary bg-surface-mid ${STICKY_LABEL_CELL}`}>{node.label}</td>
+    <tr className={memo ? "italic bg-surface-mid" : "border-t-2 border-line-subtle bg-surface-mid"}>
+      <td className={`py-2 px-4 text-xs font-semibold text-primary bg-surface-mid ${STICKY_LABEL_CELL}`}>{memo ? `${node.label} (memo)` : node.label}</td>
       {months.map((m) => (
         <td key={m} className="py-2 px-2 text-right text-sm font-mono tabular-nums font-semibold">
           <MeasureCell measure={measure} row={node.row} month={m} />
