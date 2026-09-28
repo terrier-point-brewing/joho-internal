@@ -22,6 +22,8 @@ export interface DeliveryAllocationInput {
 export interface AllocationDeliveryFigures {
   id: string;
   produced_bbl: number;
+  /** What the batch will make: produced once complete, else its projected yield. The share is of THIS. */
+  projected_bbl: number;
   owed_bbl: number;
   exported_bbl: number;
   remaining_bbl: number;
@@ -44,14 +46,24 @@ export function commitmentDelivery(input: {
   bookedBbl: number;
   allocations: DeliveryAllocationInput[];
   producedByBatch: Map<string, number>;
+  /**
+   * What each batch will have made once it is done — produced plus what is
+   * still in tank at the expected packaging yield (lib/production/
+   * batchYieldProjection.server). A share is a percentage of this, not of
+   * what happens to be packaged today: we package for one partner at a time,
+   * so a deal can legitimately have shipped more than its share of the cans
+   * so far. Absent (or below produced) → produced.
+   */
+  projectedByBatch?: Map<string, number>;
   exportedByAllocation: Map<string, number>;
 }): CommitmentDelivery {
   const booked = input.bookedBbl > 0 ? input.bookedBbl : null;
   const allocations = input.allocations.map((a): AllocationDeliveryFigures => {
     const produced = input.producedByBatch.get(a.batch_id) ?? 0;
-    const owed = owedBbl({ channel: a.channel, percentage: Number(a.percentage), producedBbl: produced, bookedBbl: booked });
+    const projected = Math.max(produced, input.projectedByBatch?.get(a.batch_id) ?? 0);
+    const owed = owedBbl({ channel: a.channel, percentage: Number(a.percentage), producedBbl: projected, bookedBbl: booked });
     const exported = input.exportedByAllocation.get(a.id) ?? 0;
-    return { id: a.id, produced_bbl: produced, owed_bbl: owed, exported_bbl: exported, remaining_bbl: Math.max(0, owed - exported), written_off: a.written_off };
+    return { id: a.id, produced_bbl: produced, projected_bbl: projected, owed_bbl: owed, exported_bbl: exported, remaining_bbl: Math.max(0, owed - exported), written_off: a.written_off };
   });
   const live = allocations.filter((a) => !a.written_off);
   return {

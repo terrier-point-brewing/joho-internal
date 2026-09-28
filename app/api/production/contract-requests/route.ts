@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { classifyAdditions, classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
 import { sumExportedByAllocation, type ExportVolumeRow } from "@/lib/production/allocationDelivery";
 import { commitmentDelivery, type CommitmentDelivery } from "@/lib/production/commitmentDelivery";
+import { loadBatchYields } from "@/lib/production/batchYieldProjection.server";
 import { loadDepositCharges } from "@/lib/production/depositCharges";
 import { lockedFieldsChanged, unlockNote } from "@/lib/production/commitmentLock";
 import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
@@ -54,19 +55,18 @@ export async function GET(req: NextRequest) {
   const allocIds = (allocs ?? []).map((a) => a.id);
   const allocBatchIds = [...new Set((allocs ?? []).map((a) => a.batch_id as string))];
   const adminForCharges = createSupabaseAdminClient();
-  const [{ data: producedRows }, { data: exportRows }, chargesById] = await Promise.all([
-    allocBatchIds.length > 0
-      ? supabase.from("batch_transfers").select("batch_id, volume_bbl").in("batch_id", allocBatchIds).in("transfer_type", ["kegging", "canning"])
-      : Promise.resolve({ data: [] as Array<{ batch_id: string; volume_bbl: number | null }> }),
+  const [yields, { data: exportRows }, chargesById] = await Promise.all([
+    // Produced and projected per batch: a share is of what the batch will
+    // make, so a deal whose beer was packaged first does not read as over.
+    loadBatchYields(supabase, allocBatchIds),
     allocIds.length > 0
       ? supabase.from("export_transactions").select("allocation_id, volume_bbl").in("allocation_id", allocIds)
       : Promise.resolve({ data: [] as ExportVolumeRow[] }),
     loadDepositCharges(adminForCharges, (allocs ?? []).filter((a) => a.channel === "contract_brewing").map((a) => a.id)),
   ]);
   const producedByBatch = new Map<string, number>();
-  for (const t of (producedRows ?? []) as Array<{ batch_id: string; volume_bbl: number | null }>) {
-    producedByBatch.set(t.batch_id, (producedByBatch.get(t.batch_id) ?? 0) + Number(t.volume_bbl ?? 0));
-  }
+  const projectedByBatch = new Map<string, number>();
+  for (const [bid, y] of yields) { producedByBatch.set(bid, y.producedBbl); projectedByBatch.set(bid, y.projectedBbl); }
   const exportedByAllocation = sumExportedByAllocation((exportRows ?? []) as ExportVolumeRow[]);
   // Where each deal stands — the same function the Partner Ledger is built
   // from (lib/production/commitmentDelivery), so the two screens cannot disagree.
@@ -84,6 +84,7 @@ export async function GET(req: NextRequest) {
         written_off: !!(a as { written_off_at?: string | null }).written_off_at,
       })),
       producedByBatch,
+      projectedByBatch,
       exportedByAllocation,
     }));
   }

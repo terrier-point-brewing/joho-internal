@@ -20,6 +20,24 @@ describe("commitmentDelivery", () => {
     expect(soft.owed_bbl).toBe(24);
   });
 
+  it("while the batch is in tank the share is of its projected yield, not of what is packaged so far", () => {
+    // B-033: 12.9 bbl packaged, ~23 more expected from tank; Argus shipped
+    // 10.78 of it. Against packaged-so-far their 75% is 9.68 and they read as
+    // over-delivered; against what the batch will make they are well inside.
+    const d = commitmentDelivery({ storedStatus: "open", bookedBbl: 30,
+      allocations: [{ id: "a1", batch_id: "b3", channel: "contract_brewing", percentage: 75, batch_status: "conditioning", written_off: false }],
+      producedByBatch: new Map([["b3", 12.9]]), projectedByBatch: new Map([["b3", 36]]), exportedByAllocation: new Map([["a1", 10.78]]) });
+    expect(d.allocations[0]).toMatchObject({ produced_bbl: 12.9, projected_bbl: 36, owed_bbl: 27, exported_bbl: 10.78 });
+    expect(d.remaining_bbl).toBeCloseTo(16.22, 6);
+    expect(d.stage).toBe("open");
+
+    // A projection below produced (stale, or a batch that out-yielded its forecast) never shrinks the share.
+    const stale = commitmentDelivery({ storedStatus: "open", bookedBbl: 30,
+      allocations: [{ id: "a1", batch_id: "b1", channel: "contract_brewing", percentage: 75, batch_status: "complete", written_off: false }],
+      producedByBatch: produced, projectedByBatch: new Map([["b1", 20]]), exportedByAllocation: exported });
+    expect(stale.allocations[0].projected_bbl).toBe(32);
+  });
+
   it("a written-off remainder closes the deal and leaves nothing remaining", () => {
     const d = commitmentDelivery({ storedStatus: "open", bookedBbl: 20,
       allocations: [{ id: "a1", batch_id: "b1", channel: "contract_brewing", percentage: 75, batch_status: "complete", written_off: true }],

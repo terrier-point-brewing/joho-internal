@@ -20,6 +20,12 @@
 export type AllocationChannel = "contract_brewing" | "distribution" | "wholesale" | "safety_stock";
 
 const EPS = 1e-4;
+/**
+ * Remainder below which an uncredited tail is rounding, not beer. Matches
+ * allocationDelivery's DELIVERY_TOLERANCE_BBL (not imported: that module
+ * imports this one).
+ */
+const DUST_BBL = 0.01;
 
 /** Only contract-brewing allocations are deposit-backed (hard guarantees). */
 export function isDepositBacked(channel: AllocationChannel): boolean {
@@ -260,6 +266,17 @@ export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
       ? Math.min(Math.max(0, c.bookedRemainingBbl ?? 0), realizableCap)
       : realizableCap;
     take(c, cap);
+  }
+  // Float dust is not over-delivery. Credits are capped by figures that arrive
+  // through different arithmetic (percentage × produced vs summed rows), so a
+  // shipment that exactly meets a share can miss by a hair: B-058 credited
+  // 34.9979 cases and wrote a 0.0021-case, 0.0002 bbl "over-delivery" row that
+  // sat under the partner as 0.00 bbl needing a home. Within the delivery
+  // tolerance the remainder rides on the last credit.
+  if (bblLeft > EPS && bblLeft <= DUST_BBL && credits.length > 0) {
+    const last = credits[credits.length - 1];
+    last.bbl = round4(last.bbl + bblLeft);
+    bblLeft = 0;
   }
   // Beyond every share — soft or contract — the beer is over-delivery. It used
   // to be parked on the first soft allocation uncapped, which let a 12.5%

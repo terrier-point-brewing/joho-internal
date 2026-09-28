@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadDepositCharges } from "@/lib/production/depositCharges";
-import { loadPackagingYieldPct, projectBatchYield } from "@/lib/production/exportIngredientDeposit";
-import type { LedgerTransfer } from "@/lib/production/volumeLedger";
+import { loadBatchYields } from "@/lib/production/batchYieldProjection.server";
 import {
   buildPartnerLedger,
   type LedgerAllocationRow,
@@ -41,42 +40,27 @@ export async function loadPartnerLedger(admin: SupabaseClient): Promise<LedgerPa
   }>;
   const batchIds = [...new Set(allocRows.map((a) => a.batch_id))];
 
-  const [{ data: transfers }, chargesByAllocation, { data: invoices }, { data: equipment }, packagingYieldPct, { data: conversions }] = await Promise.all([
-    // The full ledger (every transfer type, both sides of a conversion), so
-    // in-tank volume can be projected the same way the deposit invoice does.
-    batchIds.length > 0
-      ? admin.from("batch_transfers")
-          .select("batch_id, from_tank_id, to_tank_id, to_batch_id, volume_bbl, shrinkage_bbl, transferred_at, transfer_type")
-          .or(`batch_id.in.(${batchIds.join(",")}),to_batch_id.in.(${batchIds.join(",")})`)
-      : Promise.resolve({ data: [] as Array<LedgerTransfer & { transfer_type: string }> }),
+  const [yields, chargesByAllocation, { data: invoices }, { data: conversions }] = await Promise.all([
+    // Produced and projected per batch — the same loader the ship and re-home
+    // planners measure a share against, so the ledger cannot disagree with
+    // what the app lets through.
+    loadBatchYields(admin, batchIds),
     loadDepositCharges(admin, allocRows.filter((a) => a.channel === "contract_brewing").map((a) => a.id)),
     admin.from("invoices")
       .select("id, invoice_number, invoice_date, status, source, invoice_type, total_cents, square_invoice_id, allocation_id")
       .in("invoice_type", ["allocation_deposit", "export_invoice"]),
-    admin.from("equipment").select("id, type"),
-    loadPackagingYieldPct(admin),
     batchIds.length > 0
       ? admin.from("batch_conversions").select("source_batch_id, volume_bbl, target:brew_batches!target_batch_id(beer_name, batch_number)").in("source_batch_id", batchIds)
       : Promise.resolve({ data: [] as Array<{ source_batch_id: string; volume_bbl: number | null; target: unknown }> }),
   ]);
 
-  const ledgerRows = (transfers ?? []) as Array<LedgerTransfer & { transfer_type: string }>;
   const producedByBatch = new Map<string, number>();
-  for (const t of ledgerRows) {
-    if (t.transfer_type !== "kegging" && t.transfer_type !== "canning") continue;
-    producedByBatch.set(t.batch_id, (producedByBatch.get(t.batch_id) ?? 0) + Number(t.volume_bbl ?? 0));
-  }
   // What each batch is still expected to package: in-tank volume at the house
   // packaging yield. Zero once complete — nothing more is coming.
-  const tankTypeById: Record<string, string> = {};
-  for (const e of (equipment ?? []) as Array<{ id: string; type: string }>) tankTypeById[e.id] = e.type;
   const inTankByBatch = new Map<string, number>();
-  for (const a of allocRows) {
-    if (inTankByBatch.has(a.batch_id)) continue;
-    if (a.brew_batches?.status === "complete") { inTankByBatch.set(a.batch_id, 0); continue; }
-    const ledger = ledgerRows.filter((t) => t.batch_id === a.batch_id || t.to_batch_id === a.batch_id);
-    const proj = projectBatchYield(a.batch_id, Number(a.brew_batches?.volume_bbl ?? 0), ledger, tankTypeById, packagingYieldPct);
-    inTankByBatch.set(a.batch_id, Math.max(0, proj.projectedYieldBbl - proj.packagedBbl));
+  for (const [bid, y] of yields) {
+    producedByBatch.set(bid, y.producedBbl);
+    inTankByBatch.set(bid, Math.max(0, y.projectedBbl - y.producedBbl));
   }
   const allocatedPctByBatch = new Map<string, number>();
   for (const a of allocRows) {

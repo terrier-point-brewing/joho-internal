@@ -13,11 +13,19 @@ export const dynamic = "force-dynamic";
  * Mirrors the same normalization in /api/production/exports.
  */
 function normalizeShipment(tx: Record<string, unknown>) {
-  const recRaw = tx.recipes as unknown;
-  const rec = Array.isArray(recRaw)
-    ? (recRaw[0] as { beer_name: string } | undefined)
-    : (recRaw as { beer_name: string } | null);
-  return { ...tx, recipe_beer_name: rec?.beer_name ?? null, recipes: undefined };
+  const one = <T,>(raw: unknown): T | null => (Array.isArray(raw) ? (raw[0] as T | undefined) ?? null : (raw as T | null));
+  const rec = one<{ beer_name: string }>(tx.recipes);
+  // The variation's CURRENT name: variant_label is what it was called on the
+  // day, and a renamed beer (Black Lager → Shadow Forge) must not keep its old
+  // name on every past shipment.
+  const variation = one<{ name: string }>(tx.packaging_variations);
+  return {
+    ...tx,
+    recipe_beer_name: rec?.beer_name ?? null,
+    variant_label: variation?.name ?? tx.variant_label,
+    recipes: undefined,
+    packaging_variations: undefined,
+  };
 }
 
 export async function GET() {
@@ -44,7 +52,8 @@ export async function GET() {
         id, status, channel, variant_label, quantity, volume_bbl, created_at,
         recipe_id,
         brew_batches(id, beer_name, batch_number),
-        recipes(beer_name)
+        recipes(beer_name),
+        packaging_variations!variation_id(name)
       ),
       export_invoice_material_components(
         id, recipe_id, beer_name, variant_label, packaging_format, packages,

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { recheckCommitmentFulfillment } from "./commitmentFulfillment";
+import { loadBatchYields, shareBasisBbl } from "./batchYieldProjection.server";
 
 /**
  * Giving beer a home.
@@ -13,7 +14,10 @@ import { recheckCommitmentFulfillment } from "./commitmentFulfillment";
  * give up share through the refund flow, so it is listed but refused here.
  *
  * Moving `bbl` from a source to the target means:
- *   Δpct     = bbl ÷ basis × 100      basis = produced (once packaged) else planned
+ *   Δpct     = bbl ÷ basis × 100      basis = what the batch makes: packaged
+ *                                     once complete, projected while in tank
+ *                                     (lib/production/batchYieldProjection.server),
+ *                                     planned before anything is measured
  *   source   −Δpct   (unless the source is the unallocated remainder)
  *   target   +Δpct
  *   booking  +bbl    (the commitment's volume_bbl, so owed's cap rises with it;
@@ -45,6 +49,13 @@ export interface HomesForBatch {
   batchId: string;
   batchNumber: string | null;
   producedBbl: number;
+  /**
+   * The yield every share here is a percentage of: produced once the batch is
+   * complete, else produced plus the in-tank volume at the expected packaging
+   * yield. Shares are of what the batch WILL make — we package for one
+   * partner at a time, so "packaged so far" says nothing about whose it is.
+   */
+  yieldBbl: number;
   plannedBbl: number;
   /** 100 − Σ allocation percentages, as bbl of the basis. */
   unallocatedBbl: number;
@@ -67,14 +78,15 @@ export interface RehomePlan {
 /** Pure: validate and size the move. Throws with the reason a human can act on. */
 export function planRehome(input: {
   bbl: number;
-  producedBbl: number;
+  /** What the batch makes (HomesForBatch.yieldBbl); 0 before anything is measured. */
+  yieldBbl: number;
   plannedBbl: number;
   targetPct: number;
   source: HomeSource;
 }): RehomePlan {
   const bbl = Number(input.bbl);
   if (!(bbl > EPS)) throw new Error("Nothing to move.");
-  const basisBbl = input.producedBbl > EPS ? input.producedBbl : input.plannedBbl;
+  const basisBbl = input.yieldBbl > EPS ? input.yieldBbl : input.plannedBbl;
   if (basisBbl <= EPS) throw new Error("This batch has no volume to share out yet.");
   if (input.source.requires === "refund") {
     throw new Error(`${input.source.partnerName ?? "That partner"}'s deposit is paid, so their share is locked — refund part of it from Batch Log first, then re-home.`);
@@ -122,18 +134,19 @@ export async function listHomes(
   supabase: SupabaseClient,
   { batchId, targetAllocationId }: { batchId: string; targetAllocationId: string | null },
 ): Promise<HomesForBatch> {
-  const [{ data: batch }, { data: allocs }, { data: transfers }, { data: exports_ }, { data: conversions }] = await Promise.all([
+  const [{ data: batch }, { data: allocs }, yields, { data: exports_ }, { data: conversions }] = await Promise.all([
     supabase.from("brew_batches").select("id, batch_number, volume_bbl").eq("id", batchId).maybeSingle(),
     supabase.from("batch_allocations")
       .select("id, batch_id, channel, partner_id, contract_request_id, percentage, invoice_paid_at, invoice_generated_at, invoice_sent_at, written_off_at, contract_brewing_partners(company_name)")
       .eq("batch_id", batchId),
-    supabase.from("batch_transfers").select("volume_bbl").eq("batch_id", batchId).in("transfer_type", ["kegging", "canning"]),
+    loadBatchYields(supabase, [batchId]),
     supabase.from("export_transactions").select("allocation_id, volume_bbl").eq("batch_id", batchId).not("allocation_id", "is", null),
     supabase.from("batch_conversions").select("volume_bbl").eq("source_batch_id", batchId),
   ]);
-  const producedBbl = (transfers ?? []).reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
+  const producedBbl = yields.get(batchId)?.producedBbl ?? 0;
+  const yieldBbl = shareBasisBbl(yields, batchId);
   const plannedBbl = Number((batch as { volume_bbl?: number | null } | null)?.volume_bbl ?? 0);
-  const basisBbl = producedBbl > EPS ? producedBbl : plannedBbl;
+  const basisBbl = yieldBbl > EPS ? yieldBbl : plannedBbl;
   const exportedByAlloc = new Map<string, number>();
   for (const e of exports_ ?? []) {
     const id = e.allocation_id as string;
@@ -192,6 +205,7 @@ export async function listHomes(
     batchId,
     batchNumber: (batch as { batch_number?: string | null } | null)?.batch_number ?? null,
     producedBbl: round2(producedBbl),
+    yieldBbl: round2(yieldBbl),
     plannedBbl: round2(plannedBbl),
     unallocatedBbl,
     sources,
@@ -232,7 +246,7 @@ export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs):
   if (!source) throw new Error(args.source.kind === "unallocated" ? "This batch has no unallocated share." : "That source allocation is not on this batch.");
 
   const plan = planRehome({
-    bbl: args.bbl, producedBbl: homes.producedBbl, plannedBbl: homes.plannedBbl,
+    bbl: args.bbl, yieldBbl: homes.yieldBbl, plannedBbl: homes.plannedBbl,
     targetPct: Number(target.percentage), source,
   });
 
