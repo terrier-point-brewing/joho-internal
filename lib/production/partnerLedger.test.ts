@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPartnerLedger, groupShipments, type LedgerAllocationRow, type LedgerExportRow, type LedgerInput } from "./partnerLedger";
+import { buildPartnerLedger, groupShipments, ledgerUnpaidInvoiceCents, type LedgerAllocationRow, type LedgerExportRow, type LedgerInput } from "./partnerLedger";
 
 function alloc(over: Partial<LedgerAllocationRow>): LedgerAllocationRow {
   return {
@@ -109,6 +109,34 @@ describe("buildPartnerLedger", () => {
       convertedByBatch: new Map([["b1", { pct: 2.08, targets: ["Transfusion Pilsner #B-064"] }]]),
     }));
     expect(mule.commitments[0].allocations[0]).toMatchObject({ batch_unallocated_pct: 0, batch_converted_pct: 2.08, batch_converted_to: ["Transfusion Pilsner #B-064"] });
+  });
+});
+
+describe("summary line", () => {
+  it("a settled return (paid, no invoice) is not 'shipped, not invoiced'", () => {
+    const [argus] = buildPartnerLedger(base({
+      exports: [
+        exp({ id: "e1", volume_bbl: 7.59 }),
+        exp({ id: "e3", shipment_id: "s3", volume_bbl: -0.7742, invoice_id: null, status: "paid", source_ref: "refund:facb20cd" }),
+      ],
+    }));
+    expect(argus.commitments[0].totals.uninvoiced_bbl).toBe(0);
+  });
+
+  it("unpaid counts each invoice once — shared across deals, and back-charges inside it", () => {
+    const b = base();
+    const [argus] = buildPartnerLedger(base({
+      commitments: [...b.commitments, { ...b.commitments[0], id: "c2" }],
+      allocations: [
+        alloc({ deposit_backcharged_invoice_id: "inv-x1" }),
+        alloc({ id: "a2", contract_request_id: "c2", percentage: 25 }),
+      ],
+      exports: [exp({ id: "e1", invoice_id: "inv-x1" }), exp({ id: "e2", allocation_id: "a2", invoice_id: "inv-x1" })],
+      invoices: b.invoices.filter((i) => i.invoice_type !== "allocation_deposit"),
+      chargesByAllocation: new Map([["a1", { chargedCents: 20000, collectedCents: 0, unpaidCount: 1, chargedBbl: 2, invoiceIds: ["inv-x1"] }]]),
+    }));
+    expect(argus.commitments).toHaveLength(2);
+    expect(ledgerUnpaidInvoiceCents([argus])).toBe(91000);
   });
 });
 
