@@ -1,7 +1,6 @@
 /**
  * Finance alerts: the month-end close, tax filings, the integrations the
- * balance sheet reads from, and purchases that need a production-inventory
- * update. Each reads what its screen reads.
+ * balance sheet reads from. Each reads what its screen reads.
  */
 import "@/lib/tax/parties";
 import { CAP } from "@/lib/auth/capabilities";
@@ -14,13 +13,11 @@ import {
 import { listConnections } from "@/lib/finance/balances/connections";
 import { readPeriodClose } from "@/lib/finance/balances/periodCloseState";
 import { formatPeriodLabel, mostRecentlyEndedMonthEnd } from "@/lib/finance/balances/periods";
-import { PRODUCTION_INVENTORY_ACCOUNT_NUMBERS } from "@/lib/finance/inventoryAlerts";
 import { getParty } from "@/lib/tax/registry";
 import { listSchedules } from "@/lib/tax/schedules";
 import { taskDueStatus } from "@/lib/tax/taskDueStatus";
 import { listTasks } from "@/lib/tax/tasks";
 import type { AlertItem, AlertSource } from "../types";
-import { dollars, one } from "./helpers";
 
 // ── Month-end close ──────────────────────────────────────────────────────────
 // The Financials nag banner, as a list: every account still missing a balance
@@ -141,34 +138,4 @@ export const connections: AlertSource = {
   },
 };
 
-// ── Purchases that need a production-inventory update ────────────────────────
-
-export const inventoryPurchases: AlertSource = {
-  key: "inventory-purchases",
-  label: "Purchases to record in production inventory",
-  section: "finance",
-  href: "/finance/transactions/expenses",
-  requires: CAP.financeTransactionsRead,
-  async load(admin) {
-    const { data, error } = await admin
-      .from("expenses")
-      .select("id, merchant_name, amount_cents, accounting_date, chart_of_accounts!inner(account_number)")
-      .eq("inventory_alert_dismissed", false)
-      .in("chart_of_accounts.account_number", [...PRODUCTION_INVENTORY_ACCOUNT_NUMBERS])
-      .order("accounting_date", { ascending: false });
-    if (error) throw new Error(error.message);
-    type Row = { id: string; merchant_name: string | null; amount_cents: number | null; accounting_date: string | null; chart_of_accounts: { account_number: string | null } | { account_number: string | null }[] | null };
-    return ((data ?? []) as Row[]).map((r) => ({
-      key: `inventory-purchase:${r.id}`,
-      // Ramp stores an outflow as a negative amount; a purchase reads as a
-      // positive sum of money spent.
-      title: `${r.merchant_name ?? "A purchase"} — ${dollars(Math.abs(r.amount_cents ?? 0))} on ${one(r.chart_of_accounts)?.account_number ?? "an inventory account"}`,
-      detail: "Ingredients or packaging were bought. Receive them into production inventory, then dismiss the alert.",
-      href: "/finance/transactions/expenses",
-      severity: "info" as const,
-      when: r.accounting_date,
-    }));
-  },
-};
-
-export const FINANCE_SOURCES: AlertSource[] = [balanceClose, taxFilings, connections, inventoryPurchases];
+export const FINANCE_SOURCES: AlertSource[] = [balanceClose, taxFilings, connections];
