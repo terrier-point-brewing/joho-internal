@@ -24,8 +24,6 @@ import FilterBar from "@/app/components/ui/FilterBar";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import type { ControlsConfig } from "@/lib/table/types";
-import InventoryAlertBanner from "./InventoryAlertBanner";
-import { selectInventoryAlerts } from "@/lib/finance/inventoryAlerts";
 import { matchesGlFilter, narrowToGl } from "@/lib/finance/glLineMatch";
 import GlAccountFilter from "../components/GlAccountFilter";
 import { PayrollSplitSummary, PayrollSplitPanel, type PayrollState, type PayrollMatchInfo, type GlLine } from "./PayrollSplitCell";
@@ -64,7 +62,6 @@ interface ExpenseRow {
   qb_remote_id: string | null;
   chart_of_accounts_id: string | null;
   mapping_source: "unmapped" | "rule" | "manual";
-  inventory_alert_dismissed: boolean;
   unmapped_accepted: boolean;
   excluded_at: string | null;
   excluded_reason: string | null;
@@ -484,17 +481,6 @@ export default function ExpensesPage() {
       : e));
   }
 
-  // Dismiss the production-inventory alert for one expense (optimistic local update).
-  async function handleDismissInventoryAlert(id: string) {
-    const res = await fetch("/api/finance/expenses", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, inventory_alert_dismissed: true }),
-    });
-    if (!res.ok) return;
-    setExpenses((es) => es.map((e) => (e.id === id ? { ...e, inventory_alert_dismissed: true } : e)));
-  }
-
   // Patch one expense's payroll state in place from a payroll-match mutation's
   // response, so pressing "Match payroll period" (or recompute/unmatch) updates
   // just that row instead of reloading the whole ledger. Note: matching an
@@ -624,11 +610,6 @@ export default function ExpensesPage() {
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
-
-      <InventoryAlertBanner
-        expenses={selectInventoryAlerts(expenses)}
-        onDismiss={handleDismissInventoryAlert}
-      />
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>

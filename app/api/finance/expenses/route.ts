@@ -48,7 +48,6 @@ export async function GET(req: NextRequest) {
       qb_remote_id,
       chart_of_accounts_id,
       mapping_source,
-      inventory_alert_dismissed,
       unmapped_accepted,
       excluded_at,
       excluded_reason,
@@ -192,7 +191,6 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json() as {
     id: string;
     chart_of_accounts_id?: string | null;
-    inventory_alert_dismissed?: boolean;
     unmapped_accepted?: boolean;
   };
 
@@ -201,19 +199,6 @@ export async function PATCH(req: NextRequest) {
   }
 
   const supabase = createSupabaseAdminClient();
-
-  // Dismiss / un-dismiss the production-inventory alert for this expense. A single
-  // boolean toggle, independent of CoA mapping — return early so the two don't tangle.
-  if (typeof body.inventory_alert_dismissed === "boolean") {
-    const { data, error } = await supabase
-      .from("expenses")
-      .update({ inventory_alert_dismissed: body.inventory_alert_dismissed })
-      .eq("id", body.id)
-      .select("id, inventory_alert_dismissed")
-      .single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json(data);
-  }
 
   // Manually accept an unmapped expense as not needing a real GL mapping —
   // independent of CoA mapping, so return early before the mapping logic below.
