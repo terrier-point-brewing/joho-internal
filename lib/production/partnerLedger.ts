@@ -423,7 +423,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
         totals.remaining_bbl = r2(allocs.filter((a) => a.written_off_bbl == null).reduce((s, a) => s + a.remaining_bbl, 0));
         totals.in_tank_bbl = r2(allocs.filter((a) => a.written_off_bbl == null).reduce((s, a) => s + a.in_tank_bbl, 0));
         const uninvoicedRows = rows.filter((r) => !r.invoice_id && r.status === "invoice_required");
-        totals.uninvoiced_bbl = r2(rows.filter((r) => !r.invoice_id).reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0));
+        totals.uninvoiced_bbl = r2(uninvoicedRows.reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0));
         totals.uninvoiced_transaction_ids = uninvoicedRows.map((r) => r.id);
         totals.deposit_billed_cents = allocs.reduce((s, a) => s + (a.deposit.invoice?.total_cents ?? 0) + a.deposit.charged_cents, 0);
         totals.deposit_paid_cents = allocs.reduce((s, a) => s + a.deposit.paid_cents + a.deposit.collected_cents, 0);
@@ -479,4 +479,30 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
     });
   }
   return partners.sort((a, b) => a.company_name.localeCompare(b.company_name));
+}
+
+/** Is this shipment still waiting on an invoice? A settled return (paid, no invoice) is not. */
+export function isUninvoicedShipment(s: Pick<LedgerShipment, "invoice" | "status">): boolean {
+  return !s.invoice && s.status === "invoice_required";
+}
+
+/**
+ * Unpaid cents across the whole ledger, counted once per invoice. An export
+ * invoice can cover several deals, and a deposit back-charge is already inside
+ * its export invoice's total — so summing per-commitment totals double-counts.
+ */
+export function ledgerUnpaidInvoiceCents(partners: LedgerPartner[]): number {
+  const byId = new Map<string, LedgerInvoiceRef>();
+  const add = (inv: LedgerInvoiceRef | null | undefined) => { if (inv) byId.set(inv.id, inv); };
+  for (const p of partners) {
+    for (const c of p.commitments) {
+      c.export_invoices.forEach(add);
+      c.shipments.forEach((s) => add(s.invoice));
+      for (const a of c.allocations) { add(a.deposit.invoice); a.deposit.backcharge_invoices.forEach(add); }
+    }
+    p.unallocated.forEach((s) => add(s.invoice));
+  }
+  let cents = 0;
+  for (const inv of byId.values()) if (inv.status !== "paid" && inv.status !== "voided") cents += inv.total_cents;
+  return cents;
 }

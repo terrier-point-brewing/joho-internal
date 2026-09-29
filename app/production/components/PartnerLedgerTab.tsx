@@ -21,6 +21,7 @@ import SearchInput from "@/app/components/ui/SearchInput";
 import { applyControls } from "@/lib/table/applyControls";
 import type { ControlsConfig } from "@/lib/table/types";
 import type { LedgerAllocation, LedgerCommitment, LedgerInvoiceRef, LedgerPartner, LedgerShipment } from "@/lib/production/partnerLedger";
+import { isUninvoicedShipment, ledgerUnpaidInvoiceCents } from "@/lib/production/partnerLedger";
 import type { CommitmentStage } from "@/lib/production/commitmentStage";
 import { fmtUsd } from "@/lib/utils/formatting";
 import { fmtDate } from "@/lib/utils/formatting";
@@ -532,14 +533,12 @@ export default function PartnerLedgerTab({ onNavigateToInvoice, focusCommitmentI
     const attention = all.filter((c) => attentionRank(c) < 99).length
       + ledger.filter((p) => p.unallocated_bbl > 0.0001).length;
     const uninvoiced = all.reduce((s, c) => s + c.totals.uninvoiced_bbl, 0)
-      + ledger.reduce((s, p) => s + p.unallocated.filter((u) => !u.invoice).reduce((x, u) => x + u.volume_bbl, 0), 0);
+      + ledger.reduce((s, p) => s + p.unallocated.filter(isUninvoicedShipment).reduce((x, u) => x + u.volume_bbl, 0), 0);
     return {
       attention,
       remainingBbl: all.filter((c) => c.stage === "open").reduce((s, c) => s + c.totals.remaining_bbl, 0),
       uninvoicedBbl: uninvoiced,
-      outstandingCents: all.reduce((s, c) =>
-        s + Math.max(0, c.totals.deposit_billed_cents - c.totals.deposit_paid_cents)
-          + Math.max(0, c.totals.export_billed_cents - c.totals.export_paid_cents), 0),
+      outstandingCents: ledgerUnpaidInvoiceCents(ledger),
     };
   }, [ledger]);
 
