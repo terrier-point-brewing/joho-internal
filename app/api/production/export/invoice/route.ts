@@ -225,6 +225,27 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // A commitment booked at the Export Bay waits for someone to confirm it
+  // (commitments.review_needed_at). Invoicing its shipment is that
+  // confirmation: the price is on the invoice. Never blocks the response.
+  async function confirmExportBayBookings(): Promise<void> {
+    const allocationIds = [...new Set(txs!.map((t) => t.allocation_id as string | null).filter((id): id is string => !!id))];
+    if (allocationIds.length === 0) return;
+    const { data: allocs } = await supabase
+      .from("batch_allocations")
+      .select("contract_request_id")
+      .in("id", allocationIds)
+      .not("contract_request_id", "is", null);
+    const commitmentIds = [...new Set(((allocs ?? []) as Array<{ contract_request_id: string }>).map((a) => a.contract_request_id))];
+    if (commitmentIds.length === 0) return;
+    const { error } = await supabase
+      .from("commitments")
+      .update({ review_needed_at: null })
+      .in("id", commitmentIds)
+      .not("review_needed_at", "is", null);
+    if (error) console.error("[export-invoice] confirming Export Bay bookings failed:", error.message);
+  }
+
   // ── generate ──────────────────────────────────────────────────────────────
   if (action === "generate") {
     const { lineItems } = body;
@@ -372,6 +393,7 @@ export async function POST(req: NextRequest) {
 
     await snapshotMaterials(inv.id);
     await recordDepositBackcharge(inv.id, lineItems, body.depositLines);
+    await confirmExportBayBookings();
 
     // Record any line billed against a borrowed Square item, so the send that
     // makes Square deduct stock it never held can credit those units back. The
@@ -604,6 +626,7 @@ export async function POST(req: NextRequest) {
 
       await snapshotMaterials(inv.id);
       await recordDepositBackcharge(inv.id, lineItems as InvoiceLineItemDraft[] | undefined, body.depositLines);
+      await confirmExportBayBookings();
       // The shared cascade, not a bespoke update — the same code a Square sync
       // runs, so a QuickBooks invoice's shipments read exactly like a Square one's.
       await cascadeExportTransactionsStatus(supabase, inv.id, "open");
@@ -682,6 +705,7 @@ export async function POST(req: NextRequest) {
 
       await snapshotMaterials(inv.id);
       await recordDepositBackcharge(inv.id, paidLineItems, body.depositLines);
+      await confirmExportBayBookings();
       // Paid outside Square: run the same cascade and deposit settlement a paid
       // Square invoice gets, or the shipments and the back-charged deposit stay
       // stuck at "invoice required" / "collecting" forever.
