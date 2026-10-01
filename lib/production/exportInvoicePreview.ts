@@ -104,6 +104,8 @@ export interface InvoicePreviewResult {
    * line for these: each drop's invoice carries that drop's share, until the
    * allocation is fully delivered — an earlier back-charge on another invoice
    * does NOT exclude it, or a three-drop delivery would pay deposit on drop one.
+   * The exception is an allocation whose standing deposit invoice was already
+   * sent: that invoice collects it, so the modal only notes it is outstanding.
    */
   unpaidDepositAllocations: UnpaidDepositAllocation[];
   /**
@@ -121,8 +123,10 @@ export interface InvoicePreviewResult {
 export interface UnpaidDepositAllocation {
   allocationId: string;
   batchNumber: string | null;
-  /** A standing deposit invoice was SENT and is awaiting payment — back-charging
-   *  on top of it double-bills unless the operator cancels it. */
+  /** The selected shipments drawn against this allocation. */
+  transactionIds: string[];
+  /** A standing deposit invoice was SENT and is awaiting payment — the deposit
+   *  is collected there, so the export invoice notes it and charges nothing. */
   depositInvoiceSent: boolean;
   /** Earlier shipments of this allocation already carried a deposit share on
    *  another export invoice; this invoice adds the share for THESE shipments. */
@@ -822,6 +826,7 @@ export async function buildInvoicePreview(
         .map((a) => ({
           allocationId: a.id,
           batchNumber: (a.brew_batches as { batch_number?: string } | null)?.batch_number ?? null,
+          transactionIds: rows.filter((r) => r.allocation_id === a.id).map((r) => r.id),
           depositInvoiceSent: !!a.invoice_sent_at,
           previouslyBackcharged: !!a.deposit_backcharged_invoice_id,
         }));

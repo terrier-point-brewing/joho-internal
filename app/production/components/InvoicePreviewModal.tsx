@@ -177,7 +177,16 @@ export default function InvoicePreviewModal({
   // preview computed this from invoice_paid_at, so unlike the ad-hoc notice it
   // is a fact, not a judgment: the deposit line gets added automatically (still
   // removable). Runs once per preview load; a removed line stays removed.
-  const unpaidDeposits = data?.unpaidDepositAllocations ?? [];
+  // An allocation whose standing deposit invoice was already sent is the one
+  // exception: that invoice collects the deposit, so charging it here too would
+  // bill the partner twice. Those are noted as outstanding and left alone.
+  const allUnpaidDeposits = data?.unpaidDepositAllocations ?? [];
+  const unpaidDeposits = allUnpaidDeposits.filter((d) => !d.depositInvoiceSent);
+  const awaitingDeposits = allUnpaidDeposits.filter((d) => d.depositInvoiceSent);
+  const awaitingTxIds = new Set(awaitingDeposits.flatMap((d) => d.transactionIds));
+  // The shipments a deposit line may be computed for — everything selected
+  // except those already covered by a sent deposit invoice.
+  const depositTxIds = transactionIds.filter((id) => !awaitingTxIds.has(id));
   // Beer shipped beyond every booked deposit on a contract invoice. There is no
   // product line to price it, so it would go out for packaging fees alone;
   // when no wider deposit line already covers these rows, add one for exactly
@@ -219,7 +228,7 @@ export default function InvoicePreviewModal({
     setDepositPending(true);
     setDepositError(null);
     try {
-      const ids = onlyIds && onlyIds.length > 0 ? onlyIds : transactionIds;
+      const ids = onlyIds && onlyIds.length > 0 ? onlyIds : depositTxIds;
       const res = await fetch(
         `/api/production/export/ingredient-deposit?ids=${ids.join(",")}${excludeParam(exclusions)}`
       );
@@ -491,7 +500,7 @@ export default function InvoicePreviewModal({
               allocations are pointed at this invoice, and when it is paid the
               commitment's deposit is marked paid automatically. */}
           {channel === "contract_brewing" && unpaidDeposits.length > 0 && (
-            <Banner tone={unpaidDeposits.some((d) => d.depositInvoiceSent) ? "danger" : "accent"}>
+            <Banner tone="accent">
               The ingredient deposit for{" "}
               <span className="font-medium">
                 {unpaidDeposits.map((d) => (d.batchNumber ? `#${d.batchNumber}` : "a shipped batch")).join(", ")}
@@ -503,11 +512,20 @@ export default function InvoicePreviewModal({
                 : "add the Ingredient Deposit line below to collect these shipments\u2019 share."}{" "}
               Each drop&rsquo;s invoice carries its own share; once the allocation is fully delivered and the
               last one is paid, the commitment&rsquo;s deposit is marked paid automatically.
-              {unpaidDeposits.some((d) => d.depositInvoiceSent) && (
-                <> A standing deposit invoice was already <span className="font-medium">sent</span> for
-                {" "}{unpaidDeposits.filter((d) => d.depositInvoiceSent).map((d) => d.batchNumber ? `#${d.batchNumber}` : "one batch").join(", ")} —
-                cancel it from the Commitments tab before sending this one, or the partner is billed twice.</>
-              )}
+            </Banner>
+          )}
+
+          {/* ── Deposit invoice sent, not yet paid ────────────────────────────
+              The standing deposit invoice is what collects it, so nothing is
+              charged here — this only tells the operator it is still owed. */}
+          {channel === "contract_brewing" && awaitingDeposits.length > 0 && (
+            <Banner tone="accent">
+              The ingredient deposit invoice for{" "}
+              <span className="font-medium">
+                {awaitingDeposits.map((d) => (d.batchNumber ? `#${d.batchNumber}` : "a shipped batch")).join(", ")}
+              </span>{" "}
+              was sent but <span className="font-medium">hasn&rsquo;t been paid yet</span>. It is not charged
+              on this invoice — the partner still owes it on the deposit invoice.
             </Banner>
           )}
 
@@ -540,7 +558,7 @@ export default function InvoicePreviewModal({
           )}
 
           {/* ── Ingredient deposit ─────────────────────────────────────────── */}
-          {channel === "contract_brewing" && !hasDepositLine && (
+          {channel === "contract_brewing" && !hasDepositLine && depositTxIds.length > 0 && (
             <div className="space-y-1">
               <button
                 onClick={() => loadIngredientDeposit(excludedByBatch)}
