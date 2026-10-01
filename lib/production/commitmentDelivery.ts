@@ -66,14 +66,19 @@ export function commitmentDelivery(input: {
     return { id: a.id, produced_bbl: produced, projected_bbl: projected, owed_bbl: owed, exported_bbl: exported, remaining_bbl: Math.max(0, owed - exported), written_off: a.written_off };
   });
   const live = allocations.filter((a) => !a.written_off);
+  const exportedBbl = allocations.reduce((s, a) => s + a.exported_bbl, 0);
+  const remaining = live.reduce((s, a) => s + a.remaining_bbl, 0);
   return {
     allocations,
     produced_bbl: allocations.reduce((s, a) => s + a.produced_bbl, 0),
     owed_bbl: allocations.reduce((s, a) => s + a.owed_bbl, 0),
-    exported_bbl: allocations.reduce((s, a) => s + a.exported_bbl, 0),
-    remaining_bbl: live.reduce((s, a) => s + a.remaining_bbl, 0),
+    exported_bbl: exportedBbl,
+    // Never more than the booking has left to give: a deal spread over two
+    // batches is capped per allocation, which alone could still add up past it.
+    remaining_bbl: booked != null ? Math.min(remaining, Math.max(0, booked - exportedBbl)) : remaining,
     stage: deriveCommitmentStage({
       storedStatus: input.storedStatus,
+      bookedBbl: booked,
       allocations: allocations.map((a, i) => ({
         exportedBbl: a.exported_bbl,
         owedBbl: a.owed_bbl,

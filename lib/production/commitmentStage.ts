@@ -1,4 +1,4 @@
-import { isFullyDelivered } from "./allocationDelivery";
+import { bookingDelivered, isFullyDelivered } from "./allocationDelivery";
 
 /**
  * Whether a commitment is still open, derived from its allocations rather
@@ -12,8 +12,8 @@ import { isFullyDelivered } from "./allocationDelivery";
  * lib/production/ledgerAttention, not here.
  *
  *   open       beer is still owed (no batch yet, brewing, or partly shipped)
- *   closed     the batch is complete and everything owed went out, or the
- *              remainder was written off
+ *   closed     the whole booking has shipped; or the batch is complete and
+ *              everything owed went out; or the remainder was written off
  *   cancelled  the human decision
  *
  * `commitments.status` keeps only that human decision. Its legacy
@@ -32,9 +32,9 @@ export interface StageAllocation {
 
 /**
  * A live allocation is done when everything owed so far has shipped AND the
- * batch is complete. While beer is still in tank the deal is open no matter
- * what has shipped: B-056 shipped 24.39 against 19.71 owed with 6.67 bbl
- * still in tank — that deal is open, because the batch is not closed out.
+ * batch is complete. While beer is still in tank its share of what has been
+ * made so far is a moving target, so shipping that much proves nothing — only
+ * shipping the whole booking does (deriveCommitmentStage).
  */
 export function allocationIsFinal(a: StageAllocation): boolean {
   if (a.writtenOff) return true;
@@ -44,8 +44,16 @@ export function allocationIsFinal(a: StageAllocation): boolean {
 export function deriveCommitmentStage(input: {
   storedStatus: string | null;
   allocations: StageAllocation[];
+  /** The commitment's booked volume; absent or 0 → the booking rule never fires. */
+  bookedBbl?: number | null;
 }): CommitmentStage {
   if (input.storedStatus === "cancelled") return "cancelled";
   if (input.allocations.length === 0) return "open";
+  // The booking itself has shipped: closed, even with the batch still in tank.
+  // This is how a claim of available beer closes — it is for a quantity, so it
+  // is done the moment that quantity leaves. A deal booked in turns never gets
+  // here (shrinkage keeps what ships below the booking) and closes below.
+  const exported = input.allocations.reduce((s, a) => s + a.exportedBbl, 0);
+  if (bookingDelivered(exported, input.bookedBbl ?? null)) return "closed";
   return input.allocations.every(allocationIsFinal) ? "closed" : "open";
 }

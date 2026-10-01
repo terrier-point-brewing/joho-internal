@@ -364,6 +364,10 @@ export interface DealProgress {
 
 function dealProgress(c: LedgerPartner["commitments"][number], extras: InvoiceExtras): DealProgress {
   if (c.allocations.length === 0) return { step: -1, label: "Awaiting a brew date", brew_date: null, ready_by: null };
+  // A deal whose whole booking has shipped is done, wherever the rest of the batch is.
+  if (c.stage === "closed" && c.allocations.every((x) => x.written_off_bbl == null)) {
+    return { step: 5, label: "Packaged and shipped", brew_date: null, ready_by: null };
+  }
   // The batch furthest from done speaks for the deal.
   const order = ["planning", "brewing", "fermenting", "conditioning", "complete"];
   const a = [...c.allocations].sort((x, y) => order.indexOf(x.batch_status) - order.indexOf(y.batch_status))[0];

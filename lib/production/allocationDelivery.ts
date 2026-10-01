@@ -33,9 +33,13 @@ export function sumExportedByAllocation(rows: ExportVolumeRow[]): Map<string, nu
 }
 
 /**
- * What an allocation is owed out of what its batch has produced so far:
- * contract allocations cap at the booked volume (the partner bought N bbl, not
- * a share of the upside), soft channels are their produced share.
+ * What an allocation is owed out of what its batch has produced so far: its
+ * share, capped at the booked volume — on every channel. The partner asked
+ * for N bbl, not a share of the upside. A batch booked in turns never reaches
+ * the cap (shrinkage keeps the share below 20 bbl a turn), so those deals are
+ * still measured by percentage; a claim of beer that already exists is booked
+ * in bbl and stops at that figure. Uncapped, Fortnight's 4 bbl of B-022 read
+ * 1.82 bbl still owed after all 4 had shipped, because its 20% was worth 5.82.
  */
 export function owedBbl(input: {
   channel: string;
@@ -44,7 +48,12 @@ export function owedBbl(input: {
   bookedBbl: number | null;
 }): number {
   const share = (Number(input.percentage) / 100) * input.producedBbl;
-  return input.channel === "contract_brewing" ? owedOfShare(share, input.bookedBbl) : share;
+  return owedOfShare(share, input.bookedBbl);
+}
+
+/** The whole booking has shipped — nothing more is owed, whatever the batch still holds. */
+export function bookingDelivered(exportedBbl: number, bookedBbl: number | null): boolean {
+  return bookedBbl != null && bookedBbl > 0 && exportedBbl >= bookedBbl - DELIVERY_TOLERANCE_BBL;
 }
 
 export function isFullyDelivered(exportedBbl: number, owed: number): boolean {
@@ -96,7 +105,7 @@ export async function loadAllocationDelivery(
   const producedBbl = (transfers ?? []).reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0);
   const exportedBbl = sumExportedByAllocation((exports_ ?? []) as ExportVolumeRow[]).get(allocationId) ?? 0;
   const booked = (allocation.commitments as unknown as { volume_bbl: number | null } | null)?.volume_bbl;
-  const bookedBbl = allocation.channel === "contract_brewing" && booked != null ? Number(booked) : null;
+  const bookedBbl = booked != null ? Number(booked) : null;
   const batchStatus = (allocation.brew_batches as unknown as { status?: string } | null)?.status ?? "";
 
   return {

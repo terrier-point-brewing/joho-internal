@@ -8,7 +8,7 @@ import {
 import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
 import { planShipment, type ShipmentPlan } from "./allocationReserve";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
-import { listHomes, type HomesForBatch } from "./rehome";
+import { listHomes, planAutoHome, type AutoHomeDraw, type HomesForBatch } from "./rehome";
 import { loadBatchYields, shareBasisBbl } from "./batchYieldProjection.server";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
@@ -115,8 +115,12 @@ export async function loadShipReserveContext(
     .map((a) => {
       const channel = a.channel as AllocationChannel;
       const exported = exportedByAllocation.get(a.id) ?? 0;
-      const booked = channel === "contract_brewing" ? (a.commitments?.volume_bbl ?? 0) : null;
-      const bookedRemainingBbl = channel === "contract_brewing" ? Math.max(0, (booked ?? 0) - exported) : null;
+      // Every allocation behind a commitment is held to its booking — the bbl
+      // the partner asked for — not only the deposit-backed ones. A soft
+      // allocation with no commitment has no booking and is held to its share.
+      const booked = channel === "contract_brewing" ? Number(a.commitments?.volume_bbl ?? 0)
+        : a.commitments?.volume_bbl != null && Number(a.commitments.volume_bbl) > 0 ? Number(a.commitments.volume_bbl) : null;
+      const bookedRemainingBbl = booked != null ? Math.max(0, booked - exported) : null;
       // What the batch makes for this allocation, less what already shipped.
       // Caps the credit alongside booked so a batch that finished below its
       // booked estimate (shrinkage) cannot keep absorbing other batches' beer.
@@ -212,7 +216,15 @@ export interface SimulatedShipment {
    * partner's contract allocation sits on (first contract candidate, else the
    * first drawn batch). Null when nothing is over.
    */
-  over: { bbl: number; targetAllocationId: string | null; homes: HomesForBatch } | null;
+  over: {
+    bbl: number; targetAllocationId: string | null; homes: HomesForBatch;
+    /**
+     * The share is ours to give (the deal's own unshipped share, the
+     * unallocated remainder, the taproom) and is taken without asking. Null
+     * when that cannot cover it — then the operator picks from `homes`.
+     */
+    auto: AutoHomeDraw[] | null;
+  } | null;
   /**
    * No commitment yet: the whole shipment is booked on the spot, on the one
    * batch it is drawn from, taking its share from one of `homes.sources`.
@@ -294,7 +306,9 @@ export async function simulateShipment(
       if (row) { targetAllocationId = row.id; batchId = row.batch_id; }
     }
     if (batchId) {
-      over = { bbl: overBbl, targetAllocationId, homes: await listHomes(supabase, { batchId, targetAllocationId }) };
+      const homes = await listHomes(supabase, { batchId, targetAllocationId });
+      const creditedToTarget = plan.credits.find((c) => c.allocationId != null && c.allocationId === targetAllocationId)?.bbl ?? 0;
+      over = { bbl: overBbl, targetAllocationId, homes, auto: targetAllocationId ? planAutoHome(homes.sources, overBbl, creditedToTarget) : null };
     }
   }
 

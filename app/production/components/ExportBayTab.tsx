@@ -1385,7 +1385,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
     lines?: { variation_id: string; requested: number; available: number; insufficient: boolean }[];
     unpaidDepositBatches?: { batchId: string; batchNumber: string | null; allocationId: string }[];
     noCommitment?: boolean;
-    over?: { bbl: number; targetAllocationId: string | null; homes: HomesForBatch } | null;
+    over?: { bbl: number; targetAllocationId: string | null; homes: HomesForBatch; auto?: { label: string; bbl: number }[] | null } | null;
     book?: { bbl: number; homes: HomesForBatch | null; refusal: string | null } | null;
   } | null>(null);
   // Beer beyond the booking has to take its share from somewhere on the
@@ -1398,7 +1398,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   const chosenBookSource = book?.homes?.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === bookSource) ?? null;
   const bookOk = !book || (!!book.homes && !!chosenBookSource && chosenBookSource.requires !== "refund" && chosenBookSource.freeBbl + 0.0001 >= book.bbl);
   const over = preview?.over ?? null;
-  const overNeedsHome = !!over && over.bbl > 0.0001;
+  // Share that is ours to give (own, unallocated, taproom) moves by itself as
+  // the beer ships; the operator is only asked when another partner's would.
+  const overAuto = over && over.bbl > 0.0001 ? (over.auto ?? null) : null;
+  const overNeedsHome = !!over && over.bbl > 0.0001 && !overAuto;
   const chosenHome = over?.homes.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === homeSource) ?? null;
   const homeOk = !overNeedsHome || (!!chosenHome && chosenHome.requires !== "refund" && chosenHome.freeBbl + 0.0001 >= (over?.bbl ?? 0) && !!over?.targetAllocationId);
   // Shipping before the deposit is paid is allowed, but it is a decision the
@@ -1593,6 +1596,12 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                 </>
               )}
             </div>
+          )}
+          {overAuto && over && (
+            <p className="text-xs text-secondary">
+              {over.bbl.toFixed(2)} bbl of this shipment is beyond the booking. The booking rises to match, and the share comes from{" "}
+              {overAuto.map((d) => `${d.label} (${d.bbl.toFixed(2)} bbl)`).join(" and ")} on #{over.homes.batchNumber ?? "?"}.
+            </p>
           )}
           {overNeedsHome && over && (
             <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1.5">
