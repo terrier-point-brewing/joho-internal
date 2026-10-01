@@ -244,6 +244,20 @@ describe("planShipment", () => {
     expect(plan.credits).toEqual([{ allocationId: "S", bbl: 3, overAllocation: false }]);
   });
 
+  it("a soft allocation behind a commitment stops at its booking: the rest needs a home", () => {
+    // A 4 bbl claim sitting on a share worth more; shipping 5 credits 4.
+    const plan = planShipment({
+      requestedBbl: 5,
+      candidates: [{ allocationId: "S", batchId: "b1", channel: "distribution", bookedRemainingBbl: 4, realizableRemainingBbl: 5.8 }],
+      perBatchDrawBbl: [{ batchId: "b1", drawBbl: 5 }],
+      batches: [batch({ batchId: "b1", producedBbl: 29, totalExportedBbl: 0, allocations: [] })],
+    });
+    expect(plan.credits).toEqual([
+      { allocationId: "S", bbl: 4, overAllocation: false },
+      { allocationId: null, bbl: 1, overAllocation: true },
+    ]);
+  });
+
   it("soft ship dipping into contract reserve warns guarantee_coverage", () => {
     const plan = planShipment({
       requestedBbl: 6, // free-to-ship is only 4 (16 onHand − 12 reserved)

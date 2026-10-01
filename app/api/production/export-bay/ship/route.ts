@@ -125,7 +125,18 @@ export async function POST(req: NextRequest) {
   // Beer beyond the booking must be given a home first: take its share from
   // somewhere on the batch and raise the booking, so the credit is inside the
   // commitment and the deposit / ledger / warnings all see it.
-  if (sim.overBbl > 1e-4) {
+  // Our own to give — the deal's unshipped share, the unallocated remainder,
+  // the taproom — is taken without asking. Only another partner's share is a
+  // decision, and that is the one case the operator still has to make.
+  if (sim.overBbl > 1e-4 && !body.home && sim.over?.auto && sim.over.targetAllocationId) {
+    try {
+      for (const draw of sim.over.auto) {
+        await executeRehome(supabase, { targetAllocationId: sim.over.targetAllocationId, source: draw.source, bbl: draw.bbl, beyondBooking: true });
+      }
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Could not re-home the extra beer" }, { status: 422 });
+    }
+  } else if (sim.overBbl > 1e-4) {
     const home = body.home;
     if (!home || !home.target_allocation_id || !home.source || !(Number(home.bbl) >= sim.overBbl - 0.01)) {
       return NextResponse.json(
@@ -141,6 +152,7 @@ export async function POST(req: NextRequest) {
         targetAllocationId: home.target_allocation_id,
         source: home.source.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocationId: home.source.allocation_id },
         bbl: Number(home.bbl),
+        beyondBooking: true,
       });
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "Could not re-home the extra beer" }, { status: 422 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bblToPct, planRehome, type HomeSource } from "./rehome";
+import { bblToPct, planAutoHome, planRehome, type HomeSource } from "./rehome";
 
 const taproom: HomeSource = { kind: "allocation", allocationId: "t", channel: "taproom", partnerName: null, percentage: 15, freeBbl: 4.88, requires: "none" };
 const unallocated: HomeSource = { kind: "unallocated", allocationId: null, channel: null, partnerName: null, percentage: 20, freeBbl: 6.5, requires: "none" };
@@ -39,6 +39,29 @@ describe("planRehome — self", () => {
     const self: HomeSource = { kind: "self", allocationId: "me", channel: "contract_brewing", partnerName: "Argus", percentage: 100, freeBbl: 0.5, requires: "none" };
     expect(planRehome({ bbl: 0.5, yieldBbl: 5.17, plannedBbl: 5.17, targetPct: 100, source: self }))
       .toEqual({ deltaPct: 0, basisBbl: 5.17, sourceNewPct: null, targetNewPct: 100 });
+  });
+});
+
+describe("planAutoHome", () => {
+  const self: HomeSource = { kind: "self", allocationId: "me", channel: "distribution", partnerName: "Fortnight Brewing", percentage: 20, freeBbl: 5.82, requires: "none" };
+
+  it("takes the deal's own unshipped share first, less what this shipment already credits to it", () => {
+    // Booked 4 on a 5.82 bbl share; shipping 5 credits 4 and leaves 1 over.
+    expect(planAutoHome([self, taproom], 1, 4)).toEqual([{ source: { kind: "allocation", allocationId: "me" }, label: "their own unshipped share", bbl: 1 }]);
+  });
+
+  it("then the unallocated remainder, then the taproom", () => {
+    // 5.82 − 4 leaves 1.82 of their own; the other 8.18 comes from ours.
+    expect(planAutoHome([self, taproom, unallocated, paid], 10, 4)).toEqual([
+      { source: { kind: "allocation", allocationId: "me" }, label: "their own unshipped share", bbl: 1.82 },
+      { source: { kind: "unallocated" }, label: "the unallocated share", bbl: 6.5 },
+      { source: { kind: "allocation", allocationId: "t" }, label: "the taproom", bbl: 1.68 },
+    ]);
+  });
+
+  it("never draws on another partner: when ours cannot cover it, a person decides", () => {
+    expect(planAutoHome([taproom, paid], 6)).toBeNull();
+    expect(planAutoHome([paid], 1)).toBeNull();
   });
 });
 

@@ -6,7 +6,25 @@ const produced = new Map([["b1", 32], ["b2", 0]]);
 const exported = new Map([["a1", 11.5]]);
 
 describe("commitmentDelivery", () => {
-  it("caps a contract deal at its booking, owes a soft channel its produced share", () => {
+  it("closes a claim the moment its booked bbl has shipped, with the batch still in tank", () => {
+    // 4 bbl claimed off a batch that is still packaging; the 12% is plumbing.
+    const claim = (shipped: number) => commitmentDelivery({ storedStatus: "open", bookedBbl: 4,
+      allocations: [{ id: "a1", batch_id: "b3", channel: "distribution", percentage: 12, batch_status: "conditioning", written_off: false }],
+      producedByBatch: new Map([["b3", 12.9]]), projectedByBatch: new Map([["b3", 36]]), exportedByAllocation: new Map([["a1", shipped]]) });
+    expect(claim(2.5)).toMatchObject({ owed_bbl: 4, remaining_bbl: 1.5, stage: "open" });
+    expect(claim(4)).toMatchObject({ owed_bbl: 4, remaining_bbl: 0, stage: "closed" });
+  });
+
+  it("leaves a deal booked in turns to its percentage: shrinkage keeps it short of the booking", () => {
+    // One 20 bbl turn that will package ~17: all 17 shipped, tank not yet closed out.
+    const turn = (status: string) => commitmentDelivery({ storedStatus: "open", bookedBbl: 20,
+      allocations: [{ id: "a1", batch_id: "b4", channel: "contract_brewing", percentage: 100, batch_status: status, written_off: false }],
+      producedByBatch: new Map([["b4", 17]]), exportedByAllocation: new Map([["a1", 17]]) });
+    expect(turn("conditioning")).toMatchObject({ owed_bbl: 17, stage: "open" });
+    expect(turn("complete")).toMatchObject({ owed_bbl: 17, stage: "closed" });
+  });
+
+  it("caps every deal at its booking, soft channels included", () => {
     const contract = commitmentDelivery({ storedStatus: "open", bookedBbl: 20,
       allocations: [{ id: "a1", batch_id: "b1", channel: "contract_brewing", percentage: 75, batch_status: "complete", written_off: false }],
       producedByBatch: produced, exportedByAllocation: exported });
@@ -17,7 +35,7 @@ describe("commitmentDelivery", () => {
     const soft = commitmentDelivery({ storedStatus: "open", bookedBbl: 20,
       allocations: [{ id: "a1", batch_id: "b1", channel: "distribution", percentage: 75, batch_status: "complete", written_off: false }],
       producedByBatch: produced, exportedByAllocation: exported });
-    expect(soft.owed_bbl).toBe(24);
+    expect(soft.owed_bbl).toBe(20);            // was 24: the share, which left 4 bbl "owed" nobody asked for
   });
 
   it("while the batch is in tank the share is of its projected yield, not of what is packaged so far", () => {

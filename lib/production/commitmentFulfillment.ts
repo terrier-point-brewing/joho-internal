@@ -1,5 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
+import { bookingDelivered, sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
 
 /**
  * exportedBbl and allocatedBbl arrive by different arithmetic paths (summed
@@ -47,19 +47,6 @@ async function loadFulfillmentState(
     .select("status")
     .eq("id", allocation.batch_id)
     .single();
-  if (batch?.status !== "complete") return null;
-
-  const { data: transfers } = await supabase
-    .from("batch_transfers")
-    .select("volume_bbl, transfer_type")
-    .eq("batch_id", allocation.batch_id)
-    .in("transfer_type", ["kegging", "canning"]);
-  // produced = sum(volume_bbl), net fill. volume_bbl is already the net beer in
-  // containers; shrinkage_bbl is a separate loss figure and must NOT be
-  // subtracted here (would double-count). See the allocation-reserve plan.
-  const producedBbl = (transfers ?? []).reduce((s, t) => s + Number(t.volume_bbl), 0);
-  if (producedBbl <= 0) return null;
-  const shareBbl = (Number(allocation.percentage) / 100) * producedBbl;
 
   // Credited to THIS allocation. The old batch + channel + recipient sum folded
   // over-delivery rows into whichever allocation shared the key and could not
@@ -76,6 +63,26 @@ async function loadFulfillmentState(
     .eq("id", allocation.contract_request_id)
     .single();
   if (!commitment) return null;
+
+  if (batch?.status !== "complete") {
+    // The one thing that can be judged while beer is still in tank: the whole
+    // booking has shipped (a claim of available beer). Short of that, wait.
+    const booked = Number(commitment.volume_bbl);
+    if (!bookingDelivered(exportedBbl, booked) || (allocation as { written_off_at?: string | null }).written_off_at) return null;
+    return { commitmentId: allocation.contract_request_id, status: commitment.status, exportedBbl, allocatedBbl: booked };
+  }
+
+  const { data: transfers } = await supabase
+    .from("batch_transfers")
+    .select("volume_bbl, transfer_type")
+    .eq("batch_id", allocation.batch_id)
+    .in("transfer_type", ["kegging", "canning"]);
+  // produced = sum(volume_bbl), net fill. volume_bbl is already the net beer in
+  // containers; shrinkage_bbl is a separate loss figure and must NOT be
+  // subtracted here (would double-count). See the allocation-reserve plan.
+  const producedBbl = (transfers ?? []).reduce((s, t) => s + Number(t.volume_bbl), 0);
+  if (producedBbl <= 0) return null;
+  const shareBbl = (Number(allocation.percentage) / 100) * producedBbl;
 
   // Shipment crediting caps a contract allocation at its booked volume
   // (planShipment: min(booked remaining, realizable)), so on an over-yielding

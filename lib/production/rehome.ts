@@ -108,6 +108,51 @@ export function planRehome(input: {
   return { deltaPct, basisBbl, sourceNewPct, targetNewPct };
 }
 
+export interface AutoHomeDraw {
+  source: { kind: "unallocated" } | { kind: "allocation"; allocationId: string };
+  /** What the brewer is told the share came from. */
+  label: string;
+  bbl: number;
+}
+
+/**
+ * Where beer beyond a booking takes its share from when nobody has to be
+ * asked: the commitment's own unshipped share first (nothing moves, the
+ * booking catches up), then the batch's unallocated remainder, then the
+ * taproom. Those are ours to give. Null when they cannot cover it between
+ * them — what is left is another partner's share, and that is a decision
+ * (and possibly a refund) a person makes.
+ */
+export function planAutoHome(
+  sources: HomeSource[],
+  bbl: number,
+  /** What this same shipment already credits to the target: that much of its free share is spoken for. */
+  creditedToTargetBbl = 0,
+): AutoHomeDraw[] | null {
+  const ours = [
+    ...sources.filter((s) => s.kind === "self"),
+    ...sources.filter((s) => s.kind === "unallocated"),
+    ...sources.filter((s) => s.kind === "allocation" && s.channel === "taproom"),
+  ];
+  const draws: AutoHomeDraw[] = [];
+  let left = bbl;
+  for (const s of ours) {
+    if (left <= EPS) break;
+    const take = Math.min(left, s.kind === "self" ? s.freeBbl - creditedToTargetBbl : s.freeBbl);
+    if (take <= EPS) continue;
+    draws.push({
+      source: s.kind === "unallocated" || !s.allocationId ? { kind: "unallocated" } : { kind: "allocation", allocationId: s.allocationId },
+      label: s.kind === "self" ? "their own unshipped share" : s.kind === "unallocated" ? "the unallocated share" : "the taproom",
+      bbl: Math.round(take * 10000) / 10000,
+    });
+    left -= take;
+  }
+  // freeBbl is rounded to the cent; a hair short is not a reason to ask.
+  if (left > 0.01) return null;
+  if (left > EPS && draws.length > 0) draws[draws.length - 1].bbl = Math.round((draws[draws.length - 1].bbl + left) * 10000) / 10000;
+  return draws.length > 0 ? draws : null;
+}
+
 export function sourceLabel(s: HomeSource): string {
   if (s.kind === "unallocated") return "The unallocated share";
   if (s.kind === "self") return "This commitment's own share";
@@ -218,6 +263,13 @@ export interface RehomeArgs {
   bbl: number;
   /** Already-shipped rows to credit to the target (over-delivery / ad-hoc). */
   transactionIds?: string[];
+  /**
+   * The bbl is about to ship over and above the booking, so the booking rises
+   * by it even when the share is the target's own. Without this a "self" move
+   * only catches the booking up to what is already credited — right for rows
+   * that have shipped, short for beer that has not left yet.
+   */
+  beyondBooking?: boolean;
 }
 
 export interface RehomeResult {
@@ -254,8 +306,17 @@ export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs):
     const patch: Record<string, unknown> = { percentage: plan.sourceNewPct };
     // A drafted (unpaid) deposit on the source is now for the wrong share.
     if (source.requires === "regenerate_deposit") { patch.invoice_generated_at = null; patch.invoice_sent_at = null; }
-    const { error } = await supabase.from("batch_allocations").update(patch).eq("id", source.allocationId);
+    // A source given up entirely leaves the batch: the CHECK forbids a 0% row.
+    // Only an internal plan may be emptied; a partner's would strand their deal.
+    const emptied = (plan.sourceNewPct ?? 0) <= EPS;
+    if (emptied && source.channel !== "taproom" && source.channel !== "safety_stock") {
+      throw new Error(`That would take all of ${sourceLabel(source)}'s share. Pick another source, or change their commitment on Intake first.`);
+    }
+    const { error } = emptied
+      ? await supabase.from("batch_allocations").delete().eq("id", source.allocationId)
+      : await supabase.from("batch_allocations").update(patch).eq("id", source.allocationId);
     if (error) throw new Error(error.message);
+    if (emptied) source.allocationId = null;
   }
   if (plan.deltaPct > 0) {
     const { error: tErr } = await supabase.from("batch_allocations").update({ percentage: plan.targetNewPct }).eq("id", target.id);
@@ -273,7 +334,7 @@ export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs):
   if (target.contract_request_id) {
     const current = Number((target.commitments as unknown as { volume_bbl?: number | null } | null)?.volume_bbl ?? 0);
     let next = round2(current + Number(args.bbl));
-    if (source.kind === "self") {
+    if (source.kind === "self" && !args.beyondBooking) {
       const { data: credited } = await supabase
         .from("export_transactions").select("volume_bbl").eq("allocation_id", target.id);
       const creditedBbl = (credited ?? []).reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0);

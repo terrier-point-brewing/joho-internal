@@ -189,7 +189,7 @@ export interface ShipmentCandidate {
   allocationId: string;
   batchId: string;
   channel: AllocationChannel;
-  bookedRemainingBbl: number | null; // contract: max(0, booked − exported); soft: null (no booking cap)
+  bookedRemainingBbl: number | null; // max(0, booked − exported); null for a soft allocation with no commitment (no booking cap)
   // contract: max(0, percentage × produced − exported) — the entitlement the
   // batch has ACTUALLY made. `booked` is a pre-shrinkage estimate, so a fully
   // delivered batch keeps a booked remainder equal to its shrinkage; crediting
@@ -262,7 +262,9 @@ export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
     // A credit can never exceed the share the batch actually produced; a
     // contract credit is also held to the pre-paid booking.
     const realizableCap = c.realizableRemainingBbl == null ? Infinity : Math.max(0, c.realizableRemainingBbl);
-    const cap = isDepositBacked(c.channel)
+    // A soft allocation carries a booking only when a commitment stands behind
+    // it; then it stops there too, and the rest needs a home like any over-ship.
+    const cap = isDepositBacked(c.channel) || c.bookedRemainingBbl != null
       ? Math.min(Math.max(0, c.bookedRemainingBbl ?? 0), realizableCap)
       : realizableCap;
     take(c, cap);
