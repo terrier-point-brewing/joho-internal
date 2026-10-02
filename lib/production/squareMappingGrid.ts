@@ -18,6 +18,13 @@ const KEG_FRACTION: Record<number, string> = {
 const FORMAT_LABELS: Record<string, string> = {
   loose: "Loose", "4-pack": "4-Pack", "6-pack": "6-Pack", case: "Case",
 };
+// Words in a Square variation name that say which pack size it is.
+const FORMAT_KEYWORDS: Record<string, string[]> = {
+  loose: ["loose", "single"],
+  "4-pack": ["4-pack", "4pack"],
+  "6-pack": ["6-pack", "6pack"],
+  case: ["case"],
+};
 const FORMAT_ORDER: Record<string, number> = {
   loose: 0, "4-pack": 1, "6-pack": 2, case: 3,
 };
@@ -146,12 +153,25 @@ export function autoSuggest(
 
   for (const sv of candidates) {
     // Skip items with known mismatched volume (when volumeFlOzPerUnit is populated).
+    // Square's volume is per SOLD unit — a 4-pack of 16oz cans is 64 — while the
+    // slot carries the container's 16. For a multi-can slot a whole multiple of
+    // the container is therefore a match, not a mismatch; skipping it left the
+    // bare single-can variation as the only candidate for every pack size.
     if (
       containerVolumeFlOz != null &&
       sv.volumeFlOzPerUnit != null &&
       containerVolumeFlOz !== sv.volumeFlOzPerUnit
     ) {
-      continue;
+      const isPack = containerType === "can" && format != null && format !== "loose";
+      if (!isPack || sv.volumeFlOzPerUnit % containerVolumeFlOz !== 0) continue;
+    }
+
+    // A variation that names a DIFFERENT pack size is never this slot's item.
+    if (containerType === "can" && format) {
+      const vn = sv.variationName.toLowerCase();
+      const names = (f: string) => (FORMAT_KEYWORDS[f] ?? []).some((k) => vn.includes(k));
+      const namesOther = Object.keys(FORMAT_KEYWORDS).some((f) => f !== format && f !== "loose" && names(f));
+      if (namesOther && !names(format)) continue;
     }
 
     // Fallback: for kegs, use the keg-size fraction in the variation name to filter
@@ -186,13 +206,7 @@ export function autoSuggest(
     // +2 when variation name contains a format keyword matching the slot's format
     if (format && containerType === "can") {
       const vn = sv.variationName.toLowerCase();
-      const formatKeywords: Record<string, string[]> = {
-        loose: ["loose", "single"],
-        "4-pack": ["4-pack", "4pack"],
-        "6-pack": ["6-pack", "6pack"],
-        case: ["case"],
-      };
-      const keywords = formatKeywords[format] ?? [];
+      const keywords = FORMAT_KEYWORDS[format] ?? [];
       if (keywords.some((k) => vn.includes(k))) score += 2;
     }
 

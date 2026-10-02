@@ -52,6 +52,23 @@ describe("autoSuggest", () => {
   });
 });
 
+describe("autoSuggest pack sizes", () => {
+  // Square's volume is per sold unit; the slot's is per container.
+  const pace: SquareCatalogVariationFlat[] = [
+    { squareVariationId: "loose", squareItemId: "i", itemName: "Pace Yourself Pilsner (Cans)", variationName: "Regular", categoryName: "Cans", volumeFlOzPerUnit: null },
+    { squareVariationId: "four", squareItemId: "i", itemName: "Pace Yourself Pilsner (Cans)", variationName: "Regular - 16oz 4-Pack", categoryName: "Cans", volumeFlOzPerUnit: 64 },
+    { squareVariationId: "case", squareItemId: "i", itemName: "Pace Yourself Pilsner (Cans)", variationName: "Regular - 16oz Case", categoryName: "Cans", volumeFlOzPerUnit: 384 },
+  ];
+
+  it.each([
+    ["loose", "loose"],
+    ["4-pack", "four"],
+    ["case", "case"],
+  ])("suggests the matching Square variation for a %s slot", (format, expected) => {
+    expect(autoSuggest("Pace Yourself Pilsner", 16, "can", format, pace)?.squareVariationId).toBe(expected);
+  });
+});
+
 // ── deriveColumns ─────────────────────────────────────────────────────────────
 
 const makeRpv = (
