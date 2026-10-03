@@ -17,11 +17,12 @@ vi.mock("@/lib/auth", async (importOriginal) => {
 });
 
 const deleteEqCalls: Array<{ field: string; value: unknown }> = [];
+const insertedLinks: Array<Record<string, unknown>> = [];
 
 interface Chain {
   delete: () => Chain;
   select: () => Chain;
-  insert: () => Chain;
+  insert: (row?: unknown) => Chain;
   upsert: () => Chain;
   eq: (field: string, value: unknown) => Chain;
   order: () => Chain;
@@ -57,8 +58,9 @@ function makeChain(table: string, result: TableResult): Chain {
       if (op === null) op = "select";
       return chain;
     }),
-    insert: vi.fn(() => {
+    insert: vi.fn((row?: unknown) => {
       op = "insert";
+      if (table === "recipe_square_links") insertedLinks.push(row as Record<string, unknown>);
       return chain;
     }),
     upsert: vi.fn(() => {
@@ -89,7 +91,10 @@ const tableResults = (): Record<string, TableResult> => ({
     error: null,
   },
   square_catalog_items: { data: { id: "catalog-item-1" }, error: null },
-  square_catalog_variations: { data: { id: "catalog-variation-1" }, error: null },
+  square_catalog_variations: {
+    data: { id: "catalog-variation-1", square_item_id: "sq-item-from-mirror", variation_name: "Draft" },
+    error: null,
+  },
   recipe_square_links: {
     select: { data: holders, error: null },
     insert: { data: { id: "link-1", recipe_id: "recipe-1", packaging: "keg" }, error: null },
@@ -119,7 +124,33 @@ function linkRequest(extra: Record<string, unknown>): NextRequest {
 describe("POST /api/production/recipe-square-links", () => {
   beforeEach(() => {
     deleteEqCalls.length = 0;
+    insertedLinks.length = 0;
     holders = [];
+  });
+
+  // The pour ledger finds a draft beer's pour-size buttons by square_item_id. A
+  // draft link saved without one read as "0 oz / day" no matter how much poured.
+  it("fills a missing square_item_id from the catalog mirror", async () => {
+    const { POST } = await import("./route");
+
+    const res = await POST(linkRequest({ packaging: "draft", square_item_id: null }));
+
+    expect(res.status).toBe(201);
+    expect(insertedLinks).toHaveLength(1);
+    expect(insertedLinks[0]).toMatchObject({
+      square_item_id: "sq-item-from-mirror",
+      variation_name: "Draft",
+      catalog_item_id: "catalog-item-1",
+    });
+  });
+
+  it("keeps the caller's square_item_id when one is sent", async () => {
+    const { POST } = await import("./route");
+
+    const res = await POST(linkRequest({ packaging: "draft" }));
+
+    expect(res.status).toBe(201);
+    expect(insertedLinks[0]).toMatchObject({ square_item_id: "sq-item-1" });
   });
 
   it("replaces an existing link keyed by square_variation_id, not the old variation_id", async () => {

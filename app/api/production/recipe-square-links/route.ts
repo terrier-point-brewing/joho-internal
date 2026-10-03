@@ -226,22 +226,31 @@ export async function POST(req: NextRequest) {
   let catalog_item_id: string | null = null;
   let catalog_variation_id: string | null = null;
 
-  if (square_item_id) {
-    const { data: master } = await supabase
-      .from("square_catalog_items")
-      .select("id")
-      .eq("square_item_id", square_item_id)
-      .single();
-    catalog_item_id = master?.id ?? null;
-  }
+  // The caller's square_item_id is a convenience, not a fact: the drawer sends
+  // null when its picker list has not loaded the chosen variation. The pour
+  // ledger finds a draft beer's pour-size buttons BY this item id, so a draft
+  // link saved without it reads as zero pours forever. Fall back to the mirror.
+  let resolvedItemId: string | null = square_item_id || null;
+  let resolvedVariationName: string | null = variation_name || null;
 
   if (square_variation_id) {
     const { data: variation } = await supabase
       .from("square_catalog_variations")
-      .select("id")
+      .select("id, square_item_id, variation_name")
       .eq("square_variation_id", square_variation_id)
       .single();
     catalog_variation_id = variation?.id ?? null;
+    resolvedItemId ??= variation?.square_item_id ?? null;
+    resolvedVariationName ??= variation?.variation_name ?? null;
+  }
+
+  if (resolvedItemId) {
+    const { data: master } = await supabase
+      .from("square_catalog_items")
+      .select("id")
+      .eq("square_item_id", resolvedItemId)
+      .single();
+    catalog_item_id = master?.id ?? null;
   }
 
   const { data, error } = await supabase
@@ -252,8 +261,8 @@ export async function POST(req: NextRequest) {
       variation_id: variation_id || null,
       packaging_item_id: packaging_item_id || null,
       square_variation_id,
-      square_item_id: square_item_id || null,
-      variation_name: variation_name || null,
+      square_item_id: resolvedItemId,
+      variation_name: resolvedVariationName,
       item_name: item_name || null,
       catalog_item_id,
       catalog_variation_id,
