@@ -141,7 +141,7 @@ const requiredRegistrations: RequiredRegistration[] = [
 
 export const ncDorBeerExciseTemplate: TaxPartyTemplate = {
   key: "nc_dor_beer_excise",
-  label: "NC DOR — Beer Excise Tax (B-C-710)",
+  label: "NC DOR — Beer Excise Tax (B-C-710/715)",
   supportedFrequencies: ["monthly"],
   computePeriod,
   defaultDueRule,
