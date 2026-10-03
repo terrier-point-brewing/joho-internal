@@ -23,6 +23,7 @@ const COMPUTED_KEYS = new Set([
   "gal_contract",
   "gal_taproom",
   "gal_wholesale",
+  "bc715_lines",
   "gal_produced_for_sale",
   "gal_total_available",
   "gal_allowable_deductions",
