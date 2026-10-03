@@ -2,6 +2,10 @@
  * Singleton tax entity profile storage (`tax_entity_profile`) — the
  * brewery's own business identity (legal name, trade name, mailing address,
  * general phone/fax) used to prefill filings across every receiving party.
+ * It carries TWO addresses: the legal entity's (`address_*`, what state and
+ * county filings ask for) and the brewery premises' (`premises_*`, where the
+ * beer is actually made — what TTB asks for, county included). They are
+ * different places; never substitute one for the other.
  * The person who signs filings on the business's behalf is a SEPARATE
  * singleton, `tax_legal_representative` (lib/tax/legalRepresentative.ts) —
  * this table is business-only. Unlike `tax_filing_profiles` (per-party,
@@ -21,6 +25,12 @@ export const ENTITY_PROFILE_SCHEMA: FieldSpec[] = [
   { key: "city", label: "City", type: "text" },
   { key: "state", label: "State", type: "text" },
   { key: "postal_code", label: "Postal code", type: "text" },
+  { key: "premises_address_line1", label: "Brewery premises — address line 1", type: "text" },
+  { key: "premises_address_line2", label: "Brewery premises — address line 2", type: "text" },
+  { key: "premises_city", label: "Brewery premises — city", type: "text" },
+  { key: "premises_county", label: "Brewery premises — county", type: "text" },
+  { key: "premises_state", label: "Brewery premises — state", type: "text" },
+  { key: "premises_postal_code", label: "Brewery premises — postal code", type: "text" },
 ];
 
 export type EntityProfileValues = Record<string, string>;

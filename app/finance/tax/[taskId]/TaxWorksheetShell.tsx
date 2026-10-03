@@ -44,6 +44,14 @@ function formatEntityAddress(entity: Record<string, string>): string {
   return [street, cityStateZip].filter(Boolean).join(" · ") || "—";
 }
 
+function formatPremisesAddress(entity: Record<string, string>): string {
+  const street = [entity.premises_address_line1, entity.premises_address_line2].filter(Boolean).join(", ");
+  const cityCountyState = [entity.premises_city, entity.premises_county && `${entity.premises_county} County`, entity.premises_state]
+    .filter(Boolean)
+    .join(", ");
+  return [street, [cityCountyState, entity.premises_postal_code].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "—";
+}
+
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 /** One `<dt>/<dd>` pair in the Filing Identity header. `value` is a node so a
@@ -450,6 +458,7 @@ function IdentityHeader({
         { label: "Legal Entity Name", value: entity.legal_name || "—" },
         { label: "Trade Name", value: entity.trade_name || "—" },
         { label: "Address", value: formatEntityAddress(entity) },
+        { label: "Brewery Premises Address", value: formatPremisesAddress(entity) },
         { label: "Phone Number", value: entity.contact_phone || "—" },
         { label: "Fax Number", value: entity.fax_number || "—" },
       ]
