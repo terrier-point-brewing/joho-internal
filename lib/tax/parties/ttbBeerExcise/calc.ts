@@ -179,7 +179,7 @@ export function computeTtbFigures(args: ComputeTtbFiguresArgs): WorksheetData {
     // Payment — Lines 2a-2c.
     prev_serial_number: "",
     cents_previously_paid: 0,
-    payment_form: "",
+    payment_form: "ACH",
     cents_amount_paid: 0,
 
     // Removals from the shipment feed.
@@ -202,6 +202,10 @@ export function computeTtbFigures(args: ComputeTtbFiguresArgs): WorksheetData {
     bbl_losses: 0,
     bbl_inventory_shortage: 0,
     flag_shortages_taxpaid: 0,
+
+    // The online form's two "check here to complete Schedule A" boxes.
+    flag_schedule_a_increasing: 0,
+    flag_schedule_a_decreasing: 0,
 
     // Lines 21-22 — interest and penalties.
     cents_interest: 0,

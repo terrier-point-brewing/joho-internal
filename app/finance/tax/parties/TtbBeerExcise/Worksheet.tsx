@@ -1,11 +1,15 @@
 "use client";
 
 /**
- * TTB F 5130.Pilot-B editable worksheet — the removals summary (barrels) by
- * shipment channel, then the form itself in printed order: the excise tax
- * calculation (Lines 8-15), Schedule A's two adjustment tables (Lines 16-27),
- * brewery operations (Lines 28-44), the controlled-group and contract
- * questions (Lines 45-46), and the signature date (Line 50).
+ * TTB F 5130.Pilot-B editable worksheet, laid out in the order the ONLINE
+ * form asks for it (not the printed form's), so it can be transcribed top to
+ * bottom: the return header (final-return box, 3d, 2c, 3b, 3a, 3c, Line 1),
+ * brewery identity (Lines 4-7c), Schedule A increasing adjustments (Lines
+ * 16-23), brewery operations (Lines 28-44), the controlled-group and contract
+ * questions (Lines 45-46), the signature date (Line 50), Schedule A
+ * decreasing adjustments (Lines 24-27), the excise tax calculation (Lines
+ * 8-15), and the amount paid (Line 2b). The removals summary by shipment
+ * channel is not on the form and sits last, as supporting detail.
  *
  * Computed fields (per `fieldOwnership.ts`) render read-only and always reflect
  * the current `fields`; manual fields render as `.inp-sm` inputs. Every edit
@@ -19,9 +23,9 @@
  * inputs that do exist are the ones the shipment feed genuinely cannot answer —
  * exports and transfers in bond, losses, Schedule A adjustments, and payment.
  *
- * Filer identity (brewery name, EIN, brewer's notice number, premises address,
- * contact) is NOT rendered here — it's shown once, above every party's
- * worksheet, by `TaxWorksheetShell`'s `IdentityHeader`.
+ * Filer identity (Lines 4-7c) is read-only here, in form order, from the same
+ * shared Tax Profile that `TaxWorksheetShell`'s `IdentityHeader` shows above
+ * every party's worksheet — it is edited in Settings, never on the return.
  *
  * `readOnly` (set by `TaxWorksheetShell` once the parent task is `completed`)
  * forces every manual field to render display-only and makes `updateField` a
@@ -42,6 +46,7 @@ import {
 import { SCHEDULE_A_ROWS } from "@/lib/tax/parties/ttbBeerExcise/rates";
 import { decreasingRowKeys, increasingRowKeys } from "@/lib/tax/parties/ttbBeerExcise/derive";
 import { isComputedField } from "./fieldOwnership";
+import { useEntityProfileQuery, useLegalRepresentativeQuery, useTaxPartiesQuery } from "../../hooks/useTaxData";
 import type { PartyWorksheetProps } from "../registry";
 
 type Fields = Record<string, number | string | null>;
@@ -81,206 +86,119 @@ export default function TtbBeerExciseWorksheet({
   const rowProps = { fields, generation, onChangeField: updateField, readOnly };
   const isFinal = num(fields.flag_final_return) === 1;
   const inControlledGroup = num(fields.flag_controlled_group) === 1;
+  const isAmended = !["", "original"].includes(str(fields.submission_version).trim().toLowerCase());
+  // A Schedule A table stays visible while it still carries an amount, so
+  // unchecking its box can never hide a figure that is on the return.
+  const showIncreasing = num(fields.flag_schedule_a_increasing) === 1 || num(fields.cents_increasing_tax_due) !== 0;
+  const showDecreasing = num(fields.flag_schedule_a_decreasing) === 1 || num(fields.cents_decreasing_adjustments) !== 0;
+
+  // Lines 4-7c come from the shared Tax Profile, the same queries the shell's
+  // IdentityHeader reads (so these are cache hits, not extra requests).
+  const { data: entity } = useEntityProfileQuery();
+  const { data: representative } = useLegalRepresentativeQuery();
+  const { data: parties } = useTaxPartiesQuery();
+  const registrations = parties?.find((p) => p.key === "ttb_beer_excise")?.requiredRegistrations ?? [];
+  const registrationNumber = (authorityKey: string, registrationKey: string) =>
+    registrations.find((r) => r.authorityKey === authorityKey && r.registrationKey === registrationKey)?.number || "—";
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Return header — Lines 1, 2a-2c, 3a-3e */}
+      {/* Return header — in the online form's order: final-return box, 3d, 2c, 3b, 3a, 3c, then Line 1 */}
       <section className="flex flex-col gap-2">
         <SectionHeading>Return Header</SectionHeading>
-        <TextRow fieldKey="serial_number" label="1. Serial Number" {...rowProps} />
-        <TextRow fieldKey="period_label" label="3b. Period Covers" {...rowProps} />
-        <div className="flex items-center justify-between gap-4 border-b border-line/40 pb-1.5">
-          <span className="text-sm text-body">3c. Excise Tax Period</span>
-          <span className="text-sm tabular-nums text-body">
-            {str(fields.period_start) || "—"} – {str(fields.period_end) || "—"}
-          </span>
-        </div>
-        <TextRow fieldKey="submission_version" label="3d. Submission Version" {...rowProps} />
-        <CheckRow fieldKey="flag_final_return" label="3e. Final tax return — discontinuation" {...rowProps} />
+        <CheckRow fieldKey="flag_final_return" label="This is my final return" {...rowProps} />
         {isFinal && (
           <div className="pl-4 ml-1 border-l-2 border-line/60 flex flex-col gap-2">
             <TextRow fieldKey="final_return_date" label="3e. Discontinuation date" placeholder="MM-DD-YYYY" {...rowProps} />
           </div>
         )}
+        <TextRow fieldKey="submission_version" label="3d. Submission Version" fallback="Original" {...rowProps} />
+        <TextRow fieldKey="payment_form" label="2c. Form of Payment" fallback="ACH" {...rowProps} />
+        <StaticRow label="3b. Period Covers" value="Quarterly" />
+        <StaticRow label="3a. Reporting Year" value={str(fields.reporting_year) || "—"} />
+        <StaticRow label="3c. Excise Tax Period" value={monthRange(str(fields.period_start), str(fields.period_end))} />
+        <TextRow fieldKey="serial_number" label="1. Serial Number" {...rowProps} />
       </section>
 
-      {/* Payment — Lines 2a-2c */}
+      {/* Brewery identity — Lines 4-7c, read from the shared Tax Profile */}
       <section className="flex flex-col gap-2">
-        <SectionHeading>Payment</SectionHeading>
-        <MoneyRow fieldKey="cents_amount_paid" label="2b. Amount Paid With This Submission" {...rowProps} />
-        <TextRow fieldKey="prev_serial_number" label="2c. Serial Number of prior submission (amended returns)" {...rowProps} />
-        <MoneyRow fieldKey="cents_previously_paid" label="2a. Amount Previously Paid" {...rowProps} />
-        <TextRow fieldKey="payment_form" label="2c. Form of Payment" placeholder="EFT / check / money order" {...rowProps} />
+        <SectionHeading>Brewery</SectionHeading>
+        <StaticRow label="4. Brewer's Notice Number" value={registrationNumber("federal_ttb", "ttb_brewers_notice")} />
+        <StaticRow label="5. Employer Identification Number (EIN)" value={registrationNumber("irs", "fein")} />
+        <StaticRow label="6a. Brewery Contact Name" value={representative?.name || "—"} />
+        <StaticRow label="6b. Brewery Contact Phone Number" value={representative?.phone || "—"} />
+        <StaticRow label="6c. Brewery Contact Email Address" value={representative?.email || "—"} />
+        <StaticRow label="7a. Brewery Name" value={entity?.legal_name || "—"} />
+        <StaticRow
+          label="7b. Brewery Premises Address (number and street)"
+          value={[entity?.address_line1, entity?.address_line2].filter(Boolean).join(", ") || "—"}
+        />
+        <StaticRow
+          label="7c. Brewery Premises Address Continued (city, county, state & ZIP code)"
+          value={
+            [[entity?.city, entity?.state].filter(Boolean).join(", "), entity?.postal_code].filter(Boolean).join(" ") || "—"
+          }
+        />
       </section>
 
-      {/* Removals summary — the shipment feed behind Line 8 */}
-      <section>
-        <SectionHeading>Removals This Period (barrels)</SectionHeading>
-        <p className="text-xs text-faint mb-2">
-          Every shipment channel is a taxable federal removal. Unlike NC Form B-C-710, wholesale is not excluded — the
-          brewery owes the federal tax on removal regardless of who buys the beer.
-        </p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="text-left text-xs text-faint uppercase tracking-wide border-b border-line">
-                <th className="py-1.5 pr-2 font-medium">Channel</th>
-                <th className="py-1.5 pl-2 font-medium text-right">Barrels</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CHANNEL_ROWS.map((c) => (
-                <tr key={c.fieldKey} className="border-b border-line/60">
-                  <td className="py-1.5 pr-2 text-body">{c.label}</td>
-                  <td className="py-1.5 pl-2 text-right tabular-nums text-body">{formatNumber(num(fields[c.fieldKey]), 2)}</td>
-                </tr>
-              ))}
-              <tr>
-                <td className="py-1.5 pr-2 font-semibold text-strong">Total removals</td>
-                <td className="py-1.5 pl-2 text-right tabular-nums font-semibold text-strong">
-                  {formatNumber(num(fields.bbl_total_removals), 2)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Excise Tax Calculation — Lines 8-15 */}
+      {/* Schedule A, increasing adjustments — Lines 16-23 */}
       <section className="flex flex-col gap-2">
-        <SectionHeading boxed>Excise Tax Calculation</SectionHeading>
-
-        <TaxTierRow
-          label="8. Beer produced and removed @ $3.50 per barrel"
-          note="I (or another brewery in my controlled group) produced this beer and I am eligible for this rate."
-          barrelKey="bbl_rate_reduced"
-          centsKey="cents_tax_reduced"
-          eligible={num(fields.flag_reduced_rate_eligible) === 1}
-          fields={fields}
+        <SectionHeading boxed>Schedule A — Increasing Adjustments</SectionHeading>
+        <CheckRow
+          fieldKey="flag_schedule_a_increasing"
+          label="Check here if you need to complete Schedule A - Increasing Adjustments to Excise Tax Liability, and/or add penalties or interest to this tax period."
+          {...rowProps}
         />
-        <TaxTierRow
-          label="9. Beer produced and removed @ $16.00 per barrel"
-          note="I (or another brewery in my controlled group) produced this beer and I am eligible for this rate."
-          barrelKey="bbl_rate_16"
-          centsKey="cents_tax_16"
-          fields={fields}
-        />
-        <TaxTierRow label="10. Beer Removed @ $18.00 per barrel" barrelKey="bbl_rate_18" centsKey="cents_tax_18" fields={fields} />
 
-        <div className="flex items-center justify-between gap-4 border-b border-line/40 pb-1.5">
-          <span className="text-sm font-semibold text-strong">
-            11. Total Taxable Beer Removed and Total Excise Tax Liability (lines 8 + 9 + 10)
-          </span>
-          <span className="flex items-center gap-6">
-            <span className="text-sm tabular-nums font-semibold text-strong w-24 text-right">
-              {formatNumber(num(fields.bbl_total_taxable), 2)}
-            </span>
-            <span className="text-sm tabular-nums font-semibold text-strong w-28 text-right">
-              {fmtCents(num(fields.cents_total_tax))}
-            </span>
-          </span>
-        </div>
-
-        <MoneyRow fieldKey="cents_increasing_adjustments" label="12. Total Increasing Adjustments (line 23)" {...rowProps} />
-        <MoneyRow fieldKey="cents_gross_due" label="13. Gross Amount Due (lines 11 + 12)" emphasis {...rowProps} />
-        <MoneyRow fieldKey="cents_decreasing_adjustments" label="14. Total Decreasing Adjustments (line 27)" {...rowProps} />
-        <MoneyRow fieldKey="cents_amount_due" label="15. Amount Due With This Return (line 13 minus line 14)" emphasis {...rowProps} />
-      </section>
-
-      {/* Schedule A — Lines 16-27 */}
-      <section className="flex flex-col gap-4">
-        <SectionHeading boxed>Schedule A — Increasing and Decreasing Adjustments</SectionHeading>
-
-        <div>
-          <h5 className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Increasing Adjustments (lines 16-19)</h5>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="text-left text-xs text-faint uppercase tracking-wide border-b border-line">
-                  <th className="py-1.5 pr-2 font-medium">(a) Type</th>
-                  <th className="py-1.5 px-2 font-medium">(b) Supporting information</th>
-                  <th className="py-1.5 px-2 font-medium">(c) Unit</th>
-                  <th className="py-1.5 px-2 font-medium text-right">(d) Quantity</th>
-                  <th className="py-1.5 px-2 font-medium text-right">(e) Rate</th>
-                  <th className="py-1.5 pl-2 font-medium text-right">(f) Tax due</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: SCHEDULE_A_ROWS }, (_, i) => {
-                  const keys = increasingRowKeys(i + 1);
-                  return (
-                    <tr key={keys.type} className="border-b border-line/60">
-                      <td className="py-1.5 pr-2">
-                        <CellText fieldKey={keys.type} {...rowProps} />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <CellText fieldKey={keys.info} {...rowProps} />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <CellText fieldKey={keys.unit} {...rowProps} />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <CellBarrels fieldKey={keys.quantity} {...rowProps} />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <CellRate fieldKey={keys.rateMicros} {...rowProps} />
-                      </td>
-                      <td className="py-1.5 pl-2 text-right tabular-nums text-body">{fmtCents(num(fields[keys.cents]))}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        {showIncreasing && (
+          <div>
+            <h5 className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Increasing Adjustments (lines 16-19)</h5>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="text-left text-xs text-faint uppercase tracking-wide border-b border-line">
+                    <th className="py-1.5 pr-2 font-medium">(a) Type</th>
+                    <th className="py-1.5 px-2 font-medium">(b) Supporting information</th>
+                    <th className="py-1.5 px-2 font-medium">(c) Unit</th>
+                    <th className="py-1.5 px-2 font-medium text-right">(d) Quantity</th>
+                    <th className="py-1.5 px-2 font-medium text-right">(e) Rate</th>
+                    <th className="py-1.5 pl-2 font-medium text-right">(f) Tax due</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: SCHEDULE_A_ROWS }, (_, i) => {
+                    const keys = increasingRowKeys(i + 1);
+                    return (
+                      <tr key={keys.type} className="border-b border-line/60">
+                        <td className="py-1.5 pr-2">
+                          <CellText fieldKey={keys.type} {...rowProps} />
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <CellText fieldKey={keys.info} {...rowProps} />
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <CellText fieldKey={keys.unit} {...rowProps} />
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <CellBarrels fieldKey={keys.quantity} {...rowProps} />
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <CellRate fieldKey={keys.rateMicros} {...rowProps} />
+                        </td>
+                        <td className="py-1.5 pl-2 text-right tabular-nums text-body">{fmtCents(num(fields[keys.cents]))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
         <MoneyRow fieldKey="cents_increasing_tax_due" label="20. Total Increasing Tax Due" {...rowProps} />
         <MoneyRow fieldKey="cents_interest" label="21. Interest" {...rowProps} />
         <MoneyRow fieldKey="cents_penalties" label="22. Penalties" {...rowProps} />
         <MoneyRow fieldKey="cents_increasing_adjustments" label="23. Total Increasing Adjustments (lines 20 + 21 + 22)" emphasis {...rowProps} />
-
-        <div>
-          <h5 className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Decreasing Adjustments — Claims for Credit (lines 24-26)</h5>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="text-left text-xs text-faint uppercase tracking-wide border-b border-line">
-                  <th className="py-1.5 pr-2 font-medium">(a) Type</th>
-                  <th className="py-1.5 px-2 font-medium">(b) Supporting information</th>
-                  <th className="py-1.5 px-2 font-medium text-right">(c) Approved claim</th>
-                  <th className="py-1.5 px-2 font-medium text-right">(d) Balance left on claim</th>
-                  <th className="py-1.5 pl-2 font-medium text-right">(e) Adjustment this period</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: SCHEDULE_A_ROWS }, (_, i) => {
-                  const keys = decreasingRowKeys(i + 1);
-                  return (
-                    <tr key={keys.type} className="border-b border-line/60">
-                      <td className="py-1.5 pr-2">
-                        <CellText fieldKey={keys.type} {...rowProps} />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <CellText fieldKey={keys.info} {...rowProps} />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <CellMoney fieldKey={keys.claimCents} {...rowProps} />
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <CellMoney fieldKey={keys.balanceCents} {...rowProps} />
-                      </td>
-                      <td className="py-1.5 pl-2">
-                        <CellMoney fieldKey={keys.amountCents} {...rowProps} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <MoneyRow fieldKey="cents_decreasing_adjustments" label="27. Total Decreasing Tax Adjustments" emphasis {...rowProps} />
       </section>
 
       {/* Brewery Operations — Lines 28-44 */}
@@ -341,27 +259,178 @@ export default function TtbBeerExciseWorksheet({
         />
       </section>
 
-      {/* Signature — Line 50 */}
-      <section className="flex flex-col gap-1 border-t border-line pt-4">
-        <label className="text-xs text-faint" htmlFor="signer_date">
-          50. Date Signed
-        </label>
-        {readOnly ? (
-          <p id="signer_date" className="text-sm text-body">
-            {str(fields.signer_date) || "—"}
-          </p>
-        ) : (
-          <input
-            id="signer_date"
-            key={`signer_date-${generation}`}
-            type="text"
-            className="inp-sm"
-            defaultValue={str(fields.signer_date)}
-            onChange={(e) => updateField("signer_date", e.target.value)}
-            placeholder="MM-DD-YYYY"
-          />
+      {/* Signature — Line 50. Blank means "today" while the return is open: the date is typed into the online form on the day it is filed. A completed return shows only what was saved. */}
+      <section className="flex flex-col gap-2">
+        <TextRow fieldKey="signer_date" label="50. Date Signed" placeholder="MM-DD-YYYY" fallback={readOnly ? "" : todayMmDdYyyy()} {...rowProps} />
+      </section>
+
+      {/* Schedule A, decreasing adjustments — Lines 24-27 */}
+      <section className="flex flex-col gap-2">
+        <SectionHeading boxed>Schedule A — Decreasing Adjustments</SectionHeading>
+        <CheckRow
+          fieldKey="flag_schedule_a_decreasing"
+          label="Check here if you need to complete Schedule A - Decreasing Adjustments to Excise Tax Liability"
+          {...rowProps}
+        />
+
+        {showDecreasing && (
+          <>
+            <div>
+              <h5 className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Decreasing Adjustments — Claims for Credit (lines 24-26)</h5>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="text-left text-xs text-faint uppercase tracking-wide border-b border-line">
+                      <th className="py-1.5 pr-2 font-medium">(a) Type</th>
+                      <th className="py-1.5 px-2 font-medium">(b) Supporting information</th>
+                      <th className="py-1.5 px-2 font-medium text-right">(c) Approved claim</th>
+                      <th className="py-1.5 px-2 font-medium text-right">(d) Balance left on claim</th>
+                      <th className="py-1.5 pl-2 font-medium text-right">(e) Adjustment this period</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: SCHEDULE_A_ROWS }, (_, i) => {
+                      const keys = decreasingRowKeys(i + 1);
+                      return (
+                        <tr key={keys.type} className="border-b border-line/60">
+                          <td className="py-1.5 pr-2">
+                            <CellText fieldKey={keys.type} {...rowProps} />
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <CellText fieldKey={keys.info} {...rowProps} />
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <CellMoney fieldKey={keys.claimCents} {...rowProps} />
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <CellMoney fieldKey={keys.balanceCents} {...rowProps} />
+                          </td>
+                          <td className="py-1.5 pl-2">
+                            <CellMoney fieldKey={keys.amountCents} {...rowProps} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <MoneyRow fieldKey="cents_decreasing_adjustments" label="27. Total Decreasing Tax Adjustments" emphasis {...rowProps} />
+          </>
         )}
       </section>
+
+      {/* Excise Tax Calculation — Lines 8-15 */}
+      <section className="flex flex-col gap-2">
+        <SectionHeading boxed>Excise Tax Calculation</SectionHeading>
+
+        <TaxTierRow
+          label="8. Beer produced and removed @ $3.50 per barrel"
+          note="I (or another brewery in my controlled group) produced this beer and I am eligible for this rate."
+          barrelKey="bbl_rate_reduced"
+          centsKey="cents_tax_reduced"
+          eligible={num(fields.flag_reduced_rate_eligible) === 1}
+          fields={fields}
+        />
+        <TaxTierRow
+          label="9. Beer produced and removed @ $16.00 per barrel"
+          note="I (or another brewery in my controlled group) produced this beer and I am eligible for this rate."
+          barrelKey="bbl_rate_16"
+          centsKey="cents_tax_16"
+          fields={fields}
+        />
+        <TaxTierRow label="10. Beer Removed @ $18.00 per barrel" barrelKey="bbl_rate_18" centsKey="cents_tax_18" fields={fields} />
+
+        <div className="flex items-center justify-between gap-4 border-b border-line/40 pb-1.5">
+          <span className="text-sm font-semibold text-strong">
+            11. Total Taxable Beer Removed and Total Excise Tax Liability (lines 8 + 9 + 10)
+          </span>
+          <span className="flex items-center gap-6">
+            <span className="text-sm tabular-nums font-semibold text-strong w-24 text-right">
+              {formatNumber(num(fields.bbl_total_taxable), 2)}
+            </span>
+            <span className="text-sm tabular-nums font-semibold text-strong w-28 text-right">
+              {fmtCents(num(fields.cents_total_tax))}
+            </span>
+          </span>
+        </div>
+
+        <MoneyRow fieldKey="cents_increasing_adjustments" label="12. Total Increasing Adjustments (line 23)" {...rowProps} />
+        <MoneyRow fieldKey="cents_gross_due" label="13. Gross Amount Due (lines 11 + 12)" emphasis {...rowProps} />
+        <MoneyRow fieldKey="cents_decreasing_adjustments" label="14. Total Decreasing Adjustments (line 27)" {...rowProps} />
+        <MoneyRow fieldKey="cents_amount_due" label="15. Amount Due With This Return (line 13 minus line 14)" emphasis {...rowProps} />
+      </section>
+
+      {/* Payment — Lines 2a-2b. The prior-submission lines only apply to an amended return. */}
+      <section className="flex flex-col gap-2">
+        {isAmended && (
+          <>
+            <TextRow fieldKey="prev_serial_number" label="2c. Serial Number of prior submission (amended returns)" {...rowProps} />
+            <MoneyRow fieldKey="cents_previously_paid" label="2a. Amount Previously Paid" {...rowProps} />
+          </>
+        )}
+        <MoneyRow fieldKey="cents_amount_paid" label="2b. Amount Paid With This Submission" emphasis {...rowProps} />
+      </section>
+
+      {/* Removals summary — the shipment feed behind Line 8. Not on the form; kept last as supporting detail. */}
+      <section>
+        <SectionHeading>Supporting Detail — Removals This Period (barrels)</SectionHeading>
+        <p className="text-xs text-faint mb-2">
+          Every shipment channel is a taxable federal removal. Unlike NC Form B-C-710, wholesale is not excluded — the
+          brewery owes the federal tax on removal regardless of who buys the beer.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="text-left text-xs text-faint uppercase tracking-wide border-b border-line">
+                <th className="py-1.5 pr-2 font-medium">Channel</th>
+                <th className="py-1.5 pl-2 font-medium text-right">Barrels</th>
+              </tr>
+            </thead>
+            <tbody>
+              {CHANNEL_ROWS.map((c) => (
+                <tr key={c.fieldKey} className="border-b border-line/60">
+                  <td className="py-1.5 pr-2 text-body">{c.label}</td>
+                  <td className="py-1.5 pl-2 text-right tabular-nums text-body">{formatNumber(num(fields[c.fieldKey]), 2)}</td>
+                </tr>
+              ))}
+              <tr>
+                <td className="py-1.5 pr-2 font-semibold text-strong">Total removals</td>
+                <td className="py-1.5 pl-2 text-right tabular-nums font-semibold text-strong">
+                  {formatNumber(num(fields.bbl_total_removals), 2)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** "July – September" from a period's ISO start/end dates (Line 3c). */
+function monthRange(start: string, end: string): string {
+  const month = (iso: string) => {
+    const m = Number(iso.slice(5, 7));
+    return m >= 1 && m <= 12 ? new Date(Date.UTC(2000, m - 1, 1)).toLocaleString("en-US", { month: "long", timeZone: "UTC" }) : "";
+  };
+  return month(start) && month(end) ? `${month(start)} – ${month(end)}` : "—";
+}
+
+/** Today in the form's MM-DD-YYYY shape — the Line 50 default. */
+function todayMmDdYyyy(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${d.getFullYear()}`;
+}
+
+/** A label + display-only value row, for lines the form states rather than asks. */
+function StaticRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-line/40 pb-1.5">
+      <span className="text-sm text-body">{label}</span>
+      <span className="text-sm tabular-nums text-body text-right">{value}</span>
     </div>
   );
 }
@@ -470,29 +539,31 @@ function MoneyRow({ fieldKey, label, fields, generation, emphasis, onChangeField
   );
 }
 
-/** A label + value/input row for a free-text line. */
+/** A label + value/input row for a free-text line. `fallback` is what a blank field shows — the online form's own default. */
 function TextRow({
   fieldKey,
   label,
   placeholder,
+  fallback = "",
   fields,
   generation,
   onChangeField,
   readOnly = false,
-}: RowProps & { label: string; placeholder?: string }) {
+}: RowProps & { label: string; placeholder?: string; fallback?: string }) {
   const computed = isComputedField(fieldKey);
+  const value = str(fields[fieldKey]) || fallback;
   return (
     <div className="flex items-center justify-between gap-4 border-b border-line/40 pb-1.5">
       <span className="text-sm text-body">{label}</span>
       {computed || readOnly ? (
-        <span className="text-sm text-body">{str(fields[fieldKey]) || "—"}</span>
+        <span className="text-sm text-body">{value || "—"}</span>
       ) : (
         <div className="w-48">
           <input
             key={`${fieldKey}-${generation}`}
             type="text"
             className="inp-sm w-full"
-            defaultValue={str(fields[fieldKey])}
+            defaultValue={value}
             placeholder={placeholder}
             onChange={(e) => onChangeField(fieldKey, e.target.value)}
           />
