@@ -120,7 +120,8 @@ export default function TtbBeerExciseWorksheet({
         <TextRow fieldKey="serial_number" label="1. Serial Number" {...rowProps} />
       </section>
 
-      {/* Brewery identity — Lines 4-7c, read from the shared Tax Profile */}
+      {/* Brewery identity — Lines 4-7c, read from the shared Tax Profile. 7b/7c are the brewery PREMISES, not the
+          legal entity's address, and deliberately do not fall back to it. */}
       <section className="flex flex-col gap-2">
         <SectionHeading>Brewery</SectionHeading>
         <StaticRow label="4. Brewer's Notice Number" value={registrationNumber("federal_ttb", "ttb_brewers_notice")} />
@@ -131,12 +132,19 @@ export default function TtbBeerExciseWorksheet({
         <StaticRow label="7a. Brewery Name" value={entity?.legal_name || "—"} />
         <StaticRow
           label="7b. Brewery Premises Address (number and street)"
-          value={[entity?.address_line1, entity?.address_line2].filter(Boolean).join(", ") || "—"}
+          value={[entity?.premises_address_line1, entity?.premises_address_line2].filter(Boolean).join(", ") || "—"}
         />
         <StaticRow
           label="7c. Brewery Premises Address Continued (city, county, state & ZIP code)"
           value={
-            [[entity?.city, entity?.state].filter(Boolean).join(", "), entity?.postal_code].filter(Boolean).join(" ") || "—"
+            [
+              [entity?.premises_city, entity?.premises_county && `${entity.premises_county} County`, entity?.premises_state]
+                .filter(Boolean)
+                .join(", "),
+              entity?.premises_postal_code,
+            ]
+              .filter(Boolean)
+              .join(" ") || "—"
           }
         />
       </section>
