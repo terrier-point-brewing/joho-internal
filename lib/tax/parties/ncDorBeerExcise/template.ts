@@ -1,5 +1,7 @@
 /**
- * NC DOR Beer Excise Tax (Form B-C-710) — party template.
+ * NC DOR Beer Excise Tax (Form B-C-710) — party template. The same task
+ * carries Form B-C-715 (Malt Beverage Shipping Report), the per-invoice list
+ * of wholesale shipments filed alongside the return — see `./shippingReport`.
  *
  * Assembles the `TaxPartyTemplate` for NC DOR's beer wholesalers/resident-
  * brewery excise return from the period math (`@/lib/tax/period`), the calc

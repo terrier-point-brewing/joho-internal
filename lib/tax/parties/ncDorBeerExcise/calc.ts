@@ -1,5 +1,6 @@
 /**
- * NC DOR Beer Excise (Form B-C-710) — shipments compute engine.
+ * NC DOR Beer Excise (Form B-C-710, with its B-C-715 shipping report) —
+ * shipments compute engine.
  *
  * Three pieces:
  *  - `fetchExciseData`         — pulls per-channel gallons and the NC excise
@@ -25,6 +26,7 @@ import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import type { ComputeContext, TaxPeriod, WorksheetData, WorksheetFields } from "@/lib/tax/types";
 import { NC_EXCISE_RATE_MICROS_FALLBACK, TAXABLE_CHANNELS, WHOLESALE_CHANNEL, usdToMicros } from "./rates";
 import { deriveBeerExciseFigures } from "./derive";
+import { SHIPPING_REPORT_FIELD, buildShippingReportLines, type ShippingReportRow } from "./shippingReport";
 import { getTaxRate, TAX_RATE_KEYS } from "@/lib/tax/rates";
 
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
@@ -44,6 +46,8 @@ export interface ExciseDataResult {
   gallonsByChannel: Record<string, number>;
   storedNcCents: number;
   missingDetailTxns: number;
+  /** Wholesale shipments, one per export row — the B-C-715 shipping report's source. */
+  wholesaleShipments: ShippingReportRow[];
 }
 
 interface ExportTaxDetailRow {
@@ -55,6 +59,29 @@ interface ExportRow {
   channel: string;
   volume_bbl: number | string;
   export_transaction_taxes: ExportTaxDetailRow[] | ExportTaxDetailRow | null;
+  id?: string;
+  shipment_id?: string | null;
+  invoice_id?: string | null;
+  created_at?: string | null;
+  recipient_name?: string | null;
+  invoices?: InvoiceJoin | InvoiceJoin[] | null;
+  contract_brewing_partners?: PartnerJoin | PartnerJoin[] | null;
+}
+
+interface InvoiceJoin {
+  invoice_number: string | null;
+  invoice_date: string | null;
+  customer_name: string | null;
+}
+
+interface PartnerJoin {
+  company_name: string | null;
+  address: string | null;
+}
+
+/** PostgREST returns a to-one embed as an object, but the generated types allow an array. */
+function one<T>(v: T | T[] | null | undefined): T | null {
+  return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
 }
 
 /**
@@ -76,7 +103,9 @@ export async function fetchExciseData(sb: SupabaseClient, period: TaxPeriod): Pr
   const data = await fetchAllRows<ExportRow>(() =>
     sb
       .from("export_transactions")
-      .select("channel, volume_bbl, export_transaction_taxes ( tax_name, amount_usd )")
+      .select(
+        "id, channel, volume_bbl, shipment_id, invoice_id, created_at, recipient_name, export_transaction_taxes ( tax_name, amount_usd ), invoices ( invoice_number, invoice_date, customer_name ), contract_brewing_partners ( company_name, address )",
+      )
       .gte("created_at", startTs)
       .lt("created_at", endExclusiveTs)
       .order("id", { ascending: true }),
@@ -86,10 +115,25 @@ export async function fetchExciseData(sb: SupabaseClient, period: TaxPeriod): Pr
   const bblByChannel: Record<string, number> = {};
   let storedNcDollars = 0;
   let missingDetailTxns = 0;
+  const wholesaleShipments: ShippingReportRow[] = [];
 
   for (const row of data) {
     const bbl = num(row.volume_bbl);
     bblByChannel[row.channel] = (bblByChannel[row.channel] ?? 0) + bbl;
+
+    if (row.channel === WHOLESALE_CHANNEL) {
+      const invoice = one(row.invoices);
+      const partner = one(row.contract_brewing_partners);
+      wholesaleShipments.push({
+        groupKey: row.invoice_id ?? row.shipment_id ?? row.id ?? String(wholesaleShipments.length),
+        shippedAt: row.created_at ?? startTs,
+        invoiceDate: invoice?.invoice_date ?? null,
+        invoiceNumber: invoice?.invoice_number ?? null,
+        name: partner?.company_name ?? invoice?.customer_name ?? row.recipient_name ?? null,
+        address: partner?.address ?? null,
+        volumeBbl: bbl,
+      });
+    }
 
     if (!TAXABLE_CHANNELS.has(row.channel)) continue;
 
@@ -112,6 +156,7 @@ export async function fetchExciseData(sb: SupabaseClient, period: TaxPeriod): Pr
     gallonsByChannel,
     storedNcCents: Math.round(storedNcDollars * 100),
     missingDetailTxns,
+    wholesaleShipments,
   };
 }
 
@@ -135,6 +180,8 @@ export interface ComputeBeerExciseFiguresArgs {
   storedNcCents: number;
   missingDetailTxns: number;
   filedTimely: boolean;
+  /** Omitted → an empty B-C-715 (no wholesale shipments). */
+  wholesaleShipments?: ShippingReportRow[];
 }
 
 /**
@@ -150,11 +197,14 @@ export function computeBeerExciseFigures(args: ComputeBeerExciseFiguresArgs): Wo
   const { gallonsByChannel, ncRateMicros, storedNcCents, missingDetailTxns, filedTimely } = args;
   const warnings: string[] = [];
 
+  const shippingLines = buildShippingReportLines(args.wholesaleShipments ?? [], gallonsByChannel[WHOLESALE_CHANNEL] ?? 0);
+
   const fields: WorksheetFields = {
     gal_distribution: gallonsByChannel.distribution ?? 0,
     gal_contract: gallonsByChannel.contract_brewing ?? 0,
     gal_taproom: gallonsByChannel.taproom ?? 0,
     gal_wholesale: gallonsByChannel[WHOLESALE_CHANNEL] ?? 0,
+    [SHIPPING_REPORT_FIELD]: JSON.stringify(shippingLines),
     gal_beginning_inventory: 0,
     gal_deduction_other: 0,
     gal_adjustments_part3: 0,
@@ -181,6 +231,13 @@ export function computeBeerExciseFigures(args: ComputeBeerExciseFiguresArgs): Wo
   if (missingDetailTxns > 0) {
     warnings.push(
       `${missingDetailTxns} taxable shipment${missingDetailTxns === 1 ? "" : "s"} missing NC excise detail — backfill excise detail before filing.`,
+    );
+  }
+
+  const incomplete = shippingLines.filter((l) => !l.invoiceNumber || !l.name || !l.address).length;
+  if (incomplete > 0) {
+    warnings.push(
+      `${incomplete} wholesale shipment${incomplete === 1 ? "" : "s"} on the B-C-715 shipping report ${incomplete === 1 ? "is" : "are"} missing an invoice number, wholesaler name or address — complete ${incomplete === 1 ? "it" : "them"} before filing.`,
     );
   }
 
@@ -227,6 +284,7 @@ export async function computeBeerExciseWorksheet(
     storedNcCents: data.storedNcCents,
     missingDetailTxns: data.missingDetailTxns,
     filedTimely: isFiledTimely(ctx.period.due, now),
+    wholesaleShipments: data.wholesaleShipments,
   });
 
   const allWarnings = [...warnings, ...(computed.warnings ?? [])];

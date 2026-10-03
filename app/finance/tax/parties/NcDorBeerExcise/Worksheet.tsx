@@ -2,7 +2,9 @@
 
 /**
  * NC DOR Beer Excise (Form B-C-710) editable worksheet — the Export Summary
- * (gallons) channel breakdown, followed by Part 1's Lines 1-11 computation.
+ * (gallons) channel breakdown, followed by Part 1's Lines 1-11 computation
+ * and the Form B-C-715 shipping report (one read-only line per wholesale
+ * invoice, filed alongside the return to support the Line 4a deduction).
  * Computed fields (per `fieldOwnership.ts`) render read-only and always
  * reflect the current `fields`; manual fields render as `.inp-sm` inputs
  * (whole-gallon or money). Every edit recomputes the full waterfall
@@ -37,6 +39,7 @@ import {
   dollarStringToCents,
   floorCentsToWholeDollar,
 } from "@/lib/tax/beerExciseWorksheetMath";
+import { SHIPPING_REPORT_FIELD, parseShippingReportLines } from "@/lib/tax/parties/ncDorBeerExcise/shippingReport";
 import { isComputedField } from "./fieldOwnership";
 import type { PartyWorksheetProps } from "../registry";
 
@@ -69,6 +72,8 @@ export default function NcDorBeerExciseWorksheet({
     if (readOnly) return;
     onFieldsChange(recomputeClientBeerTotals({ ...fields, [key]: value }));
   }
+
+  const shippingLines = parseShippingReportLines(fields[SHIPPING_REPORT_FIELD]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -129,6 +134,49 @@ export default function NcDorBeerExciseWorksheet({
         <LineRow fieldKey="cents_penalty" label="9. Penalty" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
         <LineRow fieldKey="cents_interest" label="10. Interest" fields={fields} generation={generation} onChangeField={updateField} readOnly={readOnly} />
         <LineRow fieldKey="cents_total_payment_due" label="11. Total Payment Due" fields={fields} generation={generation} onChangeField={updateField} emphasis readOnly={readOnly} />
+      </section>
+
+      {/* Form B-C-715 — Malt Beverage Shipping Report, filed with the B-C-710 */}
+      <section className="flex flex-col gap-2">
+        <div className="border border-line rounded px-3 py-2 mb-1">
+          <h4 className="text-sm font-bold text-strong">Form B-C-715. Malt Beverage Shipping Report</h4>
+          <p className="text-xs text-faint">Sales to NC wholesalers, by invoice — supports the Line 4a wholesale deduction.</p>
+        </div>
+        {shippingLines.length === 0 ? (
+          <p className="text-sm text-faint">No wholesale shipments this period — file B-C-715 with zero gallons.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="text-left text-xs text-faint uppercase tracking-wide border-b border-line">
+                  <th className="py-1.5 pr-2 font-medium">Invoice Date</th>
+                  <th className="py-1.5 px-2 font-medium">Invoice Number</th>
+                  <th className="py-1.5 px-2 font-medium">Wholesaler Name &amp; Address</th>
+                  <th className="py-1.5 pl-2 font-medium text-right">Gallons</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shippingLines.map((l, i) => (
+                  <tr key={i} className="border-b border-line/60 align-top">
+                    <td className="py-1.5 pr-2 text-body tabular-nums whitespace-nowrap">{l.invoiceDate}</td>
+                    <td className="py-1.5 px-2 text-body">{l.invoiceNumber ?? "—"}</td>
+                    <td className="py-1.5 px-2 text-body">
+                      {l.name ?? "—"}
+                      {l.address && <span className="block text-xs text-faint">{l.address}</span>}
+                    </td>
+                    <td className="py-1.5 pl-2 text-right tabular-nums text-body">{formatNumber(l.gallons, 0)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={3} className="py-1.5 pr-2 font-semibold text-strong">Total</td>
+                  <td className="py-1.5 pl-2 text-right tabular-nums font-semibold text-strong">
+                    {formatNumber(num(fields.gal_wholesale), 0)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* Signature */}

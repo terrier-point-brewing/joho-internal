@@ -101,7 +101,7 @@ export default function TaxFilingSettingsPage() {
                 key={activeModule.key}
                 apiBase={`/api/tax/parties/${activeModule.key}/form-files`}
                 queryKey={queryKeys.tax.formFiles(activeModule.key)}
-                labelPlaceholder="e.g. Prefilled B-C-710"
+                labelPlaceholder="e.g. Prefilled B-C-710, Blank B-C-715"
               />
             </section>
 

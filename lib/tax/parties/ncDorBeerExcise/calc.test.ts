@@ -155,6 +155,50 @@ describe("fetchExciseData", () => {
   });
 });
 
+describe("B-C-715 shipping report", () => {
+  it("lists wholesale shipments by invoice and leaves other channels off", async () => {
+    const rows = [
+      { channel: "distribution", volume_bbl: 5, export_transaction_taxes: [{ tax_name: "NC Excise Tax", amount_usd: 95.65 }], invoice_id: "inv-d" },
+      {
+        channel: "wholesale",
+        volume_bbl: 2,
+        export_transaction_taxes: [],
+        invoice_id: "inv-w",
+        created_at: "2026-07-10T15:00:00Z",
+        recipient_name: "Acme",
+        invoices: { invoice_number: "1001", invoice_date: "2026-07-11", customer_name: "Acme Wholesale" },
+        contract_brewing_partners: { company_name: "Acme Wholesale LLC", address: "1 Main St, Raleigh, NC" },
+      },
+      { channel: "wholesale", volume_bbl: 3, export_transaction_taxes: [], invoice_id: "inv-w", created_at: "2026-07-10T15:00:00Z" },
+    ];
+    const res = await fetchExciseData(stubSb(rows as ExportRow[]), period);
+    expect(res.wholesaleShipments).toHaveLength(2);
+
+    const w = computeBeerExciseFigures({
+      gallonsByChannel: res.gallonsByChannel, ncRateMicros: 617100, storedNcCents: 9565, missingDetailTxns: 0, filedTimely: true,
+      wholesaleShipments: res.wholesaleShipments,
+    });
+    expect(JSON.parse(w.fields.bc715_lines as string)).toEqual([
+      { invoiceDate: "2026-07-11", invoiceNumber: "1001", name: "Acme Wholesale LLC", address: "1 Main St, Raleigh, NC", gallons: 155 },
+    ]);
+    expect(w.warnings ?? []).toHaveLength(0);
+  });
+
+  it("stores an empty report and no warning when nothing shipped wholesale", () => {
+    const w = computeBeerExciseFigures({ gallonsByChannel: { distribution: 100 }, ncRateMicros: 617100, storedNcCents: 6171, missingDetailTxns: 0, filedTimely: true });
+    expect(w.fields.bc715_lines).toBe("[]");
+    expect(w.warnings ?? []).toHaveLength(0);
+  });
+
+  it("warns when a wholesale shipment has no invoice number or address yet", () => {
+    const w = computeBeerExciseFigures({
+      gallonsByChannel: { wholesale: 31 }, ncRateMicros: 617100, storedNcCents: 0, missingDetailTxns: 0, filedTimely: true,
+      wholesaleShipments: [{ groupKey: "s1", shippedAt: "2026-07-10T15:00:00Z", invoiceDate: null, invoiceNumber: null, name: "Acme", address: null, volumeBbl: 1 }],
+    });
+    expect(w.warnings?.some((s) => /B-C-715/.test(s))).toBe(true);
+  });
+});
+
 // ── fetchNcRateMicros (stubbed sb via canonical tax_rates table) ──────────
 
 function stubRatesSb(rate: unknown, error?: string): SupabaseClient {
