@@ -400,6 +400,141 @@ function ConnectionField({
   );
 }
 
+/**
+ * Further accounts at the same service, added to the primary connection.
+ *
+ * A tick list rather than a picker because the answer is a SET: the same
+ * candidates the connection field offers, minus the one already chosen there.
+ * Each ticked account needs a connection row (that is what the balance read
+ * and the health line hang off), so one is created on save for any candidate
+ * that does not have one yet.
+ */
+function AdditionalConnectionsField({
+  field,
+  account,
+  source,
+  capability,
+  onDone,
+  onError,
+}: {
+  field: SetupFieldState;
+  account: AccountRow;
+  source: SourceEntry;
+  capability: ProviderCapability | undefined;
+  onDone: () => void | Promise<unknown>;
+  onError: (message: string) => void;
+}) {
+  const provider = field.provider!;
+  const primaryId = typeof source.config.connectionId === "string" ? source.config.connectionId : null;
+  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  async function loadCandidates() {
+    setBusy(true);
+    try {
+      const { candidates: list } = await getJson<{ candidates: Candidate[] }>(
+        `/api/finance/balance-connections/${provider}/candidates`,
+      );
+      const stored = Array.isArray(source.config[field.key]) ? (source.config[field.key] as unknown[]) : [];
+      // The primary account is left out entirely: ticking it would be asking
+      // for the same balance twice.
+      const others = list.filter((c) => !primaryId || c.connectionId !== primaryId);
+      setCandidates(others);
+      setTicked(new Set(others.filter((c) => c.connectionId && stored.includes(c.connectionId)).map((c) => c.externalId)));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not list accounts.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggle(externalId: string) {
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(externalId)) next.delete(externalId);
+      else next.add(externalId);
+      return next;
+    });
+  }
+
+  async function save() {
+    if (!candidates) return;
+    setBusy(true);
+    try {
+      const ids: string[] = [];
+      for (const c of candidates.filter((c) => ticked.has(c.externalId))) {
+        if (c.connectionId) {
+          ids.push(c.connectionId);
+          continue;
+        }
+        const saved = await putJson<{ id: string }>("/api/finance/balance-connections", {
+          provider,
+          label: c.label,
+          externalId: c.externalId,
+        });
+        ids.push(saved.id);
+      }
+      await linkConnection(account.id, source.methodKey, source.config, { [field.key]: ids });
+      setCandidates(null);
+      await onDone();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not save those accounts.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (capability && !capability.configured) {
+    return (
+      <FieldShell field={field}>
+        <Banner>{capability.reason}</Banner>
+      </FieldShell>
+    );
+  }
+
+  return (
+    <FieldShell field={field}>
+      <div className="flex flex-col gap-2">
+        {candidates && (
+          <Card padding="p-2">
+            <div className="flex flex-col gap-0.5">
+              {candidates.map((c) => (
+                <label key={c.externalId} className="flex items-center gap-2 text-xs text-body rounded px-2 py-1.5">
+                  <input
+                    type="checkbox"
+                    checked={ticked.has(c.externalId)}
+                    disabled={busy}
+                    onChange={() => toggle(c.externalId)}
+                  />
+                  <span>
+                    {c.label}
+                    {c.sublabel ? <span className="text-faint"> · {c.sublabel}</span> : null}
+                  </span>
+                </label>
+              ))}
+              {candidates.length === 0 && <p className="text-2xs text-faint px-2 py-1">No other accounts to include.</p>}
+            </div>
+          </Card>
+        )}
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {candidates ? (
+            <button type="button" className="btn-primary" disabled={busy} onClick={save}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+          ) : (
+            <button type="button" className="btn-secondary" disabled={busy || !primaryId} onClick={loadCandidates}>
+              {field.value ? "Change accounts" : "Choose accounts"}
+            </button>
+          )}
+          {busy && !candidates && <span className="text-2xs text-faint animate-pulse">working…</span>}
+        </div>
+      </div>
+    </FieldShell>
+  );
+}
+
 /** A figure only a person can supply, written as a manual_entries balance row. */
 function OperatorBalanceField({
   field,
@@ -638,6 +773,16 @@ export default function MethodSetupPanel({
             if (field.kind === "connection") {
               return (
                 <ConnectionField
+                  key={field.key}
+                  {...common}
+                  source={source}
+                  capability={field.provider ? providers[field.provider] : undefined}
+                />
+              );
+            }
+            if (field.kind === "additionalConnections") {
+              return (
+                <AdditionalConnectionsField
                   key={field.key}
                   {...common}
                   source={source}

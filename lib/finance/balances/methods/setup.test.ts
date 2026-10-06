@@ -310,3 +310,52 @@ describe("resolveSetupState", () => {
     expect(state.fields[0].value).toBe("0");
   });
 });
+
+describe("additional connections", () => {
+  const extrasField = {
+    kind: "additionalConnections" as const,
+    key: "additionalConnectionIds",
+    provider: "ramp" as const,
+    optional: true,
+    label: "Other Ramp accounts to include",
+    help: "Tick any other Ramp accounts that belong in this account.",
+  };
+  const investment = connection({ id: "conn-2", label: "Ramp · Investment" });
+  const both = new Map([["conn-1", connection()], ["conn-2", investment]]);
+  const setup = method([connectionField, extrasField]);
+  const extras = (state: ReturnType<typeof resolveSetupState>) => state.fields[1];
+
+  it("never blocks readiness when none are named", () => {
+    const state = resolveSetupState(setup, facts({ config: { connectionId: "conn-1" }, connectionsById: both }));
+    expect(state.ready).toBe(true);
+    expect(extras(state).satisfied).toBe(false);
+    expect(extras(state).required).toBe(false);
+  });
+
+  it("names the included accounts", () => {
+    const state = resolveSetupState(
+      setup,
+      facts({ config: { connectionId: "conn-1", additionalConnectionIds: ["conn-2"] }, connectionsById: both }),
+    );
+    expect(extras(state)).toMatchObject({ satisfied: true, value: "Ramp · Investment", blocker: null });
+  });
+
+  it("says so when an included account has been deleted", () => {
+    // The provider returns null for this, so the account goes blank. This line
+    // is the only place the reason is visible.
+    const state = resolveSetupState(
+      setup,
+      facts({ config: { connectionId: "conn-1", additionalConnectionIds: ["conn-gone"] }, connectionsById: both }),
+    );
+    expect(extras(state).satisfied).toBe(false);
+    expect(extras(state).blocker).toContain("no longer exists");
+  });
+
+  it("ignores the primary account if it was also listed", () => {
+    const state = resolveSetupState(
+      setup,
+      facts({ config: { connectionId: "conn-1", additionalConnectionIds: ["conn-1"] }, connectionsById: both }),
+    );
+    expect(extras(state).value).toBeNull();
+  });
+});

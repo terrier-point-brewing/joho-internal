@@ -11,9 +11,11 @@ vi.mock("@/lib/ramp", () => ({
 }));
 
 const resolveConnection = vi.fn();
+const resolveAdditionalConnections = vi.fn();
 const recordSyncResult = vi.fn();
 vi.mock("../connections", () => ({
   resolveConnection: (...args: unknown[]) => resolveConnection(...args),
+  resolveAdditionalConnections: (...args: unknown[]) => resolveAdditionalConnections(...args),
   recordSyncResult: (...args: unknown[]) => recordSyncResult(...args),
 }));
 
@@ -53,7 +55,63 @@ function day(date: string, cents: number, currency = "USD") {
 beforeEach(() => {
   vi.clearAllMocks();
   resolveConnection.mockResolvedValue(connection());
+  resolveAdditionalConnections.mockResolvedValue([]);
   recordSyncResult.mockResolvedValue(undefined);
+});
+
+// One ledger account, several Ramp accounts: operating plus investment. The
+// behaviours worth defending are that the figure is a true total, and that it
+// is never a total with an account silently missing.
+describe("rampBalance with other Ramp accounts included", () => {
+  const investment = (overrides: Record<string, unknown> = {}) =>
+    connection({ id: "conn-2", label: "Ramp · Investment", externalId: "ramp-acct-2", ...overrides });
+
+  function balances(byAccount: Record<string, number | Error>) {
+    getRampAccountBalanceHistory.mockImplementation(async (accountId: string) => {
+      const value = byAccount[accountId];
+      if (value instanceof Error) throw value;
+      return [day(PERIOD_END, value)];
+    });
+  }
+
+  it("adds every included account to the primary one", async () => {
+    resolveAdditionalConnections.mockResolvedValue([{ id: "conn-2", connection: investment() }]);
+    balances({ "ramp-acct-1": 10_000_00, "ramp-acct-2": 90_000_00 });
+
+    // A transfer between the two leaves this figure unchanged, which is what
+    // lets it be coded as internal.
+    expect(await rampBalance.compute(ctx())).toBe(100_000_00);
+    expect(recordSyncResult).toHaveBeenCalledWith({}, "conn-1", { ok: true });
+    expect(recordSyncResult).toHaveBeenCalledWith({}, "conn-2", { ok: true });
+  });
+
+  it("returns null rather than a partial total when an included account cannot be read", async () => {
+    resolveAdditionalConnections.mockResolvedValue([{ id: "conn-2", connection: investment() }]);
+    balances({ "ramp-acct-1": 10_000_00, "ramp-acct-2": new Error("Ramp balance history: HTTP 503") });
+
+    // The operating balance alone is plausible, undetectable and $90,000 short.
+    expect(await rampBalance.compute(ctx())).toBeNull();
+    // The healthy account is still recorded as healthy, so Settings points at
+    // the one that actually failed.
+    expect(recordSyncResult).toHaveBeenCalledWith({}, "conn-1", { ok: true });
+    expect(recordSyncResult).toHaveBeenCalledWith({}, "conn-2", expect.objectContaining({ ok: false }));
+  });
+
+  it("returns null when an included account has been deleted", async () => {
+    resolveAdditionalConnections.mockResolvedValue([{ id: "conn-gone", connection: null }]);
+    balances({ "ramp-acct-1": 10_000_00 });
+
+    expect(await rampBalance.compute(ctx())).toBeNull();
+    expect(getRampAccountBalanceHistory).not.toHaveBeenCalled();
+  });
+
+  it("leaves out an included account that has been switched off", async () => {
+    resolveAdditionalConnections.mockResolvedValue([{ id: "conn-2", connection: investment({ status: "disabled" }) }]);
+    balances({ "ramp-acct-1": 10_000_00, "ramp-acct-2": 90_000_00 });
+
+    expect(await rampBalance.compute(ctx())).toBe(10_000_00);
+    expect(getRampAccountBalanceHistory).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("rampBalance", () => {
