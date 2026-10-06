@@ -21,6 +21,14 @@
  * them. Money math mirrors lib/finance/issueRefund exactly.
  */
 
+/**
+ * The note on the allocation a conversion child is born with. A child nobody
+ * allocated used to ship ad-hoc; the safe home for beer no one has spoken for
+ * is the taproom, so every minted child starts at 100% taproom. The note is
+ * how an explicit plan recognises the placeholder and replaces it.
+ */
+export const DEFAULT_CONVERSION_ALLOCATION_NOTE = "Auto: conversion default — 100% taproom until allocated";
+
 export type InvoiceState = "none" | "generated" | "sent" | "paid";
 
 export interface SourceAllocationInput {

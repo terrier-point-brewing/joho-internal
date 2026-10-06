@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkAndCompleteBatch } from "./batchCompletion";
 import { releaseCommitments, upsertCommitments, upsertConversionCommitments } from "./commitments";
+import { DEFAULT_CONVERSION_ALLOCATION_NOTE } from "./conversionAllocationPlan";
 import { reserveConversionAdditions, resolveConversionBase } from "./conversionIngredients";
 import { seedBatchActivities, type RecipeActivityRow } from "./brewActivities";
 import { clawBackPlannedPackaging } from "./packagingClawback";
@@ -107,7 +108,7 @@ export async function deriveConversionDeliveryDate(
 
 export async function createConversionTargetBatch(
   supabase: SupabaseClient,
-  { sourceBatchId, beerName, recipeId, volumeBbl, conversionDate, expectedDeliveryDate, bornComplete }: {
+  { sourceBatchId, beerName, recipeId, volumeBbl, conversionDate, expectedDeliveryDate, bornComplete, skipDefaultAllocation }: {
     sourceBatchId: string; beerName: string; recipeId: string; volumeBbl: number;
     /**
      * The day the conversion is planned to happen (or happened, for the
@@ -127,6 +128,12 @@ export async function createConversionTargetBatch(
      * fully packaged never has.
      */
     bornComplete?: boolean;
+    /**
+     * The caller allocates the child itself in the same request (an in-keg run
+     * packaged for a declared commitment), so the taproom default would only
+     * be in the way.
+     */
+    skipDefaultAllocation?: boolean;
   },
 ): Promise<string> {
   const brewDate = conversionDate || todayLocalDate();
@@ -148,6 +155,18 @@ export async function createConversionTargetBatch(
 
   if (error || !child) throw new Error(error?.message ?? "Failed to create conversion target batch");
   const childId = (child as { id: string }).id;
+
+  // No child is born unallocated: until someone says otherwise the whole batch
+  // is the taproom's. Best-effort like the extras below — the batch stands.
+  if (!skipDefaultAllocation) {
+    const { error: allocErr } = await supabase.from("batch_allocations").insert({
+      batch_id:   childId,
+      channel:    "taproom",
+      percentage: 100,
+      notes:      DEFAULT_CONVERSION_ALLOCATION_NOTE,
+    });
+    if (allocErr) console.error("[conversion] Default taproom allocation failed (batch created):", allocErr);
+  }
 
   // Parity with the Batch Log's batch factory, best-effort: the child exists
   // and is the record that matters, so none of these may fail the creation.
@@ -178,6 +197,20 @@ export async function createConversionTargetBatch(
   }
 
   return childId;
+}
+
+/**
+ * Remove the born-with taproom placeholder so a real allocation can take its
+ * place. Only the untouched placeholder goes — the FK refuses if beer has
+ * already shipped against it, and that refusal is left to stand.
+ */
+export async function clearDefaultConversionAllocation(supabase: SupabaseClient, batchId: string): Promise<void> {
+  const { error } = await supabase.from("batch_allocations")
+    .delete()
+    .eq("batch_id", batchId)
+    .eq("channel", "taproom")
+    .eq("notes", DEFAULT_CONVERSION_ALLOCATION_NOTE);
+  if (error) console.error("[conversion] Clearing the default taproom allocation failed:", error);
 }
 
 export type ConversionMethod = "tank" | "in_package";
