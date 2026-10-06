@@ -110,8 +110,9 @@ describe("toPortalHistory — corrections, returns and shrinkage", () => {
       }),
       deal({
         id: "in-tank", stage: "open", received_on: "2026-09-11", booked_bbl: 20,
-        allocations: [{ id: "a3", batch_status: "fermenting", produced_bbl: 0, in_tank_bbl: 17, owed_bbl: 0, percentage: 100, batch_planned_bbl: 20, deposit: deposit() }],
-        totals: totals({ in_tank_bbl: 17 }),
+        // Owed is the share of what the batch WILL make, so it already holds the 17 in tank.
+        allocations: [{ id: "a3", batch_status: "fermenting", produced_bbl: 0, in_tank_bbl: 17, owed_bbl: 17, percentage: 100, batch_planned_bbl: 20, deposit: deposit() }],
+        totals: totals({ in_tank_bbl: 17, owed_bbl: 17, remaining_bbl: 17 }),
       }),
       deal({ id: "no-batch", stage: "open", received_on: "2026-09-15", booked_bbl: 40 }),
     ],
@@ -141,6 +142,16 @@ describe("toPortalHistory — corrections, returns and shrinkage", () => {
     expect(byId["no-batch"]).toMatchObject({ expected_bbl: 40, has_batch: false });
     // to come: Wiggo 2.48 packaged + 17 in tank + 40 not brewed yet.
     expect(h.summary.to_come_bbl).toBe(59.48);
+  });
+
+  it("never expects more than the booking: the in-tank share is part of owed, not added to it", () => {
+    // Fortnight's Oktoberfest: 36.57% of a 60 bbl batch, 37.92 packaged, 18.76 expected from tank.
+    const okt = toPortalHistory({ ...ledger, unallocated: [], commitments: [deal({
+      id: "okt", stage: "open", booked_bbl: 20,
+      allocations: [{ id: "a-okt", batch_status: "fermenting", produced_bbl: 37.92, in_tank_bbl: 6.86, owed_bbl: 20, percentage: 36.57, batch_planned_bbl: 60, deposit: deposit() }],
+      totals: totals({ shipped_bbl: 13.57, owed_bbl: 20, remaining_bbl: 6.43, in_tank_bbl: 6.86 }),
+    })] } as unknown as LedgerPartner, undefined, extras).deals[0];
+    expect(okt).toMatchObject({ booked_bbl: 20, expected_bbl: 20, shipped_bbl: 13.57, in_tank_bbl: 6.43, produced_bbl: 13.57 });
   });
 
   it("says where each open deal's beer is", () => {
@@ -179,9 +190,9 @@ describe("toPortalHistory — a shipment is what the partner received", () => {
           shipment("2026-09-15", 1, unpaid, { shipment_id: "s2", batch_id: "hop-roar-batch" }),
         ],
         export_invoices: [unpaid],
-        allocations: [{ id: "a-hr", batch_status: "fermenting", produced_bbl: 3.38, in_tank_bbl: 11.6, owed_bbl: 2.36, percentage: 70, batch_planned_bbl: 20,
+        allocations: [{ id: "a-hr", batch_status: "fermenting", produced_bbl: 3.38, in_tank_bbl: 8.12, owed_bbl: 10.49, percentage: 70, batch_planned_bbl: 20,
           deposit: deposit({ invoice: inv("dep", "open", 30_000), sent_at: "2026-09-13" }) }],
-        totals: totals({ shipped_bbl: 3.9, owed_bbl: 2.36, remaining_bbl: 0, in_tank_bbl: 11.6, deposit_billed_cents: 30_000 }),
+        totals: totals({ shipped_bbl: 3.9, owed_bbl: 10.49, remaining_bbl: 6.59, in_tank_bbl: 8.12, deposit_billed_cents: 30_000 }),
       }),
       deal({ id: "later", stage: "open", received_on: "2026-09-01", allocations: [{ id: "a2", batch_status: "brewing", produced_bbl: 0, in_tank_bbl: 17, owed_bbl: 0, percentage: 100, batch_planned_bbl: 20, deposit: deposit() }], totals: totals({ in_tank_bbl: 17 }) }),
       deal({ id: "ready", stage: "open", received_on: "2026-08-01", allocations: [{ id: "a3", batch_status: "complete", produced_bbl: 17, in_tank_bbl: 0, owed_bbl: 17, percentage: 100, batch_planned_bbl: 20, deposit: deposit() }], totals: totals({ owed_bbl: 17, remaining_bbl: 17 }) }),
@@ -198,7 +209,8 @@ describe("toPortalHistory — a shipment is what the partner received", () => {
     expect(drop.volume_bbl).toBe(2.04);
     expect(hr.shipments).toHaveLength(3);
     expect(hr.shipped_bbl).toBe(4.04);
-    expect(hr.expected_bbl).toBe(13.96); // owed 2.36 + 11.6 in tank ≥ shipped, so the estimate stands
+    expect(hr.expected_bbl).toBe(10.49); // 70% of the 14.98 the batch will make — the in-tank share is inside it, not on top
+    expect(hr.in_tank_bbl).toBe(6.45); // never more than what is still to come
   });
 
   it("keeps only beer from a batch the partner has no deal on as 'other'", () => {

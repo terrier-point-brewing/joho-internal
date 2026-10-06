@@ -576,23 +576,28 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
     for (const inv of [...shipments.map((s) => s.invoice), depositInvoice, ...backcharges]) {
       if (inv && inv.status === "unpaid") unpaid.set(inv.id, inv);
     }
+    // The staff ledger's scale (PartnerLedgerTab DeliveryCell), on purpose.
+    // Owed is the deal's share of what the batch WILL make, capped at the
+    // booking — so while the batch is open it already holds the share still
+    // in tank. Adding the in-tank share on top counted it twice: 20 bbl of
+    // Oktoberfest read "13.57 of 26.86". In tank is the part of what is still
+    // to come that is not yet in a container, never more than that.
+    const owed = c.totals.owed_bbl;
+    const expected = c.allocations.length === 0 ? c.booked_bbl : Math.round(Math.max(shipped, owed) * 100) / 100;
+    const inTank = c.stage === "open" ? Math.round(Math.min(c.totals.in_tank_bbl, Math.max(0, expected - shipped)) * 100) / 100 : 0;
     return {
       id: c.id,
       beer_name: c.recipe_name,
       style: c.recipe_style ?? null,
       status: c.stage,
       booked_bbl: c.booked_bbl,
-      produced_bbl: c.totals.owed_bbl,
-      // The staff ledger's scale (PartnerLedgerTab DeliveryCell), on purpose:
-      // owed is capped at what the batch produced, so measuring against the
-      // booking would leave a fully delivered deal looking short forever.
-      expected_bbl: c.allocations.length === 0 ? c.booked_bbl
-        : Math.round(Math.max(shipped, c.totals.owed_bbl + (c.stage === "open" ? c.totals.in_tank_bbl : 0)) * 100) / 100,
+      produced_bbl: c.allocations.length === 0 ? 0 : Math.round((expected - inTank) * 100) / 100,
+      expected_bbl: expected,
       has_batch: c.allocations.length > 0,
       progress: dealProgress(c, extras),
       shipped_bbl: shipped,
       remaining_bbl: Math.round(Math.max(0, c.totals.remaining_bbl - extraBbl) * 100) / 100,
-      in_tank_bbl: c.totals.in_tank_bbl,
+      in_tank_bbl: inTank,
       desired_delivery_date: c.desired_delivery_date,
       received_on: c.received_on,
       deposit: c.channel === "contract_brewing"
