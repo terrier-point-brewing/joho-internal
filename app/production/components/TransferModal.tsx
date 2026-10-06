@@ -12,7 +12,7 @@ import { format, parseISO } from "date-fns";
 import { baseMapOf, lineageDescendants } from "@/lib/production/recipeLineage";
 import ConversionTargetFields, { emptyConversionTarget, type ConversionTargetValue } from "./ConversionTargetFields";
 import ConversionAllocationPanel, { type ConversionAllocationPlanState } from "./ConversionAllocationPanel";
-import { classifySourceEdit } from "@/lib/production/conversionAllocationPlan";
+import { classifySourceEdit, DEFAULT_CONVERSION_ALLOCATION_NOTE } from "@/lib/production/conversionAllocationPlan";
 import { fmtUsd } from "@/lib/utils/formatting";
 
 /**
@@ -57,6 +57,21 @@ async function executeAllocationPlan(
       }
     } catch (e) {
       errors.push(`${who}: ${e instanceof Error ? e.message : "update failed"}`);
+    }
+  }
+
+  // The child was born 100% taproom; an explicit plan replaces that placeholder.
+  if (plan.drafts.some((d) => d.percentage > 0)) {
+    try {
+      const res = await fetch(`/api/production/allocations?batch_id=${childBatchId}`);
+      const existing: Array<{ id: string; channel: string; notes: string | null }> = res.ok ? await res.json() : [];
+      for (const a of existing) {
+        if (a.channel !== "taproom" || a.notes !== DEFAULT_CONVERSION_ALLOCATION_NOTE) continue;
+        const del = await fetch(`/api/production/allocations/${a.id}`, { method: "DELETE" });
+        if (!del.ok) throw new Error((await del.json().catch(() => ({}))).error ?? "could not be removed");
+      }
+    } catch (e) {
+      errors.push(`New batch's default taproom allocation: ${e instanceof Error ? e.message : "could not be removed"}`);
     }
   }
 

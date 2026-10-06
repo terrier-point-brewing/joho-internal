@@ -53,8 +53,19 @@ describe("in-package conversion on the Equipment Schedule", () => {
 
   it("draws the child as its one run, with no conditioning ghost", () => {
     const { nodes } = buildGraphData(childEntries, [source, child], child, [], all, [plan]);
-    expect(nodes.map(n => n.id)).toEqual(["child-keg"]);
+    expect(nodes.filter(n => n.type !== "conversionOriginNode").map(n => n.id)).toEqual(["child-keg"]);
     expect(nodes[0].position.x).toBe(0);
+  });
+
+  it("leads the child's schedule with where its beer came from", () => {
+    const { nodes, edges } = buildGraphData(childEntries, [source, child], child, [], all, [plan]);
+    const origin = nodes.find(n => n.id === `conv-origin-${CHILD}`)!;
+    expect(origin.data).toMatchObject({ fromBatch: source, volumeBbl: 2, isExecuted: false, inPackage: true, sourceEquipmentName: null });
+    expect(origin.position.x).toBeLessThan(0);
+    expect(edges.some(e => e.source === origin.id && e.target === "child-keg")).toBe(true);
+    // The parent's own schedule never grows one.
+    const parentGraph = buildGraphData(srcEntries, [source, child], source, [], all, [plan]);
+    expect(parentGraph.nodes.some(n => n.type === "conversionOriginNode")).toBe(false);
   });
 
   it("a tank conversion child still gets its conditioning stage", () => {

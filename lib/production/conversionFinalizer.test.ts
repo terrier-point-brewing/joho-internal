@@ -93,6 +93,22 @@ describe("createConversionTargetBatch", () => {
     });
   });
 
+  it("is born 100% taproom, unless the caller allocates it itself", async () => {
+    const a = insertStub("child-a", { briteDays: 0 });
+    await createConversionTargetBatch(a.client, {
+      sourceBatchId: "S", beerName: "Orange Pilsner", recipeId: "r2", volumeBbl: 5, conversionDate: "2026-08-04",
+    });
+    expect(a.recorded.find(r => r.table === "batch_allocations")?.payload)
+      .toMatchObject({ batch_id: "child-a", channel: "taproom", percentage: 100 });
+
+    const b = insertStub("child-b", { briteDays: 0 });
+    await createConversionTargetBatch(b.client, {
+      sourceBatchId: "S", beerName: "Orange Pilsner", recipeId: "r2", volumeBbl: 5, conversionDate: "2026-08-04",
+      skipDefaultAllocation: true,
+    });
+    expect(b.recorded.some(r => r.table === "batch_allocations")).toBe(false);
+  });
+
   it("logs the initial status and seeds activities from the recipe's templates", async () => {
     const { client, recorded } = insertStub("child-2", {
       briteDays: 0,

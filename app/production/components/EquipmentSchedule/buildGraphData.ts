@@ -488,6 +488,39 @@ export function buildGraphData(
     }
   }
 
+  // ── Conversion origin ───────────────────────────────────────────────────
+  // The inverse of the node above: on the CHILD's schedule, one node ahead of
+  // its first stage says which batch (and tank or run) the beer came from.
+  if (batch?.converted_from_batch_id) {
+    const parent = allBatches.find(b => b.id === batch.converted_from_batch_id);
+    const inboundTxs = allTransfers
+      .filter(t => t.to_batch_id === batch.id && t.transfer_type === "conversion")
+      .sort((a, b) => new Date(a.transferred_at).getTime() - new Date(b.transferred_at).getTime());
+    const firstTx = inboundTxs[0];
+    const conv = allBatchConversions.find(c => c.target_batch_id === batch.id);
+    if (parent && (firstTx || conv)) {
+      const sourceEquipmentId = firstTx?.from_tank_id ?? conv?.source_equipment_id ?? null;
+      const sourceEquipmentName = firstTx?.from_tank?.name
+        ?? allScheduleEntries.find(e => e.batch_id === parent.id && e.equipment_id === sourceEquipmentId)?.equipment?.name
+        ?? null;
+      const mainTrack = allNodes.filter(n => n.position.y === 0);
+      const first = mainTrack.sort((a, b) => a.position.x - b.position.x)[0];
+      const originCol = first ? Math.round(first.position.x / COL_STEP) - 1 : STAGE_COL.conditioning - 1;
+      const originId = `conv-origin-${batch.id}`;
+      addNode(originId, "conversionOriginNode", originCol, 0, {
+        fromBatch: parent,
+        volumeBbl: firstTx
+          ? inboundTxs.reduce((s, t) => s + Number(t.volume_bbl ?? 0), 0)
+          : Number(conv?.volume_bbl ?? 0),
+        date: firstTx?.transferred_at ?? conv?.planned_date ?? null,
+        sourceEquipmentName,
+        isExecuted: !!firstTx,
+        inPackage: isInPackageChild,
+      });
+      if (first) addEdge(originId, first.id);
+    }
+  }
+
   // ── Post-process nodes: inject stage shrinkage + conversion BBL ──────────
   const finalNodes = allNodes.map(n => {
     const shrinkageBbl     = shrinkageBblByNodeId.get(n.id);

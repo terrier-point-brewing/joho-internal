@@ -132,7 +132,7 @@ export default function ConversionAllocationPanel({
     );
   }
   if (source.length === 0) {
-    return <p className="text-xs text-muted">No allocations on {sourceBeerName} — nothing to reconcile; the converted beer ships ad-hoc until allocated.</p>;
+    return <p className="text-xs text-muted">No allocations on {sourceBeerName} — nothing to reconcile; the new batch starts 100% taproom.</p>;
   }
 
   const rowLabel = (channel: string, partnerName: string | null) => partnerName ?? channel.replace("_", " ");

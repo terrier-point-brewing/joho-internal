@@ -257,3 +257,42 @@ export function ConversionNode({ data }: NodeProps) {
     </div>
   );
 }
+
+// ── Conversion origin node ────────────────────────────────────────────────
+// The child's side of a conversion: where this batch's beer came from.
+export type ConversionOriginNodeData = {
+  fromBatch:            { beer_name: string; batch_number: string | null };
+  volumeBbl:            number;
+  date?:                string | null;
+  sourceEquipmentName?: string | null;
+  isExecuted?:          boolean;
+  /** Dosed in the keg/can on a packaging run, not drawn off into a tank. */
+  inPackage?:           boolean;
+};
+
+export function ConversionOriginNode({ data }: NodeProps) {
+  const { fromBatch, volumeBbl, date, sourceEquipmentName, isExecuted, inPackage } = data as ConversionOriginNodeData;
+  const how = inPackage ? " in package" : "";
+  return (
+    <div className="w-44 rounded-lg border border-dashed border-[var(--cat-amber-bd)] bg-[var(--cat-amber-bg)] select-none">
+      <Handle type="source" position={Position.Right} style={HS} />
+      <div className="h-0.5 w-full rounded-t-lg bg-[var(--cat-amber-bd)]" />
+      <div className="p-3 min-h-[96px] flex flex-col justify-center gap-1">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--cat-amber-fg)]">
+          {isExecuted ? `← Converted${how} from` : `← Planned conversion${how} from`}
+        </span>
+        <p className="text-xs font-semibold text-[var(--cat-amber-fg)] truncate">{fromBatch.beer_name}</p>
+        {fromBatch.batch_number && (
+          <p className="text-[10px] font-mono text-[var(--cat-amber-fg)]">#{fromBatch.batch_number}</p>
+        )}
+        <p className="text-[10px] text-[var(--cat-amber-fg)] mt-0.5">{fmtBbl2(volumeBbl)}</p>
+        {sourceEquipmentName && (
+          <p className="text-[10px] text-[var(--cat-amber-fg)] truncate">← {sourceEquipmentName}</p>
+        )}
+        {date && (
+          <p className="text-[10px] text-[var(--cat-amber-fg)]">{fmtShort(date)}</p>
+        )}
+      </div>
+    </div>
+  );
+}

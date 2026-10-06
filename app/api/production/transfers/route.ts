@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { checkAndCompleteBatch } from "@/lib/production/batchCompletion";
-import { finalizeConversion, createConversionTargetBatch, completeConversionChild, findPendingConversionPlan, reconcileConvertedBatchVolume, findExistingConversionChild, priorConversionInflowBbl, recordExecutedConversion, CONVERSION_PLAN_SCHEDULE_NOTE } from "@/lib/production/conversionFinalizer";
+import { finalizeConversion, createConversionTargetBatch, clearDefaultConversionAllocation, completeConversionChild, findPendingConversionPlan, reconcileConvertedBatchVolume, findExistingConversionChild, priorConversionInflowBbl, recordExecutedConversion, CONVERSION_PLAN_SCHEDULE_NOTE } from "@/lib/production/conversionFinalizer";
 import { consumeConversionAdditions, isChargeableConversion } from "@/lib/production/conversionIngredients";
 import { computeTankVolumes } from "@/lib/production/volumeLedger";
 import { getPaktechUnitsPerPackage } from "@/lib/production/packagingVariations";
@@ -1043,6 +1043,7 @@ export async function POST(req: NextRequest) {
           volumeBbl:     totalVolumeForCapacityCheck,
           conversionDate: new Date().toISOString().split("T")[0],
           bornComplete:  true,
+          skipDefaultAllocation: !!inKegCommitment,
         });
       } catch (createErr) {
         return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
@@ -1063,6 +1064,8 @@ export async function POST(req: NextRequest) {
             .limit(1)
             .maybeSingle()
         : { data: null };
+      // A reused child may still be sitting on its born-with taproom default.
+      if (reusedExistingChild && !existingAlloc) await clearDefaultConversionAllocation(supabase, childBatchId);
       const { data: insertedAlloc, error: allocErr } = existingAlloc
         ? { data: null, error: null }
         : await supabase.from("batch_allocations").insert({
