@@ -26,6 +26,18 @@
  * returned as-is; nothing here touches normalizeSign, which is shared with the
  * P&L.
  *
+ * ── More than one Ramp account behind one ledger account ─────────────────────
+ * Ramp can hold the same cash in an operating account and an investment
+ * account, and to the books that is one figure: moving money between the two
+ * has not left GL 1030. Setup may therefore name further Ramp accounts to add
+ * to the primary one (see ADDITIONAL_CONNECTIONS_KEY).
+ *
+ * The sum is all-or-nothing. If ANY named account cannot be read the whole
+ * balance is null, because a total that is one account short is the same
+ * failure as a nearby day's balance: plausible, undetectable and wrong. The one
+ * exception is an extra account an operator has switched off, which simply
+ * stops contributing -- that is what switching it off means.
+ *
  * ── Never throws ─────────────────────────────────────────────────────────────
  * Ramp being unreachable, mid-setup, or answering in an unexpected shape all
  * return null so the account reads as unsourced and the rest of the balance
@@ -34,7 +46,7 @@
  */
 import { registerProvider } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
-import { resolveConnection, recordSyncResult } from "../connections";
+import { resolveConnection, resolveAdditionalConnections, recordSyncResult } from "../connections";
 import { getRampAccountBalanceHistory } from "@/lib/ramp";
 import { todayLocalDate } from "@/lib/utils/datetime";
 import { isOpenPeriod } from "../periods";
@@ -179,15 +191,31 @@ export const rampBalance: BalanceProvider = {
     // start it erroring.
     if (connection.status === "disabled") return null;
 
-    const result = await readRampBalance(connection, ctx.periodEnd, todayLocalDate());
+    const today = todayLocalDate();
+    const extras = await resolveAdditionalConnections(ctx.supabase, ctx.config);
+    // An extra account that was named and has since been deleted. There is no
+    // connection row left to record against, so the only honest signal is the
+    // account reading as unsourced; Settings names the dangling link.
+    if (extras.some((e) => e.connection === null)) return null;
 
-    if (!result.ok) {
-      await note(ctx, connection.id, { ok: false, error: result.reason });
-      return null;
+    const accounts = [connection, ...extras.map((e) => e.connection!).filter((c) => c.status !== "disabled")];
+
+    // Every account is read and has its outcome recorded before the total is
+    // decided, so one failure does not hide whether the others are healthy.
+    const results = await Promise.all(
+      accounts.map(async (account) => {
+        const result = await readRampBalance(account, ctx.periodEnd, today);
+        await note(ctx, account.id, result.ok ? { ok: true } : { ok: false, error: result.reason });
+        return result;
+      }),
+    );
+
+    let total = 0;
+    for (const result of results) {
+      if (!result.ok) return null;
+      total += result.balanceCents;
     }
-
-    await note(ctx, connection.id, { ok: true });
-    return result.balanceCents;
+    return total;
   },
 };
 

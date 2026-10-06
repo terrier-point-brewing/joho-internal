@@ -13,6 +13,7 @@ import "./index";
 import {
   CLOSE_DUE_DAYS_KEY,
   acceptsStatedBalance,
+  connectionProviderOf,
   getMethod,
   listMethods,
   methodsFor,
@@ -264,6 +265,20 @@ describe("setup declarations", () => {
     for (const m of listMethods()) {
       for (const field of m.setup ?? []) {
         if (field.kind === "connection") expect(field.key, m.key).toBe("connectionId");
+      }
+    }
+  });
+
+  it("stores extra connections under the reserved key, always optional and alongside a primary", () => {
+    // resolveAdditionalConnections reads this key by name, and the accounts it
+    // names only ever ADD to the primary -- a method offering extras with no
+    // primary, or demanding them, would be asking for a total of nothing.
+    for (const m of listMethods()) {
+      for (const field of m.setup ?? []) {
+        if (field.kind !== "additionalConnections") continue;
+        expect(field.key, m.key).toBe("additionalConnectionIds");
+        expect(field.optional, m.key).toBe(true);
+        expect(field.provider, m.key).toBe(connectionProviderOf(m));
       }
     }
   });

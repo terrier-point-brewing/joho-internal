@@ -19,7 +19,7 @@ export interface StepMeta {
 
 /** One thing a method needs before it can compute, as declared. */
 export interface SetupFieldMeta {
-  kind: "connection" | "operatorBalance" | "select" | "account" | "user" | "number" | "text" | "date";
+  kind: "connection" | "additionalConnections" | "operatorBalance" | "select" | "account" | "user" | "number" | "text" | "date";
   key: string;
   label: string;
   help: string;

@@ -161,6 +161,18 @@ export type SetupField =
       connect: ConnectFlow;
     })
   /**
+   * Further accounts AT THE SAME SERVICE whose balances are added to the one the
+   * `connection` field names, stored as an array of connection ids.
+   *
+   * Exists because one general-ledger account can stand for more than one
+   * account at a provider -- GL 1030 is the cash held at Ramp, which Ramp keeps
+   * in an operating account AND an investment account, and money moving between
+   * the two has not left the ledger account. The `connection` field stays the
+   * single primary link every resolver reads; this one only ever ADDS to it,
+   * and only the method's own provider reads it. Always optional.
+   */
+  | (SetupFieldBase & { kind: "additionalConnections"; provider: ConnectionProvider })
+  /**
    * A figure only a person can supply, stored as a `manual_entries` balance row
    * dated to a month end. Declaring one is also what makes the month-end close
    * raise a task for this account -- see closeTasks.ts.
@@ -291,6 +303,29 @@ export function connectionProviderOf(method: BalanceMethod): ConnectionProvider 
  */
 export function requiresMonthEndBalance(method: BalanceMethod): boolean {
   return method.steps.some((step) => getProvider(step.providerKey)?.kind === "manual");
+}
+
+/**
+ * Where a method's extra same-service accounts are stored, read BY NAME by
+ * resolveAdditionalConnections. Same arrangement as `connectionId`: one
+ * reserved key, held to its name by the conformance suite.
+ */
+export const ADDITIONAL_CONNECTIONS_KEY = "additionalConnectionIds";
+
+/**
+ * The extra connection ids an account's setup names, in stored order.
+ *
+ * Tolerant of every shape a jsonb column can hold: anything that is not an
+ * array of non-empty strings contributes nothing rather than throwing. The
+ * primary connection is dropped if it was also listed -- counting one account's
+ * balance twice is the one outcome worse than not counting a second account.
+ */
+export function additionalConnectionIdsOf(config: Record<string, unknown>): string[] {
+  const raw = config[ADDITIONAL_CONNECTIONS_KEY];
+  if (!Array.isArray(raw)) return [];
+  const primary = config.connectionId;
+  const ids = raw.filter((id): id is string => typeof id === "string" && id.length > 0 && id !== primary);
+  return Array.from(new Set(ids));
 }
 
 /**

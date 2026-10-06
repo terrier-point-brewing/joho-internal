@@ -10,6 +10,7 @@
  * Backed by 20260913090000_balance_integration_connections.sql.
  */
 import type { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { additionalConnectionIdsOf } from "./methods/registry";
 import type { ConnectionStatus, ConnectionProvider } from "./methods/registry";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -127,6 +128,23 @@ export async function resolveConnection(
   const id = config.connectionId;
   if (typeof id !== "string" || id.length === 0) return null;
   return getConnectionWithSecrets(supabase, id);
+}
+
+/**
+ * Resolves the EXTRA connections a balance source adds to its primary one.
+ *
+ * Each id comes back paired with its connection, or with null when the row has
+ * since been deleted. Dangling ids are returned rather than dropped on purpose:
+ * a provider summing several accounts must be able to tell "nothing extra was
+ * named" from "something was named and is gone", because the second would
+ * otherwise read as a balance that is quietly one account short.
+ */
+export async function resolveAdditionalConnections(
+  supabase: AdminClient,
+  config: Record<string, unknown>,
+): Promise<{ id: string; connection: ConnectionWithSecrets | null }[]> {
+  const ids = additionalConnectionIdsOf(config);
+  return Promise.all(ids.map(async (id) => ({ id, connection: await getConnectionWithSecrets(supabase, id) })));
 }
 
 // ── Writes ───────────────────────────────────────────────────────────────────

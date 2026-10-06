@@ -13,7 +13,7 @@
  * all. Only the four genuinely composite accounts (2220, 2250, 2310, 1100) need
  * their provider pairs collapsed into a single method key.
  */
-import { registerMethod, CLOSE_DUE_DAYS_KEY } from "./registry";
+import { registerMethod, CLOSE_DUE_DAYS_KEY, ADDITIONAL_CONNECTIONS_KEY } from "./registry";
 import type { BalanceMethod } from "./registry";
 import { INVENTORY_POOL_KEY } from "../providers/inventoryOnHand";
 import { COGS_OFFSET_KEY } from "@/lib/finance/inventoryRelief";
@@ -497,7 +497,9 @@ const accumulatedDepreciationMethod: BalanceMethod = {
 // ── Integrations ─────────────────────────────────────────────────────────────
 
 /**
- * GL 1030 Ramp Operating Account. Single-step on purpose: unlike the accrual
+ * GL 1030 Ramp Operating Account. Single-step on purpose (one step even when
+ * setup names several Ramp accounts -- they are one figure, summed in the
+ * provider, not separate contributions): unlike the accrual
  * pairs above, Ramp reports the account's actual closing balance, so there is
  * no second half of the calculation that could be left off. Adding a postings
  * step would double-count every Ramp movement already reflected in that figure.
@@ -520,13 +522,25 @@ const rampAccountBalance: BalanceMethod = {
       label: "Ramp account",
       help: "Choose which of your Ramp accounts this general ledger account represents, so the right balance is read each month.",
     },
+    {
+      // Ramp keeps the same cash in more than one account -- operating and
+      // investment -- and a transfer between them has not left this ledger
+      // account. Naming the others here is what lets that transfer be coded as
+      // internal without the balance sheet losing the money.
+      kind: "additionalConnections",
+      key: ADDITIONAL_CONNECTIONS_KEY,
+      provider: "ramp",
+      optional: true,
+      label: "Other Ramp accounts to include",
+      help: "Tick any other Ramp accounts whose money belongs in this same general ledger account, such as an investment account. Their balances are added to the one above, so moving money between them does not change this account.",
+    },
   ],
   steps: [
     {
       providerKey: "rampBalance",
       label: "Balance held at Ramp",
       description:
-        "The balance Ramp shows for the connected account on this month end. It is the available balance, so it can read slightly differently from a statement if a payment was still pending on the last day. Where it does, enter the statement figure for that month end under Finance > Transactions > Manual Entries and it will be used instead, for that month only.",
+        "The balance Ramp shows for the connected account on this month end, plus any other Ramp accounts included in setup. It is the available balance, so it can read slightly differently from a statement if a payment was still pending on the last day. Where it does, enter the statement figure for that month end under Finance > Transactions > Manual Entries and it will be used instead, for that month only.",
       source: "Ramp treasury account",
       direction: "net",
     },

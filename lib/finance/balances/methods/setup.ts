@@ -18,6 +18,7 @@
  * different reasons it produces nothing, none of them visible from the row.
  */
 import { formatBalanceCents } from "@/lib/format";
+import { additionalConnectionIdsOf } from "./registry";
 import type { BalanceMethod, ConnectionProvider, SetupField } from "./registry";
 
 /** A connection as the setup panel needs to see it. No secrets, by construction. */
@@ -146,6 +147,39 @@ function connectionState(
   return { satisfied: true, value: connection.label, blocker: null };
 }
 
+/**
+ * The extra same-service accounts a method adds to its primary connection.
+ *
+ * Satisfied means "at least one is named and every one named can be read".
+ * A deleted or failing extra is NOT satisfied even though the field is
+ * optional: the provider refuses to total a balance that is one account short,
+ * so this is the line that tells the operator why the account went blank.
+ */
+function additionalConnectionsState(
+  field: SetupField & { kind: "additionalConnections" },
+  facts: SetupFacts,
+): { satisfied: boolean; value: string | null; blocker: string | null } {
+  const ids = additionalConnectionIdsOf(facts.config);
+  if (ids.length === 0) return { satisfied: false, value: null, blocker: "None included." };
+
+  const connections = ids.map((id) => facts.connectionsById.get(id));
+  const labels = connections.filter((c): c is SetupConnectionRef => Boolean(c)).map((c) => c.label);
+  const value = labels.length > 0 ? labels.join(", ") : null;
+
+  if (connections.some((c) => !c)) {
+    return {
+      satisfied: false,
+      value,
+      blocker: "An included account no longer exists, so this balance cannot be totalled. Untick it or choose again.",
+    };
+  }
+  const failing = connections.find((c) => c!.status !== "active" && c!.status !== "disabled");
+  if (failing) {
+    return { satisfied: false, value, blocker: `The last read from ${failing.label} failed, so this balance cannot be totalled.` };
+  }
+  return { satisfied: true, value, blocker: null };
+}
+
 function fieldState(field: SetupField, facts: SetupFacts): SetupFieldState {
   const base = {
     key: field.key,
@@ -157,6 +191,10 @@ function fieldState(field: SetupField, facts: SetupFacts): SetupFieldState {
 
   if (field.kind === "connection") {
     return { ...base, ...connectionState(field, facts), provider: field.provider, connect: field.connect };
+  }
+
+  if (field.kind === "additionalConnections") {
+    return { ...base, ...additionalConnectionsState(field, facts), provider: field.provider };
   }
 
   if (field.kind === "operatorBalance") {
