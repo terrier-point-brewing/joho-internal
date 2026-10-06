@@ -113,9 +113,18 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
   const priorHrlyRate = priorTotals && priorTotals.hours > 0 ? priorComp / priorTotals.hours / 100 : null;
   const pct = (now: number, before: number) => (before === 0 ? null : ((now - before) / Math.abs(before)) * 100);
   const compPct = priorTotals ? pct(viewComp, priorComp) : null;
-  // 15% on total comp is the "look at this" threshold — big enough to clear
-  // normal shift-count noise, small enough to catch a missed or doubled shift.
-  const bigSwing = compPct != null && Math.abs(compPct) >= 15;
+  // The swing alert splits what we pay (base + bonus) from tips. Tips are
+  // pass-through — the guests' money, not ours — so only a wage swing is an
+  // alert; a tip swing is reported as context, never as a warning.
+  const wagePct = priorTotals ? pct(totBase + totBonus, priorTotals.basePayCents + priorTotals.bonusCents) : null;
+  const tipPct = priorTotals ? pct(totPTips + viewCTips, priorTotals.paycheckTipsCents + priorCTips) : null;
+  // 15% is the "look at this" threshold — big enough to clear normal
+  // shift-count noise, small enough to catch a missed or doubled shift.
+  const SWING_PCT = 15;
+  const wageSwing = wagePct != null && Math.abs(wagePct) >= SWING_PCT;
+  const tipSwing = tipPct != null && Math.abs(tipPct) >= SWING_PCT;
+  const swingText = (p: number) =>
+    Math.abs(p) < 0.05 ? "flat" : `${p > 0 ? "up" : "down"} ${Math.abs(p).toFixed(1)}%`;
   const empName = (id: string) => {
     const e = empById.get(id);
     return e ? `${e.first_name} ${e.last_name}` : `${id.slice(0, 8)}…`;
@@ -270,10 +279,19 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
                 : `Prior period (${prior.priorPeriod?.start_date} – ${prior.priorPeriod?.end_date}) isn't locked yet — no snapshot to compare against.`}
             </p>
           )}
-          {bigSwing && compPct != null && (
+          {wageSwing && wagePct != null && (
             <div className="mb-3 rounded border border-accent-border bg-accent-muted/30 px-3 py-2 text-xs text-secondary">
-              Total comp is {compPct > 0 ? "up" : "down"} {Math.abs(compPct).toFixed(1)}% vs. the prior period.
+              Wages we pay (base + bonus) are {swingText(wagePct)} vs. the prior period.
+              {tipPct != null && (
+                <span className="text-faint"> Tips are {swingText(tipPct)} — pass-through, not our cost.</span>
+              )}
             </div>
+          )}
+          {!wageSwing && tipSwing && tipPct != null && (
+            <p className="text-faint text-xs mb-3">
+              Tips are {swingText(tipPct)} vs. the prior period — pass-through, not our cost.
+              {wagePct != null && ` Wages we pay (base + bonus) are ${swingText(wagePct)}.`}
+            </p>
           )}
           {/* Bartender table */}
           <table className="w-full text-sm">
@@ -368,7 +386,7 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
                       <DeltaCents diff={totBonus - priorTotals.bonusCents} />
                       <DeltaCents diff={viewCTips - priorCTips} />
                       <DeltaCents diff={totPTips - priorTotals.paycheckTipsCents} />
-                      <td className={`text-right py-1.5 px-3 font-mono font-medium ${bigSwing ? "text-accent" : "text-body"}`}>
+                      <td className={`text-right py-1.5 px-3 font-mono font-medium ${wageSwing ? "text-accent" : "text-body"}`}>
                         {viewComp - priorComp === 0
                           ? "—"
                           : `${viewComp > priorComp ? "+" : "-"}${fmtCents(Math.abs(viewComp - priorComp))}`}
