@@ -168,3 +168,31 @@ export function visibleToPartner(viewerPartnerId: string, owner: { partner_id: s
   if (!owner.partner_id || owner.partner_id === viewerPartnerId) return true;
   return !owner.exclusive;
 }
+
+/** The fields the Available beer list is ordered by — all of them on the card. */
+export interface ClaimableRank {
+  batch_id: string;
+  beer_name: string;
+  /** Null once the planned date has passed, or when there never was one. */
+  ready_by: string | null;
+  ready_now_bbl: number;
+  in_tank_bbl: number;
+}
+
+/**
+ * Order of the Available beer list, by what a partner can act on soonest:
+ *   0. beer packaged and here — most to claim today first;
+ *   1. beer in tank with no date still ahead of it, so it is due to be
+ *      packaged — most in tank first;
+ *   2. beer in tank that is not ready yet — soonest ready date first.
+ * A batch that is part packaged, part in tank ranks on its packaged beer.
+ * Name and id settle ties so the list does not reshuffle between loads.
+ */
+export function compareClaimable(a: ClaimableRank, b: ClaimableRank): number {
+  const group = (r: ClaimableRank) => (r.ready_now_bbl > 0.005 ? 0 : r.ready_by == null ? 1 : 2);
+  const ga = group(a);
+  const within = ga === 0 ? b.ready_now_bbl - a.ready_now_bbl
+    : ga === 1 ? b.in_tank_bbl - a.in_tank_bbl
+    : (a.ready_by as string).localeCompare(b.ready_by as string);
+  return ga - group(b) || within || a.beer_name.localeCompare(b.beer_name) || a.batch_id.localeCompare(b.batch_id);
+}

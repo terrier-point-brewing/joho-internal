@@ -9,7 +9,7 @@ import type { LedgerTransfer } from "@/lib/production/volumeLedger";
 import { getInvoiceStatus } from "@/lib/square/square-invoices";
 import { EXCISE_LINE_CATEGORY, excisePerPartner, type ExciseInvoice, type ExciseLine, type PartnerExcise } from "@/lib/production/partnerExcise";
 import { type BusyInterval, type Fermenter } from "./capacity";
-import { claimPool, DEFAULT_TAPROOM_BUFFER_PCT, visibleToPartner, type ClaimPool } from "./claimable";
+import { claimPool, compareClaimable, DEFAULT_TAPROOM_BUFFER_PCT, visibleToPartner, type ClaimPool } from "./claimable";
 
 /**
  * Server half of the partner portal.
@@ -198,14 +198,12 @@ export async function loadClaimPools(
 
 export async function loadClaimableForPartner(admin: SupabaseClient, partnerId: string): Promise<ClaimableBatch[]> {
   const [pools, today] = await Promise.all([loadClaimPools(admin), breweryToday()]);
-  // `due` is the planned date even once it has passed: an overdue tank is the
-  // next one out, so it sorts ahead of the dated ones rather than behind them.
-  const rows: Array<{ row: ClaimableBatch; due: string | null }> = [];
+  const rows: ClaimableBatch[] = [];
   for (const { batch, pool, readyBy, packaged, producedAny } of pools.values()) {
     if (pool.claimableBbl < MIN_OFFER_BBL) continue;
     const owner = { partner_id: batch.recipes?.partner_id ?? null, exclusive: batch.recipes?.contract_brewing_partners?.recipes_exclusive ?? false };
     if (!visibleToPartner(partnerId, owner)) continue;
-    rows.push({ due: readyBy, row: {
+    rows.push({
       batch_id: batch.id,
       beer_name: batch.recipes?.beer_name ?? batch.beer_name ?? "Beer",
       style: batch.recipes?.style ?? null,
@@ -217,17 +215,9 @@ export async function loadClaimableForPartner(admin: SupabaseClient, partnerId: 
       ready_now_bbl: pool.readyNowBbl,
       in_tank_bbl: pool.inTankBbl,
       stage: packaged ? "packaged" : producedAny ? "packaging" : "in_tank",
-    } });
+    });
   }
-  // Soonest in hand first: beer that is here, then beer being packaged, then
-  // tanks by date. Name and id settle ties so the list does not reshuffle.
-  const rank = { packaged: 0, packaging: 1, in_tank: 2 } as const;
-  return rows
-    .sort((a, b) => rank[a.row.stage] - rank[b.row.stage]
-      || (a.due ?? "9999").localeCompare(b.due ?? "9999")
-      || a.row.beer_name.localeCompare(b.row.beer_name)
-      || a.row.batch_id.localeCompare(b.row.batch_id))
-    .map((r) => r.row);
+  return rows.sort(compareClaimable);
 }
 
 // ── Excise ──────────────────────────────────────────────────────────────────
