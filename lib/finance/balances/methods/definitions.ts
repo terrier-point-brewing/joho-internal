@@ -303,16 +303,18 @@ const accountsReceivable: BalanceMethod = {
   kind: "calculation",
   summary: "What customers still owe you on unpaid invoices.",
   appliesTo: isReceivable,
-  // openInvoiceAr answers "open TODAY", so the most recently ended month's
-  // figure melts as September collections land on August invoices. A stated
-  // month-end balance is the only true as-at answer until the month turns
-  // historical — declared here so it overrides year-round, not only after.
+  // The calculation is as-at now (invoices carry the day they were paid), so a
+  // stated figure is no longer needed to close a month. The override stays
+  // declared because May–August 2026 were closed on figures stated by hand,
+  // back when this could only answer "open TODAY"; removing it would strand
+  // those entries, and it remains the way to correct a month the feed gets
+  // wrong.
   statedBalanceOverride: true,
   steps: [
     {
       providerKey: "openInvoiceAr",
       label: "Unpaid invoices",
-      description: "The total of every invoice dated on or before this month end that has not been paid.",
+      description: "The total of every invoice dated on or before this month end that had not been paid by then. An invoice paid after the month end still counts for that month, going by the day the customer paid.",
       source: "Open Square invoices",
       direction: "add",
     },

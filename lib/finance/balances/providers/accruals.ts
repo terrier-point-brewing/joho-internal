@@ -36,18 +36,35 @@ function exclusiveEnd(periodEnd: string): string {
 }
 
 // ── openInvoiceAr ────────────────────────────────────────────────────────
-// Moved from buildFinancials.ts's injectOpenInvoiceAr / fetchSources.ts's
-// fetchOpenInvoiceAr: sum of invoices.total_cents where status = 'open' and
-// invoice_date <= periodEnd. Point-in-time open-balance snapshot, not a
-// period movement -- deliberately unbounded below.
+// What customers owed on `periodEnd`: every invoice raised on or before that
+// day which had not been paid BY that day.
+//
+// It used to be `status = 'open'`, which is how things stand today rather than
+// how they stood at the month end. The most recently ended month's receivables
+// melted as the next month's collections landed -- an invoice owed on the 30th
+// and paid on the 5th simply vanished from the 30th -- and every close since
+// May 2026 was rescued by an owner typing the true figure in by hand.
+//
+// `invoices.paid_on` (the day the customer paid, see lib/finance/invoicePaidOn)
+// is what makes the question answerable. An invoice counts when it is still
+// unpaid, OR when it has since been paid but only after the month end.
+//
+// A paid invoice with NO paid_on is treated as paid before the month end and
+// not counted. Only the Square sync writes the column, so that is every
+// imported QuickBooks invoice and anything predating the column -- settled
+// history, where assuming "still owed" would resurrect receivables long since
+// collected.
+//
+// Voided invoices never count, whenever they were voided: a cancelled invoice
+// was not a debt on any day, and a fully refunded one has its own refund row.
 
 async function fetchOpenInvoiceArCents(supabase: SupabaseClient, periodEnd: string): Promise<number> {
   const rows = await fetchAllRows<{ total_cents: number | null }>(() =>
     supabase
       .from("invoices")
       .select("total_cents")
-      .eq("status", "open")
       .lte("invoice_date", periodEnd)
+      .or(`status.eq.open,and(status.eq.paid,paid_on.gt.${periodEnd})`)
       .order("id", { ascending: true }),
   );
   return rows.reduce((s, inv) => s + (inv.total_cents ?? 0), 0);
@@ -58,13 +75,9 @@ export const openInvoiceAr: BalanceProvider = {
   label: "Open invoice A/R",
   kind: "derived",
   appliesTo: (coa) => coa.accountNumber === "1100",
-  // `status = 'open'` is a CURRENT status, not an as-at-period-end one, and
-  // `invoices` carries no payment date to reconstruct one from. Asked about
-  // March, this returns only the March invoices still unpaid today -- a subset
-  // of March's receivables, understated by every invoice since paid, with
-  // nothing in the figure to say so. So it is not asked about older months at
-  // all; see BalanceProvider.dependsOnCurrentState.
-  dependsOnCurrentState: true,
+  // No dependsOnCurrentState: with a paid date on every invoice this answers
+  // about the month asked for, the same way openBillAp below always has, so a
+  // past month computes the same figure today as on the day it ended.
   async compute(ctx: BalanceContext): Promise<number | null> {
     const cents = await fetchOpenInvoiceArCents(ctx.supabase, ctx.periodEnd);
     // Guarded on > 0 like the original injectOpenInvoiceAr -- a zero/negative
@@ -81,11 +94,11 @@ export const openInvoiceAr: BalanceProvider = {
 // it has received and not yet paid. Worth reading the two together, because they
 // differ in exactly one respect and that difference is the whole design.
 //
-// A/R can only be asked about today. `invoices.status = 'open'` is a current
-// status and the table carries no payment date, so March's receivables are
-// unreconstructible and openInvoiceAr is marked dependsOnCurrentState.
+// Both are as-at calculations built on a stored payment date. A/R got there
+// second: `invoices` had no payment date until `paid_on` was added, and until
+// then it could only be asked about today.
 //
-// A/P is not in that position. Ramp's bill object carries `paid_at` -- an
+// A/P never had that problem. Ramp's bill object carries `paid_at` -- an
 // immutable timestamp rather than a status -- and lib/finance/rampSync.ts
 // persists it to expenses.settled_at on every sync, for every bill rather than
 // only those in the sync window. So "was this owed on the 30th of June" is

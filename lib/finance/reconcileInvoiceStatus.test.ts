@@ -292,3 +292,64 @@ describe("reconcileInvoiceStatus — invoice deleted in Square (404)", () => {
     expect(updates).toHaveLength(0);
   });
 });
+
+describe("reconcileInvoiceStatus — the day an invoice was paid", () => {
+  function paidPathStub(updates: UpdateSpy[]): SupabaseClient {
+    const client = {
+      from(table: string) {
+        const row = table === "invoices" ? { id: "inv-6", raw_data: { square_order_id: "order-6" } } : null;
+        const selectBuilder = {
+          select: () => selectBuilder,
+          eq: () => selectBuilder,
+          maybeSingle: () => Promise.resolve({ data: row, error: null }),
+        };
+        return {
+          select: () => selectBuilder,
+          update: (payload: Record<string, unknown>) => {
+            updates.push({ table, payload });
+            const chain = {
+              eq: () => chain,
+              neq: () => chain,
+              is: () => chain,
+              select: () => Promise.resolve({ data: [], error: null }),
+              then: (resolve: (v: { error: unknown }) => unknown) => Promise.resolve({ error: null }).then(resolve),
+            };
+            return chain;
+          },
+        };
+      },
+    };
+    return client as unknown as SupabaseClient;
+  }
+
+  it("dates a paid invoice from the order's tender, not from when Square marked it paid", async () => {
+    // Invoice #000006 for real: the customer paid on 29 May, the bank transfer
+    // settled and Square flipped the invoice to PAID on 2 June. Receivables at
+    // 31 May must not include it.
+    getInvoiceStatus.mockResolvedValueOnce({
+      status: "PAID", paidAt: "2026-06-02T12:05:37Z", updatedAt: "2026-06-02T12:05:37Z",
+      version: 3, publicUrl: null, invoiceNumber: "000006",
+    });
+    getOrderPayment.mockResolvedValueOnce({
+      paymentId: "pay-6", amountPaidCents: 241_568, tenders: [{ created_at: "2026-05-29T14:41:23Z" }],
+    });
+    const updates: UpdateSpy[] = [];
+
+    await reconcileInvoiceStatus(paidPathStub(updates), "sq-inv-6");
+
+    expect(getOrderPayment).toHaveBeenCalledWith("order-6");
+    expect(updates.find((u) => u.table === "invoices")?.payload.paid_on).toBe("2026-05-29");
+  });
+
+  it("clears the date when the invoice is no longer paid", async () => {
+    getInvoiceStatus.mockResolvedValueOnce({
+      status: "UNPAID", paidAt: null, updatedAt: "2026-06-02T12:05:37Z",
+      version: 4, publicUrl: null, invoiceNumber: "000006",
+    });
+    const updates: UpdateSpy[] = [];
+
+    await reconcileInvoiceStatus(paidPathStub(updates), "sq-inv-6");
+
+    expect(updates.find((u) => u.table === "invoices")?.payload.paid_on).toBeNull();
+  });
+});

@@ -216,6 +216,8 @@ export interface OrderTender {
   type?: string;
   payment_id?: string;
   amount_money?: Money;
+  /** When the customer paid. Unlike the invoice's `updated_at`, it never moves. */
+  created_at?: string;
 }
 
 export interface Order {
