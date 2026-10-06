@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimPool, planClaim, visibleToPartner } from "./claimable";
+import { claimPool, compareClaimable, planClaim, visibleToPartner } from "./claimable";
 
 const alloc = (id: string, channel: string, percentage: number, exported_bbl = 0) =>
   ({ id, channel, percentage, exported_bbl, written_off_at: null });
@@ -120,5 +120,31 @@ describe("visibleToPartner", () => {
     expect(visibleToPartner("a", { partner_id: "b", exclusive: true })).toBe(false);
     expect(visibleToPartner("b", { partner_id: "b", exclusive: true })).toBe(true);
     expect(visibleToPartner("a", { partner_id: null, exclusive: false })).toBe(true);
+  });
+});
+
+describe("compareClaimable", () => {
+  const row = (beer_name: string, ready_now_bbl: number, in_tank_bbl: number, ready_by: string | null = null) =>
+    ({ batch_id: beer_name, beer_name, ready_now_bbl, in_tank_bbl, ready_by });
+  const order = (rows: ReturnType<typeof row>[]) => [...rows].sort(compareClaimable).map((r) => r.beer_name);
+
+  it("lists packaged beer, then tanks due to package, then tanks by ready date", () => {
+    expect(order([
+      row("Later tank", 0, 30, "2026-11-20"),
+      row("Sooner tank", 0, 5, "2026-10-16"),
+      row("Small due tank", 0, 4),
+      row("Big due tank", 0, 12),
+      row("Small packaged", 2, 0),
+      row("Big packaged", 9, 0),
+    ])).toEqual(["Big packaged", "Small packaged", "Big due tank", "Small due tank", "Sooner tank", "Later tank"]);
+  });
+
+  it("ranks a part-packaged batch on its packaged beer, whatever is still in tank", () => {
+    expect(order([row("Packaged", 3, 0), row("Split", 6, 20, "2026-10-16"), row("Tank", 0, 40)]))
+      .toEqual(["Split", "Packaged", "Tank"]);
+  });
+
+  it("settles ties by name", () => {
+    expect(order([row("Porter", 5, 0), row("Amber", 5, 0)])).toEqual(["Amber", "Porter"]);
   });
 });
