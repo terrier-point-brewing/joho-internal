@@ -406,7 +406,7 @@ function BatchesTab({ deals }: { deals: PortalDeal[] }) {
   const groups: Array<{ key: string; title: string; note: string; deals: PortalDeal[] }> = [
     { key: "ready", title: "Ready to ship", note: "Packaged and on our floor. Tell us when you want it.", deals: deals.filter((d) => d.progress.step === 5) },
     { key: "brewing", title: "Being made", note: "Brewing, fermenting or packaging. Dates are our best estimate.", deals: deals.filter((d) => d.progress.step >= 0 && d.progress.step < 5) },
-    { key: "scheduled", title: "Waiting for a brew date", note: "Committed, not yet on the schedule.", deals: deals.filter((d) => d.progress.step < 0) },
+    { key: "scheduled", title: "Waiting for a brew date", note: "Not yet on the schedule.", deals: deals.filter((d) => d.progress.step < 0) },
   ].filter((g) => g.deals.length > 0);
   const owed = deals.flatMap((d) => d.unpaid_invoices);
   const owedCents = [...new Map(owed.map((i) => [i.id, i])).values()].reduce((s, i) => s + i.total_cents, 0);
@@ -488,7 +488,8 @@ function DealCard({ deal }: { deal: PortalDeal }) {
           <div className="text-faint">Your order</div>
           <div className="text-strong font-semibold text-sm mt-0.5">{bbl(deal.booked_bbl)} booked</div>
           <div className="text-muted mt-0.5">
-            {deal.received_on ? `Committed ${shortDate(deal.received_on)}` : "Committed"}
+            {/* Only a paid deposit commits anyone to anything; until then it is what they asked for. */}
+            {deal.deposit?.status === "paid" ? "Committed" : "Requested"}{deal.received_on ? ` ${shortDate(deal.received_on)}` : ""}
             {deal.desired_delivery_date ? ` · wanted by ${shortDate(deal.desired_delivery_date)}` : ""}
           </div>
           {deal.has_batch && deal.booked_bbl - deal.expected_bbl > 0.05 && (
