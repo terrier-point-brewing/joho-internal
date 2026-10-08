@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchSellThrough } from "@/lib/square/sell-through";
-import { aggregateShrinkage, type SwapShrinkageRow } from "@/lib/reports/draftShrinkage";
 import { swapReserveFlOz, tapBblOnHand } from "@/lib/reports/draftTapMetrics";
 import { allTapBookingGaps, type TapBookingInput } from "@/lib/reports/draftBookingGap";
 import { apiError } from "@/lib/utils/api";
@@ -18,13 +17,11 @@ interface QueuedSwap {
   opened_at: string;
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const supabase = await createSupabaseServerClient();
   try {
-    const days = Math.min(parseInt(new URL(req.url).searchParams.get("days") ?? "90"), 365);
-
     // Fetch tap config, sell-through data (draft only), swap-keg cold storage, and
-    // retired settings in parallel. Shrinkage rows are read afterward.
+    // retired settings in parallel.
     const [tapCfgRes, tapCountRes, draftSellThrough, coldStorageRes, settingsRes, queuedSwapRes] = await Promise.all([
       supabase
         .from("tap_assignments")
@@ -117,7 +114,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (draftSellThrough.length === 0) {
-      return NextResponse.json({ tap_count: tapCount, taps: emptyTaps, shrinkage_by_recipe: [], booking_gaps: [] });
+      return NextResponse.json({ tap_count: tapCount, taps: emptyTaps, booking_gaps: [] });
     }
 
     // Aggregate draft-on-tap per-recipe (multiple draft links possible, though rare).
@@ -139,22 +136,6 @@ export async function GET(req: NextRequest) {
         entry.daily_fl_oz   += dFlOz;
       }
     }
-
-    // Deterministic shrinkage: read persisted per-keg rows for the window.
-    // `cause` comes along so beer-change dumps can be held out of the average.
-    const shrinkageStart = new Date(Date.now() - days * 86400000).toISOString();
-    const { data: shrinkRows } = await supabase
-      .from("draft_swap_shrinkage")
-      .select("recipe_id, occurred_at, unaccounted_fl_oz, full_fl_oz, cause")
-      .gte("occurred_at", shrinkageStart);
-
-    const beerNameByRecipe = new Map<string, string>(
-      [...byRecipe.entries()].map(([id, v]) => [id, v.beer_name]),
-    );
-    const shrinkageByRecipe = aggregateShrinkage(
-      (shrinkRows ?? []) as SwapShrinkageRow[],
-      beerNameByRecipe,
-    );
 
     const enrichedTaps = Array.from({ length: tapCount }, (_, i) => {
       const tap      = taps.find((t) => t.tap_number === i + 1) as
@@ -259,7 +240,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       tap_count:           tapCount,
       taps:                enrichedTaps,
-      shrinkage_by_recipe: shrinkageByRecipe,
       booking_gaps:        bookingGaps,
     });
   } catch (err) {
