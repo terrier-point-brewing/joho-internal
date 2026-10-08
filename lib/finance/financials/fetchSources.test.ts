@@ -11,6 +11,7 @@ interface ExpensesRow {
   chart_of_accounts_id: string | null;
   amount_cents: number | null;
   accounting_date: string;
+  settled_at?: string | null;
   mapping_source: string | null;
   state: string | null;
 }
@@ -45,6 +46,7 @@ function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[]; matches
   const splitsQueryCalls: { table: string; inArgs?: [string, unknown[]] }[] = [];
   const matchesQueryCalls: { table: string; inArgs?: [string, unknown[]] }[] = [];
   const periodsQueryCalls: { table: string; inArgs?: [string, unknown[]] }[] = [];
+  const expensesOrCalls: string[] = [];
 
   const client = {
     from(table: string) {
@@ -54,7 +56,10 @@ function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[]; matches
           lte: () => chain,
           gte: () => chain,
           eq: () => chain,
-          or: () => chain,
+          or: (filters: string) => {
+            expensesOrCalls.push(filters);
+            return chain;
+          },
           filter: () => chain,
           is: () => chain,
           order: () => chain,
@@ -120,12 +125,33 @@ function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[]; matches
     },
   };
 
-  return { client: client as unknown as SupabaseClient, splitsQueryCalls, matchesQueryCalls, periodsQueryCalls };
+  return { client: client as unknown as SupabaseClient, splitsQueryCalls, matchesQueryCalls, periodsQueryCalls, expensesOrCalls };
 }
 
 const RANGE = { startDateStr: "2026-01-01", start: "2026-01-01T00:00:00Z", endDateStr: "2026-01-31", end: "2026-02-01T00:00:00Z" };
 
 describe("fetchExpenses", () => {
+  it("dates a paid bill by the day it was paid on the cash path, and by the day it was issued otherwise", async () => {
+    const expenses: ExpensesRow[] = [
+      { id: "card", chart_of_accounts_id: "coa-a", amount_cents: -1000, accounting_date: "2026-01-05", settled_at: null, mapping_source: "rule", state: "CLEARED" },
+      { id: "bill", chart_of_accounts_id: "coa-b", amount_cents: -669000, accounting_date: "2025-12-24", settled_at: "2026-01-04T12:44:50+00:00", mapping_source: "rule", state: "PAID" },
+    ];
+
+    const cash = await fetchExpenses(fakeClient({ expenses, splits: [] }).client, RANGE, true);
+    expect(cash.map((r) => [r.id, r.accountingDate])).toEqual([["card", "2026-01-05"], ["bill", "2026-01-04"]]);
+
+    const accrual = await fetchExpenses(fakeClient({ expenses, splits: [] }).client, RANGE, false);
+    expect(accrual.find((r) => r.id === "bill")!.accountingDate).toBe("2025-12-24");
+  });
+
+  it("windows the cash path on the paid date for settled rows and the accounting date for the rest", async () => {
+    const { client, expensesOrCalls } = fakeClient({ expenses: [], splits: [] });
+    await fetchExpenses(client, RANGE, true);
+    expect(expensesOrCalls).toContain(
+      "and(settled_at.is.null,accounting_date.lte.2026-01-31,accounting_date.gte.2026-01-01),and(settled_at.lt.2026-02-01T00:00:00Z,settled_at.gte.2026-01-01T00:00:00Z)",
+    );
+  });
+
   it("attaches splitLines only to expenses that have expense_gl_splits rows, in one batched query", async () => {
     const { client, splitsQueryCalls } = fakeClient({
       expenses: [
