@@ -11,7 +11,9 @@ import { fetchJson } from "../../production/hooks/queries";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
+import ButtonGroup from "@/app/components/ButtonGroup";
 import DraftStatsHelp from "./DraftStatsHelp";
+import DraftSellThroughByDay from "./DraftSellThroughByDay";
 import type { RecipeSquareLinkRow, AvailableInventoryLine, RecipePackagingVariation } from "../../production/types";
 import {
   type DraftUrgency,
@@ -124,6 +126,14 @@ interface SwapKegOption {
   quantity_on_hand: number | null;
 }
 
+type DraftView = "taps" | "by-day" | "shrinkage";
+
+const DRAFT_VIEWS: { key: DraftView; label: string }[] = [
+  { key: "taps",      label: "Taps" },
+  { key: "by-day",    label: "Sell-through by day" },
+  { key: "shrinkage", label: "Shrinkage" },
+];
+
 const RECIPE_COLORS = [
   "#f59e0b", "#60a5fa", "#34d399", "#f87171", "#a78bfa",
   "#fb923c", "#38bdf8", "#4ade80", "#e879f9", "#facc15",
@@ -233,6 +243,7 @@ export default function DraftStatsTab() {
   const canSetUpTaps = can(CAP.taproomPerformanceManage);
   const [showHelp, setShowHelp] = useState(false);
 
+  const [view, setView] = useState<DraftView>("taps");
   const [editingTaps, setEditingTaps] = useState(false);
   const [tapCountInput, setTapCountInput] = useState("");
   // No swap_volume_fl_oz here: the recount target is the chosen keg variation's
@@ -541,7 +552,7 @@ export default function DraftStatsTab() {
           <button onClick={() => refetch()} className="btn-secondary">
             Refresh
           </button>
-          {canSetUpTaps && (
+          {canSetUpTaps && view === "taps" && (
             <button onClick={editingTaps ? saveTaps : startEditTaps} disabled={saving} className="btn-primary">
               {saving ? "Saving…" : editingTaps ? "Save Taps" : "Configure Taps"}
             </button>
@@ -554,7 +565,14 @@ export default function DraftStatsTab() {
         </div>
       </div>
 
+      {/* Hidden mid-edit: switching views would strand a half-edited tap list. */}
+      {!editingTaps && (
+        <ButtonGroup tabs={DRAFT_VIEWS} activeKey={view} onSelect={setView} className="mb-5" />
+      )}
+
       {err && <p className="text-sm text-danger mb-3">{err}</p>}
+
+      {view === "by-day" && <DraftSellThroughByDay />}
 
       {/* ── Kegs that went on without a ring ──────────────────────────────────
           The amber accent box is the house caution pattern — there is no
@@ -568,7 +586,7 @@ export default function DraftStatsTab() {
           assigned tap is the one that goes missing. Named per tap, with the
           remedy, because "something is off" is not actionable at 4pm on a
           Friday. */}
-      {bookingGaps.length > 0 && (
+      {view === "taps" && bookingGaps.length > 0 && (
         <Banner tone="accent" className="mb-4">
           {/* Counted by TAP, not by finding — one tap can raise two (an unbooked
               keg AND no keg left to draw), and "6 taps" over five taps is the
@@ -672,7 +690,7 @@ export default function DraftStatsTab() {
       )}
 
       {/* ── Tap grid ── */}
-      {isPending ? (
+      {view !== "taps" ? null : isPending ? (
         <p className="text-faint text-sm py-10 text-center">Loading tap data from Square…</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-8">
@@ -940,7 +958,10 @@ export default function DraftStatsTab() {
       )}
 
       {/* ── Shrinkage section ── */}
-      {shrinkageItems.length > 0 && (
+      {view === "shrinkage" && isPending && (
+        <p className="text-faint text-sm py-10 text-center">Loading shrinkage…</p>
+      )}
+      {view === "shrinkage" && shrinkageItems.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -1126,12 +1147,12 @@ export default function DraftStatsTab() {
 
       {showHelp && <DraftStatsHelp onClose={() => setShowHelp(false)} canSetUpTaps={canSetUpTaps} />}
 
-      {shrinkageItems.length === 0 && !isPending && !err && (
+      {view === "shrinkage" && shrinkageItems.length === 0 && !isPending && !err && (
         <div className="py-8 text-center">
           <p className="text-faint text-sm">
             {draftRecipeIds.size === 0
               ? "No draft items linked to Square yet. Visit Square Mappings in Settings to link recipes."
-              : "No shrinkage data found for the selected period."}
+              : `No keg replacements recorded in the last ${shrinkageDays} days.`}
           </p>
         </div>
       )}
