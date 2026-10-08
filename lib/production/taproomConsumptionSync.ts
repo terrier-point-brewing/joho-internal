@@ -280,6 +280,12 @@ async function recordedByRef(supabase: SupabaseClient, refs: string[]): Promise<
  * runs. Whichever run's update matches `consumed_source_ref IS NULL` owns the
  * outgoing side; the rest get zero rows back and do nothing.
  *
+ * A swap queued onto the SAME beer is a keg-size change, not a beer change: the
+ * keg that came off blew in the ordinary way. It still needs this path — only
+ * the frozen note knows the outgoing keg's size once the tap has flipped — but
+ * it is booked like a plain restock: shrinkage as `keg_emptied`, nothing zeroed
+ * (the recount that follows writes the same SKU), retirement left as it was.
+ *
  * Returns `overdraftFlOz` — pour volume recorded beyond what the outgoing keg
  * could hold, which belongs to the INCOMING keg (see `splitKegBalance`) and so
  * has to come off its recount target. Zero whenever the balance couldn't be read.
@@ -291,9 +297,11 @@ async function consumeSwapTransition(
   occurredAt: string,
   pourVarsByRecipe: Map<string, PourVar[]>,
   lastRestockAt: string | null,
+  physicallyMoved: boolean,
 ): Promise<{ claimed: boolean; overdraftFlOz: number; discrepancies: SyncDiscrepancy[] }> {
   const discrepancies: SyncDiscrepancy[] = [];
   const nowIso = new Date().toISOString();
+  const sameBeer = swap.fromRecipeId === swap.toRecipeId;
 
   const { data: claimedRows, error: claimErr } = await supabase
     .from("tap_swap_transitions")
@@ -318,32 +326,43 @@ async function consumeSwapTransition(
 
   // Tapping a beer is an unambiguous statement that it's active. Leaving
   // is_retired set would make the batch scheduler refuse to brew more of a beer
-  // that's actively pouring — a silent stockout.
-  const { error: unretireErr } = await supabase
-    .from("taproom_recipe_settings")
-    .upsert(buildRetirePayload(swap.toRecipeId, false, nowIso), { onConflict: "recipe_id" });
-  if (unretireErr) throw new Error(`un-retire failed: ${unretireErr.message}`);
+  // that's actively pouring — a silent stockout. Not on a keg-size change: the
+  // beer was already pouring, and a retired beer running out its last kegs on a
+  // different size must stay retired.
+  if (!sameBeer) {
+    const { error: unretireErr } = await supabase
+      .from("taproom_recipe_settings")
+      .upsert(buildRetirePayload(swap.toRecipeId, false, nowIso), { onConflict: "recipe_id" });
+    if (unretireErr) throw new Error(`un-retire failed: ${unretireErr.message}`);
+  }
 
   // Filling a previously empty tap — no keg came off, nothing to write off.
   if (!swap.fromRecipeId) return { claimed: true, overdraftFlOz: 0, discrepancies };
 
-  // Run AFTER the flip so this tap doesn't count itself.
-  const { data: otherTaps, error: otherErr } = await supabase
-    .from("tap_assignments")
-    .select("tap_number")
-    .eq("recipe_id", swap.fromRecipeId);
-  if (otherErr) throw new Error(`multi-tap check failed: ${otherErr.message}`);
-  if ((otherTaps ?? []).length > 0) {
-    discrepancies.push({
-      kind: "multi_tap_outgoing_skipped",
-      tapNumber: swap.tapNumber,
-      recipeId: swap.fromRecipeId,
-      beerName: swap.fromBeerName,
-    });
-    return { claimed: true, overdraftFlOz: 0, discrepancies };
+  // Run AFTER the flip so this tap doesn't count itself. Skipped on a keg-size
+  // change, where this tap still pours the "outgoing" beer and would always
+  // count itself — and where nothing is zeroed for the check to protect.
+  if (!sameBeer) {
+    const { data: otherTaps, error: otherErr } = await supabase
+      .from("tap_assignments")
+      .select("tap_number")
+      .eq("recipe_id", swap.fromRecipeId);
+    if (otherErr) throw new Error(`multi-tap check failed: ${otherErr.message}`);
+    if ((otherTaps ?? []).length > 0) {
+      discrepancies.push({
+        kind: "multi_tap_outgoing_skipped",
+        tapNumber: swap.tapNumber,
+        recipeId: swap.fromRecipeId,
+        beerName: swap.fromBeerName,
+      });
+      return { claimed: true, overdraftFlOz: 0, discrepancies };
+    }
   }
 
   if (!swap.fromDraftSquareVariationId) {
+    // A plain restock of a beer with no draft link measures nothing and says
+    // nothing; a keg-size change is the same event.
+    if (sameBeer) return { claimed: true, overdraftFlOz: 0, discrepancies };
     discrepancies.push({
       kind: "shrinkage_capture_failed",
       sourceRef,
@@ -384,18 +403,22 @@ async function consumeSwapTransition(
           overdraftFlOz: balance.overdraftFlOz,
         });
       }
-      const { error } = await supabase.from("draft_swap_shrinkage").upsert({
-        source_ref:        sourceRef,
-        recipe_id:         swap.fromRecipeId,
-        tap_number:        swap.tapNumber,
-        occurred_at:       occurredAt,
-        unaccounted_fl_oz: balance.unaccountedFlOz,
-        full_fl_oz:        swap.fromVolumeFlOz ?? 0,
-        cause:             "beer_change",
-      }, { onConflict: "source_ref" });
-      if (error) throw new Error(error.message);
+      // Same gate as a plain restock for a keg-size change: a phantom-only ring
+      // never touched a keg, so there is no keg to attribute a loss to.
+      if (!sameBeer || physicallyMoved) {
+        const { error } = await supabase.from("draft_swap_shrinkage").upsert({
+          source_ref:        sourceRef,
+          recipe_id:         swap.fromRecipeId,
+          tap_number:        swap.tapNumber,
+          occurred_at:       occurredAt,
+          unaccounted_fl_oz: balance.unaccountedFlOz,
+          full_fl_oz:        swap.fromVolumeFlOz ?? 0,
+          cause:             sameBeer ? "keg_emptied" : "beer_change",
+        }, { onConflict: "source_ref" });
+        if (error) throw new Error(error.message);
+      }
     }
-    await setPhysicalCount(swap.fromDraftSquareVariationId, 0, occurredAt);
+    if (!sameBeer) await setPhysicalCount(swap.fromDraftSquareVariationId, 0, occurredAt);
   } catch (e) {
     discrepancies.push({
       kind: "shrinkage_capture_failed",
@@ -532,6 +555,7 @@ export async function runTaproomConsumptionSync(
         restockAt,
         pourVarsByRecipe,
         lastRestockAt,
+        res.recordedQty > EPS,
       );
       if (outcome.claimed) swapsConsumed++;
       // On a beer change the overdraft is measured against the OUTGOING keg —

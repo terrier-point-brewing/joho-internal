@@ -72,6 +72,7 @@ const EXPECTED: Record<keyof typeof CAP, { scope: ScopeKey; level: Level }> = {
 
   taproomPerformanceRead: { scope: "taproom.performance", level: "read" }, // no route
   taproomPerformanceOperate: { scope: "taproom.performance", level: "operate" },
+  taproomPerformanceManage: { scope: "taproom.performance", level: "manage" },
   targetsRead: { scope: "taproom.targets", level: "read" }, // no route
   targetsEdit: { scope: "taproom.targets", level: "manage" },
 

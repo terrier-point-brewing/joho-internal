@@ -402,6 +402,32 @@ describe("assembleConsumption — queued swap transitions", () => {
     expect(discrepancies).toHaveLength(0);
   });
 
+  it("books a queued swap onto an EMPTY tap instead of calling the ring unmapped", () => {
+    // The tap row has no beer yet — the queued note is the only thing that
+    // knows what went on. This is the first keg, the one that goes missing.
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink({ recipeId: null, beerName: "", swapVariationId: null, swapVolumeFlOz: null })],
+      pendingSwaps: [pendingSwap({ fromRecipeId: null, fromBeerName: null, fromVariationId: null, fromVolumeFlOz: null, fromDraftSquareVariationId: null })],
+    });
+    expect(discrepancies).toHaveLength(0);
+    expect(units).toHaveLength(1);
+    expect(units[0]).toMatchObject({ recipeId: "recipe-2", variationId: "pv-keg-2", tapNumber: 3 });
+  });
+
+  it("still calls a ring on an empty tap unmapped when nothing is queued", () => {
+    const { units, discrepancies } = assembleConsumption({
+      ...empty(),
+      draftLinks: [draftLink],
+      restockEvents: [restockEvent()],
+      tapRestockLinks: [tapLink({ recipeId: null, beerName: "" })],
+    });
+    expect(units).toHaveLength(0);
+    expect(discrepancies).toEqual([{ kind: "unmapped_restock", squareVariationId: "restock-tap3", count: 1 }]);
+  });
+
   it("flags a stale unpaired swap when nowIso is supplied", () => {
     const { discrepancies } = assembleConsumption({
       ...empty(),
