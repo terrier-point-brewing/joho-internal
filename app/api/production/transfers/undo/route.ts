@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // Undo for floorplan moves and packaging runs. The restore itself — and every
 // rule about when it is still safe — lives in undo_transfer_action
-// (20261204090000_batch_transfer_actions_undo); this route only lists the
+// (20261205090000_batch_transfer_actions_undo); this route only lists the
 // candidates and relays the database's answer.
 
 /** How far back the floorplan offers Undo. The guards, not this, decide safety. */

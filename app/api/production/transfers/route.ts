@@ -1004,7 +1004,7 @@ export async function POST(req: NextRequest) {
   // ── Undo snapshot ──────────────────────────────────────────────────────────
   // A plain move or packaging run can be undone from the floorplan, which works
   // by restoring the batch's schedule/tanks/status to how they stood right here
-  // (see 20261204090000_batch_transfer_actions_undo). Conversions are excluded:
+  // (see 20261205090000_batch_transfer_actions_undo). Conversions are excluded:
   // they birth batches, allocations and deposits that no snapshot of one batch
   // covers. Best-effort — a failed snapshot only means this action has no Undo.
   const undoable = !packagedAs && (transfer_type === "transfer" || isPackagingRun);
