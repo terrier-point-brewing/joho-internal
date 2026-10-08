@@ -21,6 +21,7 @@ export const dynamic = "force-dynamic";
 interface TapAssignmentSnapshot {
   recipe_id: string | null;
   swap_variation_id: string | null;
+  restock_variation_id: string | null;
   // Joined from the outgoing keg's variation. The transition row below then
   // snapshots it as `from_volume_fl_oz` — a journal keeps its own copy on
   // purpose; the tap config it came from does not.
@@ -108,11 +109,31 @@ export async function POST(req: NextRequest) {
 
     const { data: tapRow, error: tapErr } = await supabase
       .from("tap_assignments")
-      .select("recipe_id, swap_variation_id, packaging_variations(total_volume_fl_oz)")
+      .select("recipe_id, swap_variation_id, restock_variation_id, packaging_variations(total_volume_fl_oz)")
       .eq("tap_number", tap_number)
       .maybeSingle();
     if (tapErr) return apiError(tapErr);
-    const outgoing = (tapRow ?? { recipe_id: null, swap_variation_id: null, packaging_variations: null }) as unknown as TapAssignmentSnapshot;
+    const outgoing = (tapRow ?? null) as unknown as TapAssignmentSnapshot | null;
+
+    // A queued swap only ever lands when Draft Restock is rung for this tap. With
+    // no restock line mapped there is no ring that could consume it, so it would
+    // sit queued forever — and mapping that line is tap setup, not this route.
+    if (!outgoing?.restock_variation_id) {
+      return NextResponse.json(
+        { error: `Tap ${tap_number} has no Draft Restock line set up, so nothing can be queued on it yet. Ask an admin to finish the tap's setup.` },
+        { status: 400 },
+      );
+    }
+
+    // Same beer on a different keg is a keg-size change. Same beer on the same
+    // keg is just the next restock — there is nothing to queue.
+    const sameBeer = outgoing.recipe_id === to_recipe_id;
+    if (sameBeer && outgoing.swap_variation_id === to_variation_id) {
+      return NextResponse.json(
+        { error: "That beer and keg size are already on this tap. Just ring Draft Restock when the next keg goes on." },
+        { status: 400 },
+      );
+    }
 
     const [fromDraftSku, toDraftSku] = await Promise.all([
       draftSquareVariationId(supabase, outgoing.recipe_id),
@@ -130,7 +151,8 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
       alreadyRetired = Boolean(settings?.is_retired);
     }
-    const retireOutgoing = Boolean(body.retire_outgoing) && !!outgoing.recipe_id && !alreadyRetired;
+    // Never on a keg-size change — the "outgoing" beer is the one staying on.
+    const retireOutgoing = Boolean(body.retire_outgoing) && !!outgoing.recipe_id && !alreadyRetired && !sameBeer;
 
     const { data: inserted, error: insertErr } = await supabase
       .from("tap_swap_transitions")

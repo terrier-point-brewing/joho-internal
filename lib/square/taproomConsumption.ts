@@ -410,14 +410,18 @@ export function assembleConsumption(input: {
   const unmappedRestock = new Map<string, number>();
   for (const ev of restockEvents) {
     const link = linkByRestockVar.get(ev.squareVariationId);
-    if (!link || !link.recipeId) {
+    const swap = pairedSwaps.get(restockEventKey(ev.orderId, ev.lineUid));
+    // An empty tap is only "unmapped" when nothing is queued for it. A queued
+    // swap is how a beer goes onto an empty tap, and its frozen note carries the
+    // whole incoming side — skipping it here left that first keg unbooked.
+    const tapRecipeId = swap ? swap.toRecipeId : link?.recipeId;
+    if (!link || !tapRecipeId) {
       unmappedRestock.set(ev.squareVariationId, (unmappedRestock.get(ev.squareVariationId) ?? 0) + 1);
       continue;
     }
-    const swap = pairedSwaps.get(restockEventKey(ev.orderId, ev.lineUid));
 
     // Resolved swap target: the transition when one is paired, else the tap row.
-    const recipeId = swap ? swap.toRecipeId : link.recipeId;
+    const recipeId = tapRecipeId;
     const beerName = swap ? swap.toBeerName : link.beerName;
     const variationId = swap ? swap.toVariationId : link.swapVariationId;
     const volumeFlOz = swap ? swap.toVolumeFlOz : link.swapVolumeFlOz;

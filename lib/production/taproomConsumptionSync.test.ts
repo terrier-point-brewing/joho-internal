@@ -952,6 +952,45 @@ describe("runTaproomConsumptionSync — queued swap transitions", () => {
     expect(sink.flips).toHaveLength(1);
   });
 
+  // A swap queued onto the SAME beer is a keg-size change (a 1/2 bbl coming off,
+  // a 1/6 going on). The keg blew normally, so it books like a plain restock —
+  // but measured against the OUTGOING keg's size, which only the note still has.
+  const sizeChange = { fromRecipeId: "r-new", fromBeerName: "New", fromDraftSquareVariationId: "draft-sqvar-new" };
+
+  it("books a keg-size change as an ordinary emptied keg, measured at the outgoing size", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit(sizeChange)], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-new", 40]]));
+
+    // The beer is still on this tap after the flip — it must not read as
+    // "outgoing beer on another tap".
+    const res = await runTaproomConsumptionSync(
+      fakeSupabaseSwaps([], sink, { otherTapsWithOutgoing: 1 }),
+      { days: 2 },
+    );
+
+    expect(res.discrepancies).toEqual([]);
+    expect(sink.shrinkage).toEqual([expect.objectContaining({
+      recipe_id: "r-new", unaccounted_fl_oz: 40, full_fl_oz: 1984, cause: "keg_emptied",
+    })]);
+    expect(sink.flips[0]).toMatchObject({ recipe_id: "r-new", swap_variation_id: "pv-new" });
+  });
+
+  it("never zeroes the SKU or touches retirement on a keg-size change", async () => {
+    const sink = emptySwapSink();
+    derive.mockResolvedValue({ units: [transitionUnit(sizeChange)], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["e"], breaks: [], warnings: [] });
+    fetchCounts.mockResolvedValue(new Map([["draft-sqvar-new", 40]]));
+
+    await runTaproomConsumptionSync(fakeSupabaseSwaps([], sink), { days: 2 });
+
+    // One write to the SKU: the recount to the NEW keg's full volume.
+    expect(recount).toHaveBeenCalledTimes(1);
+    expect(recount).toHaveBeenCalledWith("draft-sqvar-new", 661, "2026-07-04T20:00:00Z");
+    expect(sink.retires).toEqual([]);
+  });
+
   it("flags the outgoing recipe having no draft Square link", async () => {
     const sink = emptySwapSink();
     derive.mockResolvedValue({

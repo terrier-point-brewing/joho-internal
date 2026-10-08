@@ -76,6 +76,9 @@ export const CAP = {
 
   taproomPerformanceRead: { scope: "taproom.performance", level: "read" },
   taproomPerformanceOperate: { scope: "taproom.performance", level: "operate" },
+  // Tap SETUP — tap count, the Draft Restock item and its per-tap lines. Above
+  // what a taproom manager holds: a wrong mapping silently stops kegs booking.
+  taproomPerformanceManage: { scope: "taproom.performance", level: "manage" },
   targetsRead: { scope: "taproom.targets", level: "read" },
   targetsEdit: { scope: "taproom.targets", level: "manage" },
 
