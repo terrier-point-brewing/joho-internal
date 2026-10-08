@@ -9,6 +9,7 @@ import { EQ, EQ_TYPES } from "../equipmentMeta";
 import { GRID_CELL_PX as CELL, GRID_COLS, GRID_ROWS, GRID_GAP_PX as GAP } from "@/lib/constants/production";
 import { fmtDate } from "@/lib/utils/formatting";
 import TransferModal from "./TransferModal";
+import UndoTransferActions from "./UndoTransferActions";
 import NextPlannedBox from "./FloorplanTile/NextPlannedBox";
 import IngredientShortfallModal from "./IngredientShortfallModal";
 import type { IngredientShortfall } from "@/lib/production/commitments";
@@ -72,6 +73,7 @@ export default function BrewStatusTab() {
   const qc = useQueryClient();
   const { can } = usePermissions();
   const canEditEquipment = can(CAP.equipmentManage);
+  const canOperate = can(CAP.brewingOperate);
   const { data: tanks = [] } = useEquipmentQuery();
   const { data: assignments = [] } = useAssignmentsQuery();
   const { data: batches = [] } = useBatchesQuery();
@@ -439,6 +441,7 @@ export default function BrewStatusTab() {
         >
           + New Batch
         </button>
+        {canOperate && <div className="md:hidden"><UndoTransferActions onUndone={onRefresh} /></div>}
 
         {/* Desktop: legend (left) + Edit Layout controls (right), same row */}
         <div className="hidden md:flex items-center justify-between w-full gap-2">
@@ -449,20 +452,23 @@ export default function BrewStatusTab() {
               </span>
             ))}
           </div>
-          {canEditEquipment && (
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => setEditMode((v) => !v)}
-                aria-pressed={editMode}
-                className="btn-secondary"
-              >
-                {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
-              </button>
-              {editMode && (
-                <button onClick={eqCrud.openNew} className="btn-primary">+ Add Equipment</button>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {canOperate && <UndoTransferActions onUndone={onRefresh} />}
+            {canEditEquipment && (
+              <>
+                <button
+                  onClick={() => setEditMode((v) => !v)}
+                  aria-pressed={editMode}
+                  className="btn-secondary"
+                >
+                  {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
+                </button>
+                {editMode && (
+                  <button onClick={eqCrud.openNew} className="btn-primary">+ Add Equipment</button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 

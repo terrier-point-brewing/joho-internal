@@ -710,6 +710,34 @@ async function reconcileSchedule(
   return scheduleUpdate;
 }
 
+/** The one-line label the floorplan's Undo list shows for an action. */
+async function describeTransferAction(
+  supabase: SupabaseClient,
+  a: {
+    batchId: string; transferType: string; fromTankId: string | null; toTankId: string | null;
+    lines: { volume_bbl: number; variation_id: string | null; quantity: number | null }[];
+  },
+): Promise<string> {
+  const { data: batch } = await supabase
+    .from("brew_batches").select("batch_number, recipe:recipe_id(beer_name)").eq("id", a.batchId).maybeSingle();
+  const b = batch as { batch_number: string | null; recipe: { beer_name: string | null } | null } | null;
+  const batchLabel = [b?.recipe?.beer_name, b?.batch_number].filter(Boolean).join(" ") || "batch";
+
+  if (a.transferType === "kegging" || a.transferType === "canning") {
+    const ids = a.lines.map((l) => l.variation_id).filter((id): id is string => !!id);
+    const { data: variations } = await supabase.from("packaging_variations").select("id, name").in("id", ids);
+    const nameById = new Map((variations ?? []).map((v) => [v.id as string, v.name as string]));
+    const parts = a.lines.map((l) => `${l.quantity} × ${nameById.get(l.variation_id ?? "") ?? "units"}`);
+    return `${a.transferType === "kegging" ? "Kegged" : "Canned"} ${parts.join(", ")} — ${batchLabel}`;
+  }
+
+  const tankIds = [a.fromTankId, a.toTankId].filter((id): id is string => !!id);
+  const { data: tanks } = await supabase.from("equipment").select("id, name").in("id", tankIds);
+  const tankName = (id: string | null) => (tanks ?? []).find((t) => t.id === id)?.name ?? "—";
+  const volume = Math.round(a.lines.reduce((s, l) => s + l.volume_bbl, 0) * 100) / 100;
+  return `Moved ${volume} bbl ${tankName(a.fromTankId)} → ${tankName(a.toTankId)} — ${batchLabel}`;
+}
+
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
 
@@ -972,6 +1000,21 @@ export async function POST(req: NextRequest) {
   const transfers: Record<string, unknown>[] = [];
   const allScheduleUpdates: ScheduleUpdateEntry[] = [];
   const coldStorageErrors: string[] = [];
+
+  // ── Undo snapshot ──────────────────────────────────────────────────────────
+  // A plain move or packaging run can be undone from the floorplan, which works
+  // by restoring the batch's schedule/tanks/status to how they stood right here
+  // (see 20261204090000_batch_transfer_actions_undo). Conversions are excluded:
+  // they birth batches, allocations and deposits that no snapshot of one batch
+  // covers. Best-effort — a failed snapshot only means this action has no Undo.
+  const undoable = !packagedAs && (transfer_type === "transfer" || isPackagingRun);
+  let undoActionId: string | null = null;
+  if (undoable) {
+    const { data: actionId, error: actionErr } = await supabase
+      .rpc("begin_transfer_action", { p_batch_id: batch_id, p_created_by: currentUser?.id ?? null });
+    if (actionErr) console.error("[transfers] Undo snapshot failed (action will not be undoable):", actionErr);
+    else undoActionId = actionId as string;
+  }
   // The batch the conversion delivered into (in-keg child, plan child, reused
   // child, or explicit target). Returned so the caller can hang follow-up
   // writes — allocations, deposit coverage — on the right batch without
@@ -1367,6 +1410,24 @@ export async function POST(req: NextRequest) {
       } catch (finalizeErr) {
         console.error("[transfers] Conversion finalize failed (transfer committed):", finalizeErr);
       }
+    }
+  }
+
+  // Close the undo snapshot. Skipped when cold storage failed: the books and the
+  // cold room already disagree, so there is nothing clean to restore to.
+  if (undoActionId && transfers.length > 0 && coldStorageErrors.length === 0) {
+    try {
+      const { error: commitErr } = await supabase.rpc("commit_transfer_action", {
+        p_action_id:     undoActionId,
+        p_transfer_ids:  transfers.map((t) => (t as { id: string }).id),
+        p_transfer_type: transfer_type,
+        p_summary:       await describeTransferAction(supabase, {
+          batchId: batch_id, transferType: transfer_type, fromTankId: from_tank_id, toTankId: to_tank_id, lines,
+        }),
+      });
+      if (commitErr) throw commitErr;
+    } catch (commitErr) {
+      console.error("[transfers] Undo snapshot commit failed (action will not be undoable):", commitErr);
     }
   }
 
