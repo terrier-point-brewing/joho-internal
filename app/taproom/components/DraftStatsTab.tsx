@@ -263,6 +263,9 @@ export default function DraftStatsTab() {
   // Queueing a swap records a frozen note of both sides and does NOT touch the tap
   // assignment — the Draft Restock ring is what books it and flips the card.
   const [swapTap, setSwapTap] = useState<number | null>(null);
+  // Two buttons, one queue. "beer" puts a different beer on (or the first beer
+  // on an empty tap); "size" keeps the beer and changes only its keg.
+  const [swapMode, setSwapMode] = useState<"beer" | "size">("beer");
   const [swapRecipeId, setSwapRecipeId] = useState("");
   const [swapKegId, setSwapKegId] = useState("");
   const [swapRetire, setSwapRetire] = useState(true);
@@ -443,13 +446,15 @@ export default function DraftStatsTab() {
   const swapKegPick = swapKegChoices.find((k) => k.variation_id === swapKegId);
   const swapKegVolume = swapKegPick ? codedVolumeFor(swapKegPick) : null;
 
-  function openSwap(tapNumber: number) {
+  function openSwap(tapNumber: number, mode: "beer" | "size") {
     // Same staleness trap as startEditTaps — "Beer going on" is the same draft
     // list, and a swap is exactly when a just-mapped seasonal gets picked.
     qc.invalidateQueries({ queryKey: queryKeys.production.recipeSquareLinks() });
     qc.invalidateQueries({ queryKey: queryKeys.production.recipePackagingVariations() });
     setSwapTap(tapNumber);
-    setSwapRecipeId("");
+    setSwapMode(mode);
+    // A keg-size change is the same beer by definition — nothing to pick.
+    setSwapRecipeId(mode === "size" ? (stats?.taps.find((t) => t.tap_number === tapNumber)?.recipe_id ?? "") : "");
     setSwapKegId("");
     setSwapRetire(true);
     setSwapError(null);
@@ -940,13 +945,26 @@ export default function DraftStatsTab() {
                         tap at critical is exactly the one wanting a swap queued. */}
                     {!tap.queued_swap && (
                       restockMappedTaps.has(tapNum) ? (
-                        <button onClick={() => openSwap(tapNum)} className="btn-secondary btn-xxs">
-                          {tap.recipe_id ? "Swap keg" : "Set beer"}
-                        </button>
+                        <>
+                          <button onClick={() => openSwap(tapNum, "beer")} className="btn-secondary btn-xxs">
+                            {tap.recipe_id ? "Swap beer" : "Set beer"}
+                          </button>
+                          {tap.recipe_id && (
+                            <button onClick={() => openSwap(tapNum, "size")} className="btn-secondary btn-xxs">
+                              Change keg size
+                            </button>
+                          )}
+                        </>
                       ) : (
                         // No Draft Restock line means no ring could ever book a
                         // queued change — setup, which is not this user's to do.
-                        <span className="text-2xs text-faint">Needs tap setup by an admin</span>
+                        canSetUpTaps ? (
+                          <button onClick={startEditTaps} className="btn-secondary btn-xxs">
+                            Map Draft Restock line
+                          </button>
+                        ) : (
+                          <span className="text-2xs text-faint">Needs tap setup by an admin</span>
+                        )
                       )
                     )}
                   </div>
@@ -1018,7 +1036,10 @@ export default function DraftStatsTab() {
 
       {/* ── Swap keg confirm ── */}
       {swapTap != null && (
-        <Modal title={`${swapSourceTap?.recipe_id ? "Swap keg" : "Set beer"} — Tap ${swapTap}`} onClose={closeSwap}>
+        <Modal
+          title={`${swapMode === "size" ? "Change keg size" : swapSourceTap?.recipe_id ? "Swap beer" : "Set beer"} — Tap ${swapTap}`}
+          onClose={closeSwap}
+        >
           <form onSubmit={submitSwap} className="space-y-4">
             <p className="text-xs text-muted leading-relaxed">
               This queues the change now and books it when a bartender rings{" "}
@@ -1028,24 +1049,34 @@ export default function DraftStatsTab() {
                 : "stays empty"}.
             </p>
 
-            <Field label="Beer going on" required>
-              <select
-                className="inp w-full"
-                value={swapRecipeId}
-                required
-                onChange={(e) => { setSwapRecipeId(e.target.value); setSwapKegId(""); }}
-              >
-                <option value="">— select beer —</option>
-                {draftRecipes.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.beer_name}
-                    {r.id === swapSourceTap?.recipe_id ? " (same beer — change keg size)" : ""}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {swapMode === "size" ? (
+              <Field label="Beer">
+                <p className="text-sm text-body">
+                  {swapSourceTap?.beer_name ?? "—"}
+                  <span className="text-xs text-muted">
+                    {" "}· currently {(kegOptionsByRecipe.get(swapRecipeId) ?? [])
+                      .find((k) => k.variation_id === swapSourceConfig?.swap_variation_id)?.variation_name ?? "no keg size set"}
+                  </span>
+                </p>
+              </Field>
+            ) : (
+              <Field label="Beer going on" required>
+                <select
+                  className="inp w-full"
+                  value={swapRecipeId}
+                  required
+                  onChange={(e) => { setSwapRecipeId(e.target.value); setSwapKegId(""); }}
+                >
+                  <option value="">— select beer —</option>
+                  {/* The beer already on is not a swap — that is Change keg size. */}
+                  {draftRecipes.filter((r) => r.id !== swapSourceTap?.recipe_id).map((r) => (
+                    <option key={r.id} value={r.id}>{r.beer_name}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
-            <Field label="Keg going on" required>
+            <Field label={swapMode === "size" ? "New keg size" : "Keg going on"} required>
               <select
                 className="inp w-full disabled:opacity-40"
                 value={swapKegId}
