@@ -4,12 +4,37 @@ import type { ReactNode } from "react";
 import { Modal } from "@/app/components/ui/Modal";
 import Banner from "@/app/components/ui/Banner";
 
-function Topic({ title, when, children }: { title: string; when: string; children: ReactNode }) {
+/** A button's name, drawn like the button so it can be matched to the card by eye. */
+function Btn({ children }: { children: ReactNode }) {
   return (
-    <section>
-      <h3 className="text-sm font-semibold text-strong">{title}</h3>
-      <p className="text-xs text-muted mt-0.5">{when}</p>
-      <div className="text-xs text-body leading-relaxed mt-1.5 space-y-1">{children}</div>
+    <span className="inline-block rounded border border-line-strong bg-surface px-1.5 py-0.5 text-xs font-medium text-strong whitespace-nowrap">
+      {children}
+    </span>
+  );
+}
+
+/** One action: the button, when to reach for it, then the steps. */
+function Action({
+  button,
+  when,
+  steps,
+  note,
+}: {
+  button: string;
+  when: string;
+  steps: ReactNode[];
+  note?: ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-line bg-surface/40 p-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Btn>{button}</Btn>
+        <p className="text-sm font-medium text-strong">{when}</p>
+      </div>
+      <ol className="mt-3 ml-5 list-decimal space-y-1.5 text-sm text-body leading-relaxed marker:text-faint">
+        {steps.map((step, i) => <li key={i}>{step}</li>)}
+      </ol>
+      {note && <p className="mt-3 text-xs text-muted leading-relaxed">{note}</p>}
     </section>
   );
 }
@@ -17,7 +42,7 @@ function Topic({ title, when, children }: { title: string; when: string; childre
 /**
  * How-to for the tap cards. Written for whoever is running the taproom that
  * day, so it names the button, when to press it, and what to do in Square —
- * not how the booking works underneath.
+ * not how the booking works underneath. One card per button, steps only.
  */
 export default function DraftStatsHelp({
   onClose,
@@ -28,86 +53,82 @@ export default function DraftStatsHelp({
 }) {
   return (
     <Modal title="How to use Draft Stats" onClose={onClose} wide>
-      <div className="space-y-5">
+      <div className="space-y-3">
         <Banner tone="info">
-          Nothing here moves a keg by itself. Every change is <span className="font-medium">queued</span> and
-          takes effect the next time <span className="font-medium">Draft Restock</span> is rung for that tap in
-          Square. Ring it every time a keg goes on, including the first.
+          <p className="font-semibold">Nothing changes until Draft Restock is rung.</p>
+          <p className="mt-1">
+            Every button below only queues a change. It takes effect the next time Draft Restock is rung for that
+            tap in Square — so ring it every time a keg goes on.
+          </p>
         </Banner>
 
-        <Topic
-          title="Mark Retired"
-          when="Use when we don't plan to keep brewing this beer or have it on tap for the foreseeable future."
-        >
-          <p>
-            It stops the beer being suggested for brewing. The tap keeps pouring and counting down as normal, and
-            only greys out once the keg is nearly empty.
-          </p>
-          <p>
-            Changed your mind? Press <span className="font-medium">Unretire</span>. Putting the beer back on a tap
-            un-retires it automatically.
-          </p>
-        </Topic>
+        <Action
+          button="Mark Retired"
+          when="We're done brewing this beer for now"
+          steps={[
+            <>Press <Btn>Mark Retired</Btn> on the tap.</>,
+            "The tap keeps pouring. The beer just stops being suggested for brewing.",
+          ]}
+          note={<>Undo with <Btn>Unretire</Btn>. Putting the beer back on a tap also un-retires it.</>}
+        />
 
-        <Topic
-          title="Swap keg — a different beer"
-          when="Use to line up the next beer for a tap that is pouring something else."
-        >
-          <ol className="ml-4 list-decimal space-y-1">
-            <li>Press <span className="font-medium">Swap keg</span> on the tap, pick the beer going on and its keg size.</li>
-            <li>The card shows it as queued. The tap keeps showing the current beer until the keg is changed.</li>
-            <li>When the new keg goes on, ring <span className="font-medium">Draft Restock</span> for that tap in Square.</li>
-            <li>
-              <span className="font-medium">Rename that tap&rsquo;s Draft Restock line in Square</span> so it shows
-              the new beer.
-            </li>
-          </ol>
-          <p>
-            Whatever is left in the old keg is written off as shrinkage when the restock is rung. You can retire the
-            old beer in the same step.
-          </p>
-        </Topic>
+        <Action
+          button="Swap beer"
+          when="A different beer is going on this tap"
+          steps={[
+            <>Press <Btn>Swap beer</Btn>, then pick the new beer and its keg size.</>,
+            "Change the keg.",
+            <>Ring <span className="font-medium">Draft Restock</span> for that tap in Square.</>,
+            <><span className="font-medium">Rename that tap&rsquo;s Draft Restock line in Square</span> to the new beer.</>,
+          ]}
+          note="Until the restock is rung the card still shows the old beer. What's left in the old keg is written off then."
+        />
 
-        <Topic
-          title="Swap keg — same beer, different keg size"
-          when="Use when the next keg of the same beer is a different size, e.g. a 1/2 barrel after a 1/6."
-        >
-          <p>
-            Press <span className="font-medium">Swap keg</span>, pick the <span className="font-medium">same beer</span>,
-            then the new keg size. The next Draft Restock ring pulls that size from cold storage and refills the tap
-            to it. Each card shows the keg size it is currently set to.
-          </p>
-        </Topic>
+        <Action
+          button="Change keg size"
+          when="Same beer, but the next keg is a different size"
+          steps={[
+            <>Press <Btn>Change keg size</Btn> and pick the new size.</>,
+            "Change the keg.",
+            <>Ring <span className="font-medium">Draft Restock</span> for that tap in Square.</>,
+          ]}
+          note="Each card shows the keg size the tap is set to right now."
+        />
 
-        <Topic
-          title="Set beer — an empty tap"
-          when="Use to put a beer on a tap that has nothing on it."
-        >
-          <p>
-            Press <span className="font-medium">Set beer</span>, pick the beer and keg size, then ring Draft Restock
-            for that tap when the keg goes on. The tap stays empty on screen until it is rung.
-          </p>
-        </Topic>
+        <Action
+          button="Set beer"
+          when="Putting a beer on an empty tap"
+          steps={[
+            <>Press <Btn>Set beer</Btn>, then pick the beer and its keg size.</>,
+            "Put the keg on.",
+            <>Ring <span className="font-medium">Draft Restock</span> for that tap in Square.</>,
+          ]}
+          note="The tap shows as empty until the restock is rung."
+        />
 
-        <Topic title="Changed your mind?" when="Before the restock is rung.">
-          <p>
-            Press <span className="font-medium">Cancel</span> next to the queued beer on the card. Nothing has moved
-            yet, so there is nothing to undo.
-          </p>
-        </Topic>
+        <Action
+          button="Cancel"
+          when="Queued the wrong thing"
+          steps={[
+            <>Press <Btn>Cancel</Btn> next to the queued beer on the card.</>,
+          ]}
+          note="Only works before the restock is rung. Nothing has moved yet, so there is nothing else to undo."
+        />
 
-        <Topic
-          title="Tap setup"
-          when={canSetUpTaps ? "Configure Taps — admin only." : "Needs an admin."}
-        >
-          <p>
-            The number of taps, the Draft Restock item and which Square line belongs to which tap. Getting these
-            wrong stops kegs being booked, so they are kept out of day-to-day use.
-            {!canSetUpTaps && " If a tap says it needs setup, ask an admin."}
+        <section className="rounded-lg border border-dashed border-line-strong p-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Btn>Configure Taps</Btn>
+            <p className="text-sm font-medium text-strong">Admin only</p>
+          </div>
+          <p className="mt-2 text-sm text-body leading-relaxed">
+            Number of taps and which Square Draft Restock line belongs to which tap.
+            {canSetUpTaps
+              ? " A wrong setting here stops kegs being booked."
+              : " If a card says it needs tap setup, ask an admin."}
           </p>
-        </Topic>
+        </section>
 
-        <div className="flex justify-end pt-2 border-t border-line">
+        <div className="flex justify-end pt-1">
           <button type="button" onClick={onClose} className="btn-primary">Got it</button>
         </div>
       </div>
