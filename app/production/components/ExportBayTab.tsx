@@ -1385,7 +1385,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
     lines?: { variation_id: string; requested: number; available: number; insufficient: boolean }[];
     unpaidDepositBatches?: { batchId: string; batchNumber: string | null; allocationId: string }[];
     noCommitment?: boolean;
-    over?: { bbl: number; targetAllocationId: string | null; homes: HomesForBatch; auto?: { label: string; bbl: number }[] | null } | null;
+    over?: { bbl: number; shortBbl?: number; targetAllocationId: string | null; homes: HomesForBatch; auto?: { label: string; bbl: number }[] | null } | null;
     book?: { bbl: number; homes: HomesForBatch | null; refusal: string | null } | null;
   } | null>(null);
   // Beer beyond the booking has to take its share from somewhere on the
@@ -1402,8 +1402,10 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   // the beer ships; the operator is only asked when another partner's would.
   const overAuto = over && over.bbl > 0.0001 ? (over.auto ?? null) : null;
   const overNeedsHome = !!over && over.bbl > 0.0001 && !overAuto;
+  // Share this deal already shipped against and lost when the batch finished short.
+  const overShort = over?.shortBbl ?? 0;
   const chosenHome = over?.homes.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === homeSource) ?? null;
-  const homeOk = !overNeedsHome || (!!chosenHome && chosenHome.requires !== "refund" && chosenHome.freeBbl + 0.0001 >= (over?.bbl ?? 0) && !!over?.targetAllocationId);
+  const homeOk = !overNeedsHome || (!!chosenHome && chosenHome.requires !== "refund" && chosenHome.freeBbl + 0.0001 >= (over?.bbl ?? 0) + overShort && !!over?.targetAllocationId);
   // Shipping before the deposit is paid is allowed, but it is a decision the
   // operator makes on purpose: the route refuses without this, and the row
   // records that the beer left on credit.
@@ -1601,6 +1603,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <p className="text-xs text-secondary">
               {over.bbl.toFixed(2)} bbl of this shipment is beyond the booking. The booking rises to match, and the share comes from{" "}
               {overAuto.map((d) => `${d.label} (${d.bbl.toFixed(2)} bbl)`).join(" and ")} on #{over.homes.batchNumber ?? "?"}.
+              {overShort > 0.0001 && ` That includes ${overShort.toFixed(2)} bbl to restore share this deal lost when the batch finished short.`}
             </p>
           )}
           {overNeedsHome && over && (
@@ -1609,7 +1612,8 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                 {over.bbl.toFixed(2)} bbl of this shipment is beyond the booking
               </p>
               <p className="text-xs text-secondary">
-                It needs a home on #{over.homes.batchNumber ?? "?"} before it ships. The booking rises by {over.bbl.toFixed(2)} bbl and the share comes from:
+                It needs a home on #{over.homes.batchNumber ?? "?"} before it ships. The booking rises by {over.bbl.toFixed(2)} bbl and the share
+                {overShort > 0.0001 && ` (plus ${overShort.toFixed(2)} bbl this deal lost when the batch finished short)`} comes from:
               </p>
               {!over.targetAllocationId && (
                 <p className="text-xs text-danger">This partner has no allocation on the drawn batch to grow — add one in Batch Log first.</p>
@@ -1617,7 +1621,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
               <div className="space-y-1">
                 {over.homes.sources.map((h) => {
                   const key = h.kind === "unallocated" ? "unallocated" : (h.allocationId ?? "");
-                  const enough = h.freeBbl + 0.0001 >= over.bbl;
+                  const enough = h.freeBbl + 0.0001 >= over.bbl + overShort;
                   const disabled = h.requires === "refund" || !enough;
                   const who = h.kind === "unallocated" ? "Unallocated share of the batch"
                     : h.kind === "self" ? "This commitment's own unshipped share (nothing moves; the booking catches up)"

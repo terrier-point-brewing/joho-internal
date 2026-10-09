@@ -453,21 +453,46 @@ async function fetchPayrollPeriodsByExpenseId(
   return byExpenseId;
 }
 
+/**
+ * The day a cash-basis expense left the business.
+ *
+ * A card swipe or bank debit is CLEARED on its `accounting_date`. A Ramp bill
+ * or reimbursement claim is not: it is incurred on `accounting_date` and paid
+ * later, on `settled_at` -- so the cash-flow statement counts it in the month
+ * it was PAID. The UTC day, the same boundary accruals.ts's open-bill A/P
+ * uses, so a bill leaves A/P and reaches the cash-flow statement in one month.
+ */
+function cashDateOf(r: { accounting_date: string; settled_at: string | null }): string {
+  return r.settled_at ? r.settled_at.slice(0, 10) : r.accounting_date;
+}
+
 export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, cashOnly: boolean): Promise<ExpenseRecord[]> {
   const data = await fetchAllRows<{
     id: string;
     chart_of_accounts_id: string | null;
     amount_cents: number | null;
     accounting_date: string;
+    settled_at: string | null;
     mapping_source: string | null;
     state: string | null;
   }>(() => {
     let q = supabase
       .from("expenses")
-      .select("id, chart_of_accounts_id, amount_cents, accounting_date, mapping_source, state")
-      .lte("accounting_date", range.endDateStr)
+      .select("id, chart_of_accounts_id, amount_cents, accounting_date, settled_at, mapping_source, state")
       .order("id", { ascending: true });
-    if (range.startDateStr) q = q.gte("accounting_date", range.startDateStr);
+    if (cashOnly) {
+      // Windowed on the cash date (see cashDateOf): a bill issued in July and
+      // paid in August belongs to August, and one issued before the window
+      // but paid inside it must still be fetched.
+      const incurred = ["settled_at.is.null", `accounting_date.lte.${range.endDateStr}`];
+      const paid = [`settled_at.lt.${range.end}`];
+      if (range.startDateStr) incurred.push(`accounting_date.gte.${range.startDateStr}`);
+      if (range.start) paid.push(`settled_at.gte.${range.start}`);
+      q = q.or(`and(${incurred.join(",")}),and(${paid.join(",")})`);
+    } else {
+      q = q.lte("accounting_date", range.endDateStr);
+      if (range.startDateStr) q = q.gte("accounting_date", range.startDateStr);
+    }
     return applyExpenseStatementFilters(q, cashOnly);
   });
 
@@ -481,7 +506,7 @@ export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, 
     id: r.id,
     chartOfAccountsId: r.chart_of_accounts_id,
     amountCents: r.amount_cents ?? 0,
-    accountingDate: r.accounting_date,
+    accountingDate: cashOnly ? cashDateOf(r) : r.accounting_date,
     mappingSource: (r.mapping_source ?? "unmapped") as ExpenseRecord["mappingSource"],
     splitLines: splitsByExpenseId.get(r.id),
     payrollPeriod: payrollPeriodByExpenseId.get(r.id) ?? null,

@@ -10,7 +10,9 @@ import { SquareCatalogSelect, SquareDiscountSelect } from "@/app/components/Squa
 import { useInvoicePreview, useExportSquareCatalogQuery } from "../hooks/queries";
 import type { SquareCatalogOptions } from "../types";
 import type { ConversionDepositOption, ShippedDepositLine } from "@/lib/production/exportIngredientDeposit";
+import type { DepositSummaryState } from "@/lib/production/exportInvoicePreview";
 import { fmtUsd } from "@/lib/utils/formatting";
+import { isIngredientDepositLine } from "@/lib/production/depositLine";
 import { diffInvoiceLines, summarizeLineEdits } from "@/lib/production/invoiceLineEdits";
 import { crossesExciseTreatmentBoundary } from "@/lib/tax/parties/ncDorBeerExcise/rates";
 
@@ -21,6 +23,22 @@ const BILL_AS_OPTIONS: { value: string; label: string }[] = [
   { value: "contract_brewing", label: "Contract Brewing" },
   { value: "wholesale", label: "Wholesale" },
 ];
+
+/** Deposit states whose shipments are charged a share on this invoice. */
+const DEPOSIT_CHARGED = new Set<DepositSummaryState>(["per_shipment", "unpaid", "over_delivery"]);
+
+/** Why each batch is, or is not, charged — one plain sentence apiece. */
+const DEPOSIT_REASON: Record<DepositSummaryState, string> = {
+  per_shipment: "Deposit is being collected as the beer ships — this is the share for these shipments.",
+  unpaid: "Deposit was never paid up front — this is the share for these shipments.",
+  over_delivery: "More beer than the deposit paid for — the extra is charged its own share.",
+  paid_up_front: "Deposit was paid up front.",
+  paid_by_shipment: "Deposit was collected on earlier invoices and is marked paid.",
+  written_off: "Deposit was written off.",
+  deposit_invoice_sent: "Owed on its own deposit invoice, which was sent and is not paid yet.",
+  over_covered: "Past the booking, but inside the share the up-front deposit paid for.",
+  no_commitment: "No commitment behind this beer — add a deposit below if the partner owes one.",
+};
 
 interface DraftLineItem {
   id: string;
@@ -169,9 +187,7 @@ export default function InvoicePreviewModal({
   const [depositBreakdowns, setDepositBreakdowns] = useState<Record<string, ShippedDepositLine>>({});
   const [depositBreakdownLineId, setDepositBreakdownLineId] = useState<string | null>(null);
   const openDepositBreakdown = depositBreakdownLineId ? depositBreakdowns[depositBreakdownLineId] : undefined;
-  const hasDepositLine = effectiveLineItems.some((li) =>
-    li.squareCatalogVariationId != null && /ingredient deposit/i.test(li.description)
-  );
+  const hasDepositLine = effectiveLineItems.some(isIngredientDepositLine);
 
   // Allocations behind these shipments whose deposit was never collected — the
   // preview computed this from invoice_paid_at, so unlike the ad-hoc notice it
@@ -192,19 +208,26 @@ export default function InvoicePreviewModal({
   // when no wider deposit line already covers these rows, add one for exactly
   // them.
   const overDeliveryIds = data?.overDeliveryTransactionIds ?? [];
-  const overDeliveryBbl = data?.overDeliveryBbl ?? 0;
-  const overDeliveryOnly = overDeliveryIds.length > 0 && unpaidDeposits.length === 0;
+  const depositSummary = data?.depositSummary ?? [];
+  // The deposit line currently on the invoice for each batch, if any.
+  const depositLineByBatch = new Map(
+    effectiveLineItems.flatMap((li) => (depositBreakdowns[li.id] ? [[depositBreakdowns[li.id].batchId, depositBreakdowns[li.id]] as const] : [])),
+  );
   const autoDepositRan = useRef(false);
+  // The shipments the current deposit lines were computed for.
+  const [depositScopeIds, setDepositScopeIds] = useState<string[]>([]);
   useEffect(() => {
     if (autoDepositRan.current) return;
     if (!data || data.channel !== "contract_brewing") return;
     if (hasDepositLine) return;
-    if (unpaidDeposits.length > 0) {
+    // Only the shipments that actually owe a share: those drawn against an
+    // unpaid allocation, plus beer beyond every booking. A combined invoice
+    // also carries shipments whose deposit was paid up front — one unpaid
+    // batch among them must not put a deposit line on all the others.
+    const owingIds = [...new Set([...unpaidDeposits.flatMap((d) => d.transactionIds), ...overDeliveryIds])];
+    if (owingIds.length > 0) {
       autoDepositRan.current = true;
-      void loadIngredientDeposit(excludedByBatch);
-    } else if (overDeliveryIds.length > 0) {
-      autoDepositRan.current = true;
-      void loadIngredientDeposit(excludedByBatch, overDeliveryIds);
+      void loadIngredientDeposit(excludedByBatch, owingIds);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once when the preview lands.
   }, [data]);
@@ -229,6 +252,7 @@ export default function InvoicePreviewModal({
     setDepositError(null);
     try {
       const ids = onlyIds && onlyIds.length > 0 ? onlyIds : depositTxIds;
+      setDepositScopeIds(ids);
       const res = await fetch(
         `/api/production/export/ingredient-deposit?ids=${ids.join(",")}${excludeParam(exclusions)}`
       );
@@ -269,7 +293,8 @@ export default function InvoicePreviewModal({
     const next = current.includes(recipeId) ? chain.slice(depth + 1) : chain.slice(depth);
     const exclusions = { ...excludedByBatch, [option.batchId]: next };
     setExcludedByBatch(exclusions);
-    void loadIngredientDeposit(exclusions);
+    // Same shipments the line already covers — re-running must not widen it.
+    void loadIngredientDeposit(exclusions, depositScopeIds);
   }
 
   // ── Line mutations ────────────────────────────────────────────────────────
@@ -494,48 +519,47 @@ export default function InvoicePreviewModal({
             </Banner>
           )}
 
-          {/* ── Unpaid-deposit back-charge notice ─────────────────────────────
-              These allocations' ingredient deposit was never paid, so it is
-              collected here instead. The line was auto-added; on generate the
-              allocations are pointed at this invoice, and when it is paid the
-              commitment's deposit is marked paid automatically. */}
-          {channel === "contract_brewing" && unpaidDeposits.length > 0 && (
-            <Banner tone="accent">
-              The ingredient deposit for{" "}
-              <span className="font-medium">
-                {unpaidDeposits.map((d) => (d.batchNumber ? `#${d.batchNumber}` : "a shipped batch")).join(", ")}
-              </span>{" "}
-              {unpaidDeposits.every((d) => d.previouslyBackcharged)
-                ? "is being collected shipment by shipment"
-                : "is unpaid"} — {hasDepositLine
-                ? "an Ingredient Deposit line has been added for these shipments\u2019 share."
-                : "add the Ingredient Deposit line below to collect these shipments\u2019 share."}{" "}
-              Each drop&rsquo;s invoice carries its own share; once the allocation is fully delivered and the
-              last one is paid, the commitment&rsquo;s deposit is marked paid automatically.
-            </Banner>
-          )}
-
-          {/* ── Deposit invoice sent, not yet paid ────────────────────────────
-              The standing deposit invoice is what collects it, so nothing is
-              charged here — this only tells the operator it is still owed. */}
-          {channel === "contract_brewing" && awaitingDeposits.length > 0 && (
-            <Banner tone="accent">
-              The ingredient deposit invoice for{" "}
-              <span className="font-medium">
-                {awaitingDeposits.map((d) => (d.batchNumber ? `#${d.batchNumber}` : "a shipped batch")).join(", ")}
-              </span>{" "}
-              was sent but <span className="font-medium">hasn&rsquo;t been paid yet</span>. It is not charged
-              on this invoice — the partner still owes it on the deposit invoice.
-            </Banner>
-          )}
-
-          {channel === "contract_brewing" && overDeliveryOnly && (
-            <Banner tone="accent">
-              <span className="font-medium">{overDeliveryBbl.toFixed(2)} bbl</span> of this shipment is beyond the partner&rsquo;s booked
-              deposit, so nothing has paid for that beer&rsquo;s ingredients — {hasDepositLine
-                ? "an Ingredient Deposit line for exactly that beer has been added."
-                : "add the Ingredient Deposit line below to charge its ingredient share."}
-            </Banner>
+          {/* ── Ingredient deposits, batch by batch ───────────────────────────
+              One row per batch on the invoice: charged a share here or not,
+              and the reason either way. Replaces three separate notices that
+              each described one case and left the other batches unexplained. */}
+          {channel === "contract_brewing" && depositSummary.length > 0 && (
+            <div className="rounded-lg border border-line bg-surface p-3 space-y-2">
+              <p className="text-xs font-medium text-secondary">Ingredient deposits on this invoice</p>
+              <ul className="space-y-1.5">
+                {depositSummary.map((row, i) => {
+                  const charged = DEPOSIT_CHARGED.has(row.state);
+                  const line = row.batchId ? depositLineByBatch.get(row.batchId) : undefined;
+                  // A batch has one deposit line however many reasons put beer on it.
+                  const firstChargedRow = depositSummary.findIndex((r) => r.batchId === row.batchId && DEPOSIT_CHARGED.has(r.state)) === i;
+                  return (
+                    <li key={`${row.batchId}-${row.state}`} className="flex items-baseline justify-between gap-3 text-xs">
+                      <span className="text-body">
+                        <span className="font-medium">{row.beerName ?? "Unknown beer"}</span>
+                        {row.batchNumber && <span className="text-faint"> · {row.batchNumber}</span>}
+                        <span className="text-faint"> · {row.bbl.toFixed(2)} bbl</span>
+                        <span className="block text-faint">{DEPOSIT_REASON[row.state]}</span>
+                      </span>
+                      <span className={`shrink-0 tabular-nums ${charged ? "text-body font-medium" : "text-faint"}`}>
+                        {!charged
+                          ? "Not charged"
+                          : line
+                            ? firstChargedRow
+                              ? `${fmtUsd(line.depositCents / 100)} · ${line.percentage.toFixed(1)}% of the batch`
+                              : "In the line above"
+                            : depositPending ? "Calculating…" : "Owed — not on this invoice"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {depositSummary.some((r) => r.state === "per_shipment" || r.state === "unpaid") && (
+                <p className="text-xs text-faint">
+                  A deposit not paid up front is collected as the beer ships: each invoice charges the share for
+                  the beer on it. It is marked paid once the whole booking has shipped and been paid for.
+                </p>
+              )}
+            </div>
           )}
 
           {/* ── Line edits need a reason ─────────────────────────────────── */}
@@ -568,8 +592,8 @@ export default function InvoicePreviewModal({
                 {depositPending ? "Calculating…" : "+ Add Ingredient Deposit"}
               </button>
               <p className="text-xs text-faint">
-                This shipment&rsquo;s share of the batch&rsquo;s ingredient bill, by packaged volume so
-                shrinkage is shared. Only for shipments that never paid a deposit up front.
+                Charges these shipments their share of each batch&rsquo;s ingredient cost. Only use it for
+                beer whose deposit was never paid.
               </p>
             </div>
           )}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/utils/api";
@@ -47,6 +48,11 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  // Tap SETUP, not day-to-day running. This route overwrites a tap's beer with
+  // no keg booked and re-points the Draft Restock lines, so it sits above the
+  // operate level a taproom manager uses to queue swaps (see tap-swaps).
+  try { await requirePermission(CAP.taproomPerformanceManage); } catch (res) { return res as Response; }
+
   const supabase = await createSupabaseServerClient();
   const adminSupabase = createSupabaseAdminClient();
   try {

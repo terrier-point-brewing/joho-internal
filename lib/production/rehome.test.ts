@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bblToPct, planAutoHome, planRehome, type HomeSource } from "./rehome";
+import { bblToPct, pendingConversionBbl, planAutoHome, planRehome, type HomeSource } from "./rehome";
 
 const taproom: HomeSource = { kind: "allocation", allocationId: "t", channel: "taproom", partnerName: null, percentage: 15, freeBbl: 4.88, requires: "none" };
 const unallocated: HomeSource = { kind: "unallocated", allocationId: null, channel: null, partnerName: null, percentage: 20, freeBbl: 6.5, requires: "none" };
@@ -47,21 +47,41 @@ describe("planAutoHome", () => {
 
   it("takes the deal's own unshipped share first, less what this shipment already credits to it", () => {
     // Booked 4 on a 5.82 bbl share; shipping 5 credits 4 and leaves 1 over.
-    expect(planAutoHome([self, taproom], 1, 4)).toEqual([{ source: { kind: "allocation", allocationId: "me" }, label: "their own unshipped share", bbl: 1 }]);
+    expect(planAutoHome([self, taproom], 1, 4)).toEqual([{ source: { kind: "allocation", allocationId: "me" }, label: "their own unshipped share", bbl: 1, bookBbl: 1 }]);
   });
 
   it("then the unallocated remainder, then the taproom", () => {
     // 5.82 − 4 leaves 1.82 of their own; the other 8.18 comes from ours.
     expect(planAutoHome([self, taproom, unallocated, paid], 10, 4)).toEqual([
-      { source: { kind: "allocation", allocationId: "me" }, label: "their own unshipped share", bbl: 1.82 },
-      { source: { kind: "unallocated" }, label: "the unallocated share", bbl: 6.5 },
-      { source: { kind: "allocation", allocationId: "t" }, label: "the taproom", bbl: 1.68 },
+      { source: { kind: "allocation", allocationId: "me" }, label: "their own unshipped share", bbl: 1.82, bookBbl: 1.82 },
+      { source: { kind: "unallocated" }, label: "the unallocated share", bbl: 6.5, bookBbl: 6.5 },
+      { source: { kind: "allocation", allocationId: "t" }, label: "the taproom", bbl: 1.68, bookBbl: 1.68 },
     ]);
   });
 
   it("never draws on another partner: when ours cannot cover it, a person decides", () => {
     expect(planAutoHome([taproom, paid], 6)).toBeNull();
     expect(planAutoHome([paid], 1)).toBeNull();
+  });
+
+  it("restores share the deal already shipped against, without booking it", () => {
+    // B-056: finished 3.0 bbl short, leaving Argus 1.57 bbl under what had
+    // shipped. Shipping 3.5 more needs 5.07 of share but books only 3.5.
+    const free: HomeSource = { ...unallocated, freeBbl: 4.09 };
+    expect(planAutoHome([free, taproom], 3.5, 0, 1.57)).toEqual([
+      { source: { kind: "unallocated" }, label: "the unallocated share", bbl: 4.09, bookBbl: 2.52 },
+      { source: { kind: "allocation", allocationId: "t" }, label: "the taproom", bbl: 0.98, bookBbl: 0.98 },
+    ]);
+    expect(planAutoHome([{ ...taproom, freeBbl: 4.75 }], 3.5, 0, 1.57)).toBeNull();
+  });
+});
+
+describe("pendingConversionBbl", () => {
+  it("reserves only conversions that have not happened: an executed one is already out of the yield", () => {
+    expect(pendingConversionBbl([
+      { volume_bbl: 5.17, converted_at: "2026-09-11T19:20:06Z" },
+      { volume_bbl: "2", converted_at: null },
+    ])).toBe(2);
   });
 });
 
