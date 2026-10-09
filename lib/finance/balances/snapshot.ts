@@ -143,10 +143,11 @@ export interface ExpandedSources {
  *
  * Asked of the whole method rather than the failing step, because excluding
  * just the step would write the surviving half as if it were the whole balance
- * -- the exact GL 2220 failure this file's per-account rule exists to stop. GL
- * 1100 is the live case: `openInvoiceAr` plus `transactionPostings`, and
- * dropping only the first would report a historical A/R of whatever happened to
- * be posted directly, which for this business is usually nothing.
+ * -- the exact GL 2220 failure this file's per-account rule exists to stop. The
+ * inventory accounts are the live case: `inventoryOnHand` plus
+ * `transactionPostings`, and dropping only the first would report a historical
+ * stock value of whatever happened to be posted directly, which is usually
+ * nothing. (GL 1100 was the original case, until invoices gained a paid date.)
  */
 function stepsDependOnCurrentState(stepKeys: string[]): boolean {
   return stepKeys.some((key) => getProvider(key)?.dependsOnCurrentState === true);
@@ -345,8 +346,8 @@ export async function fetchDeclaredSources(supabase: AdminClient): Promise<Decla
  * Only the most recently ended month was ever snapshotted, so anything before
  * 2026-06 is blank. Filling those in is safe for almost every provider -- they
  * filter by date and answer about the month asked for -- but not for one that
- * reads a CURRENT status. `openInvoiceAr` sums invoices open TODAY, so asked
- * about March it returns March's invoices still unpaid now: an understatement
+ * reads CURRENT state. `inventoryOnHand` prices what is on the shelf TODAY, so
+ * asked about March it returns today's stock under March's name: a wrong figure
  * with nothing in the number to reveal it.
  *
  * Whether this is a backfill is derived here rather than passed in, so no

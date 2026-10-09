@@ -65,11 +65,11 @@ export interface BalanceProvider {
    * than on how they stood at `periodEnd`, so it cannot be asked honestly about
    * an older month.
    *
-   * `openInvoiceAr` is the case that named this: it sums invoices whose status
-   * is 'open' NOW. Run it against March and it counts only the March invoices
-   * still unpaid today, which is not March's receivables -- it is a subset of
-   * them, silently, with no way to tell from the figure. Every invoice
-   * subsequently paid simply vanishes.
+   * `openInvoiceAr` is the case that named this, though it no longer carries
+   * the flag: it once summed invoices whose status was 'open' NOW, so run
+   * against March it counted only the March invoices still unpaid today --
+   * a subset of March's receivables, silently. It was cured by storing the day
+   * each invoice was paid, which is the cure for any provider marked this way.
    *
    * Providers so marked are excluded from any snapshot of a month older than
    * the one currently being closed, and -- because a partial sum is worse than

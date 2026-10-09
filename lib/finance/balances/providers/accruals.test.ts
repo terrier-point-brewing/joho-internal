@@ -15,11 +15,16 @@ function ctx(overrides: Partial<BalanceContext> & { supabase: SupabaseClient }):
 
 // ── openInvoiceAr ────────────────────────────────────────────────────────
 
+const invoiceQuery: { lte: [string, unknown][]; or: string[] } = { lte: [], or: [] };
+
 function fakeInvoicesClient(rows: { total_cents: number | null }[]) {
+  invoiceQuery.lte = [];
+  invoiceQuery.or = [];
   const chain: Record<string, unknown> = {
     select: () => chain,
     eq: () => chain,
-    lte: () => chain,
+    lte: (col: string, val: unknown) => { invoiceQuery.lte.push([col, val]); return chain; },
+    or: (filters: string) => { invoiceQuery.or.push(filters); return chain; },
     order: () => chain,
     range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
   };
@@ -28,18 +33,27 @@ function fakeInvoicesClient(rows: { total_cents: number | null }[]) {
 
 describe("openInvoiceAr", () => {
   /**
-   * The declaration that keeps this provider out of historical backfills.
+   * The inverse of what this used to assert.
    *
-   * It filters on `status = 'open'`, a CURRENT status, and `invoices` carries
-   * no payment date to reconstruct an as-at-March one from. Backfilling March
-   * with it would count only the March invoices still unpaid today — plausible,
-   * lower than the truth, and indistinguishable from a correct figure. Losing
-   * this flag in a refactor would restore that silently, so it is asserted
-   * rather than left to the comment beside it. See
-   * `BalanceProvider.dependsOnCurrentState`.
+   * It once filtered on `status = 'open'` alone -- a CURRENT status -- and had
+   * to be kept out of any past month, because March's receivables came back as
+   * only the March invoices still unpaid today. `invoices.paid_on` gives it a
+   * date to reason from, so it now answers about the month asked for. Marking
+   * it current-state again would drop GL 1100 from every backfill for no reason.
    */
-  it("declares that it can only answer about today", () => {
-    expect(openInvoiceAr.dependsOnCurrentState).toBe(true);
+  it("can answer about a past month", () => {
+    expect(openInvoiceAr.dependsOnCurrentState).toBeFalsy();
+  });
+
+  it("counts an invoice paid after the month end as owed at the month end", async () => {
+    const supabase = fakeInvoicesClient([{ total_cents: 498_846 }]);
+
+    await openInvoiceAr.compute(ctx({ supabase, periodEnd: "2026-09-30" }));
+
+    // Invoice #000067: raised 15 September, paid 1 October. `status = 'open'`
+    // alone dropped it from September the day it was paid.
+    expect(invoiceQuery.lte).toEqual([["invoice_date", "2026-09-30"]]);
+    expect(invoiceQuery.or).toEqual(["status.eq.open,and(status.eq.paid,paid_on.gt.2026-09-30)"]);
   });
 
   it("sums total_cents of open invoices dated on or before periodEnd", async () => {

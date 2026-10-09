@@ -109,6 +109,7 @@ interface SquareOrderTender {
   id: string;
   payment_id?: string;
   amount_money?: { amount: number; currency: string };
+  created_at?: string;
 }
 interface SquareOrderGetResponse {
   order: { id: string; tenders?: SquareOrderTender[] };
@@ -477,11 +478,13 @@ export async function getInvoiceStatus(
  */
 export async function getOrderPayment(
   orderId: string
-): Promise<{ paymentId: string | null; amountPaidCents: number | null }> {
+): Promise<{ paymentId: string | null; amountPaidCents: number | null; tenders: { created_at?: string }[] }> {
   const { order } = await squareGet<SquareOrderGetResponse>(`/orders/${orderId}`);
   const tender = order.tenders?.[0];
   return {
     paymentId: tender?.payment_id ?? null,
     amountPaidCents: tender?.amount_money?.amount ?? null,
+    // Every tender's time, for dating when the invoice was paid.
+    tenders: (order.tenders ?? []).map((t) => ({ created_at: t.created_at })),
   };
 }

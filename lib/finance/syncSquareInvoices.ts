@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchSquareInvoices, fetchInvoiceOrders, fetchSquareInvoiceById, fetchOrdersByIds } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
+import { invoicePaidOn } from "@/lib/finance/invoicePaidOn";
 import { cascadeExportTransactionsStatus, settleBackchargedDeposits } from "@/lib/finance/reconcileInvoiceStatus";
 import type { CatalogItem, Order, SquareInvoice } from "@/types/square";
 import {
@@ -118,6 +119,9 @@ async function upsertInvoiceWithLines(
         discount_cents: totals.discount_cents,
         total_cents:    totals.total_cents,
         notes:          inv.title ?? null,
+        // The day the customer paid, from the order's tender -- see
+        // invoicePaidOn for why the invoice's own updated_at will not do.
+        paid_on:        invoicePaidOn(status, order.tenders, inv.updated_at),
         raw_data:       rawData,
       },
       { onConflict: "source,external_id", ignoreDuplicates: false }

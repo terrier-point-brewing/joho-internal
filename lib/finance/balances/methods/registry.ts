@@ -250,11 +250,12 @@ export interface BalanceMethod {
    * pointInTime (see acceptsStatedBalance).
    *
    * Declare TRUE on a method whose figure is a current-state PROXY for the
-   * month asked about — openInvoiceAr answers "open TODAY", so the most
-   * recently ended month's receivables silently melt as collections land,
-   * and only a stated month-end figure can say what Aug 31 actually held
-   * before October makes the month historical. Declare it, don't widen the
-   * inference: a method with a genuine as-at step should keep refusing.
+   * month asked about, where only a stated month-end figure can say what the
+   * account actually held. Accounts receivable was the first: it answered
+   * "open TODAY" until invoices gained a paid date, and it keeps the
+   * declaration so the months stated by hand before then still stand. Declare
+   * it, don't widen the inference: a method with a genuine as-at step should
+   * keep refusing.
    */
   statedBalanceOverride?: boolean;
 }
