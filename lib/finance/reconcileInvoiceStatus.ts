@@ -106,9 +106,9 @@ export async function cascadeExportTransactionsStatus(
  * the deposit is settled:
  *
  *  - invoice paid   → lock the commitment (money has moved), and stamp
- *    `invoice_paid_at` only when the allocation is fully delivered (or the
- *    batch is complete): every share it will ever owe has now been billed and
- *    paid. Before that the coverage reads "collecting", and the next
+ *    `invoice_paid_at` only when the allocation is fully delivered: every
+ *    share it will ever owe has now been billed and paid. Before that — even
+ *    on a completed batch — the coverage reads "collecting", and the next
  *    shipment's invoice carries another share. `deposit_amount_paid_cents` is
  *    left untouched: it feeds the Square refund flow, which needs a deposit
  *    payment id that a back-charge never has.
@@ -147,10 +147,21 @@ export async function settleBackchargedDeposits(
 
       const delivery = await loadAllocationDelivery(supabase, allocationId);
       if (!delivery) continue;
+      // NOT `batchStatus === "complete"`: a finished batch still has this
+      // partner's beer in cold storage, and each later drop owes its share.
+      // B-056 was stamped paid that way with 19.89 of 27.89 shipped bbl charged.
       const done = delivery.writtenOff
-        || delivery.batchStatus === "complete"
         || isFullyDelivered(delivery.exportedBbl, delivery.owedBbl);
       if (!done) continue;
+
+      // A drop that has shipped but not been invoiced has not been charged its
+      // share yet. Stamping now would let that invoice go out without one.
+      const { count: uninvoiced } = await supabase
+        .from("export_transactions")
+        .select("id", { count: "exact", head: true })
+        .eq("allocation_id", allocationId)
+        .eq("status", "invoice_required");
+      if (!delivery.writtenOff && (uninvoiced ?? 0) > 0) continue;
 
       const { data, error } = await supabase
         .from("batch_allocations")

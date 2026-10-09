@@ -4,6 +4,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createExportInvoice, publishInvoice, getInvoiceStatus } from "@/lib/square/square-invoices";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
+import { isIngredientDepositLine } from "@/lib/production/depositLine";
 import { reconcileInvoiceStatus, cascadeExportTransactionsStatus, settleBackchargedDeposits } from "@/lib/finance/reconcileInvoiceStatus";
 import { fetchOrdersByIds } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
@@ -136,8 +137,7 @@ export async function POST(req: NextRequest) {
     depositLines: Array<{ lineId: string; batchId: string; shippedBbl: number }> | undefined,
   ): Promise<void> {
     if (billedChannel !== "contract_brewing" || !lineItems?.length) return;
-    const isDepositLine = (li: { description: string; squareCatalogVariationId?: string | null }) =>
-      li.squareCatalogVariationId != null && /ingredient deposit/i.test(li.description);
+    const isDepositLine = isIngredientDepositLine;
     const depositLineItems = lineItems.filter(isDepositLine);
     if (depositLineItems.length === 0) return;
 

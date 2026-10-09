@@ -6,6 +6,7 @@ import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import { resolveProductSku } from "@/lib/square/skuMappings";
 import { resolveShippedVariationId } from "@/lib/production/resolveShippedVariation";
 import { dollarsToCents } from "@/lib/money";
+import { loadOverDeliveryCoverage } from "./overDeliveryCoverage";
 import {
   computeMaterialBreakdown,
   type MaterialComponent,
@@ -114,10 +115,44 @@ export interface InvoicePreviewResult {
    * line — the partner paid for the beer through the deposit — so beer past the
    * booking would go out for packaging fees alone. The modal adds an ingredient
    * share for exactly these rows when no wider deposit line already covers them.
+   * Excludes over-delivery still inside the share an up-front deposit paid for.
    */
   overDeliveryTransactionIds: string[];
   overDeliveryBbl: number;
+  /**
+   * Contract billing only: where the ingredient deposit stands for every batch
+   * on this invoice, one row per batch and reason — so the modal can say, in
+   * one place, which beers are charged a share here and why the rest are not.
+   * Display only; nothing is charged from it.
+   */
+  depositSummary: DepositSummaryRow[];
 }
+
+/**
+ * Why a batch's shipments do or do not owe an ingredient share on this invoice.
+ * The first three are charged here; the rest are not.
+ */
+export type DepositSummaryState =
+  | "per_shipment"         // collected shipment by shipment — earlier drops already carried a share
+  | "unpaid"               // never paid up front; collected here instead
+  | "over_delivery"        // beyond what the partner's deposit paid for
+  | "paid_up_front"
+  | "paid_by_shipment"     // collected shipment by shipment, now settled
+  | "written_off"
+  | "deposit_invoice_sent" // owed on its own deposit invoice
+  | "over_covered"         // past the booking, inside the share paid for up front
+  | "no_commitment";       // ad-hoc or re-billed — the operator's call
+
+export interface DepositSummaryRow {
+  batchId: string | null;
+  batchNumber: string | null;
+  beerName: string | null;
+  bbl: number;
+  state: DepositSummaryState;
+}
+
+/** The states whose shipments are charged a share on the export invoice. */
+export const DEPOSIT_CHARGED_STATES: readonly DepositSummaryState[] = ["per_shipment", "unpaid", "over_delivery"];
 
 /** One shipped allocation whose deposit hasn't been collected in full. */
 export interface UnpaidDepositAllocation {
@@ -162,6 +197,8 @@ interface ExportTxRow {
   packaging_loss_pct: number | null;
   /** Shipped ad-hoc from the Export Bay, with no commitment behind it. */
   is_ad_hoc: boolean | null;
+  /** The batch the beer was drawn from. Only the invoice preview selects it. */
+  batch_id?: string | null;
   /** The batch_allocation this shipment was credited to; null for ad-hoc/over-delivery rows. */
   allocation_id: string | null;
   /** Shipped beyond every booked deposit (see planShipment). */
@@ -594,7 +631,7 @@ export async function buildInvoicePreview(
   // ── 1. Load transactions + validate same-customer, invoice_required ───────
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc, allocation_id, over_allocation")
+    .select("id, batch_id, recipient_id, status, quantity, volume_bbl, packaging_item_id, packaging_format, units_per_package, channel, recipe_id, variation_id, variant_label, packaging_loss_pct, is_ad_hoc, allocation_id, over_allocation")
     .in("id", transactionIds);
   if (txErr) throw new Error(txErr.message);
   if (!txs || txs.length !== transactionIds.length) {
@@ -811,6 +848,7 @@ export async function buildInvoicePreview(
   // Only when billing contract_brewing: that's the only channel that charges a
   // deposit at all, and the export invoice is where an uncollected one lands.
   let unpaidDepositAllocations: UnpaidDepositAllocation[] = [];
+  const allocStateById = new Map<string, DepositSummaryState>();
   if (channel === "contract_brewing") {
     const allocationIds = [...new Set(rows.map((r) => r.allocation_id).filter((id): id is string => !!id))];
     if (allocationIds.length > 0) {
@@ -818,6 +856,16 @@ export async function buildInvoicePreview(
         .from("batch_allocations")
         .select("id, channel, invoice_paid_at, invoice_sent_at, written_off_at, deposit_backcharged_invoice_id, brew_batches(batch_number)")
         .in("id", allocationIds);
+      for (const a of allocs ?? []) {
+        // A soft allocation re-billed as contract brewing never had a deposit.
+        if (a.channel !== "contract_brewing") continue;
+        allocStateById.set(a.id,
+          a.written_off_at ? "written_off"
+          : a.invoice_paid_at ? (a.deposit_backcharged_invoice_id ? "paid_by_shipment" : "paid_up_front")
+          : a.invoice_sent_at ? "deposit_invoice_sent"
+          : a.deposit_backcharged_invoice_id ? "per_shipment"
+          : "unpaid");
+      }
       unpaidDepositAllocations = (allocs ?? [])
         .filter((a) =>
           a.channel === "contract_brewing" &&
@@ -836,8 +884,69 @@ export async function buildInvoicePreview(
   const overDeliveryRows = channel === "contract_brewing"
     ? rows.filter((r) => !r.allocation_id && r.over_allocation === true)
     : [];
+  // Past the booking is not always past what the deposit paid for: an up-front
+  // deposit covers its percentage of the batch's real yield. Only the beer
+  // beyond that owes a share — see overDeliveryCoverage.
+  const overCoverage = await loadOverDeliveryCoverage(
+    supabase,
+    overDeliveryRows.map((r) => ({ ...r, batch_id: r.batch_id ?? null })),
+  );
+  const chargeableOverBbl = (batchId: string | null | undefined): number | null => {
+    const c = batchId ? overCoverage.get(batchId) : undefined;
+    return c ? Math.max(0, c.overBbl - c.coveredBbl) : null;
+  };
+  const chargeableOverRows = overDeliveryRows.filter((r) => chargeableOverBbl(r.batch_id) !== 0);
+  const coveredOverBbl = [...overCoverage.values()].reduce((s, c) => s + c.coveredBbl, 0);
+  const overDeliveryBbl =
+    overDeliveryRows.reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0) - coveredOverBbl;
+
+  // ── Deposit standing, per batch ───────────────────────────────────────────
+  const depositSummary: DepositSummaryRow[] = [];
+  if (channel === "contract_brewing") {
+    const batchIds = [...new Set(rows.map((r) => r.batch_id).filter((id): id is string => !!id))];
+    const { data: batchRows } = batchIds.length > 0
+      ? await supabase.from("brew_batches").select("id, batch_number, beer_name").in("id", batchIds)
+      : { data: [] };
+    const batchById = new Map(((batchRows ?? []) as Array<{ id: string; batch_number: string | null; beer_name: string | null }>).map((b) => [b.id, b]));
+
+    const byKey = new Map<string, DepositSummaryRow>();
+    const add = (batchId: string | null, state: DepositSummaryState, bbl: number) => {
+      if (bbl <= 0) return;
+      const key = `${batchId ?? ""}|${state}`;
+      const batch = batchId ? batchById.get(batchId) : undefined;
+      const row = byKey.get(key) ?? {
+        batchId,
+        batchNumber: batch?.batch_number ?? null,
+        beerName: batch?.beer_name?.trim() || null,
+        bbl: 0,
+        state,
+      };
+      row.bbl = Math.round((row.bbl + bbl) * 10000) / 10000;
+      byKey.set(key, row);
+    };
+    for (const r of rows) {
+      const batchId = r.batch_id ?? null;
+      const isOver = !r.allocation_id && r.over_allocation === true;
+      if (isOver) continue; // split into covered / chargeable below
+      add(batchId, (r.allocation_id && allocStateById.get(r.allocation_id)) || "no_commitment", Number(r.volume_bbl ?? 0));
+    }
+    const overByBatch = new Map<string | null, number>();
+    for (const r of overDeliveryRows) {
+      overByBatch.set(r.batch_id ?? null, (overByBatch.get(r.batch_id ?? null) ?? 0) + Number(r.volume_bbl ?? 0));
+    }
+    for (const [batchId, bbl] of overByBatch) {
+      const covered = (batchId && overCoverage.get(batchId)?.coveredBbl) || 0;
+      add(batchId, "over_covered", covered);
+      add(batchId, "over_delivery", bbl - covered);
+    }
+    // Charged batches first, then in batch order.
+    depositSummary.push(...[...byKey.values()].sort((x, y) =>
+      Number(DEPOSIT_CHARGED_STATES.includes(y.state)) - Number(DEPOSIT_CHARGED_STATES.includes(x.state))
+      || (x.batchNumber ?? "").localeCompare(y.batchNumber ?? "")));
+  }
 
   return {
+    depositSummary,
     customerId,
     customerName: partner.company_name,
     squareCustomerId: partner.square_customer_id,
@@ -849,7 +958,7 @@ export async function buildInvoicePreview(
     materialBreakdowns,
     adHoc: rows.some((r) => r.is_ad_hoc === true),
     unpaidDepositAllocations,
-    overDeliveryTransactionIds: overDeliveryRows.map((r) => r.id),
-    overDeliveryBbl: Math.round(overDeliveryRows.reduce((s, r) => s + Number(r.volume_bbl ?? 0), 0) * 10000) / 10000,
+    overDeliveryTransactionIds: chargeableOverRows.map((r) => r.id),
+    overDeliveryBbl: Math.round(Math.max(0, overDeliveryBbl) * 10000) / 10000,
   };
 }

@@ -5,6 +5,8 @@ import { baseMapOf, isDerivedFrom, lineageAncestors } from "@/lib/production/rec
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
 import { coverageTransferred, loadCoverageTransfers } from "@/lib/production/coverageTransfers";
+import { INGREDIENT_COST_PREFIX } from "@/lib/production/depositLine";
+import { loadOverDeliveryCoverage, type OverDeliveryTxRow } from "@/lib/production/overDeliveryCoverage";
 
 /**
  * Ingredient deposit for a shipment that is being billed as contract brewing
@@ -318,9 +320,13 @@ export async function calculateShippedIngredientDeposits(
 
   const { data: txs, error: txErr } = await supabase
     .from("export_transactions")
-    .select("batch_id, volume_bbl")
+    .select("id, batch_id, recipient_id, volume_bbl, allocation_id, over_allocation")
     .in("id", transactionIds);
   if (txErr) throw new Error(txErr.message);
+
+  // Over-delivery still inside the share an up-front deposit paid for is not
+  // charged again — see overDeliveryCoverage.
+  const overCoverage = await loadOverDeliveryCoverage(supabase, (txs ?? []) as OverDeliveryTxRow[]);
 
   const warnings: string[] = [];
 
@@ -368,7 +374,9 @@ export async function calculateShippedIngredientDeposits(
   const lines: ShippedDepositLine[] = [];
   const conversionOptions: ConversionDepositOption[] = [];
 
-  for (const [batchId, shippedBbl] of bblByBatch) {
+  for (const [batchId, selectedBbl] of bblByBatch) {
+    const coveredBbl = overCoverage.get(batchId)?.coveredBbl ?? 0;
+    const shippedBbl = round4(selectedBbl - coveredBbl);
     const { data: batch, error: batchErr } = await supabase
       .from("brew_batches")
       .select("id, beer_name, batch_number, volume_bbl, recipe_id")
@@ -380,6 +388,10 @@ export async function calculateShippedIngredientDeposits(
     }
     const beerName = String(batch.beer_name ?? "").trim();
     const label = batch.batch_number ? `${beerName} (${batch.batch_number})` : beerName;
+
+    // Covered over-delivery is reported by the invoice preview's deposit
+    // summary; here it simply does not join the charge.
+    if (shippedBbl <= 0) continue;
 
     // ── What this batch could be converted from, and what the caller excluded ──
     const recipeId = (batch.recipe_id as string | null) ?? null;
@@ -463,10 +475,8 @@ export async function calculateShippedIngredientDeposits(
     const packagingInProgress = inTankBbl > 0.01;
     if (packagingInProgress) {
       warnings.push(
-        `${label} still has ${inTankBbl.toFixed(2)} bbl in tank, counted at the house ${packagingYieldPct}% ` +
-        `packaging yield as ${expectedFromTankBbl.toFixed(2)} bbl, so its yield is projected at ` +
-        `${projectedYieldBbl.toFixed(2)} bbl. The final share moves only if that beer packages out ` +
-        `differently than expected.`,
+        `${label} still has ${inTankBbl.toFixed(2)} bbl in tank, so its share is worked out on an ` +
+        `estimated yield of ${projectedYieldBbl.toFixed(2)} bbl (in-tank beer counted at ${packagingYieldPct}%).`,
       );
     }
 
@@ -508,14 +518,20 @@ export async function calculateShippedIngredientDeposits(
 }
 
 /**
- * The invoice line's description — customer-facing, so it names the beer and
- * nothing else. The derivation (yield, percentage, exclusions, per-ingredient
- * shares) lives in `ShippedDepositLine` and the breakdown modal, not on the
- * invoice. The "Ingredient Deposit" prefix is load-bearing: the export invoice
- * route recognises a deposit line by it.
+ * The invoice line's description — customer-facing. It says what the partner
+ * needs to recognise the charge: which beer, which batch, and how much of the
+ * beer on this invoice it pays the ingredients for. On a combined invoice a
+ * bare beer name left them guessing why one beer carried a deposit and the
+ * next did not. The derivation (yield, percentage, exclusions, per-ingredient
+ * shares) still lives in `ShippedDepositLine` and the breakdown modal, not on
+ * the invoice. It reads "Ingredient Cost", not "Deposit": to the partner this
+ * is the cost of ingredients in beer they have received. The prefix is
+ * load-bearing — see isIngredientDepositLine.
  */
 export function shippedDepositDescription(line: ShippedDepositLine): string {
-  return `Ingredient Deposit — ${line.beerName}`;
+  const batch = line.batchNumber ? `, batch ${line.batchNumber}` : "";
+  return `${INGREDIENT_COST_PREFIX} — ${line.beerName.trim()}${batch}: for the ` +
+    `${line.shippedBbl.toFixed(2)} bbl on this invoice`;
 }
 
 function round4(n: number): number {
