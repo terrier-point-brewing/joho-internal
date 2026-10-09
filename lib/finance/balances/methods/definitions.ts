@@ -412,10 +412,11 @@ const inventoryOnHand: BalanceMethod = {
       kind: "select",
       key: INVENTORY_POOL_KEY,
       label: "Which inventory this account holds",
-      help: "Pick what this account is for. Raw materials are the malt, hops, yeast and adjuncts tracked under Production, Ingredients; packaging materials are the cans, lids, labels, PakTechs and trays; finished goods are the packaged beer sitting in cold storage. Nothing can be valued until this is chosen, because the calculation would otherwise not know which shelf to count.",
+      help: "Pick what this account is for. Raw materials are the malt, hops, yeast and adjuncts tracked under Production, Ingredients; packaging materials are the cans, lids, labels, PakTechs and trays; work in process is beer still in a fermenter or brite, at the cost of the ingredients that went into it; finished goods are the packaged beer sitting in cold storage. Nothing can be valued until this is chosen, because the calculation would otherwise not know which shelf to count.",
       options: [
         { value: "rawMaterials", label: "Raw materials (ingredients)" },
         { value: "packagingMaterials", label: "Packaging materials" },
+        { value: "workInProcess", label: "Work in process (beer still in tank)" },
         { value: "finishedGoods", label: "Finished goods (packaged beer in cold storage)" },
       ],
     },
@@ -441,7 +442,7 @@ const inventoryOnHand: BalanceMethod = {
       providerKey: "inventoryOnHand",
       label: "On hand at cost",
       description:
-        "What is recorded as on hand, priced at cost. Raw and packaging materials are counted item by item at their unit cost. Finished goods are priced from the recipe and the packaging it went into — the ingredients the beer calls for, plus its cans, lids, labels, PakTechs and trays — and cover materials only, with no labour or brewery overhead. Anything nobody has priced yet counts as nothing, so the figure reads low rather than failing; a recipe with no ingredients entered is the usual reason. Packaging belonging to a contract-brewing partner is left out as that customer's stock, but their beer in cold storage is NOT — beer becomes theirs when it ships, so until then it is yours.",
+        "What is recorded as on hand, priced at cost. Raw and packaging materials are counted item by item at their unit cost. Beer is priced per batch: the recipe at today's ingredient prices, spread over what the batch yields so the beer lost between tank and package is carried by the beer that made it out. Work in process is the share of that cost still in tank, at the expected packaging yield; finished goods are the packaged beer at its batch's unit cost plus the cans, lids, labels, PakTechs and trays around it. Materials only, with no labour or brewery overhead. Anything nobody has priced yet counts as nothing, so the figure reads low rather than failing; a recipe with no ingredients entered is the usual reason. Packaging belonging to a contract-brewing partner is left out as that customer's stock, but their beer in tank or cold storage is NOT — beer becomes theirs when it ships, so until then it is yours.",
       source: "Production ingredient and packaging records",
       direction: "add",
     },

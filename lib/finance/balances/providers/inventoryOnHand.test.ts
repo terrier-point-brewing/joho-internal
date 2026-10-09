@@ -111,6 +111,9 @@ function fakeTables(tables: Record<string, Record<string, unknown>[]>) {
         select: () => chain,
         order: () => chain,
         is: () => chain,
+        // loadPackagingYieldPct reads one system_settings row; absent → default.
+        eq: () => chain,
+        maybeSingle: () => Promise.resolve({ data: null, error: null }),
         range: (from: number) => Promise.resolve({ data: from === 0 ? (tables[table] ?? []) : [], error: null }),
       };
       return chain;
@@ -239,5 +242,44 @@ describe("inventoryOnHand — finished goods", () => {
     const { result } = finishedGoods({ cold_storage_inventory: [] });
 
     expect(await result).toBe(0);
+  });
+
+  it("prices beer at its batch's unit cost, so shrinkage is carried by the beer that made it out", async () => {
+    const { result } = finishedGoods({
+      cold_storage_inventory: [{ batch_id: "b1", recipe_id: "r1", variation_id: "v2", quantity_on_hand: 1 }],
+      packaging_variations: [
+        { id: "v2", format: "loose", total_volume_fl_oz: 3968, container_id: null, lid_id: null, label_id: null, paktech_id: null, tray_id: null },
+      ],
+      packaging_items: [],
+      // $1,000 per turn; the recipe's per-bbl bill ($50) must NOT be what prices this keg.
+      recipe_ingredients: [{ recipe_id: "r1", quantity_per_bbl: 1, quantity_per_turn: 20, ingredients: { cost_per_unit_usd: 50 } }],
+      brew_batches: [{ id: "b1", recipe_id: "r1", turns: 1, volume_bbl: 20, status: "complete", converted_from_batch_id: null }],
+      equipment: [{ id: "fv", type: "fermenter" }, { id: "keg", type: "kegging" }],
+      // 20 bbl brewed, 16 packaged, 4 lost: $1,000 / 16 = $62.50 per bbl.
+      batch_transfers: [
+        { batch_id: "b1", from_tank_id: null, to_tank_id: "fv", to_batch_id: null, volume_bbl: 20, shrinkage_bbl: 0, transferred_at: "2026-08-01T00:00:00Z", transfer_type: "brewing" },
+        { batch_id: "b1", from_tank_id: "fv", to_tank_id: "keg", to_batch_id: null, volume_bbl: 16, shrinkage_bbl: 4, transferred_at: "2026-08-20T00:00:00Z", transfer_type: "kegging" },
+      ],
+    });
+
+    expect(await result).toBe(62_50);
+  });
+});
+
+describe("inventoryOnHand — work in process", () => {
+  it("holds the in-tank share of a batch's raw cost at the expected yield", async () => {
+    const { supabase } = fakeTables({
+      recipe_ingredients: [{ recipe_id: "r1", quantity_per_bbl: 1, quantity_per_turn: 20, ingredients: { cost_per_unit_usd: 50 } }],
+      brew_batches: [{ id: "b1", recipe_id: "r1", turns: 1, volume_bbl: 20, status: "fermenting", converted_from_batch_id: null }],
+      equipment: [{ id: "fv", type: "fermenter" }],
+      batch_transfers: [
+        { batch_id: "b1", from_tank_id: null, to_tank_id: "fv", to_batch_id: null, volume_bbl: 20, shrinkage_bbl: 0, transferred_at: "2026-08-01T00:00:00Z", transfer_type: "brewing" },
+      ],
+    });
+
+    const result = await inventoryOnHand.compute(ctx(supabase, { [INVENTORY_POOL_KEY]: "workInProcess" }));
+
+    // Nothing packaged yet: the whole $1,000 is still in tank.
+    expect(result).toBe(1_000_00);
   });
 });
