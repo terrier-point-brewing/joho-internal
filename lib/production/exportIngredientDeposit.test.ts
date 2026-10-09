@@ -176,7 +176,7 @@ describe("calculateShippedIngredientDeposits", () => {
     expect(lines[0].depositCents).toBe(10870);
     expect(lines[0].packagingInProgress).toBe(true);
     expect(warnings.some((w) => /still has 16.00 bbl in tank/.test(w))).toBe(true);
-    expect(warnings.some((w) => /house 90% packaging yield as 14.40 bbl/.test(w))).toBe(true);
+    expect(warnings.some((w) => /estimated yield of 18.40 bbl \(in-tank beer counted at 90%\)/.test(w))).toBe(true);
   });
 
   it("closes the undercharge: two half invoices off one batch sum to the whole bill", async () => {
@@ -386,10 +386,10 @@ describe("calculateShippedIngredientDeposits", () => {
     expect(warnings.some((w) => w.includes("not converted from Epic Hazy IPA"))).toBe(true);
   });
 
-  it("names only the beer in the description — it is customer-facing", () => {
-    // The derivation (yield, share, exclusions) lives in the breakdown modal
-    // and the ledger, not on the invoice the partner reads. The "Ingredient
-    // Deposit" prefix stays: the export invoice route detects the line by it.
+  it("names the beer, batch and volume in the description — it is customer-facing", () => {
+    // Enough for the partner to recognise the charge; the derivation (yield,
+    // share, exclusions) stays in the breakdown modal and the ledger. The "Ingredient
+    // Cost" prefix is how the export invoice route detects the line.
     const text = shippedDepositDescription({
       batchId: "b2", batchNumber: "B-051", beerName: "Transfusion Pilsner",
       shippedBbl: 4, packagedBbl: 20, inTankBbl: 0, packagingYieldPct: 90,
@@ -402,7 +402,7 @@ describe("calculateShippedIngredientDeposits", () => {
       ],
       breakdown: [],
     });
-    expect(text).toBe("Ingredient Deposit — Transfusion Pilsner");
+    expect(text).toBe("Ingredient Cost — Transfusion Pilsner, batch B-051: for the 4.00 bbl on this invoice");
   });
 });
 
