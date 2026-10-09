@@ -218,6 +218,8 @@ export interface SimulatedShipment {
    */
   over: {
     bbl: number; targetAllocationId: string | null; homes: HomesForBatch;
+    /** Share the target is already short of; a home has to cover it on top of `bbl`. */
+    shortBbl: number;
     /**
      * The share is ours to give (the deal's own unshipped share, the
      * unallocated remainder, the taproom) and is taken without asking. Null
@@ -308,7 +310,11 @@ export async function simulateShipment(
     if (batchId) {
       const homes = await listHomes(supabase, { batchId, targetAllocationId });
       const creditedToTarget = plan.credits.find((c) => c.allocationId != null && c.allocationId === targetAllocationId)?.bbl ?? 0;
-      over = { bbl: overBbl, targetAllocationId, homes, auto: targetAllocationId ? planAutoHome(homes.sources, overBbl, creditedToTarget) : null };
+      // The plan above capped the credit at the share as it stands, so a
+      // target already short has had none of this shipment credited to it:
+      // the home must restore that share too or the credit still falls short.
+      const shortBbl = targetAllocationId ? homes.targetShortBbl : 0;
+      over = { bbl: overBbl, targetAllocationId, homes, shortBbl, auto: targetAllocationId ? planAutoHome(homes.sources, overBbl, creditedToTarget, shortBbl) : null };
     }
   }
 
