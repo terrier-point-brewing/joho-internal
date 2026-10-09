@@ -60,6 +60,10 @@ export async function fetchPackagingMaterialsCents(supabase: SupabaseClient): Pr
       .from("packaging_items")
       .select("stock_quantity, unit_cost_usd")
       .is("partner_id", null)
+      // Kegs are a returnable float, not materials consumed into the beer —
+      // the same rule finished goods applies below. Kept out in the query so
+      // pricing a keg for some other purpose cannot put it on this shelf.
+      .neq("type", "keg")
       .order("id", { ascending: true }),
   );
   return extendedCents(rows.map((r) => ({ quantity: r.stock_quantity, cost: r.unit_cost_usd })));

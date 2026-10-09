@@ -137,12 +137,18 @@ async function processTransferLine(
     try {
       const { data: variation } = await supabase
         .from("packaging_variations")
-        .select("id, format, container_id, lid_id, paktech_id, tray_id, label_id, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(volume_fl_oz)")
+        .select("id, format, container_id, lid_id, paktech_id, tray_id, label_id, total_volume_fl_oz, container:packaging_items!packaging_variations_container_id_fkey(volume_fl_oz, type)")
         .eq("id", variation_id)
         .single();
 
       if (variation) {
-        const containerVolume = (variation.container as unknown as { volume_fl_oz: number | null })?.volume_fl_oz ?? 0;
+        const container = variation.container as unknown as { volume_fl_oz: number | null; type: string | null } | null;
+        const containerVolume = container?.volume_fl_oz ?? 0;
+        // A keg is a returnable float, not packaging consumed by the beer in
+        // it: it comes back and gets refilled. Drawing it down per kegging run
+        // walked 1/6 kegs to -622 and would silently inflate COGS the day one
+        // was priced. Cans, lids, labels, PakTechs and trays are consumed.
+        const consumesContainer = container?.type !== "keg";
         const unitsPerPackage = containerVolume > 0 ? variation.total_volume_fl_oz / containerVolume : 1;
         const totalUnits = quantity * unitsPerPackage;
         // A case packs several paktech'd bundles into one tray, so paktechs
@@ -161,7 +167,7 @@ async function processTransferLine(
         const lossAdjustedUnits = applyPackagingLoss(Math.round(totalUnits), lossPct);
 
         const deductions: { id: string | null; qty: number; label: string }[] = [
-          { id: variation.container_id, qty: lossAdjustedUnits, label: "container" },
+          { id: consumesContainer ? variation.container_id : null, qty: lossAdjustedUnits, label: "container" },
           { id: variation.lid_id,       qty: lossAdjustedUnits, label: "lids" },
           { id: variation.label_id,     qty: lossAdjustedUnits, label: "labels" },
           { id: variation.tray_id,      qty: quantity,    label: "trays" },

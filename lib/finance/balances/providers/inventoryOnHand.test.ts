@@ -12,12 +12,16 @@ import type { BalanceContext } from "../registry";
 
 /** Records the table and any `.is()` filters, and returns `rows` from the first page. */
 function fakeClient(rows: Record<string, unknown>[]) {
-  const seen = { table: "", isFilters: [] as [string, unknown][] };
+  const seen = { table: "", isFilters: [] as [string, unknown][], neqFilters: [] as [string, unknown][] };
   const chain: Record<string, unknown> = {
     select: () => chain,
     order: () => chain,
     is: (col: string, val: unknown) => {
       seen.isFilters.push([col, val]);
+      return chain;
+    },
+    neq: (col: string, val: unknown) => {
+      seen.neqFilters.push([col, val]);
       return chain;
     },
     // fetchAllRows pages with .range(); page 2 onward is empty.
@@ -70,6 +74,8 @@ describe("inventoryOnHand", () => {
     // The filter belongs in the query, not in a later reduce: a partner carton
     // that gets priced tomorrow must still be excluded tomorrow.
     expect(seen.isFilters).toContainEqual(["partner_id", null]);
+    // Kegs are a returnable float, never materials on this shelf.
+    expect(seen.neqFilters).toContainEqual(["type", "keg"]);
     expect(result).toBe(84_00);
   });
 
