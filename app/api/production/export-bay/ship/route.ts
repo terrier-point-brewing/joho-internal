@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
   if (sim.overBbl > 1e-4 && !body.home && sim.over?.auto && sim.over.targetAllocationId) {
     try {
       for (const draw of sim.over.auto) {
-        await executeRehome(supabase, { targetAllocationId: sim.over.targetAllocationId, source: draw.source, bbl: draw.bbl, beyondBooking: true });
+        await executeRehome(supabase, { targetAllocationId: sim.over.targetAllocationId, source: draw.source, bbl: draw.bbl, bookBbl: draw.bookBbl, beyondBooking: true });
       }
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "Could not re-home the extra beer" }, { status: 422 });
@@ -151,7 +151,8 @@ export async function POST(req: NextRequest) {
       await executeRehome(supabase, {
         targetAllocationId: home.target_allocation_id,
         source: home.source.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocationId: home.source.allocation_id },
-        bbl: Number(home.bbl),
+        bbl: Number(home.bbl) + (sim.over?.shortBbl ?? 0),
+        bookBbl: Number(home.bbl),
         beyondBooking: true,
       });
     } catch (e) {

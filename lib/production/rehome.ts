@@ -59,7 +59,24 @@ export interface HomesForBatch {
   plannedBbl: number;
   /** 100 − Σ allocation percentages, as bbl of the basis. */
   unallocatedBbl: number;
+  /**
+   * bbl the target has already been credited beyond its share. A batch that
+   * finishes below its estimate shrinks every share after the beer has left
+   * (B-056 lost 3.0 bbl at its last kegging: Argus held 22.82 bbl of share
+   * against 24.39 shipped). The next shipment has to make this good as well,
+   * or that much of it lands outside the deal.
+   */
+  targetShortBbl: number;
   sources: HomeSource[];
+}
+
+/**
+ * bbl of a batch reserved for conversions that have not happened yet. An
+ * executed conversion has already left the tank, so it is in no yield and
+ * takes no share; counting it hid 4.2 bbl of B-056's free share.
+ */
+export function pendingConversionBbl(conversions: Array<{ volume_bbl: number | string | null; converted_at: string | null }>): number {
+  return conversions.filter((c) => !c.converted_at).reduce((s, c) => s + Number(c.volume_bbl ?? 0), 0);
 }
 
 /** bbl ⇄ percentage of a batch. Exported for tests. */
@@ -113,6 +130,8 @@ export interface AutoHomeDraw {
   /** What the brewer is told the share came from. */
   label: string;
   bbl: number;
+  /** The part of `bbl` that raises the booking; the rest only restores share already shipped against. */
+  bookBbl: number;
 }
 
 /**
@@ -128,6 +147,8 @@ export function planAutoHome(
   bbl: number,
   /** What this same shipment already credits to the target: that much of its free share is spoken for. */
   creditedToTargetBbl = 0,
+  /** Share the target is already short of (HomesForBatch.targetShortBbl): drawn first, never booked. */
+  shortBbl = 0,
 ): AutoHomeDraw[] | null {
   const ours = [
     ...sources.filter((s) => s.kind === "self"),
@@ -135,7 +156,8 @@ export function planAutoHome(
     ...sources.filter((s) => s.kind === "allocation" && s.channel === "taproom"),
   ];
   const draws: AutoHomeDraw[] = [];
-  let left = bbl;
+  let left = bbl + shortBbl;
+  let shortLeft = shortBbl;
   for (const s of ours) {
     if (left <= EPS) break;
     const take = Math.min(left, s.kind === "self" ? s.freeBbl - creditedToTargetBbl : s.freeBbl);
@@ -144,12 +166,18 @@ export function planAutoHome(
       source: s.kind === "unallocated" || !s.allocationId ? { kind: "unallocated" } : { kind: "allocation", allocationId: s.allocationId },
       label: s.kind === "self" ? "their own unshipped share" : s.kind === "unallocated" ? "the unallocated share" : "the taproom",
       bbl: Math.round(take * 10000) / 10000,
+      bookBbl: Math.round(Math.max(0, take - shortLeft) * 10000) / 10000,
     });
+    shortLeft = Math.max(0, shortLeft - take);
     left -= take;
   }
   // freeBbl is rounded to the cent; a hair short is not a reason to ask.
   if (left > 0.01) return null;
-  if (left > EPS && draws.length > 0) draws[draws.length - 1].bbl = Math.round((draws[draws.length - 1].bbl + left) * 10000) / 10000;
+  if (left > EPS && draws.length > 0) {
+    const last = draws[draws.length - 1];
+    last.bbl = Math.round((last.bbl + left) * 10000) / 10000;
+    last.bookBbl = Math.round((last.bookBbl + left) * 10000) / 10000;
+  }
   return draws.length > 0 ? draws : null;
 }
 
@@ -186,7 +214,7 @@ export async function listHomes(
       .eq("batch_id", batchId),
     loadBatchYields(supabase, [batchId]),
     supabase.from("export_transactions").select("allocation_id, volume_bbl").eq("batch_id", batchId).not("allocation_id", "is", null),
-    supabase.from("batch_conversions").select("volume_bbl").eq("source_batch_id", batchId),
+    supabase.from("batch_conversions").select("volume_bbl, converted_at").eq("source_batch_id", batchId),
   ]);
   const producedBbl = yields.get(batchId)?.producedBbl ?? 0;
   const yieldBbl = shareBasisBbl(yields, batchId);
@@ -202,14 +230,15 @@ export async function listHomes(
   // total, never list it as a source.
   const allRows = (allocs ?? []) as unknown as AllocRow[];
   const rows = allRows.filter((a) => !a.written_off_at);
-  // Liquid converted into another beer is spoken for (that batch has its own
-  // allocations); it is never free share here.
-  const convertedPct = plannedBbl > EPS
-    ? ((conversions ?? []) as Array<{ volume_bbl: number | null }>).reduce((s, c) => s + Number(c.volume_bbl ?? 0), 0) / plannedBbl * 100
+  // Liquid planned for conversion into another beer is spoken for (that batch
+  // has its own allocations); it is never free share here.
+  const convertedPct = basisBbl > EPS
+    ? pendingConversionBbl((conversions ?? []) as Array<{ volume_bbl: number | null; converted_at: string | null }>) / basisBbl * 100
     : 0;
   const totalPct = allRows.reduce((s, a) => s + Number(a.percentage), 0) + convertedPct;
   const unallocatedBbl = round2(Math.max(0, (100 - totalPct) / 100) * basisBbl);
 
+  let targetShortBbl = 0;
   const sources: HomeSource[] = [];
   if (unallocatedBbl > EPS) {
     sources.push({ kind: "unallocated", allocationId: null, channel: null, partnerName: null, percentage: round2(100 - totalPct), freeBbl: unallocatedBbl, requires: "none" });
@@ -219,6 +248,7 @@ export async function listHomes(
     const share = (Number(a.percentage) / 100) * basisBbl;
     const freeBbl = round2(Math.max(0, share - (exportedByAlloc.get(a.id) ?? 0)));
     if (a.id === targetAllocationId) {
+      targetShortBbl = Math.round(Math.max(0, (exportedByAlloc.get(a.id) ?? 0) - share) * 10000) / 10000;
       // The target already holds unshipped share: nothing moves, the booking
       // just catches up with what it can deliver.
       if (freeBbl > EPS) {
@@ -253,6 +283,7 @@ export async function listHomes(
     yieldBbl: round2(yieldBbl),
     plannedBbl: round2(plannedBbl),
     unallocatedBbl,
+    targetShortBbl,
     sources,
   };
 }
@@ -270,6 +301,11 @@ export interface RehomeArgs {
    * that have shipped, short for beer that has not left yet.
    */
   beyondBooking?: boolean;
+  /**
+   * How much of `bbl` raises the booking, when not all of it. The rest only
+   * restores share the target has already shipped against (targetShortBbl).
+   */
+  bookBbl?: number;
 }
 
 export interface RehomeResult {
@@ -333,7 +369,7 @@ export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs):
   let bookedBbl: number | null = null;
   if (target.contract_request_id) {
     const current = Number((target.commitments as unknown as { volume_bbl?: number | null } | null)?.volume_bbl ?? 0);
-    let next = round2(current + Number(args.bbl));
+    let next = round2(current + Number(args.bookBbl ?? args.bbl));
     if (source.kind === "self" && !args.beyondBooking) {
       const { data: credited } = await supabase
         .from("export_transactions").select("volume_bbl").eq("allocation_id", target.id);
