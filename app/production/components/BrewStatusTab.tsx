@@ -46,6 +46,19 @@ function CalendarIcon({ size = 11 }: { size?: number }) {
   );
 }
 
+// A brewed batch whose ingredients were not all drawn. Each turn's draw
+// happens when the turn starts (tank-assignments route), and `turns_completed`
+// counts the turns that drew. A gap means the grain is still on the Raw
+// Materials shelf AND costed into the batch, so the books double-count it
+// until the next ingredient count — flag it the day it happens.
+function drawGap(b: BrewBatch | null | undefined): string | null {
+  if (!b || b.status === "planning" || b.status === "complete" || b.converted_from_batch_id) return null;
+  const drawn = Number(b.turns_completed ?? 0);
+  const turns = Number(b.turns ?? 1);
+  if (drawn >= turns) return null;
+  return `Ingredients drawn for ${drawn} of ${turns} turn${turns === 1 ? "" : "s"} — start the remaining turn(s) from the tank so the grain leaves the shelf`;
+}
+
 // Groups a date-sorted list into runs sharing the same calendar day, so the
 // UI can print the date once per group instead of repeating it on every row.
 function groupByDate<T>(items: T[], dateOf: (item: T) => string): { date: string; items: T[] }[] {
@@ -549,6 +562,11 @@ export default function BrewStatusTab() {
                             <div className="flex items-center gap-2 mb-2">
                               {batch.batch_number && <span className="text-muted font-mono text-xs">#{batch.batch_number}</span>}
                               <span className="text-primary font-medium text-sm">{batch.beer_name}</span>
+                              {drawGap(batchById[batch.id]) && (
+                                <span className="text-xs px-1.5 py-px rounded border border-danger-border bg-danger-surface/40 text-danger shrink-0" title={drawGap(batchById[batch.id])!}>
+                                  Ingredients not drawn
+                                </span>
+                              )}
                             </div>
                             {!isUnconstrained && tank.capacity_bbl && (
                               <>
@@ -936,6 +954,11 @@ export default function BrewStatusTab() {
                               <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 10 }} title={batch.beer_name}>
                                 {batch.beer_name}
                               </span>
+                              {drawGap(batchById[batch.id]) && (
+                                <span className="px-1 py-px rounded border border-danger-border bg-danger-surface/40 text-danger shrink-0 leading-none" style={{ fontSize: 7 }} title={drawGap(batchById[batch.id])!}>
+                                  No draw
+                                </span>
+                              )}
                             </div>
                             {assignment && (
                               <p className="shrink-0 text-faint truncate" style={{ fontSize: 8 }}>since {fmtDate(assignment.assigned_at)}</p>

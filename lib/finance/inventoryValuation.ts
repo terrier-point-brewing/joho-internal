@@ -18,9 +18,10 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { computeMaterialCost } from "@/lib/production/packagingMaterials";
 import type { MaterialComponent, MaterialRole } from "@/lib/production/packagingMaterials";
+import { fetchRecipeCostCents, loadBatchCosts, workInProcessCents } from "@/lib/finance/batchCost";
 
 /** The shelves that can be valued from cost data this business actually keeps. */
-export const INVENTORY_POOLS = ["rawMaterials", "packagingMaterials", "finishedGoods"] as const;
+export const INVENTORY_POOLS = ["rawMaterials", "packagingMaterials", "workInProcess", "finishedGoods"] as const;
 export type InventoryPool = (typeof INVENTORY_POOLS)[number];
 
 export function inventoryPoolOf(raw: unknown): InventoryPool | null {
@@ -59,6 +60,10 @@ export async function fetchPackagingMaterialsCents(supabase: SupabaseClient): Pr
       .from("packaging_items")
       .select("stock_quantity, unit_cost_usd")
       .is("partner_id", null)
+      // Kegs are a returnable float, not materials consumed into the beer —
+      // the same rule finished goods applies below. Kept out in the query so
+      // pricing a keg for some other purpose cannot put it on this shelf.
+      .neq("type", "keg")
       .order("id", { ascending: true }),
   );
   return extendedCents(rows.map((r) => ({ quantity: r.stock_quantity, cost: r.unit_cost_usd })));
@@ -78,14 +83,18 @@ export async function fetchPackagingMaterialsCents(supabase: SupabaseClient): Pr
 // against a partner recipe) and, worse, would look like a deliberate accounting
 // rule rather than the mistake it is.
 //
-// ── Standard cost, not actual batch cost ─────────────────────────────────────
-// The obvious approach is to add up what each batch actually consumed. It does
-// not work here: of the 23 batches in cold storage, ZERO have ingredient
-// consumption rows and only 9 have packaging rows -- those ledgers only begin in
-// July 2026. An actual-cost valuation would therefore report almost the whole
-// account as worthless, confidently. So cost is derived from the recipe and the
-// packaging variation instead, which is the same basis used to bill contract
-// partners for materials.
+// ── Batch cost, with shrinkage spread over the yield ─────────────────────────
+// Each unit is priced at ITS batch's unit cost (lib/finance/batchCost): the
+// recipe at today's prices × turns, divided by what the batch yields, so the
+// beer lost between tank and package is carried by the beer that made it out.
+// A unit whose batch cannot be costed — no batch recorded, or a recipe with no
+// ingredients entered — falls back to the recipe's per-bbl bill, which is what
+// this shelf used before batch costing existed.
+//
+// Actual consumption rows are deliberately NOT the basis: they only begin in
+// July 2026 and several batches drew for one turn of a two-turn brew, so an
+// actual-cost valuation would report beer as cheaper than it was, confidently.
+// The recipe standard is the same basis the deposit invoices bill partners on.
 //
 // ── Materials only ───────────────────────────────────────────────────────────
 // No labor, no brewery overhead. Full absorption costing needs a per-bbl rate
@@ -93,6 +102,7 @@ export async function fetchPackagingMaterialsCents(supabase: SupabaseClient): Pr
 // omitting it. The effect is to understate, never to inflate.
 
 interface ColdStorageRow {
+  batch_id: string | null;
   recipe_id: string | null;
   variation_id: string | null;
   quantity_on_hand: number | null;
@@ -115,27 +125,6 @@ interface PackagingItemRow {
   name: string | null;
   unit_cost_usd: number | null;
   can_count: number | null;
-}
-
-/** Recipe material cost per bbl, from the ingredient bill at today's ingredient prices. */
-async function fetchRecipeCostPerBbl(supabase: SupabaseClient): Promise<Map<string, number>> {
-  const rows = await fetchAllRows<{
-    recipe_id: string;
-    quantity_per_bbl: number | null;
-    ingredients: { cost_per_unit_usd: number | null } | null;
-  }>(() =>
-    supabase
-      .from("recipe_ingredients")
-      .select("recipe_id, quantity_per_bbl, ingredients ( cost_per_unit_usd )")
-      .order("id", { ascending: true }),
-  );
-
-  const byRecipe = new Map<string, number>();
-  for (const row of rows) {
-    const line = (row.quantity_per_bbl ?? 0) * (row.ingredients?.cost_per_unit_usd ?? 0);
-    byRecipe.set(row.recipe_id, (byRecipe.get(row.recipe_id) ?? 0) + line);
-  }
-  return byRecipe;
 }
 
 /**
@@ -190,21 +179,30 @@ export async function fetchFinishedGoodsCents(supabase: SupabaseClient): Promise
   const stock = await fetchAllRows<ColdStorageRow>(() =>
     supabase
       .from("cold_storage_inventory")
-      .select("recipe_id, variation_id, quantity_on_hand")
+      .select("batch_id, recipe_id, variation_id, quantity_on_hand")
       .order("id", { ascending: true }),
   );
   if (stock.length === 0) return 0;
 
-  const [variations, costPerBbl] = await Promise.all([
+  const [variations, recipeCost, batchCosts] = await Promise.all([
     fetchAllRows<VariationRow>(() =>
       supabase
         .from("packaging_variations")
         .select("id, format, total_volume_fl_oz, container_id, lid_id, label_id, paktech_id, tray_id")
         .order("id", { ascending: true }),
     ),
-    fetchRecipeCostPerBbl(supabase),
+    fetchRecipeCostCents(supabase),
+    loadBatchCosts(supabase),
   ]);
   const variationsById = new Map(variations.map((v) => [v.id, v]));
+
+  // Cents per bbl for one cold-storage row: its batch's unit cost, else the
+  // recipe's per-bbl bill.
+  const beerCentsPerBbl = (row: ColdStorageRow): number => {
+    const batch = row.batch_id ? batchCosts.get(row.batch_id) : undefined;
+    if (batch && batch.costPerBblCents > 0) return batch.costPerBblCents;
+    return row.recipe_id ? (recipeCost.perBbl.get(row.recipe_id) ?? 0) : 0;
+  };
 
   const items = await fetchAllRows<PackagingItemRow>(() =>
     supabase.from("packaging_items").select("id, type, name, unit_cost_usd, can_count").order("id", { ascending: true }),
@@ -218,11 +216,11 @@ export async function fetchFinishedGoodsCents(supabase: SupabaseClient): Promise
     const variation = row.variation_id ? variationsById.get(row.variation_id) : undefined;
     if (!variation) continue;
 
-    // The beer itself: recipe cost per bbl, scaled by how much beer this unit
+    // The beer itself: the batch's unit cost, scaled by how much beer this unit
     // holds. total_volume_fl_oz is already the whole unit -- a case's full 24
     // cans -- so no per-package multiplier belongs here.
     const bbl = (variation.total_volume_fl_oz ?? 0) / BBL_TO_FL_OZ;
-    const beerDollars = quantity * bbl * (row.recipe_id ? (costPerBbl.get(row.recipe_id) ?? 0) : 0);
+    const beerCents = quantity * bbl * beerCentsPerBbl(row);
 
     // The packaging around it, through the same engine the export invoices bill
     // from -- so a case's trays, PakTechs and 24 lids are counted the way they
@@ -236,15 +234,27 @@ export async function fetchFinishedGoodsCents(supabase: SupabaseClient): Promise
       },
     ]);
 
-    cents += Math.round(beerDollars * 100) + packagingCents;
+    cents += Math.round(beerCents) + packagingCents;
   }
   return cents;
 }
 
+// ── Work in process ──────────────────────────────────────────────────────────
+//
+// Beer still in a fermenter or brite, at the share of its batch's raw-material
+// cost that has not yet been packaged. The raw materials left the ingredients
+// shelf the day they were drawn; without this shelf they would be cost of
+// goods sold weeks before the beer was. See lib/finance/batchCost for the
+// arithmetic, including how the expected packaging loss is applied.
+
+export async function fetchWorkInProcessCents(supabase: SupabaseClient): Promise<number> {
+  return workInProcessCents(await loadBatchCosts(supabase));
+}
 
 /** One shelf's value today, in cents — the dispatcher both readers share. */
 export function valueInventoryPoolCents(supabase: SupabaseClient, pool: InventoryPool): Promise<number> {
   if (pool === "rawMaterials") return fetchRawMaterialsCents(supabase);
   if (pool === "packagingMaterials") return fetchPackagingMaterialsCents(supabase);
+  if (pool === "workInProcess") return fetchWorkInProcessCents(supabase);
   return fetchFinishedGoodsCents(supabase);
 }
