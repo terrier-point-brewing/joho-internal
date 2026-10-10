@@ -21,7 +21,7 @@
  * still being open. There is deliberately no long-stop auto-freeze anywhere.
  *
  * ── What a close refuses, and why refusing is not the same as nagging ────────
- * Two things block a close, and both are things software genuinely knows:
+ * Three things block a close, and all are things software genuinely knows:
  *
  *   1. An account still owes a hand-entered balance. Not "we would prefer one"
  *      -- the close checklist has a skip that records a reason, so "this
@@ -32,7 +32,14 @@
  *      snapshot.ts's per-account failure rule), so freezing on top of it would
  *      preserve a figure nobody computed for this month.
  *
- * Neither has an override. A stuck provider is fixed by fixing the source, and
+ *   3. A possible duplicate nobody has looked at. The same payment arriving
+ *      from two feeds (a Ramp bill AND the card charge that paid it) doubles an
+ *      expense while every row involved looks valid -- September 2026 closed
+ *      over five of them. Like an open task, this has an honest way out that is
+ *      not an override: "these are two separate transactions" is an answer, and
+ *      the review records it (lib/finance/duplicateReview.ts).
+ *
+ * None has an override. A stuck provider is fixed by fixing the source, and
  * a "close anyway" button is how June 2026 would happen again with a name
  * attached to it.
  *
@@ -58,6 +65,7 @@ import { snapshotPeriod, freezePeriod, unfreezePeriod, type SnapshotResult } fro
 import { ensureTasksForPeriod, listTasksForPeriod, reconcileCloseTasks } from "./closeTasks";
 import { formatPeriodLabel } from "./periods";
 import { monthEnd } from "@/lib/finance/manualEntries";
+import { countUnreviewedDuplicates } from "@/lib/finance/duplicateReview";
 import { readPeriodClose as readState, toState, type CloseEventRow, type PeriodCloseAction, type PeriodCloseState } from "./periodCloseState";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -82,6 +90,8 @@ export function describeCloseBlockers(input: {
   outstandingAccounts: string[];
   /** snapshotPeriod's own errors from the recalculation just run. */
   snapshotErrors: string[];
+  /** Possible duplicates dated in this month or earlier that nobody has answered. */
+  unreviewedDuplicates?: number;
 }): string[] {
   const label = formatPeriodLabel(input.periodEnd);
   const blockers: string[] = [];
@@ -103,6 +113,15 @@ export function describeCloseBlockers(input: {
     blockers.push(
       `${n} account${n === 1 ? "" : "s"} still ${n === 1 ? "has" : "have"} no answer for ${label}: ` +
         `${input.outstandingAccounts.join(", ")}. Enter a balance, or record why there is none.`,
+    );
+  }
+
+  const duplicates = input.unreviewedDuplicates ?? 0;
+  if (duplicates > 0) {
+    blockers.push(
+      `${duplicates} possible duplicate${duplicates === 1 ? "" : "s"} dated in or before ${label} ` +
+        `${duplicates === 1 ? "has" : "have"} not been reviewed. Answer ${duplicates === 1 ? "it" : "each one"} ` +
+        `under Transactions → Duplicates — "not a duplicate" is an answer.`,
     );
   }
 
@@ -174,6 +193,7 @@ export async function closePeriod(
   const snapshot = await snapshotPeriod(supabase, periodEnd, { todayIso });
   const tasks = await listTasksForPeriod(supabase, periodEnd);
   const outstanding = tasks.filter((t) => t.status === "open");
+  const unreviewedDuplicates = await countUnreviewedDuplicates(supabase, periodEnd);
 
   const blockers = describeCloseBlockers({
     periodEnd,
@@ -181,6 +201,7 @@ export async function closePeriod(
     alreadyClosed: false,
     outstandingAccounts: await labelAccounts(supabase, outstanding.map((t) => t.coaId)),
     snapshotErrors: snapshot.errors,
+    unreviewedDuplicates,
   });
   if (blockers.length > 0) {
     return { ok: false, blockers, snapshot, state: existing };

@@ -122,6 +122,8 @@ export const queryKeys = {
      * background.
      */
     balanceSourcesLive: () => ["finance", "balance-sources-live"] as const,
+    /** Possible duplicates across feeds, pending and reviewed (Finance > Transactions > Duplicates). */
+    duplicates: () => ["finance", "duplicates"] as const,
     /** Month-end close tasks + closed status for one period_end. */
     balanceClose: (periodEnd: string) => ["finance", "balance-close", periodEnd] as const,
     // The three per-integration screens these keyed (Ramp Connection, Square

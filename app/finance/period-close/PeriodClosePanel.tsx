@@ -21,6 +21,7 @@
 // two screens confusable. Rules there, values here.
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
@@ -248,11 +249,25 @@ export default function PeriodClosePanel({
   const open = tasks.filter((t) => t.status === "open");
   const skipped = tasks.filter((t) => t.status === "skipped");
   const completed = tasks.filter((t) => t.status === "completed");
+  const duplicates = data?.unreviewedDuplicates ?? 0;
 
   return (
     <>
       <div className="flex flex-col">
         {error && <Banner className="mb-2">{error}</Banner>}
+
+        {/* The same payment recorded from two feeds doubles an expense while
+            every row looks valid, so the close refuses over an unanswered pair
+            (periodClose.ts). Said here, ahead of the button, with the way out. */}
+        {duplicates > 0 && (
+          <Banner tone="info" className="mb-2">
+            {duplicates} possible duplicate{duplicates === 1 ? "" : "s"} dated in or before {formatPeriodLabel(periodEnd)}{" "}
+            {duplicates === 1 ? "needs" : "need"} an answer before this month can close.{" "}
+            <Link href="/finance/transactions/duplicates" className="underline hover:text-accent">
+              Review {duplicates === 1 ? "it" : "them"}
+            </Link>
+          </Banner>
+        )}
 
         {open.length > 0 && (
           <div className="flex flex-col">

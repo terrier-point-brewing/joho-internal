@@ -174,6 +174,35 @@ export async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
 }
 
 /**
+ * The first day the invoice-backed rule below applies, as the UTC date prefix
+ * aggregateRows buckets months by.
+ *
+ * It is the first day of the first month that was still OPEN when the rule was
+ * written. Exactly one order in the books before it is affected -- invoice
+ * 000049, August 2026, $2,685.37 -- and that double count was already reversed
+ * by four manual entries dated 2026-10-01, because August was closed. Applying
+ * the rule to history would restate a closed month AND leave those entries
+ * reversing something no longer there. Do not move this date earlier without
+ * deleting them.
+ */
+export const INVOICE_BACKED_POS_RULE_FROM = "2026-10-01";
+
+/**
+ * Whether a POS line's revenue is already carried by an invoice.
+ *
+ * An order linked to an invoice is recognised from its `invoice_line_items`,
+ * always. The sync normally writes such an order ONLY there, but an order that
+ * was synced as a plain sale before its invoice was linked keeps its
+ * `pos_line_items`, and the P&L then counted the same sale from both tables.
+ * This is a rule, not a heuristic: there is no case where both are revenue.
+ *
+ * Pure, and exported for its test.
+ */
+export function isInvoiceBackedPosLine(order: { transaction_date: string; invoice_id: string | null }): boolean {
+  return order.invoice_id !== null && order.transaction_date >= INVOICE_BACKED_POS_RULE_FROM;
+}
+
+/**
  * `opts.pageConcurrency` changes only the REQUEST PATTERN, never the rows: it
  * is handed straight to fetchAllRows, which reassembles the same disjoint
  * `.range()` windows in the same order. Defaulted so the P&L and cash-flow
@@ -187,7 +216,7 @@ export async function fetchPos(
   range: DateRange,
   opts: { pageConcurrency?: number } = {},
 ): Promise<PosLineRecord[]> {
-  const rows = await fetchAllRows<{
+  const fetched = await fetchAllRows<{
     id: string;
     net_sales_cents: number | null;
     quantity: number | null;
@@ -208,6 +237,10 @@ export async function fetchPos(
     if (range.start) q = q.gte("square_orders.transaction_date", range.start);
     return q;
   }, PAGE_SIZE, opts.pageConcurrency ?? 1);
+
+  // Filtered here rather than in the query so the page windows fetchAllRows
+  // reassembles are untouched, and so the rule is one tested predicate.
+  const rows = fetched.filter((r) => !isInvoiceBackedPosLine(r.square_orders));
 
   // Account-mapping prefill + category id, joined via square_catalog_variations
   // -> square_catalog_items (mirrors app/api/finance/transactions/route.ts).
@@ -235,9 +268,11 @@ export async function fetchPos(
     }
   }
 
-  // Post-migration (20260625) pos_line_items excludes invoice-backed rows, so
-  // invoiceId is normally null; kept for forward-compat with any future
-  // invoice-backed POS rows, resolved the same way invoice lines resolve theirs.
+  // Post-migration (20260625) pos_line_items excludes invoice-backed rows, and
+  // isInvoiceBackedPosLine drops any that slip through from its cutoff on, so
+  // invoiceId is non-null only for the one pre-cutoff order (see
+  // INVOICE_BACKED_POS_RULE_FROM), resolved the same way invoice lines resolve
+  // theirs.
   const invoiceIds = [...new Set(rows.map((r) => r.square_orders.invoice_id).filter((v): v is string => !!v))];
   const exportChannelByInvoice: Record<string, string | null> = {};
   if (invoiceIds.length > 0) {
