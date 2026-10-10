@@ -11,8 +11,9 @@
 // reports no errors. That is deliberate: it isolates the close DECISION from
 // the provider stack, which snapshot.test.ts and each provider's own tests
 // already cover.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { countUnreviewedDuplicates } from "@/lib/finance/duplicateReview";
 import {
   describeCloseBlockers,
   readPeriodClose,
@@ -22,6 +23,14 @@ import {
   closedPeriodRefusal,
 } from "./periodClose";
 import { snapshotPeriod } from "./snapshot";
+
+// The duplicate review reads the expense and bank feeds, which have their own
+// tests (duplicateCandidates.test.ts). Here only its COUNT matters, so it is
+// stubbed to "nothing waiting" and raised by the one test about the refusal.
+vi.mock("@/lib/finance/duplicateReview", () => ({ countUnreviewedDuplicates: vi.fn(async () => 0) }));
+beforeEach(() => {
+  vi.mocked(countUnreviewedDuplicates).mockResolvedValue(0);
+});
 
 type Row = Record<string, unknown>;
 
@@ -222,6 +231,14 @@ describe("describeCloseBlockers", () => {
     const blockers = describeCloseBlockers({ ...base, periodEnd: "2026-08-31", todayIso: "2026-08-02" });
     expect(blockers).toEqual(["August 2026 has not ended yet, so there is nothing final to record."]);
   });
+  it("refuses over possible duplicates nobody has reviewed, and says where to answer them", () => {
+    const [one] = describeCloseBlockers({ ...base, unreviewedDuplicates: 1 });
+    expect(one).toContain("1 possible duplicate dated in or before June 2026 has not been reviewed");
+    expect(one).toContain("Transactions → Duplicates");
+
+    const [many] = describeCloseBlockers({ ...base, unreviewedDuplicates: 4 });
+    expect(many).toContain("4 possible duplicates dated in or before June 2026 have not been reviewed");
+  });
 });
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -405,6 +422,18 @@ describe("closePeriod", () => {
     expect(result.blockers[0]).toContain("1010 · Cash on Hand");
     // The whole point of refusing: nothing is final and nothing is frozen.
     expect(db.balances[0].is_frozen).toBe(false);
+    expect(db.closes).toEqual([]);
+  });
+
+  it("refuses while a possible duplicate is unreviewed, and writes nothing", async () => {
+    vi.mocked(countUnreviewedDuplicates).mockResolvedValue(2);
+    const db = emptyDb();
+
+    const result = await closePeriod(makeFakeSupabase(db), { periodEnd: "2026-06-30", ...closer });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockers[0]).toContain("2 possible duplicates");
+    expect(countUnreviewedDuplicates).toHaveBeenCalledWith(expect.anything(), "2026-06-30");
     expect(db.closes).toEqual([]);
   });
 

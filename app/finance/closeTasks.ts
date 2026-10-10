@@ -62,8 +62,10 @@ export interface CloseTasksResponse {
    * done" and "the books are final" that the close workflow exists to undo.
    */
   close: PeriodCloseState | null;
-  /** Nothing left on the checklist, and nobody has closed it yet. */
+  /** Nothing left on the checklist or the duplicate review, and nobody has closed it yet. */
   readyToClose: boolean;
+  /** Possible duplicates dated in this month or earlier still waiting for an answer. Always 0 once closed. */
+  unreviewedDuplicates: number;
   coverage: PeriodCoverage;
   /** The period's own deadline, from the business-wide close setting. */
   dueDate: string;

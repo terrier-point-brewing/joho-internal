@@ -7,6 +7,7 @@ const TABS = [
   { href: "/finance/transactions/expenses", label: "Expenses" },
   { href: "/finance/transactions/bank-ledger", label: "Bank Ledger" },
   { href: "/finance/transactions/manual-entries", label: "Manual Entries" },
+  { href: "/finance/transactions/duplicates", label: "Duplicates" },
 ];
 
 export default function TransactionsNav() {

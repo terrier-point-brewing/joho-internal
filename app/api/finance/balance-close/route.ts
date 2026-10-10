@@ -37,6 +37,7 @@ import {
   type CloseTask,
 } from "@/lib/finance/balances/closeTasks";
 import { reopenPeriod, readPeriodClose, readPeriodCoverage } from "@/lib/finance/balances/periodClose";
+import { countUnreviewedDuplicates } from "@/lib/finance/duplicateReview";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +163,11 @@ export async function GET(req: NextRequest) {
       readPeriodCoverage(supabase, periodEnd),
     ]);
 
+    // Asked only of a month that can still be closed. A closed month's answer
+    // would be a count nobody can act on from here, repeated on every earlier
+    // row of the periods index.
+    const unreviewedDuplicates = close?.closed ? 0 : await countUnreviewedDuplicates(supabase, periodEnd);
+
     return NextResponse.json({
       periodEnd,
       tasks: await describeTasks(supabase, tasks, periodEnd),
@@ -171,7 +177,11 @@ export async function GET(req: NextRequest) {
       // the second and called it "closed", which is the conflation the whole
       // close workflow exists to undo.
       close,
-      readyToClose: !(close?.closed ?? false) && everyTaskAnswered(tasks),
+      readyToClose: !(close?.closed ?? false) && everyTaskAnswered(tasks) && unreviewedDuplicates === 0,
+      // Possible duplicates dated in this month or earlier that nobody has
+      // answered. The close refuses while there are any (periodClose.ts), so
+      // the screen says so before the button is pressed.
+      unreviewedDuplicates,
       // What closing would be asserting: how many configured accounts actually
       // produced a figure this month, and which ones did not.
       coverage,

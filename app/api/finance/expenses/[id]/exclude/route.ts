@@ -10,6 +10,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionUser, requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { excludeExpense } from "@/lib/finance/expenseExclusion";
 
 export const dynamic = "force-dynamic";
 
@@ -22,45 +23,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!reason) return NextResponse.json({ error: "A reason is required to exclude a transaction" }, { status: 400 });
 
   const sb = createSupabaseAdminClient();
-
-  // A manually split expense codes through its split lines; excluding it would
-  // strand them. Make the operator clear the split first rather than silently
-  // winning. Scoped to split_source='manual': payroll_auto rows are owned by the
-  // pay-period recompute and cannot be cleared from this UI, so treating them as
-  // a blocker would tell the operator to do something they have no way to do.
-  const { data: splits, error: splitErr } = await sb
-    .from("expense_gl_splits").select("id").eq("expense_id", id).eq("split_source", "manual").limit(1);
-  if (splitErr) return NextResponse.json({ error: splitErr.message }, { status: 500 });
-  if (splits && splits.length > 0) {
-    return NextResponse.json({ error: "Clear this transaction's manual GL split before excluding it" }, { status: 409 });
-  }
-
-  // A payroll-matched expense stays in its pay period's totals either way:
-  // lib/payroll/periodSummary.ts sums expenses.amount_cents for matched ids and
-  // has no exclusion filter. Excluding here would drop the row from every
-  // statement while payroll still reports it as matched and reconciled, so the
-  // two modules would disagree about the same money. Unmatch first.
-  const { data: matches, error: matchErr } = await sb
-    .from("payroll_period_expense_matches").select("id").eq("expense_id", id).limit(1);
-  if (matchErr) return NextResponse.json({ error: matchErr.message }, { status: 500 });
-  if ((matches ?? []).length > 0) {
-    return NextResponse.json(
-      { error: "Unmatch this transaction from its pay period before excluding it" },
-      { status: 409 },
-    );
-  }
-
   // getSessionUser returns { user, role } — the id is on .user, not the root.
   const session = await getSessionUser();
-  const { data, error } = await sb
-    .from("expenses")
-    .update({ excluded_at: new Date().toISOString(), excluded_reason: reason, excluded_by: session?.user.id ?? null })
-    .eq("id", id)
-    .select("id, excluded_at, excluded_reason")
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const result = await excludeExpense(sb, { id, reason, userId: session?.user.id ?? null });
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 
-  return NextResponse.json(data);
+  return NextResponse.json(result.row);
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

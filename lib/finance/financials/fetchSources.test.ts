@@ -4,7 +4,14 @@
 // buildFinancials.test.ts, which mocks fetchFinancialsSources wholesale).
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchExpenses, fetchInvoiceLines, fetchBank, fetchRefunds } from "./fetchSources";
+import {
+  fetchExpenses,
+  fetchInvoiceLines,
+  fetchBank,
+  fetchRefunds,
+  isInvoiceBackedPosLine,
+  INVOICE_BACKED_POS_RULE_FROM,
+} from "./fetchSources";
 
 interface ExpensesRow {
   id: string;
@@ -533,5 +540,28 @@ describe("fetchRefunds", () => {
     ]);
     const rows = await fetchRefunds(client, RANGE);
     expect(rows[0].chartOfAccountsId).toBe("contra");
+  });
+});
+
+describe("isInvoiceBackedPosLine", () => {
+  it("drops a POS line whose order is linked to an invoice", () => {
+    expect(isInvoiceBackedPosLine({ transaction_date: "2026-10-14T18:00:00+00:00", invoice_id: "inv-1" })).toBe(true);
+  });
+
+  it("keeps an ordinary taproom sale", () => {
+    expect(isInvoiceBackedPosLine({ transaction_date: "2026-10-14T18:00:00+00:00", invoice_id: null })).toBe(false);
+  });
+
+  // Invoice 000049 (2026-08-16). August is closed and its double count is
+  // already reversed by manual entries dated 2026-10-01; dropping these lines
+  // too would restate a closed month and reverse the same money twice.
+  it("leaves an invoice-linked order from before the cutoff exactly as it was reported", () => {
+    expect(isInvoiceBackedPosLine({ transaction_date: "2026-08-16T15:30:00+00:00", invoice_id: "inv-000049" })).toBe(false);
+  });
+
+  it("starts on the first instant of the cutoff month, the same boundary months are bucketed on", () => {
+    expect(INVOICE_BACKED_POS_RULE_FROM).toBe("2026-10-01");
+    expect(isInvoiceBackedPosLine({ transaction_date: "2026-09-30T23:59:59+00:00", invoice_id: "x" })).toBe(false);
+    expect(isInvoiceBackedPosLine({ transaction_date: "2026-10-01T00:00:00+00:00", invoice_id: "x" })).toBe(true);
   });
 });

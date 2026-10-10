@@ -42,13 +42,29 @@ function StatusCell({ data }: { data: CloseTasksResponse }) {
  * the same distinction the checklist panel makes with its own `nothingAsked`.
  */
 function OutstandingCell({ data }: { data: CloseTasksResponse }) {
-  if (data.tasks.length === 0) return DASH;
+  const duplicates = data.unreviewedDuplicates;
+  // The same payment recorded from two feeds. It blocks the close exactly as an
+  // outstanding balance does, so it is counted in the same cell and links to
+  // where it is answered.
+  const duplicatesLine = duplicates > 0 && (
+    <Link href="/finance/transactions/duplicates" className="block text-body hover:text-accent">
+      {duplicates} possible duplicate{duplicates === 1 ? "" : "s"} to review
+    </Link>
+  );
+
+  if (data.tasks.length === 0) return duplicatesLine || DASH;
   const openCount = data.tasks.filter((t) => t.status === "open").length;
-  if (openCount === 0) return <span className="text-2xs text-faint">All answered</span>;
   return (
-    <span className="text-body">
-      {openCount} balance{openCount === 1 ? "" : "s"} outstanding
-    </span>
+    <>
+      {openCount === 0 ? (
+        <span className="text-2xs text-faint">All answered</span>
+      ) : (
+        <span className="text-body">
+          {openCount} balance{openCount === 1 ? "" : "s"} outstanding
+        </span>
+      )}
+      {duplicatesLine}
+    </>
   );
 }
 
