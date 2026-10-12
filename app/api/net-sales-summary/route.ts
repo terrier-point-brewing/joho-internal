@@ -9,6 +9,7 @@ import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import { requireDateRange, apiError } from "@/lib/utils/api";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isInvoiceOrder } from "@/lib/square/invoiceOrders";
+import { proratedTaproomManualSalesCents, type TaproomManualEntry } from "@/lib/taproom/manualSalesEntries";
 
 const EXCLUDED_CATEGORY_IDS = new Set(["CO2", "OTHER"]);
 
@@ -38,30 +39,33 @@ export async function GET(req: NextRequest) {
     }, 0);
 
     // -----------------------------------------------------------------------
-    // 2. Manual entry adjustments — prorated by day overlap
+    // 2. Manual entry adjustments — taproom revenue accounts only, prorated
+    //    by day overlap. manual_entries is brewery-wide since PR #300, so the
+    //    account filter is what keeps a payroll or COGS correction out of
+    //    taproom sales. Rule lives in lib/taproom/manualSalesEntries.ts.
     // -----------------------------------------------------------------------
-    const startDate = new Date(start + "T00:00:00");
-    const endDate   = new Date(end   + "T00:00:00");
-
     const { data: manualEntries, error: manualErr } = await supabase
       .from("manual_entries")
-      .select("start_date, end_date, amount_cents")
+      .select("start_date, end_date, amount_cents, chart_of_accounts:chart_of_accounts_id(account_number)")
       .eq("entry_kind", "flow");
     if (manualErr) throw manualErr;
 
-    for (const entry of manualEntries ?? []) {
-      const entryStart = new Date(entry.start_date + "T00:00:00");
-      const entryEnd   = new Date(entry.end_date   + "T00:00:00");
-
-      const overlapStart = startDate > entryStart ? startDate : entryStart;
-      const overlapEnd   = endDate   < entryEnd   ? endDate   : entryEnd;
-
-      if (overlapStart <= overlapEnd) {
-        const entryDays   = Math.round((entryEnd.getTime()   - entryStart.getTime())   / 86_400_000) + 1;
-        const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86_400_000) + 1;
-        netSalesCents += Math.round(entry.amount_cents * overlapDays / entryDays);
-      }
-    }
+    type ManualRow = {
+      start_date: string;
+      end_date: string;
+      amount_cents: number;
+      chart_of_accounts: { account_number: string | null } | { account_number: string | null }[] | null;
+    };
+    const entries: TaproomManualEntry[] = ((manualEntries ?? []) as unknown as ManualRow[]).map((e) => {
+      const coa = Array.isArray(e.chart_of_accounts) ? e.chart_of_accounts[0] : e.chart_of_accounts;
+      return {
+        startDate: e.start_date,
+        endDate: e.end_date,
+        amountCents: e.amount_cents,
+        accountNumber: coa?.account_number ?? null,
+      };
+    });
+    netSalesCents += proratedTaproomManualSalesCents(entries, start, end);
 
     return NextResponse.json({ net_sales_cents: netSalesCents, start, end });
   } catch (err) {
