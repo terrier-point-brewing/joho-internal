@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { injectDepreciationRows, injectExciseExpenseRows, injectInventoryReliefRows, injectSquareFeeRows, cumulativeDepreciationThrough } from "./derivedStatementRows";
+import { injectDepreciationRows, injectExciseExpenseRows, injectInventoryCostRows, injectSquareFeeRows, cumulativeDepreciationThrough } from "./derivedStatementRows";
 import { reliefDeltasByMonth } from "@/lib/finance/inventoryRelief";
 import type { ScheduleState } from "@/lib/finance/depreciation/state";
 import type { CoaRecord } from "./aggregateRows";
@@ -81,32 +81,85 @@ describe("reliefDeltasByMonth", () => {
   });
 });
 
-describe("injectInventoryReliefRows", () => {
-  const source = { accountCoaId: "coa-1210", offsetCoaId: "coa-5100", pool: "rawMaterials" as const };
+describe("reliefDeltasByMonth — opening balance", () => {
+  it("treats the first value as an opening balance when asked: no change that month, only later moves", () => {
+    const deltas = reliefDeltasByMonth({ "2026-05": 2_500_000, "2026-06": 2_600_000 }, MONTHS, { excludeOpening: true });
+    expect(deltas).toEqual({ "2026-04": 0, "2026-05": 0, "2026-06": 100_000 });
+  });
+});
 
-  it("synthesizes the month's inventory change onto the COGS offset account", () => {
-    const rows = injectInventoryReliefRows([], [{ source, valueByMonth: { "2026-05": 2_500_000, "2026-06": 2_400_000 } }], MONTHS, COA);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].coaId).toBe("coa-5100");
-    expect(rows[0].accountName).toBe("Raw Materials Purchases (Inventory change)");
-    // Inventory up: a credit against cost. Down: consumed into cost.
-    expect(rows[0].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": 2_500_000, "2026-06": -100_000 });
+describe("injectInventoryCostRows", () => {
+  const raw = { accountCoaId: "coa-1210", offsetCoaId: "coa-5100", pool: "rawMaterials" as const };
+  const COA_WITH_6460 = [
+    ...COA,
+    { id: "coa-6460", parentId: null, accountName: "Inventory Shrinkage & Adjustments", accountNumber: "6460", accountType: "Expenses", statementSection: null },
+  ];
+  /** A real purchase row on the offset account: $1,000 in May, $500 in June. */
+  const purchase = {
+    coaId: "coa-5100",
+    parentId: null,
+    accountName: "Raw Materials Purchases",
+    statementSection: "cogs",
+    channel: "unknown" as const,
+    posCategory: null,
+    kegSize: null,
+    amountCentsByMonth: { "2026-04": 0, "2026-05": -100_000, "2026-06": -50_000 },
+    bblByMonth: {},
+    bblCoverage: "full" as const,
+    mappingSource: "manual" as const,
+    sourceRef: { table: "expenses", ids: ["e1", "e2"] },
+  };
+  const sold = { "2026-05": { beerCents: 40_000, packagingCents: 0, ids: ["x1"] }, "2026-06": { beerCents: 60_000, packagingCents: 0, ids: ["x2"] } };
+
+  it("replaces the periodic figure with purchases capitalised, cost of beer sold, and the residual", () => {
+    // Shelf: opens at $25,000 in May (equity's business), rises to $25,500 in June.
+    const rows = injectInventoryCostRows(
+      [purchase],
+      [{ source: raw, valueByMonth: { "2026-05": 2_500_000, "2026-06": 2_550_000 } }],
+      sold,
+      MONTHS,
+      COA_WITH_6460,
+    );
+    const byName = Object.fromEntries(rows.map((r) => [r.accountName, r]));
+
+    expect(byName["Raw Materials Purchases (Capitalised to inventory)"].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": 100_000, "2026-06": 50_000 });
+    expect(byName["Raw Materials Purchases (Cost of beer sold)"].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": -40_000, "2026-06": -60_000 });
+    // May: change 0 (opening) − 1,000 + 400 = −600 lost. June: +500 − 500 + 600 = +600 gained.
+    expect(byName["Inventory Shrinkage & Adjustments (Inventory shrinkage & adjustments)"].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": -60_000, "2026-06": 60_000 });
+
+    // The three derived rows sum to the month's change in inventory (the
+    // purchase row itself is still on the statement), so the P&L nets to
+    // change minus purchases — the periodic figure — and retained earnings'
+    // cumulative inventory value still ties.
+    const derived = rows.filter((r) => r.mappingSource === "rule");
+    const sum = (m: string) => derived.reduce((t, r) => t + (r.amountCentsByMonth[m] ?? 0), 0);
+    expect(sum("2026-05")).toBe(0);
+    expect(sum("2026-06")).toBe(50_000);
   });
 
-  it("merges accounts sharing one offset and injects nothing when values never move", () => {
-    const rows = injectInventoryReliefRows(
+  it("sends beer to the raw-materials offset and packaging to the packaging offset", () => {
+    const pkg = { accountCoaId: "coa-1220", offsetCoaId: "coa-5120", pool: "packagingMaterials" as const };
+    const coa = [...COA_WITH_6460, { id: "coa-5120", parentId: null, accountName: "Packaging Purchases", accountNumber: "5120", accountType: "Cost of Goods Sold", statementSection: null }];
+    const rows = injectInventoryCostRows(
       [],
-      [
-        { source, valueByMonth: { "2026-05": 100 } },
-        { source: { ...source, accountCoaId: "coa-1220" }, valueByMonth: { "2026-05": 200 } },
-        { source: { ...source, accountCoaId: "coa-1230" }, valueByMonth: {} },
-      ],
+      [{ source: raw, valueByMonth: { "2026-05": 1 } }, { source: pkg, valueByMonth: { "2026-05": 1 } }],
+      { "2026-06": { beerCents: 300, packagingCents: 70, ids: ["x"] } },
       MONTHS,
-      COA,
+      coa,
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0].amountCentsByMonth["2026-05"]).toBe(300);
-    expect((rows[0].sourceRef.ids ?? []).slice().sort()).toEqual(["coa-1210", "coa-1220"]);
+    const byCoa = Object.fromEntries(rows.filter((r) => r.accountName.endsWith("(Cost of beer sold)")).map((r) => [r.coaId, r.amountCentsByMonth["2026-06"]]));
+    expect(byCoa).toEqual({ "coa-5100": -300, "coa-5120": -70 });
+  });
+
+  it("leaves months before tracking began untouched — their purchases stay the cost", () => {
+    const rows = injectInventoryCostRows([purchase], [{ source: raw, valueByMonth: { "2026-06": 2_500_000 } }], sold, MONTHS, COA_WITH_6460);
+    for (const r of rows.filter((x) => x.mappingSource === "rule")) {
+      expect(r.amountCentsByMonth["2026-05"]).toBe(0);
+    }
+  });
+
+  it("injects nothing when no shelf is configured", () => {
+    expect(injectInventoryCostRows([purchase], [], sold, MONTHS, COA_WITH_6460)).toEqual([purchase]);
   });
 });
 

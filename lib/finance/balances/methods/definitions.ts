@@ -425,18 +425,19 @@ const inventoryOnHand: BalanceMethod = {
     {
       // OPTIONAL, and the default is the pre-existing behaviour: a balance-
       // sheet figure and nothing on the P&L. Naming an account here is what
-      // turns the standard periodic treatment on for this shelf -- purchases
-      // keep coding exactly where they always have, and the month's CHANGE in
-      // this account's value lands on the named COGS account as a derived row
-      // (lib/finance/inventoryRelief.ts). The first month a value exists
-      // relieves the whole of it: the one-time catch-up for every purchase
-      // expensed before inventory tracking began.
+      // puts this shelf into the P&L's inventory rows
+      // (lib/finance/financials/derivedStatementRows.injectInventoryCostRows):
+      // purchases coded to the named account are capitalised back onto the
+      // balance sheet, the cost of the beer that left each month posts there,
+      // and whatever the shelf lost or gained that no sale explains lands on
+      // 6460 Inventory Shrinkage & Adjustments. The first month a value exists
+      // is an opening balance, absorbed by equity rather than the P&L.
       kind: "account",
       key: COGS_OFFSET_KEY,
       sections: ["cogs"],
       optional: true,
       label: "Cost account the monthly change posts against",
-      help: "Purchases for this shelf are expensed the day they are coded, so without this the P&L counts them twice over their life: once when bought, and again implicitly when the shelf empties. Name the cost-of-goods account they are coded to, and each month's change in this account's value is credited or charged there automatically \u2014 inventory bought but not yet used comes OFF cost, inventory used up goes back ON. Leave it blank to keep the balance-sheet figure only.",
+      help: "Name the cost-of-goods account this shelf's purchases are coded to. Those purchases are then moved onto the balance sheet each month (a purchase is stock, not yet a cost), the cost of the beer that actually left is charged there, and anything the shelf lost or gained that no sale explains \u2014 a count correction, a missed receipt \u2014 goes to 6460 Inventory Shrinkage & Adjustments below gross profit. The first month this shelf has a value is treated as an opening balance and never touches the P&L. Leave it blank to keep the balance-sheet figure only.",
     },
   ],
   steps: [

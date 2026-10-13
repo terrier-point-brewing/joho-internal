@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchDepreciationState, type ScheduleState } from "@/lib/finance/depreciation/state";
 import { fetchInventoryValueSeries, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
+import { fetchCostOfBeerSoldByMonth, type CostOfBeerSoldByMonth } from "@/lib/finance/costOfBeerSold";
 import { fetchSquareFeeSeries, type SquareFeeSeries } from "@/lib/finance/squareFees";
 import { fetchExciseExpenseByMonth } from "@/lib/finance/exciseExpense";
 import { fetchAllRows, PAGE_SIZE } from "@/lib/supabase/paginate";
@@ -65,6 +66,8 @@ export interface FinancialsSourcesResult {
    */
   depreciationStates: ScheduleState[];
   inventoryValueSeries: InventoryValueSeries[];
+  /** Cost of the beer that left each month, P&L only — see derivedStatementRows.injectInventoryCostRows. */
+  costOfBeerSold: CostOfBeerSoldByMonth;
   /**
    * Square processing fees, for BOTH pl and cash_flow — unlike the two above,
    * a fee is real cash withheld at source, so leaving it off the cash-flow
@@ -755,13 +758,14 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
   // Depreciation and inventory relief inputs, P&L only — see the result type.
   // The live month uses the runtime clock the same way trailingMonths does.
   const liveMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  const [depreciationStates, inventoryValueSeries, exciseExpenseByMonth] = statement === "pl"
+  const [depreciationStates, inventoryValueSeries, exciseExpenseByMonth, costOfBeerSold] = statement === "pl"
     ? await Promise.all([
         fetchDepreciationState(supabase, coa),
         fetchInventoryValueSeries(supabase, months, liveMonth),
         fetchExciseExpenseByMonth(supabase, months[months.length - 1]),
+        fetchCostOfBeerSoldByMonth(supabase, months),
       ])
-    : [[], [], {}];
+    : [[], [], {}, {}];
   const squareFeeSeries = await fetchSquareFeeSeries(supabase, months);
 
   return {
@@ -776,6 +780,7 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
     manualNetSalesEntries,
     depreciationStates,
     inventoryValueSeries,
+    costOfBeerSold,
     squareFeeSeries,
     exciseExpenseByMonth,
   };

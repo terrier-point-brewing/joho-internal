@@ -29,7 +29,8 @@ import type { FinancialsRow } from "./types";
 import { coaSection, type CoaRecord } from "./aggregateRows";
 import { expenseThroughMonth } from "@/lib/finance/depreciation/engine";
 import { seriesFor, type ScheduleState } from "@/lib/finance/depreciation/state";
-import { reliefDeltasByMonth, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
+import { firstTrackedMonth, reliefDeltasByMonth, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
+import type { CostOfBeerSoldByMonth } from "@/lib/finance/costOfBeerSold";
 import type { SquareFeeSeries } from "@/lib/finance/squareFees";
 import { EXCISE_EXPENSE_ACCOUNT_NUMBER } from "@/lib/finance/exciseExpense";
 
@@ -104,44 +105,116 @@ export function injectDepreciationRows(
   return synthesized.length > 0 ? [...rows, ...synthesized] : rows;
 }
 
+/** The operating-expense account the inventory residual posts to: 6460 "Inventory Shrinkage & Adjustments". */
+export const INVENTORY_ADJUSTMENTS_ACCOUNT_NUMBER = "6460";
+
+/** Kept for callers that still read the periodic figure: the month's change in inventory. */
+export { reliefDeltasByMonth };
+
 /**
- * One row per COGS offset account: each month's change in the inventory
- * accounts pointing at it. Inventory up → positive cents (a credit against
- * cost); inventory down → negative (consumed into cost of goods sold).
+ * Inventory on the P&L, three rows that together equal the periodic figure
+ * (change in inventory minus purchases) they replaced — so the balance sheet's
+ * retained earnings, which adds the cumulative inventory value, still ties:
+ *
+ *   (Capitalised to inventory)   +purchases, on each COGS offset account —
+ *                                 a purchase is an asset, not a cost;
+ *   (Cost of beer sold)          −what left this month × its batch cost, on
+ *                                 the raw-materials offset (beer) and the
+ *                                 packaging offset (packaging);
+ *   (Inventory shrinkage & adj.) the residual, on 6460 below gross profit:
+ *                                 change − purchases + cost sold. Either
+ *                                 sign; a count that finds more is a gain.
+ *
+ * Opening balances — the first month a shelf has a value — are excluded from
+ * the change (reliefDeltasByMonth excludeOpening): equity absorbs them, not
+ * the month's P&L. Months before tracking began get no rows at all: their
+ * purchases stay the cost, as they always were.
  */
-export function injectInventoryReliefRows(
+export function injectInventoryCostRows(
   rows: FinancialsRow[],
   series: InventoryValueSeries[],
+  costSold: CostOfBeerSoldByMonth,
   months: string[],
   coa: CoaRecord[],
 ): FinancialsRow[] {
   if (series.length === 0 || months.length === 0) return rows;
   const coaMap = new Map(coa.map((c) => [c.id, c]));
+  const trackedFrom = firstTrackedMonth(series);
+  if (!trackedFrom) return rows;
+  const active = months.filter((m) => m >= trackedFrom);
+  if (active.length === 0) return rows;
 
-  const byOffset = new Map<string, { amounts: Record<string, number>; ids: Set<string> }>();
-  for (const s of series) {
-    const deltas = reliefDeltasByMonth(s.valueByMonth, months);
-    const bucket = byOffset.get(s.source.offsetCoaId) ?? { amounts: {}, ids: new Set<string>() };
-    let contributed = false;
-    for (const month of months) {
-      const cents = deltas[month] ?? 0;
-      if (cents === 0) continue;
-      bucket.amounts[month] = (bucket.amounts[month] ?? 0) + cents;
-      contributed = true;
-    }
-    if (contributed) bucket.ids.add(s.source.accountCoaId);
-    byOffset.set(s.source.offsetCoaId, bucket);
-  }
+  const offsets = [...new Set(series.map((s) => s.source.offsetCoaId))];
+  const offsetFor = (pool: string, fallback: string): string =>
+    series.find((s) => s.source.pool === pool)?.source.offsetCoaId ?? fallback;
+  const beerOffset = offsetFor("rawMaterials", offsetFor("workInProcess", offsetFor("finishedGoods", offsets[0])));
+  const packagingOffset = offsetFor("packagingMaterials", beerOffset);
 
   const synthesized: FinancialsRow[] = [];
-  for (const [coaId, bucket] of byOffset) {
-    if (Object.keys(bucket.amounts).length === 0) continue;
-    const amounts: Record<string, number> = {};
-    for (const month of months) amounts[month] = bucket.amounts[month] ?? 0;
+  const zeros = (): Record<string, number> => Object.fromEntries(months.map((m) => [m, 0]));
+
+  // 1. Purchases coded to the offset accounts, reclassified onto the balance sheet.
+  const purchasesTotal = zeros();
+  for (const coaId of offsets) {
+    const amounts = zeros();
+    const ids = new Set<string>();
+    for (const r of rows) {
+      if (r.coaId !== coaId || r.mappingSource === "rule") continue;
+      for (const m of active) {
+        const cents = r.amountCentsByMonth[m] ?? 0;
+        if (cents === 0) continue;
+        amounts[m] -= cents; // expense is negative; the reversal is positive
+        for (const id of r.sourceRef.ids ?? []) ids.add(id);
+      }
+    }
+    if (active.every((m) => amounts[m] === 0)) continue;
+    for (const m of active) purchasesTotal[m] += amounts[m];
+    synthesized.push(synthesizedRow(coaId, "(Capitalised to inventory)", "Capitalised to inventory", "expenses", [...ids], amounts, coaMap));
+  }
+
+  // 2. Cost of the beer that left.
+  const soldTotal = zeros();
+  const beer = zeros();
+  const packaging = zeros();
+  const soldIds = new Set<string>();
+  for (const m of active) {
+    const c = costSold[m];
+    if (!c) continue;
+    beer[m] = -c.beerCents;
+    packaging[m] = -c.packagingCents;
+    soldTotal[m] = c.beerCents + c.packagingCents;
+    for (const id of c.ids) soldIds.add(id);
+  }
+  const pushSold = (coaId: string, amounts: Record<string, number>) => {
+    if (active.every((m) => amounts[m] === 0)) return;
+    synthesized.push(synthesizedRow(coaId, "(Cost of beer sold)", "Cost of beer sold", "export_transactions", [...soldIds], amounts, coaMap));
+  };
+  if (beerOffset === packagingOffset) {
+    pushSold(beerOffset, Object.fromEntries(months.map((m) => [m, beer[m] + packaging[m]])));
+  } else {
+    pushSold(beerOffset, beer);
+    pushSold(packagingOffset, packaging);
+  }
+
+  // 3. The residual: what the shelves lost or gained that no sale explains.
+  const change = zeros();
+  const shelfIds = new Set<string>();
+  for (const s of series) {
+    const deltas = reliefDeltasByMonth(s.valueByMonth, months, { excludeOpening: true });
+    for (const m of active) change[m] += deltas[m] ?? 0;
+    shelfIds.add(s.source.accountCoaId);
+  }
+  const adjustments = coa.find((c) => c.accountNumber === INVENTORY_ADJUSTMENTS_ACCOUNT_NUMBER);
+  const residual = zeros();
+  for (const m of active) residual[m] = change[m] - purchasesTotal[m] + soldTotal[m];
+  if (adjustments && active.some((m) => residual[m] !== 0)) {
     synthesized.push(
-      synthesizedRow(coaId, "(Inventory change)", "Inventory change", "balance_sheet_account_sources", [...bucket.ids], amounts, coaMap),
+      synthesizedRow(adjustments.id, "(Inventory shrinkage & adjustments)", "Inventory shrinkage & adjustments", "balance_sheet_account_sources", [...shelfIds], residual, coaMap),
     );
   }
+  // Without 6460 the residual has no home and the statements will not tie by
+  // exactly that amount — a configuration gap, surfaced rather than hidden.
+
   return synthesized.length > 0 ? [...rows, ...synthesized] : rows;
 }
 

@@ -95,8 +95,18 @@ export interface InventoryValueSeries {
  * The month's relief per month of `months`: the change in the account's value,
  * carrying the last known value across gaps. Pure — tested directly.
  */
-export function reliefDeltasByMonth(valueByMonth: Record<string, number>, months: string[]): Record<string, number> {
+export function reliefDeltasByMonth(
+  valueByMonth: Record<string, number>,
+  months: string[],
+  opts: { excludeOpening?: boolean } = {},
+): Record<string, number> {
   const known = Object.keys(valueByMonth).sort();
+  // The first month a value exists is an OPENING balance when the caller says
+  // so: the shelf existed before anyone tracked it, and bringing it onto the
+  // books is equity's business, not the month's cost of goods. Retained
+  // earnings still absorbs the whole value (cumulativeInventoryReliefThrough),
+  // which is exactly what makes the balance sheet tie.
+  const opening = opts.excludeOpening ? known[0] : undefined;
   const valueAt = (month: string): number => {
     let value = 0;
     for (const m of known) {
@@ -109,9 +119,18 @@ export function reliefDeltasByMonth(valueByMonth: Record<string, number>, months
   const deltas: Record<string, number> = {};
   for (const month of months) {
     const prev = prevMonth(month);
-    deltas[month] = valueAt(month) - valueAt(prev);
+    deltas[month] = opening !== undefined && month <= opening ? 0 : valueAt(month) - valueAt(prev);
   }
   return deltas;
+}
+
+/** The earliest month any of these shelves has a value — when tracking began. */
+export function firstTrackedMonth(series: InventoryValueSeries[]): string | null {
+  let first: string | null = null;
+  for (const s of series) {
+    for (const m of Object.keys(s.valueByMonth)) if (first === null || m < first) first = m;
+  }
+  return first;
 }
 
 function prevMonth(month: string): string {

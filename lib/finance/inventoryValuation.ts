@@ -175,6 +175,28 @@ function componentsOf(variation: VariationRow, items: Map<string, PackagingItemR
   return components;
 }
 
+/**
+ * The packaging consumed by `packages` units of one variation, in cents — the
+ * same engine the export invoices bill from. Shared with cost of beer sold so
+ * a case's trays, PakTechs and lids are counted one way everywhere.
+ */
+export function packagingCentsFor(
+  variation: VariationRow,
+  packages: number,
+  itemsById: Map<string, PackagingItemRow>,
+): number {
+  return computeMaterialCost([
+    {
+      format: variation.format ?? "loose",
+      packages,
+      unitsPerPackage: unitsPerPackage(variation, itemsById),
+      components: componentsOf(variation, itemsById),
+    },
+  ]).totalCents;
+}
+
+export type { VariationRow as PackagingVariationRow, PackagingItemRow };
+
 export async function fetchFinishedGoodsCents(supabase: SupabaseClient): Promise<number> {
   const stock = await fetchAllRows<ColdStorageRow>(() =>
     supabase
@@ -225,14 +247,7 @@ export async function fetchFinishedGoodsCents(supabase: SupabaseClient): Promise
     // The packaging around it, through the same engine the export invoices bill
     // from -- so a case's trays, PakTechs and 24 lids are counted the way they
     // are counted everywhere else, rather than re-derived here and drifting.
-    const { totalCents: packagingCents } = computeMaterialCost([
-      {
-        format: variation.format ?? "loose",
-        packages: quantity,
-        unitsPerPackage: unitsPerPackage(variation, itemsById),
-        components: componentsOf(variation, itemsById),
-      },
-    ]);
+    const packagingCents = packagingCentsFor(variation, quantity, itemsById);
 
     cents += Math.round(beerCents) + packagingCents;
   }
