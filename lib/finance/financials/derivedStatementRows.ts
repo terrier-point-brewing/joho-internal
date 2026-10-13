@@ -105,6 +105,9 @@ export function injectDepreciationRows(
   return synthesized.length > 0 ? [...rows, ...synthesized] : rows;
 }
 
+/** Source tables of the rows this module and its siblings synthesize — never real postings. */
+const DERIVED_TABLES = new Set(["balance_sheet_account_sources", "depreciation_schedules", "export_transaction_taxes", "export_transactions", "square_payment_fees"]);
+
 /** The operating-expense account the inventory residual posts to: 6460 "Inventory Shrinkage & Adjustments". */
 export const INVENTORY_ADJUSTMENTS_ACCOUNT_NUMBER = "6460";
 
@@ -159,7 +162,10 @@ export function injectInventoryCostRows(
     const amounts = zeros();
     const ids = new Set<string>();
     for (const r of rows) {
-      if (r.coaId !== coaId || r.mappingSource === "rule") continue;
+      // Real postings only. mappingSource is NOT the discriminator — an expense
+      // coded by a GL mapping rule is "rule" too, and skipping those left every
+      // Ramp purchase un-capitalised (6460 read as a $28k gain, 2026-10-12).
+      if (r.coaId !== coaId || DERIVED_TABLES.has(r.sourceRef.table)) continue;
       for (const m of active) {
         const cents = r.amountCentsByMonth[m] ?? 0;
         if (cents === 0) continue;
@@ -169,7 +175,7 @@ export function injectInventoryCostRows(
     }
     if (active.every((m) => amounts[m] === 0)) continue;
     for (const m of active) purchasesTotal[m] += amounts[m];
-    synthesized.push(synthesizedRow(coaId, "(Capitalised to inventory)", "Capitalised to inventory", "expenses", [...ids], amounts, coaMap));
+    synthesized.push(synthesizedRow(coaId, "(Capitalised to inventory)", "Capitalised to inventory", "balance_sheet_account_sources", [...ids], amounts, coaMap));
   }
 
   // 2. Cost of the beer that left.
