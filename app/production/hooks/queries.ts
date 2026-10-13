@@ -247,6 +247,8 @@ export function useTransfersQuery() {
 export interface ColdStorageLot {
   id: string;
   batch_id: string;
+  /** The beer in the containers — an in-keg child's lot carries the child's recipe. */
+  recipe_id: string | null;
   variation_id: string;
   quantity_on_hand: number;
   beer_name: string | null;

@@ -16,6 +16,7 @@ import type { ControlsConfig } from "@/lib/table/types";
 import Card from "@/app/components/ui/Card";
 import { Modal } from "@/app/components/ui/Modal";
 import ColdStorageTransformModal from "./ColdStorageTransformModal";
+import ColdStorageConvertModal from "./ColdStorageConvertModal";
 import DepositCoverageLine from "./DepositCoverageLine";
 
 function formatShipmentWarning(w: ShipmentWarning): string {
@@ -494,6 +495,7 @@ export default function ExportBayTab() {
   const [showAdHoc,         setShowAdHoc]         = useState(false);
   const [showSync,          setShowSync]          = useState(false);
   const [showTransform,     setShowTransform]     = useState(false);
+  const [showConvert,       setShowConvert]       = useState(false);
   const [writeOffAlloc,     setWriteOffAlloc]     = useState<BatchAllocation | null>(null);
   const [expandedFulfilled, setExpandedFulfilled] = useState<Set<string>>(new Set());
 
@@ -726,6 +728,13 @@ export default function ExportBayTab() {
             className="btn-secondary"
           >
             ⇄ Transform Stock
+          </button>
+          <button
+            onClick={() => setShowConvert(true)}
+            title="Re-dose kegs already in cold storage into a different beer — the stock moves to a conversion batch of that recipe"
+            className="btn-secondary"
+          >
+            ⚗ Convert Recipe
           </button>
           <button
             onClick={() => setShowAdHoc(true)}
@@ -1046,6 +1055,20 @@ export default function ExportBayTab() {
         <SyncConsumptionModal
           onClose={() => setShowSync(false)}
           onRecorded={() => qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() })}
+        />
+      )}
+
+      {showConvert && (
+        <ColdStorageConvertModal
+          onClose={() => setShowConvert(false)}
+          onDone={() => {
+            // The lot moved batches and beers, so every cold-storage view
+            // changes, and so does the batch list (a child may have been born).
+            qc.invalidateQueries({ queryKey: queryKeys.production.coldStorage() });
+            qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() });
+            qc.invalidateQueries({ queryKey: ["production"] });
+            setShowConvert(false);
+          }}
         />
       )}
 
