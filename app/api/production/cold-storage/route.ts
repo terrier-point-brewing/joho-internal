@@ -15,7 +15,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("cold_storage_inventory")
     .select(
-      "id, batch_id, variation_id, quantity_on_hand, " +
+      "id, batch_id, recipe_id, variation_id, quantity_on_hand, " +
       "brew_batches(beer_name, batch_number), " +
       "packaging_variations(name, container:packaging_items!packaging_variations_container_id_fkey(type))",
     )
@@ -32,6 +32,7 @@ export async function GET() {
     return {
       id: row.id as string,
       batch_id: row.batch_id as string,
+      recipe_id: (row.recipe_id as string | null) ?? null,
       variation_id: row.variation_id as string,
       quantity_on_hand: Number(row.quantity_on_hand),
       beer_name: batch?.beer_name ?? null,

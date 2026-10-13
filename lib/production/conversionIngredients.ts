@@ -116,6 +116,13 @@ export interface ConsumeConversionArgs {
   targetBatchId: string;
   /** Volume of finished liquid drawn off, in bbl. */
   volumeBbl: number;
+  /**
+   * Identifies ONE run of the conversion (e.g. the conversion transfer's id).
+   * Without it the charge is once per target batch, which is right for a tank
+   * conversion but silently skips the second and later runs that top up a
+   * reused child. With it, each run is charged once and only once.
+   */
+  runRef?: string | null;
 }
 
 export type ConsumeConversionResult =
@@ -139,7 +146,7 @@ export type ConsumeConversionResult =
  */
 export async function consumeConversionAdditions(
   supabase: SupabaseClient,
-  { sourceBatchId, targetBatchId, volumeBbl }: ConsumeConversionArgs,
+  { sourceBatchId, targetBatchId, volumeBbl, runRef }: ConsumeConversionArgs,
 ): Promise<ConsumeConversionResult> {
   const volume = Number(volumeBbl);
   if (!Number.isFinite(volume) || volume <= 0) return { status: "not_applicable" };
@@ -151,12 +158,13 @@ export async function consumeConversionAdditions(
     .from("brew_batches").select("batch_number, beer_name").eq("id", targetBatchId).maybeSingle();
   const target = targetRow as { batch_number: string | null; beer_name: string | null } | null;
 
+  const marker = runRef ? `${CONVERSION_ADDITION_NOTE} [${runRef}]` : CONVERSION_ADDITION_NOTE;
   const { data: alreadyBooked } = await supabase
     .from("stock_adjustments")
     .select("id")
     .eq("batch_id", targetBatchId)
     .eq("type", "batch_use")
-    .like("note", `${CONVERSION_ADDITION_NOTE}%`)
+    .like("note", `${marker}%`)
     .limit(1);
   if (alreadyBooked?.length) return { status: "already_booked" };
 
@@ -165,7 +173,7 @@ export async function consumeConversionAdditions(
     baseRecipeId:    link.baseRecipeId,
     volumeBbl:       volume,
     ledgerBatchId:   targetBatchId,
-    note: `${CONVERSION_ADDITION_NOTE} — ${target?.batch_number ?? targetBatchId}: ${target?.beer_name ?? ""}`.trim(),
+    note: `${marker} — ${target?.batch_number ?? targetBatchId}: ${target?.beer_name ?? ""}`.trim(),
   });
 
   // Stock has moved, so whatever this batch was holding in reserve is spent.

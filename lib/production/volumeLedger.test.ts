@@ -169,3 +169,45 @@ describe("computeLocationBreakdown — in-keg conversion child", () => {
     expect(computeLocationBreakdown("b1", 2, dump, types, false).packaging).toBe(0);
   });
 });
+
+describe("computeLocationBreakdown — cold-storage recipe conversion", () => {
+  const BRITE_T = "brite-x";
+  const STATION = "keg-station";
+  const types = { [BRITE_T]: "brite", [STATION]: "kegging" };
+
+  // The source kegged 5 bbl at the station. Later, 2 bbl of those kegs were
+  // re-dosed into another beer: a kegging REVERSAL (negative, no tanks) and a
+  // conversion row (no tanks) — see lib/production/coldStorageRecipeConversion.
+  const transfers = [
+    tx({ batch_id: "src", from_tank_id: BRITE_T, to_tank_id: STATION, volume_bbl: 5, transfer_type: "kegging" }),
+    tx({ batch_id: "src", volume_bbl: -2, transfer_type: "kegging", transferred_at: "2026-02-01T00:00:00Z" }),
+    tx({ batch_id: "src", to_batch_id: "child", volume_bbl: 2, transfer_type: "conversion", transferred_at: "2026-02-01T00:00:01Z" }),
+    tx({ batch_id: "child", volume_bbl: 2, transfer_type: "kegging", transferred_at: "2026-02-01T00:00:02Z" }),
+  ];
+
+  it("the source keeps 3 bbl packaged and shows 2 bbl converted — still tying to its volume", () => {
+    const bd = computeLocationBreakdown("src", 5, transfers, types, false);
+    expect(bd.packaging).toBeCloseTo(3, 5);
+    expect(bd.converted).toBeCloseTo(2, 5);
+    const accounted = bd.backlog + bd.brewhouse + bd.fermenter + bd.brite + bd.packaging + bd.coldStorage + bd.exported + bd.converted + bd.shrinkage;
+    expect(accounted).toBeCloseTo(5, 5);
+  });
+
+  it("the child reads its 2 bbl as finished goods, with no tank ever involved", () => {
+    const bd = computeLocationBreakdown("child", 2, transfers, types, false);
+    expect(bd.packaging).toBeCloseTo(2, 5);
+    expect(bd.backlog).toBe(0);
+    expect(computeTankVolumes("child", 2, transfers)).toEqual({});
+  });
+
+  it("an in-keg child as the SOURCE nets the same way (its kegging rows had no station)", () => {
+    const t = [
+      tx({ batch_id: "mule", from_tank_id: STATION, to_tank_id: null, volume_bbl: 2, transfer_type: "kegging" }),
+      tx({ batch_id: "mule", volume_bbl: -1, transfer_type: "kegging", transferred_at: "2026-02-01T00:00:00Z" }),
+      tx({ batch_id: "mule", to_batch_id: "transfusion", volume_bbl: 1, transfer_type: "conversion", transferred_at: "2026-02-01T00:00:01Z" }),
+    ];
+    const bd = computeLocationBreakdown("mule", 2, t, types, false);
+    expect(bd.packaging).toBeCloseTo(1, 5);
+    expect(bd.converted).toBeCloseTo(1, 5);
+  });
+});
