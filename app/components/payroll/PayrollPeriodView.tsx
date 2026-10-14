@@ -170,7 +170,7 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
           <p className="text-secondary text-sm mb-4">
             Final values will be snapshotted and the period cannot be edited after locking.
           </p>
-          <table className="w-full text-xs text-body mb-4">
+          <div className="scroll-x"><table className="w-full text-xs text-body mb-4">
             <thead>
               <tr className="border-b border-line-strong">
                 <th className="text-left py-1">Employee</th>
@@ -189,7 +189,7 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           <div className="flex gap-2 justify-end pt-2 border-t border-line">
             <button onClick={() => setShowLockConfirm(false)} className="btn-secondary">
               Cancel
@@ -294,7 +294,7 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
             </p>
           )}
           {/* Bartender table */}
-          <table className="w-full text-sm">
+          <div className="scroll-x"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line-strong">
                 <th className="text-left py-2 px-3 text-muted font-medium">Bartender</th>
@@ -405,7 +405,7 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
                 )}
               </tfoot>
             )}
-          </table>
+          </table></div>
         </>
       )}
     </div>

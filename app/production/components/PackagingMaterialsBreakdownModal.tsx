@@ -69,7 +69,7 @@ export default function PackagingMaterialsBreakdownModal({
               </span>
             </div>
 
-            <table className="w-full text-xs">
+            <div className="scroll-x"><table className="w-full text-xs">
               <thead>
                 <tr className="text-2xs uppercase tracking-wide text-faint">
                   <th className="text-left font-medium px-3 py-1.5">Component</th>
@@ -112,7 +112,7 @@ export default function PackagingMaterialsBreakdownModal({
                   </td>
                 </tr>
               </tfoot>
-            </table>
+            </table></div>
           </div>
         ))}
 

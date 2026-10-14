@@ -150,7 +150,7 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
         {invoice.breakdown.length === 0 ? (
           <p className="text-xs text-faint">No breakdown recorded for this deposit.</p>
         ) : (
-          <table className="w-full text-xs">
+          <div className="scroll-x"><table className="w-full text-xs">
             <thead>
               <tr className="text-left text-muted border-b border-line">
                 <th className="pb-1">Ingredient</th>
@@ -169,7 +169,7 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
         <div className="flex justify-end pt-1 border-t border-line mt-1">
           <span className="text-xs text-secondary">Total: <span className="text-primary font-medium">{fmtUsd(breakdownTotal / 100)}</span></span>
@@ -264,7 +264,7 @@ export default function DepositInvoicesTab() {
         </p>
       ) : (
         <div className="rounded-lg border border-line overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="scroll-x"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-surface/50 text-left">
                 <th className="px-4 py-2.5 w-6" aria-label="Expand" />
@@ -317,7 +317,7 @@ export default function DepositInvoicesTab() {
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
     </div>

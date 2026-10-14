@@ -464,7 +464,7 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
         <div key={type}>
           <h3 className="text-xs font-semibold text-secondary uppercase tracking-wider mb-2">{type}</h3>
           <div className="bg-surface border border-line rounded-lg overflow-hidden">
-            <table className="w-full text-xs border-collapse">
+            <div className="scroll-x"><table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="border-b border-line">
                   <th className="px-3 py-2 text-left text-muted font-medium w-6"></th>
@@ -517,7 +517,7 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           </div>
         </div>
       ))}
@@ -854,7 +854,7 @@ export default function ChartOfAccountsPage() {
 
               {parsed.length > 0 ? (
                 <div className="bg-canvas border border-line rounded overflow-hidden max-h-64 overflow-y-auto">
-                  <table className="w-full text-xs border-collapse">
+                  <div className="scroll-x"><table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-line sticky top-0 bg-canvas">
                         <th className="px-3 py-2 text-left text-muted font-medium w-20">Status</th>
@@ -877,7 +877,7 @@ export default function ChartOfAccountsPage() {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </table></div>
                 </div>
               ) : (
                 <p className="text-xs text-danger">No valid accounts found in CSV. Check that your file has Name and Account Type columns.</p>

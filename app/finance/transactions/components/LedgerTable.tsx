@@ -18,7 +18,7 @@ export function Th({ label, align = "left", className = "" }: { label?: string; 
 
 /**
  * Bordered table card + header row. Pass shared `<SortableTh>` / `<Th>` cells as
- * `head`. The inner `overflow-x-auto` lets wide rows scroll horizontally within
+ * `head`. The inner `.scroll-x` lets wide rows scroll horizontally within
  * the card instead of spilling past it (the rounded card keeps `overflow-hidden`
  * so its corners still clip the table's square edges).
  *
@@ -52,7 +52,7 @@ export function LedgerTable({
   const headRowCls = fill ? "" : "border-b border-line";
   return (
     <div className={`bg-surface border border-line rounded-lg overflow-hidden ${fill ? "flex-1 min-h-0 flex flex-col" : ""}`}>
-      <div className={fill ? "flex-1 min-h-0 overflow-auto" : "overflow-x-auto"}>
+      <div className={fill ? "flex-1 min-h-0 overflow-auto overscroll-x-contain" : "scroll-x"}>
         <table className="w-full text-xs border-collapse">
           <thead
             className={

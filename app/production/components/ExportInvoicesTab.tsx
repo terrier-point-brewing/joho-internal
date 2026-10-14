@@ -318,7 +318,7 @@ function InvoiceExpandedPanel({
       {invoice.shipments.length > 0 && (
         <div className={panelClass}>
           <p className="text-xs font-medium text-secondary uppercase tracking-wide mb-1">Included Shipments</p>
-          <table className="w-full text-xs">
+          <div className="scroll-x"><table className="w-full text-xs">
             <thead>
               <tr className="text-left text-muted border-b border-line">
                 <th className="pb-1">Date</th>
@@ -349,14 +349,14 @@ function InvoiceExpandedPanel({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
 
       {/* Line Items */}
       <div className={panelClass}>
         <p className="text-xs font-medium text-secondary uppercase tracking-wide mb-1">Line Items</p>
-        <table className="w-full text-xs">
+        <div className="scroll-x"><table className="w-full text-xs">
           <thead>
             <tr className="text-left text-muted border-b border-line">
               <th className="pb-1">Item / Note</th>
@@ -483,7 +483,7 @@ function InvoiceExpandedPanel({
               );
             })}
           </tbody>
-        </table>
+        </table></div>
         {/* Subtotal / Discount / Total. The discount only earns its own rows
             when there is one — an undiscounted invoice keeps the single-line
             Total it has always had. */}
@@ -802,7 +802,7 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
         <p className="text-sm text-faint">No invoices match the current filters.</p>
       ) : (
         <div className="rounded-lg border border-line overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="scroll-x"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-surface/50 text-left">
                 <th className="px-4 py-2.5 w-6" aria-label="Expand" />
@@ -852,7 +852,7 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
     </div>

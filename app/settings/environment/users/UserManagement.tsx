@@ -203,7 +203,7 @@ export default function UserManagement() {
           </div>
 
           <Card padding="" className="overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="scroll-x"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line text-muted text-xs uppercase tracking-wide">
                   <th className="text-left px-4 py-3 font-medium">Email</th>
@@ -316,7 +316,7 @@ export default function UserManagement() {
                   </tr>
                 )}
               </tbody>
-            </table>
+            </table></div>
           </Card>
 
           <Card className="mt-6">
