@@ -332,8 +332,11 @@ body {
    row actually overflows — fades the overflowing edge so the user can see
    there is more. The fade is a scroll-driven animation: with no overflow the
    timeline is inactive and no mask applies; browsers without scroll
-   timelines simply get no fade. */
-.scroll-x {
+   timelines simply get no fade. `.overflow-x-auto:has(> table)` extends the
+   same treatment to every existing hand-written table wrapper, so no page
+   has to be touched to get it. */
+.scroll-x,
+.overflow-x-auto:has(> table) {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -343,8 +346,9 @@ body {
   animation: scroll-x-fade linear both;
   animation-timeline: scroll(self x);
 }
-.scroll-x::-webkit-scrollbar { display: none; }
-.scroll-x > * { scroll-snap-align: start; }
+.scroll-x::-webkit-scrollbar,
+.overflow-x-auto:has(> table)::-webkit-scrollbar { display: none; }
+.scroll-x > :not(table) { scroll-snap-align: start; }
 @keyframes scroll-x-fade {
   0%   { mask-image: linear-gradient(to right, transparent 0, #000 0,    #000 calc(100% - 2rem), transparent 100%); }
   100% { mask-image: linear-gradient(to right, transparent 0, #000 2rem, #000 100%, transparent 100%); }

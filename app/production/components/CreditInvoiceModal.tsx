@@ -227,7 +227,7 @@ export function CreditInvoiceModal({
         {loading ? (
           <p className="text-sm text-muted">Loading the invoice&apos;s lines…</p>
         ) : (
-          <table className="w-full text-xs">
+          <div className="scroll-x"><table className="w-full text-xs">
             <thead className="text-muted">
               <tr className="border-b border-line">
                 <th className="text-left py-1">Line</th>
@@ -282,7 +282,7 @@ export function CreditInvoiceModal({
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         )}
 
         <label className="block">

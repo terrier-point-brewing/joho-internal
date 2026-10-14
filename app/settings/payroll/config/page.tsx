@@ -428,7 +428,7 @@ export default function PayrollSettingsPage() {
           </div>
         )}
 
-        <table className="w-full text-sm">
+        <div className="scroll-x"><table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line-strong">
               <th className="text-left py-2 px-3 text-muted">Name</th>
@@ -559,7 +559,7 @@ export default function PayrollSettingsPage() {
               </tr>
             )}
           </tbody>
-        </table>
+        </table></div>
       </section>
       </div>
       </div>

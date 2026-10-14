@@ -65,7 +65,8 @@ export default function SearchInput({
   // shrink-to-fit FilterBar row: the row gets sized against the input's ~171px
   // intrinsic width, then the input renders wider and forces the sibling filters
   // onto a second line. `w-64` pins a real basis; `max-w-full` still lets the
-  // box shrink inside narrow containers like modals.
+  // box shrink inside narrow containers like modals. Below `sm` the FilterBar
+  // is a one-column grid, so the box simply fills its row.
   return (
     <input
       type="search"
@@ -74,7 +75,7 @@ export default function SearchInput({
       placeholder={placeholder}
       aria-label={ariaLabel ?? placeholder}
       autoFocus={autoFocus}
-      className={`inp-sm w-64 max-w-full ${className}`.trim()}
+      className={`inp-sm w-full sm:w-64 max-w-full ${className}`.trim()}
     />
   );
 }

@@ -51,7 +51,7 @@ export default async function MarketingAccountsPage() {
               connected in Settings → Marketing and listed here.
             </p>
           ) : (
-            <table className="w-full text-sm">
+            <div className="scroll-x"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line">
                   <th className="px-3 py-2 text-left text-muted font-medium">Channel</th>
@@ -81,7 +81,7 @@ export default async function MarketingAccountsPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </Card>
       </div>

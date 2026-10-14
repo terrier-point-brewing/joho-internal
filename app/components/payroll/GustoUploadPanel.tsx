@@ -201,7 +201,7 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null, appSta
         <>
           <div>
             <h3 className="text-sm font-semibold text-strong mb-2">GL totals</h3>
-            <table className="w-full text-sm">
+            <div className="scroll-x"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line-strong">
                   <th className="text-left py-2 px-3 text-muted font-medium">Account</th>
@@ -222,7 +222,7 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null, appSta
                   <td className="py-2 px-3 text-right font-mono font-semibold text-strong">{fmtCents(totalGlCents)}</td>
                 </tr>
               </tfoot>
-            </table>
+            </table></div>
           </div>
 
           {showTaproomCheck && (
@@ -232,7 +232,7 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null, appSta
                 What the app expects for staff who clock Square shifts, against what Gusto paid them. Salaried
                 wages are excluded on both sides — there are no shifts behind them to check.
               </p>
-              <table className="w-full text-sm max-w-md">
+              <div className="scroll-x"><table className="w-full text-sm max-w-md">
                 <tbody>
                   <tr className="border-b border-line">
                     <td className="py-2 px-3 text-body">App expects (base + paycheck tips + bonus)</td>
@@ -256,13 +256,13 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null, appSta
                     </td>
                   </tr>
                 </tfoot>
-              </table>
+              </table></div>
             </div>
           )}
 
           <div>
             <h3 className="text-sm font-semibold text-strong mb-2">Parsed employees</h3>
-            <table className="w-full text-sm">
+            <div className="scroll-x"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line-strong">
                   <th className="text-left py-2 px-3 text-muted font-medium">Employee</th>
@@ -284,14 +284,14 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null, appSta
                   <tr><td colSpan={4} className="py-4 text-center text-faint text-xs">No employees parsed.</td></tr>
                 )}
               </tbody>
-            </table>
+            </table></div>
           </div>
         </>
       )}
 
       <div>
         <h3 className="text-sm font-semibold text-strong mb-2">Matched transactions</h3>
-        <table className="w-full text-sm">
+        <div className="scroll-x"><table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line-strong">
               <th className="text-left py-2 px-3 text-muted font-medium">Date</th>
@@ -311,7 +311,7 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null, appSta
               <tr><td colSpan={3} className="py-4 text-center text-faint text-xs">No transactions matched to this period yet.</td></tr>
             )}
           </tbody>
-        </table>
+        </table></div>
 
         {hasReconciliation && (
           <div className="mt-2 flex items-center gap-2 text-xs">

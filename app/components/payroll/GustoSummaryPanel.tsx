@@ -28,7 +28,7 @@ export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Pro
         they require no manual entry. Cash tips are the payroll-reported figure (reduced ratio);
         paycheck tips and bonus are actuals.
       </p>
-      <table className="w-full text-sm">
+      <div className="scroll-x"><table className="w-full text-sm">
         <thead>
           <tr className="border-b border-line-strong">
             <th className="text-left py-2 px-3 text-muted font-medium">Employee</th>
@@ -75,7 +75,7 @@ export function GustoSummaryPanel({ entries, employees, salariedEmployees }: Pro
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
