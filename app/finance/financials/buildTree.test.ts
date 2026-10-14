@@ -46,29 +46,37 @@ describe("buildTree — pl", () => {
 
   const tree = buildTree(rows, "pl");
 
-  it("builds the 11 pl section/subtotal nodes in order (incl. the M1 'Other' catch-all)", () => {
+  it("builds the 12 pl section/subtotal nodes in order (incl. the M1 'Other' catch-all)", () => {
     expect(tree.map((n) => n.label)).toEqual([
       "Revenue", "Other Income", "Total Income",
-      "Cost of Goods Sold", "Gross Profit",
+      "Cost of Goods Sold", "Gross Profit", "Gross Profit %",
       "Operating Expenses", "Operating Income", "EBITDA", "Other Expenses", "Other", "Net Income",
     ]);
     expect(tree.map((n) => n.isSection)).toEqual([
-      true, true, false, true, false, true, false, false, true, true, false,
+      true, true, false, true, false, false, true, false, false, true, true, false,
     ]);
     expect(tree.map((n) => n.isMemo === true)).toEqual([
-      false, false, false, false, false, false, false, true, false, false, false,
+      false, false, false, false, false, false, false, false, true, false, false, false,
     ]);
   });
 
+  it("Gross Profit % = Gross Profit / Revenue per month and over the period", () => {
+    const gm = tree[5];
+    expect(gm.isRatio).toBe(true);
+    expect(gm.row).toBeNull();
+    expect(gm.ratioByMonth).toEqual({ "2026-01": 80, "2026-02": (12500 / 16000) * 100 });
+    expect(gm.ratioTotal).toBeCloseTo((24500 / 31000) * 100, 10);
+  });
+
   it("Operating Income = revenue + cogs + opex (Other Income excluded, like Gross Profit)", () => {
-    const byLabel = Object.fromEntries(tree.map((n) => [n.label, n.row!.amountCentsByMonth]));
+    const byLabel = Object.fromEntries(tree.filter((n) => n.row).map((n) => [n.label, n.row!.amountCentsByMonth]));
     for (const m of ["2026-01", "2026-02"]) {
       expect(byLabel["Operating Income"][m]).toBe(byLabel["Revenue"][m] + byLabel["Cost of Goods Sold"][m] + byLabel["Operating Expenses"][m]);
     }
   });
 
   it("EBITDA equals Operating Income when no depreciation is booked above the line, and Net Income never sums through it", () => {
-    const byLabel = Object.fromEntries(tree.map((n) => [n.label, n.row!.amountCentsByMonth]));
+    const byLabel = Object.fromEntries(tree.filter((n) => n.row).map((n) => [n.label, n.row!.amountCentsByMonth]));
     expect(byLabel["EBITDA"]).toEqual(byLabel["Operating Income"]);
     for (const m of ["2026-01", "2026-02"]) {
       expect(byLabel["Net Income"][m]).toBe(
@@ -85,7 +93,7 @@ describe("buildTree — pl", () => {
     });
     dep.sourceRef = { table: "depreciation_schedules", ids: ["s1"] };
     const t = buildTree([...rows, dep], "pl");
-    const byLabel = Object.fromEntries(t.map((n) => [n.label, n.row!.amountCentsByMonth]));
+    const byLabel = Object.fromEntries(t.filter((n) => n.row).map((n) => [n.label, n.row!.amountCentsByMonth]));
     expect(byLabel["Operating Expenses"]["2026-01"]).toBe(-2000 - 700);
     expect(byLabel["EBITDA"]["2026-01"]).toBe(byLabel["Operating Income"]["2026-01"] + 700);
   });
@@ -116,14 +124,14 @@ describe("buildTree — pl", () => {
   });
 
   it("computes subtotal rows by summing sign-normalized section totals (straight addition)", () => {
-    const [, , totalIncome, , grossProfit, , , , , , netIncome] = tree;
+    const [, , totalIncome, , grossProfit, , , , , , , netIncome] = tree;
     expect(totalIncome.row?.amountCentsByMonth).toEqual({ "2026-01": 15000, "2026-02": 16000 });
     expect(grossProfit.row?.amountCentsByMonth).toEqual({ "2026-01": 12000, "2026-02": 12500 });
     expect(netIncome.row?.amountCentsByMonth).toEqual({ "2026-01": 10000, "2026-02": 10500 });
   });
 
   it("subtotal nodes carry no children (their sections already rendered the detail)", () => {
-    const [, , totalIncome, , grossProfit, , , , , , netIncome] = tree;
+    const [, , totalIncome, , grossProfit, , , , , , , netIncome] = tree;
     expect(totalIncome.children).toHaveLength(0);
     expect(grossProfit.children).toHaveLength(0);
     expect(netIncome.children).toHaveLength(0);
@@ -160,7 +168,7 @@ describe("buildTree — pl, Gross Profit excludes Other Income (I1)", () => {
   const tree = buildTree(rows, "pl");
 
   it("Gross Profit == revenue - COGS, excluding a non-zero Other Income", () => {
-    const [, , totalIncome, , grossProfit, , , , , , netIncome] = tree;
+    const [, , totalIncome, , grossProfit, , , , , , , netIncome] = tree;
     expect(totalIncome.row?.amountCentsByMonth["2026-01"]).toBe(15500); // includes other_income
     expect(grossProfit.row?.amountCentsByMonth["2026-01"]).toBe(12000); // 15000 - 3000, excludes other_income
     expect(netIncome.row?.amountCentsByMonth["2026-01"]).toBe(12500); // still includes everything
@@ -562,7 +570,7 @@ describe("buildTree — cash_flow", () => {
 
 describe("buildTree — edge cases", () => {
   it("returns zeroed sections for an empty rows array, per statement kind", () => {
-    expect(buildTree([], "pl")).toHaveLength(11);
+    expect(buildTree([], "pl")).toHaveLength(12);
     expect(buildTree([], "cash_flow")).toHaveLength(9);
     expect(buildTree([], "balance_sheet")).toHaveLength(17);
   });
