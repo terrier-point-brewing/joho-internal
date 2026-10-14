@@ -29,64 +29,24 @@ const ROLE_LABELS: Record<string, string> = {
 const STORAGE_KEY = "tpb-sidebar-collapsed";
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
+// Lucide (MIT), thin 1.75px strokes to match the rest of the chrome. Every nav
+// glyph is defined once here; the sidebar, the collapsed rail and the phone
+// bottom nav all draw from this list.
 
-const TaproomIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <rect x="1" y="3" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M4 3V2.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V3" stroke="currentColor" strokeWidth="1.4"/>
-  </svg>
-);
-const ProductionIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <path d="M2 11V6l3-3h4l3 3v5H2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-    <path d="M5 11V8h4v3" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-  </svg>
-);
-const FinanceIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <rect x="1" y="4" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M4 4V3a2 2 0 014 0v1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    <path d="M7 7.5v1M5.5 8.5h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-  </svg>
-);
-const BrandIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <path d="M7 1.5l1.7 3.4 3.8.55-2.75 2.68.65 3.77L7 10.13 3.85 11.9l.65-3.77L1.75 5.45l3.8-.55L7 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-  </svg>
-);
-// A month grid — the calendar is what the whole section is organised around.
-const MarketingIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <rect x="1.5" y="2.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M1.5 5.5h11M4.5 1.5v2M9.5 1.5v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-  </svg>
-);
-// The wordmark's collapsed twin: a house, for the Home alert center.
-const HomeIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <path d="M2 6.5L7 2.5l5 4V12H2V6.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-    <path d="M5.5 12V8.5h3V12" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-  </svg>
-);
-const SettingsIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <circle cx="7" cy="7" r="2" stroke="currentColor" strokeWidth="1.3"/>
-    <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-  </svg>
-);
-// Three dots: the overflow slot of the mobile bottom nav.
-const MoreIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <circle cx="3" cy="7" r="1.3" fill="currentColor"/>
-    <circle cx="7" cy="7" r="1.3" fill="currentColor"/>
-    <circle cx="11" cy="7" r="1.3" fill="currentColor"/>
-  </svg>
-);
-const LogoutIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-    <path d="M9 10l3-3-3-3M12 7H5M5 2H2.5A1.5 1.5 0 001 3.5v7A1.5 1.5 0 002.5 12H5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-);
+import {
+  Beer, Calendar, Ellipsis, Factory, House, LogOut, Settings, Sparkles, Wallet,
+} from "lucide-react";
+
+const NAV_ICON = { size: 20, strokeWidth: 1.75, "aria-hidden": true } as const;
+const TaproomIcon    = () => <Beer {...NAV_ICON} />;
+const ProductionIcon = () => <Factory {...NAV_ICON} />;
+const FinanceIcon    = () => <Wallet {...NAV_ICON} />;
+const BrandIcon      = () => <Sparkles {...NAV_ICON} />;
+const MarketingIcon  = () => <Calendar {...NAV_ICON} />;
+const HomeIcon       = () => <House {...NAV_ICON} />;
+const SettingsIcon   = () => <Settings {...NAV_ICON} />;
+const MoreIcon       = () => <Ellipsis {...NAV_ICON} />;
+const LogoutIcon     = () => <LogOut size={14} strokeWidth={1.75} aria-hidden />;
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
