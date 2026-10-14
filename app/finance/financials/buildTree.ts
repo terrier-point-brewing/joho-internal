@@ -39,6 +39,10 @@ export interface TreeNode {
   isAdjustment?: boolean;
   /** A management-reporting memo line (currently only EBITDA). It is NOT one of the statement's real subtotals: nothing below it sums from it and Net Income is computed without it. FinancialsTable renders it italic so it reads as a side calculation rather than a figure the statement chains through. */
   isMemo?: boolean;
+  /** A ratio line (currently only Gross Profit %). `row` is null -- there is no cents figure -- and the percentages live in `ratioByMonth` / `ratioTotal` (plain percent units, 62.5 = 62.5%; null when the denominator is zero). Like a memo it is a side calculation nothing sums from. */
+  isRatio?: boolean;
+  ratioByMonth?: Record<string, number | null>;
+  ratioTotal?: number | null;
 }
 
 /** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below), to sort siblings by GL number, and to seed a real-but-currently-unused root account as a $0 line (see seedEmptyRootAccounts). `statementSection` is the SAME derived value aggregateRows.ts's coaSection() would assign this account if it ever got a posting -- computed once server-side (buildFinancials.ts) for every CoA account, not just posted-to ones. */
@@ -499,6 +503,9 @@ function buildPl(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): Tr
   // See spec §7 (KPI and statement must never disagree) + Task 15 final
   // review, finding I1.
   const grossProfit = subtotal("Gross Profit", [revenue, cogs], months);
+  // Gross Profit % = Gross Profit / Revenue, from the two lines just above it
+  // so the statement and the grossMarginPct KPI can never disagree.
+  const grossMargin = ratio("Gross Profit %", grossProfit, revenue, months);
 
   const opEx = buildSection(rows, "expenses", "Operating Expenses", months, coaMap);
   // Operating Income = Gross Profit - Operating Expenses. Other Income sits
@@ -523,7 +530,7 @@ function buildPl(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): Tr
   const other = buildOtherSection(rows, PL_KNOWN_SECTIONS, BS_KNOWN_SECTIONS, months, coaMap);
   const netIncome = subtotal("Net Income", [revenue, otherIncome, cogs, opEx, otherExp, other], months);
 
-  return [revenue, otherIncome, totalIncome, cogs, grossProfit, opEx, operatingIncome, ebitda, otherExp, other, netIncome];
+  return [revenue, otherIncome, totalIncome, cogs, grossProfit, grossMargin, opEx, operatingIncome, ebitda, otherExp, other, netIncome];
 }
 
 /** The derived depreciation rows (lib/finance/financials/derivedStatementRows.ts, sourceRef.table "depreciation_schedules") found anywhere inside the given sections, negated so they ADD BACK to a subtotal that already deducted them. Walks the whole subtree because a schedule's account may be nested under a grouping account. */
@@ -536,6 +543,22 @@ function depreciationAddBack(sections: TreeNode[], months: string[]): TreeNode {
   sections.forEach(walk);
   const summed = sumRows(found, months, { coaId: null, parentId: null, accountName: "D&A add-back", statementSection: "other", channel: "unknown" });
   return { row: negateRow(summed), label: "D&A add-back", children: [], depth: 0, isSection: false };
+}
+
+/** A ratio line: numerator / denominator per month and over the whole period, in percent. Null where the denominator is zero rather than 0, so a month with no revenue reads as "no figure" instead of "0% margin". */
+function ratio(label: string, numerator: TreeNode, denominator: TreeNode, months: string[]): TreeNode {
+  const pct = (num: number, den: number): number | null => (den === 0 ? null : (num / den) * 100);
+  const ratioByMonth: Record<string, number | null> = {};
+  let numTotal = 0;
+  let denTotal = 0;
+  for (const m of months) {
+    const num = numerator.row?.amountCentsByMonth[m] ?? 0;
+    const den = denominator.row?.amountCentsByMonth[m] ?? 0;
+    ratioByMonth[m] = pct(num, den);
+    numTotal += num;
+    denTotal += den;
+  }
+  return { row: null, label, children: [], depth: 0, isSection: false, isRatio: true, ratioByMonth, ratioTotal: pct(numTotal, denTotal) };
 }
 
 /** A memo line: a subtotal-shaped node flagged isMemo (see TreeNode). Summed like any subtotal, but no later subtotal includes it. */

@@ -159,7 +159,14 @@ export function injectInventoryCostRows(
     const amounts = zeros();
     const ids = new Set<string>();
     for (const r of rows) {
-      if (r.coaId !== coaId || r.mappingSource === "rule") continue;
+      // Every posting on the offset account is a purchase, however it was
+      // mapped — a vendor rule maps most of them, and "rule" is also what the
+      // derived rows carry, so mappingSource must NOT be the guard here: it
+      // left every rule-mapped purchase in COGS on top of the cost of beer
+      // sold (double-counted), with the same amount surfacing as a phantom
+      // gain on 6460. The only derived rows that can precede this call post
+      // elsewhere (depreciation, manual net sales); exclude them by table.
+      if (r.coaId !== coaId || r.sourceRef?.table === "depreciation_schedules") continue;
       for (const m of active) {
         const cents = r.amountCentsByMonth[m] ?? 0;
         if (cents === 0) continue;

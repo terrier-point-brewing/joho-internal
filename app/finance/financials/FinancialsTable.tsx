@@ -267,7 +267,29 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
 }
 
 /** Top-level subtotal (Total Income, Gross Profit, Net Income, Total Cash In/Out, Net Operating, Total Assets/Liabilities/L+E, ...) — a single bold rollup line, no drill-down (its constituent sections already rendered their own detail above it). */
+function PercentCell({ pct }: { pct: number | null | undefined }) {
+  if (pct === null || pct === undefined) return <span className="text-faint">{EM_DASH}</span>;
+  return <span className={pct < 0 ? "text-danger" : "text-strong"}>{pct.toFixed(1)}%</span>;
+}
+
 function SubtotalBar({ node, months, measure, totalMode }: { node: TreeNode; months: string[]; measure: Measure; totalMode: TotalMode }) {
+  // A ratio line (Gross Profit %) has no cents figure and no $/BBL reading:
+  // render its percentages whatever the measure, styled like a memo line.
+  if (node.isRatio) {
+    return (
+      <tr className="italic bg-surface-mid">
+        <td className={`py-2 px-4 text-xs font-semibold text-primary bg-surface-mid ${STICKY_LABEL_CELL}`}>{node.label}</td>
+        {months.map((m) => (
+          <td key={m} className="py-2 px-2 text-right text-sm font-mono tabular-nums font-semibold">
+            <PercentCell pct={node.ratioByMonth?.[m]} />
+          </td>
+        ))}
+        <td className="py-2 pl-2 pr-4 text-right text-sm font-mono tabular-nums font-bold text-primary">
+          <PercentCell pct={node.ratioTotal} />
+        </td>
+      </tr>
+    );
+  }
   // A memo line (EBITDA) is a side calculation, not a figure the statement
   // chains through: italic, no heavy rule, so it can't be misread as the
   // next real subtotal.

@@ -106,7 +106,9 @@ describe("injectInventoryCostRows", () => {
     amountCentsByMonth: { "2026-04": 0, "2026-05": -100_000, "2026-06": -50_000 },
     bblByMonth: {},
     bblCoverage: "full" as const,
-    mappingSource: "manual" as const,
+    // Rule-mapped on purpose: most real purchases are, and a guard on
+    // mappingSource once left them all out of the capitalisation.
+    mappingSource: "rule" as const,
     sourceRef: { table: "expenses", ids: ["e1", "e2"] },
   };
   const sold = { "2026-05": { beerCents: 40_000, packagingCents: 0, ids: ["x1"] }, "2026-06": { beerCents: 60_000, packagingCents: 0, ids: ["x2"] } };
@@ -131,7 +133,7 @@ describe("injectInventoryCostRows", () => {
     // purchase row itself is still on the statement), so the P&L nets to
     // change minus purchases — the periodic figure — and retained earnings'
     // cumulative inventory value still ties.
-    const derived = rows.filter((r) => r.mappingSource === "rule");
+    const derived = rows.filter((r) => r !== purchase);
     const sum = (m: string) => derived.reduce((t, r) => t + (r.amountCentsByMonth[m] ?? 0), 0);
     expect(sum("2026-05")).toBe(0);
     expect(sum("2026-06")).toBe(50_000);
@@ -153,7 +155,7 @@ describe("injectInventoryCostRows", () => {
 
   it("leaves months before tracking began untouched — their purchases stay the cost", () => {
     const rows = injectInventoryCostRows([purchase], [{ source: raw, valueByMonth: { "2026-06": 2_500_000 } }], sold, MONTHS, COA_WITH_6460);
-    for (const r of rows.filter((x) => x.mappingSource === "rule")) {
+    for (const r of rows.filter((x) => x !== purchase)) {
       expect(r.amountCentsByMonth["2026-05"]).toBe(0);
     }
   });
