@@ -35,6 +35,39 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  {
+    // Mobile / accessibility guard rails from docs/ui/MOBILE_REVIEW.md. Warn-only:
+    // the existing code is not swept here, but new code should not add to it.
+    files: ["app/**/*.tsx"],
+    // PageHeader is where the one sanctioned <h2> lives.
+    ignores: ["app/components/PageHeader.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "warn",
+        {
+          selector:
+            'JSXOpeningElement[name.name="input"]:has(JSXAttribute[name.name="type"] > Literal[value="number"]):not(:has(JSXAttribute[name.name="inputMode"]))',
+          message:
+            'A numeric <input> needs `inputMode` ("decimal" or "numeric") so phones show a number keypad.',
+        },
+        {
+          selector: 'CallExpression[callee.property.name=/^(confirm|alert)$/][callee.object.name="window"], CallExpression[callee.name=/^(confirm|alert)$/]',
+          message:
+            "Use <ConfirmDialog> / <Banner> instead of window.confirm / alert: themeable, testable, and not thread-blocking on iOS.",
+        },
+        {
+          selector: 'JSXAttribute[name.name="className"] > Literal[value=/(^|\\s)grid-cols-([3-9]|1[0-9])(\\s|$)/]',
+          message:
+            "An unprefixed grid-cols-3+ squeezes to ~110px columns on a phone. Start at grid-cols-1/2 and add the wider count under sm:/md:.",
+        },
+        {
+          selector: 'JSXOpeningElement[name.name=/^h[12]$/]',
+          message:
+            "Page titles come from <PageHeader> (docs/UI_STANDARD.md §4); raw <h1>/<h2> break the heading outline.",
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
