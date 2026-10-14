@@ -497,7 +497,7 @@ export default function SalesPulseTab() {
         </div>
 
         {/* Day-of-week filter */}
-        <div className="flex items-center gap-1.5 mb-4 overflow-x-auto scrollbar-none pb-0.5">
+        <div className="flex items-center gap-1.5 mb-4 scroll-x pb-0.5">
           <span className="text-xs text-faint mr-1">Day</span>
           <ToggleChip active={catDayFilter === null} onClick={() => changeDayFilter(null)} className="shrink-0">
             All

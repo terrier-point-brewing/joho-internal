@@ -2,8 +2,7 @@
 // and TabBar (button-driven) so the markup can't drift. See docs/UI_STANDARD.md §5.
 
 /** Tab row container. */
-export const TAB_ROW =
-  "flex gap-1 border-b border-line overflow-x-auto overflow-y-hidden scrollbar-none";
+export const TAB_ROW = "flex gap-1 border-b border-line scroll-x";
 
 /** Sticky offset for a tab row pinned under the mobile top bar. */
 export const TAB_STICKY = "sticky top-11 md:static z-40 bg-canvas/95";
