@@ -488,7 +488,7 @@ export default function BrewStatusTab() {
       {/* ── Mobile card list (hidden on md+) ── */}
       <div className="md:hidden">
         {/* Filter bar */}
-        <div className="flex gap-2 mb-4 -mx-4 px-4 overflow-x-auto scrollbar-none pb-1">
+        <div className="flex gap-2 mb-4 -mx-4 px-4 scroll-x pb-1">
           <ToggleChip active={mobileFilter === "all"} onClick={() => setMobileFilter("all")} className="whitespace-nowrap">
             All
           </ToggleChip>
