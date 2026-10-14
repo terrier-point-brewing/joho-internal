@@ -9,6 +9,8 @@ import PartnerBar from "@/app/partner/PartnerBar";
 import { usePendingAccessRequestCount } from "@/lib/hooks/useAccessRequests";
 import { CAP } from "@/lib/auth/capabilities";
 import { navEntryVisible } from "./SubNav";
+import { Modal } from "./ui/Modal";
+import ConfirmDialog from "./ui/ConfirmDialog";
 import { FINANCE_NAV } from "@/app/finance/nav-config";
 import { TAPROOM_NAV } from "@/app/taproom/nav-config";
 import { PRODUCTION_NAV } from "@/app/production/nav-config";
@@ -27,56 +29,24 @@ const ROLE_LABELS: Record<string, string> = {
 const STORAGE_KEY = "tpb-sidebar-collapsed";
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
+// Lucide (MIT), thin 1.75px strokes to match the rest of the chrome. Every nav
+// glyph is defined once here; the sidebar, the collapsed rail and the phone
+// bottom nav all draw from this list.
 
-const TaproomIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <rect x="1" y="3" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M4 3V2.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V3" stroke="currentColor" strokeWidth="1.4"/>
-  </svg>
-);
-const ProductionIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <path d="M2 11V6l3-3h4l3 3v5H2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-    <path d="M5 11V8h4v3" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-  </svg>
-);
-const FinanceIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <rect x="1" y="4" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M4 4V3a2 2 0 014 0v1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    <path d="M7 7.5v1M5.5 8.5h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-  </svg>
-);
-const BrandIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <path d="M7 1.5l1.7 3.4 3.8.55-2.75 2.68.65 3.77L7 10.13 3.85 11.9l.65-3.77L1.75 5.45l3.8-.55L7 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-  </svg>
-);
-// A month grid — the calendar is what the whole section is organised around.
-const MarketingIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <rect x="1.5" y="2.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M1.5 5.5h11M4.5 1.5v2M9.5 1.5v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-  </svg>
-);
-// The wordmark's collapsed twin: a house, for the Home alert center.
-const HomeIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <path d="M2 6.5L7 2.5l5 4V12H2V6.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-    <path d="M5.5 12V8.5h3V12" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-  </svg>
-);
-const SettingsIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
-    <circle cx="7" cy="7" r="2" stroke="currentColor" strokeWidth="1.3"/>
-    <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-  </svg>
-);
-const LogoutIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-    <path d="M9 10l3-3-3-3M12 7H5M5 2H2.5A1.5 1.5 0 001 3.5v7A1.5 1.5 0 002.5 12H5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-);
+import {
+  Beer, Calendar, Ellipsis, Factory, House, LogOut, Settings, Sparkles, Wallet,
+} from "lucide-react";
+
+const NAV_ICON = { size: 20, strokeWidth: 1.75, "aria-hidden": true } as const;
+const TaproomIcon    = () => <Beer {...NAV_ICON} />;
+const ProductionIcon = () => <Factory {...NAV_ICON} />;
+const FinanceIcon    = () => <Wallet {...NAV_ICON} />;
+const BrandIcon      = () => <Sparkles {...NAV_ICON} />;
+const MarketingIcon  = () => <Calendar {...NAV_ICON} />;
+const HomeIcon       = () => <House {...NAV_ICON} />;
+const SettingsIcon   = () => <Settings {...NAV_ICON} />;
+const MoreIcon       = () => <Ellipsis {...NAV_ICON} />;
+const LogoutIcon     = () => <LogOut size={14} strokeWidth={1.75} aria-hidden />;
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -88,6 +58,8 @@ export default function NavBar() {
   const pendingRequests = usePendingAccessRequestCount();
 
   const [collapsed, setCollapsed] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
 
   // Read persisted state after hydration to avoid server/client mismatch
   useEffect(() => {
@@ -392,57 +364,105 @@ export default function NavBar() {
       </aside>
 
       {/* ── Mobile top bar ───────────────────────────────────────────────────── */}
+      {/* The account block is the way to sign out on a phone: tapping it asks
+          first (ConfirmDialog), since a 44px target next to the thumb should
+          never end a session by accident. Sign out used to be a bottom-nav
+          tab — it isn't a destination, and the bar had seven items. */}
       <div className="md:hidden fixed top-0 inset-x-0 z-50 bg-surface border-b border-line flex items-center justify-between px-4 h-11">
         <Link href="/home" className={`text-sm font-bold tracking-wide ${isHome ? "text-accent" : "text-primary"}`}>TPB</Link>
         {!loading && user && (
-          <div className="text-right">
+          <button
+            type="button"
+            onClick={() => setSignOutOpen(true)}
+            aria-label={`Account ${user.email}. Sign out`}
+            className="text-right -mr-2 px-2 h-full"
+          >
             <div className="text-xs text-body truncate max-w-[200px]">{user.email}</div>
-            <div className="text-[10px] text-faint">{role ? ROLE_LABELS[role] ?? role : ""}</div>
-          </div>
+            <div className="text-2xs text-faint">{role ? ROLE_LABELS[role] ?? role : ""}</div>
+          </button>
         )}
       </div>
+      {signOutOpen && (
+        <ConfirmDialog
+          title="Sign out?"
+          message={`You are signed in as ${user?.email ?? "this account"}.`}
+          confirmLabel="Sign out"
+          tone="primary"
+          onConfirm={handleLogout}
+          onCancel={() => setSignOutOpen(false)}
+        />
+      )}
 
       {/* ── Mobile bottom nav ────────────────────────────────────────────────── */}
-      {/* Height here is what --mobile-nav-space in globals.css reserves for;
-          keep the two in step. The safe-area padding lifts the tap targets off
-          the home indicator without changing what the content pane reserves. */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-surface border-t border-line flex items-stretch pb-[env(safe-area-inset-bottom,0px)]">
-        <MobileNavItem href="/taproom/performance" active={isTaproom} label="Taproom">
-          <TaproomIcon />
-        </MobileNavItem>
-        {!loading && canAccessProduction && (
-          <MobileNavItem href="/production/intake" active={isProduction} label="Production">
-            <ProductionIcon />
-          </MobileNavItem>
-        )}
-        {!loading && canAccessBrand && (
-          <MobileNavItem href="/brand/guide" active={isBrand} label="Brand">
-            <BrandIcon />
-          </MobileNavItem>
-        )}
-        {!loading && canAccessMarketing && (
-          <MobileNavItem href="/marketing/calendar" active={isMarketing} label="Marketing">
-            <MarketingIcon />
-          </MobileNavItem>
-        )}
-        {!loading && canAccessFinance && (
-          <MobileNavItem href="/finance/financials" active={isFinance} label="Finance">
-            <FinanceIcon />
-          </MobileNavItem>
-        )}
-        {!loading && (
-          <MobileNavItem href="/settings/user/account" active={isSettings} label="Settings">
-            <SettingsIcon />
-          </MobileNavItem>
-        )}
-        <button
-          onClick={handleLogout}
-          className="flex-1 flex flex-col items-center justify-center gap-1 py-2 text-muted hover:text-danger transition-colors"
-        >
-          <LogoutIcon />
-          <span className="text-[10px] font-medium leading-none">Sign out</span>
-        </button>
-      </nav>
+      {/* Height is --mobile-nav-h (globals.css), which is also what the content
+          pane reserves; keep the two in step. At most five items (HIG): when the
+          role can see more sections, the fifth slot is "More", a sheet listing
+          the rest. The safe-area padding lifts the tap targets off the home
+          indicator without changing what the content pane reserves. */}
+      {(() => {
+        // Listed in phone priority: the daily sections keep a slot, Brand and
+        // Marketing are the first to fold into "More" when a role sees all six.
+        const sections: { href: string; active: boolean; label: string; icon: React.ReactNode }[] = [
+          { href: "/taproom/performance", active: isTaproom, label: "Taproom", icon: <TaproomIcon /> },
+          ...(!loading && canAccessProduction ? [{ href: "/production/intake", active: isProduction, label: "Production", icon: <ProductionIcon /> }] : []),
+          ...(!loading && canAccessFinance ? [{ href: "/finance/financials", active: isFinance, label: "Finance", icon: <FinanceIcon /> }] : []),
+          ...(!loading ? [{ href: "/settings/user/account", active: isSettings, label: "Settings", icon: <SettingsIcon /> }] : []),
+          ...(!loading && canAccessBrand ? [{ href: "/brand/guide", active: isBrand, label: "Brand", icon: <BrandIcon /> }] : []),
+          ...(!loading && canAccessMarketing ? [{ href: "/marketing/calendar", active: isMarketing, label: "Marketing", icon: <MarketingIcon /> }] : []),
+        ];
+        const MAX = 5;
+        const overflow = sections.length > MAX;
+        const shown = overflow ? sections.slice(0, MAX - 1) : sections;
+        const rest = overflow ? sections.slice(MAX - 1) : [];
+        const restActive = rest.some((x) => x.active);
+        return (
+          <>
+            <nav
+              aria-label="Sections"
+              className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-surface border-t border-line flex items-stretch h-[var(--mobile-nav-h)] box-content pb-[env(safe-area-inset-bottom,0px)]"
+            >
+              {shown.map((x) => (
+                <MobileNavItem key={x.href} href={x.href} active={x.active} label={x.label}>
+                  {x.icon}
+                </MobileNavItem>
+              ))}
+              {overflow && (
+                <button
+                  type="button"
+                  onClick={() => setMoreOpen(true)}
+                  aria-haspopup="dialog"
+                  aria-expanded={moreOpen}
+                  className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${
+                    restActive ? "text-accent" : "text-muted"
+                  }`}
+                >
+                  <MoreIcon />
+                  <span className="text-2xs font-medium leading-none">More</span>
+                </button>
+              )}
+            </nav>
+            {moreOpen && (
+              <Modal title="More" onClose={() => setMoreOpen(false)}>
+                <nav aria-label="More sections" className="flex flex-col gap-1 -m-2">
+                  {rest.map((x) => (
+                    <Link
+                      key={x.href}
+                      href={x.href}
+                      onClick={() => setMoreOpen(false)}
+                      className={`flex items-center gap-3 px-3 py-3 rounded text-sm font-medium transition-colors ${
+                        x.active ? "bg-surface-mid text-accent" : "text-secondary hover:text-strong hover:bg-surface-mid/50"
+                      }`}
+                    >
+                      {x.icon}
+                      {x.label}
+                    </Link>
+                  ))}
+                </nav>
+              </Modal>
+            )}
+          </>
+        );
+      })()}
     </>
   );
 }
@@ -471,12 +491,13 @@ function MobileNavItem({
   return (
     <Link
       href={href}
-      className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-colors ${
+      aria-current={active ? "page" : undefined}
+      className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${
         active ? "text-accent" : "text-muted"
       }`}
     >
       {children}
-      <span className="text-[10px] font-medium leading-none">{label}</span>
+      <span className="text-2xs font-medium leading-none">{label}</span>
     </Link>
   );
 }

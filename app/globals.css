@@ -106,10 +106,11 @@
      Below `md` the nav is fixed to the bottom of the viewport, so it covers
      whatever sits under it. Anything the user must be able to reach — the
      scrolling content pane in app/layout.tsx, floating toasts — reserves
-     --mobile-nav-space at the bottom. --mobile-nav-h is the bar itself (icon +
-     label + py-2); the safe-area inset is the home indicator below it, which
-     the bar pads itself with. One place to change if the bar's height moves. */
-  --mobile-nav-h: 3.25rem;
+     --mobile-nav-space at the bottom. --mobile-nav-h is the bar itself (set
+     explicitly on the <nav>, so an item is a full-height 56px target); the
+     safe-area inset is the home indicator below it, which the bar pads itself
+     with. One place to change if the bar's height moves. */
+  --mobile-nav-h: 3.5rem;
   --mobile-nav-space: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px));
 
   /* ── Control height ladder ────────────────────────────────────────────────
