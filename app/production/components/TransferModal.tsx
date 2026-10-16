@@ -14,6 +14,7 @@ import ConversionTargetFields, { emptyConversionTarget, type ConversionTargetVal
 import ConversionAllocationPanel, { type ConversionAllocationPlanState } from "./ConversionAllocationPanel";
 import { classifySourceEdit, DEFAULT_CONVERSION_ALLOCATION_NOTE } from "@/lib/production/conversionAllocationPlan";
 import { fmtUsd } from "@/lib/utils/formatting";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 
 /**
  * Execute the reconciliation the operator defined in the allocation panel,
@@ -291,6 +292,13 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const [packagingLossPct, setPackagingLossPct] = useState("5");
   const [notes,      setNotes]      = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Client-side validation shown inline above the actions — never a native alert().
+  const [formError, setFormError] = useState<string | null>(null);
+  // Refunds are real money: restated in a dialog at the moment of consent.
+  const [pendingRefunds, setPendingRefunds] = useState(false);
+  // Something the operator must read before the modal goes away (a follow-up
+  // that failed after the beer already moved, or a server error).
+  const [notice, setNotice] = useState<{ title: string; lines: string[]; onDismiss?: () => void | Promise<void> } | null>(null);
 
   // Conversion-specific state — the shared block owns target/volume/dates.
   // Defaults to "existing" (pre-planned conversions arrive with a target batch).
@@ -371,6 +379,10 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const remaining = batchVol - totalDraw;
 
   const destIsConstrained = destTank && !UNCONSTRAINED_EQUIPMENT_TYPES.includes(destTank.type);
+  // Shown beside the volume input (transfer mode); red the moment the draw exceeds it.
+  const destCapacity: number | null =
+    mode === "transfer" && destIsConstrained && destTank?.capacity_bbl ? Number(destTank.capacity_bbl) : null;
+  const overCapacity = destCapacity != null && drawBbl > destCapacity;
 
   // Conversion can be drawn off mid-fermenting OR mid-conditioning
   const canConvert = fromTank.type === "fermenter" || fromTank.type === "brite";
@@ -394,30 +406,33 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     setDestId(newDests[0]?.id ?? "");
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    void submit(false);
+  }
+
+  async function submit(refundsConfirmed: boolean) {
     if (!effectiveDestId) return;
+    setFormError(null);
 
     setSubmitting(true);
     try {
       if (mode === "convert") {
         const usingExisting = convert.targetMode === "existing";
-        if (usingExisting && !convert.targetBatchId) { alert("Select a target batch."); return; }
-        if (!usingExisting && !convert.newRecipeId) { alert("Select the beer the conversion produces."); return; }
-        if (!(parseFloat(convert.volumeBbl) > 0)) { alert("Enter the volume to convert."); return; }
+        if (usingExisting && !convert.targetBatchId) { setFormError("Select a target batch."); return; }
+        if (!usingExisting && !convert.newRecipeId) { setFormError("Select the beer the conversion produces."); return; }
+        if (!(parseFloat(convert.volumeBbl) > 0)) { setFormError("Enter the volume to convert."); return; }
 
         // The allocation plan gates the conversion: an impossible consequence
         // (a refund with no payment on file) must be fixed BEFORE beer moves.
         if (allocPlan && allocPlan.validation.blockers.length > 0) {
-          alert(`Fix the allocation plan first:\n\n${allocPlan.validation.blockers.join("\n")}`);
+          setFormError(`Fix the allocation plan first: ${allocPlan.validation.blockers.join(" ")}`);
           return;
         }
         // Refunds are real money — restate the exact amounts at the moment of consent.
-        if (allocPlan && allocPlan.validation.refunds.length > 0) {
-          const lines = allocPlan.validation.refunds
-            .map((r) => `• ${fmtUsd(r.refundCents / 100)} to ${r.partnerName ?? "partner"}`)
-            .join("\n");
-          if (!confirm(`Submitting will issue partial deposit refunds:\n\n${lines}\n\nContinue?`)) return;
+        if (allocPlan && allocPlan.validation.refunds.length > 0 && !refundsConfirmed) {
+          setPendingRefunds(true);
+          return;
         }
 
         // The child's name IS the recipe's beer — nothing to type, nothing to typo.
@@ -454,14 +469,20 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         if (allocPlan && childBatchId) {
           const followUpErrors = await executeAllocationPlan(allocPlan, childBatchId);
           if (followUpErrors.length > 0) {
-            alert(
-              "The conversion is recorded, but part of the allocation plan failed:\n\n"
-              + followUpErrors.map((m) => `• ${m}`).join("\n")
-              + "\n\nDo not re-submit the conversion. Finish the allocation changes in Brewing → Batch Log.",
-            );
+            setNotice({
+              title: "Conversion recorded — allocation plan incomplete",
+              lines: [...followUpErrors, "Do not re-submit the conversion. Finish the allocation changes in Brewing → Batch Log."],
+              onDismiss: async () => { await onDone(); onClose(); },
+            });
+            return;
           }
         } else if (allocPlan && !childBatchId) {
-          alert("The conversion is recorded, but the new batch could not be identified — apply the allocation plan by hand in Brewing → Batch Log.");
+          setNotice({
+            title: "Conversion recorded — allocation plan not applied",
+            lines: ["The new batch could not be identified. Apply the allocation plan by hand in Brewing → Batch Log."],
+            onDismiss: async () => { await onDone(); onClose(); },
+          });
+          return;
         }
 
         await onDone();
@@ -476,20 +497,20 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
       // (partial is the default mode), so submitting without typing a number is
       // one click away.
       if (!isPackagingForm && !(drawBbl > 0)) {
-        alert("Enter the volume to transfer.");
+        setFormError("Enter the volume to transfer.");
         return;
       }
 
       // Capacity guard for constrained tanks
       if (destIsConstrained && destTank?.capacity_bbl) {
         if (drawBbl > destTank.capacity_bbl) {
-          alert(`Transfer volume (${fmtBbl(drawBbl)}) exceeds ${destTank.name} capacity (${fmtBbl(destTank.capacity_bbl)} BBL).`);
+          setFormError(`Transfer volume (${fmtBbl(drawBbl)}) exceeds ${destTank.name} capacity (${fmtBbl(destTank.capacity_bbl)} BBL).`);
           return;
         }
       }
 
       if (isPackagingForm && !(packagingLines.some((l) => l.variation_id && (parseInt(l.quantity) || 0) > 0))) {
-        alert("Select at least one packaging variation and quantity.");
+        setFormError("Select at least one packaging variation and quantity.");
         return;
       }
 
@@ -533,16 +554,16 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
       // only person who can fix that is standing here right now.
       const coldStorageErrors: string[] = responseData?.cold_storage_errors ?? [];
       if (coldStorageErrors.length > 0) {
-        alert(
-          "The packaging run was recorded, but the beer did NOT enter cold storage:\n\n"
-          + coldStorageErrors.map((m) => `• ${m}`).join("\n")
-          + "\n\nDo not submit this run again — it is already recorded. "
-          + "Add the missing units under Production → Inventory, and tell someone.",
-        );
+        setNotice({
+          title: "Run recorded — beer did not enter cold storage",
+          lines: [...coldStorageErrors, "Do not submit this run again; it is already recorded. Add the missing units under Production → Inventory, and tell someone."],
+          onDismiss: onClose,
+        });
+        return;
       }
       onClose();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Error");
+      setNotice({ title: "Could not record this", lines: [e instanceof Error ? e.message : "Error"] });
     } finally {
       setSubmitting(false);
     }
@@ -586,23 +607,6 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           {/* ── Left column: where it's going (inputs only) ── */}
           <div className="space-y-3">
-            {/* Convert mode description */}
-            {mode === "convert" && (
-              <div className="px-3 py-2 rounded border border-accent-border/40 bg-accent-muted/30 text-xs text-accent-soft">
-                Convert volume into another recipe. Pick an <span className="font-semibold">existing target batch</span> or create a <span className="font-semibold">new batch</span> inline. Remaining volume stays in {fromTank.name} under the original batch; a full conversion completes it.
-              </div>
-            )}
-
-            {/* Allowed-destinations hint (transfer mode only) */}
-            {mode === "transfer" && (
-              <p className="text-xs text-muted bg-surface-mid/40 px-3 py-1.5 rounded border border-line-strong">
-                {fromTank.type === "brewhouse" && "Brewhouse → Fermenter only"}
-                {fromTank.type === "fermenter" && "Fermenter → Brite/Fermenter (incl. staying put for in-place conditioning), Kegging, or Canning"}
-                {fromTank.type === "brite"     && "Brite → Brite/Fermenter (incl. staying put), Kegging, or Canning"}
-                {(fromTank.type === "kegging" || fromTank.type === "canning") && "Packaging → Cold Storage or Export Bay only"}
-              </p>
-            )}
-
             <Field label="Destination" required>
               {/* Planned booking pill (stage-move transfers only — not packaging) */}
               {showPlannedEntry && (
@@ -671,7 +675,17 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                     <input type="number" step="0.001" min="0" max={batchVol} className="inp w-40" placeholder="0.000"
                       value={partialBbl} onChange={(e) => setPartialBbl(e.target.value)} />
                     <span className="text-muted text-sm">BBL</span>
+                    {destCapacity != null && (
+                      <span className={`text-sm ${overCapacity ? "text-danger font-medium" : "text-muted"}`}>
+                        of {fmtBbl(destCapacity)} capacity
+                      </span>
+                    )}
                   </div>
+                )}
+                {volumeMode === "full" && destCapacity != null && (
+                  <p className={`text-xs ${overCapacity ? "text-danger font-medium" : "text-muted"}`}>
+                    {fmtBbl(drawBbl)} into {fmtBbl(destCapacity)} capacity{overCapacity ? " — over" : ""}
+                  </p>
                 )}
               </Field>
             )}
@@ -691,14 +705,9 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
 
         {/* ── Full-width hints/warnings, kept out of the 2-col grid above so
              column heights stay in sync regardless of which warnings show ── */}
-        {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && (
-          <p className="text-xs text-muted">Capacity: {fmtBbl(destTank.capacity_bbl)} — transfer will be rejected if it exceeds this.</p>
-        )}
         {showPlannedEntry && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
           <div className="px-3 py-2 rounded border border-accent-border/60 bg-accent-muted/40 text-xs text-accent-soft">
-            ⚠ <span className="font-semibold">Deviation from plan:</span> this batch was scheduled for{" "}
-            <span className="text-accent-soft font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span>.
-            Proceeding will cancel that booking and may cause conflicts with downstream schedule entries that will need to be resolved.
+            ⚠ Planned for <span className="font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span> — proceeding cancels that booking.
           </div>
         )}
         {mode === "convert" && drawBbl > 0 && remaining <= 0 && (
@@ -825,8 +834,8 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 </Field>
                 <p className="text-xs text-faint mt-1.5">
                   {canUnitsProduced > 0
-                    ? `${canUnitsProduced} cans filled → ${lossAdjustedCanUnits} cans, lids and labels consumed. Paktechs and trays are unaffected.`
-                    : "Spoiled cans, lids and labels deducted on top of what was filled. Paktechs and trays are unaffected."}
+                    ? `${canUnitsProduced} filled → ${lossAdjustedCanUnits} cans, lids and labels used (PakTechs and trays unaffected).`
+                    : "Spoiled cans, lids and labels are deducted on top of what was filled (PakTechs and trays unaffected)."}
                 </p>
               </div>
             )}
@@ -872,20 +881,48 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             {remaining < -0.001 && (
               <p className="text-xs text-danger mt-1">Warning: volume exceeds batch volume.</p>
             )}
-            {mode === "transfer" && destIsConstrained && destTank?.capacity_bbl && drawBbl > destTank.capacity_bbl && (
-              <p className="text-xs text-danger mt-1">
-                Transfer ({fmtBbl(drawBbl)}) exceeds {destTank.name} capacity ({fmtBbl(destTank.capacity_bbl)}).
-              </p>
-            )}
           </div>
           <Field label="Notes">
             <input className="inp" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
         </div>
 
+        {formError && <p className="text-xs text-danger">{formError}</p>}
         <ModalActions submitting={submitting} onCancel={onClose}
           label={mode === "convert" ? "Convert Batch" : "Record Transfer"} />
       </form>
+
+      {pendingRefunds && allocPlan && (
+        <ConfirmDialog
+          title="Issue partial deposit refunds?"
+          tone="primary"
+          confirmLabel="Refund and convert"
+          message={
+            <ul className="list-disc pl-5 space-y-1">
+              {allocPlan.validation.refunds.map((r, i) => (
+                <li key={i}>{fmtUsd(r.refundCents / 100)} to {r.partnerName ?? "partner"}</li>
+              ))}
+            </ul>
+          }
+          onConfirm={() => { setPendingRefunds(false); void submit(true); }}
+          onCancel={() => setPendingRefunds(false)}
+        />
+      )}
+      {notice && (
+        <ConfirmDialog
+          title={notice.title}
+          tone="primary"
+          confirmLabel="OK"
+          cancelLabel="Close"
+          message={
+            <ul className="space-y-1">
+              {notice.lines.map((l, i) => <li key={i}>{l}</li>)}
+            </ul>
+          }
+          onConfirm={() => { const d = notice.onDismiss; setNotice(null); void d?.(); }}
+          onCancel={() => { const d = notice.onDismiss; setNotice(null); void d?.(); }}
+        />
+      )}
     </Modal>
   );
 }

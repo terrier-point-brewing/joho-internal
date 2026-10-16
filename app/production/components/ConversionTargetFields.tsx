@@ -33,6 +33,11 @@ export interface ConversionTargetValue {
   notes: string;
 }
 
+/** Marks targets not based on the source recipe: the conversion goes through,
+ *  but no added ingredients are reserved or charged to a partner. */
+const UNLINKED_LOCK = "🔒";
+const UNLINKED_TITLE = "Not based on the source recipe — added ingredients will not be reserved or charged.";
+
 export function emptyConversionTarget(conversionDate: string): ConversionTargetValue {
   return {
     targetMode: "existing",
@@ -124,10 +129,10 @@ export default function ConversionTargetFields({
     <div className="space-y-3">
       {!newOnly && <div className="flex gap-1">
         <ToggleChip active={value.targetMode === "existing"} onClick={() => update({ targetMode: "existing" })}>
-          Existing batch
+          Into an existing batch
         </ToggleChip>
         <ToggleChip active={value.targetMode === "new"} onClick={() => update({ targetMode: "new" })}>
-          New batch
+          As a new batch
         </ToggleChip>
       </div>}
 
@@ -146,7 +151,7 @@ export default function ConversionTargetFields({
               </optgroup>
             )}
             {unlinkedBatches.length > 0 && (
-              <optgroup label={linkedBatches.length > 0 ? "Other batches (additions won't be costed)" : "All batches"}>
+              <optgroup label={linkedBatches.length > 0 ? `${UNLINKED_LOCK} Other batches` : "All batches"} title={UNLINKED_TITLE}>
                 {unlinkedBatches.map(b => (
                   <option key={b.id} value={b.id}>
                     {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
@@ -169,7 +174,7 @@ export default function ConversionTargetFields({
               </optgroup>
             )}
             {unlinkedRecipes.length > 0 && (
-              <optgroup label={linkedRecipes.length > 0 ? "Other recipes (additions won't be costed)" : "All recipes"}>
+              <optgroup label={linkedRecipes.length > 0 ? `${UNLINKED_LOCK} Other recipes` : "All recipes"} title={UNLINKED_TITLE}>
                 {unlinkedRecipes.map(r => (
                   <option key={r.id} value={r.id}>{r.beer_name}</option>
                 ))}
@@ -183,10 +188,8 @@ export default function ConversionTargetFields({
       {/* A warning, never a block: converting into an unrelated beer is a real
         * thing to do — it just cannot be costed, so say so plainly. */}
       {unlinked && (
-        <p className="text-xs text-[var(--cat-amber-fg)]">
-          Not based on {sourceBeerName} — no added ingredients will be reserved or charged.
-          Set &ldquo;Based On&rdquo; under Recipes to have the additions costed. The conversion
-          itself goes through either way.
+        <p className="text-xs text-[var(--cat-amber-fg)]" title="Set “Based On” under Recipes to change this.">
+          {UNLINKED_LOCK} Not based on {sourceBeerName} — added ingredients will not be reserved or charged.
         </p>
       )}
 

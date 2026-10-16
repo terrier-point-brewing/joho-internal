@@ -248,12 +248,8 @@ function DecideModal({ request: r, recipes, canDecide, onClose }: { request: Inb
             )}
             <p className="text-xs text-muted">
               {isClaim
-                ? channel === "contract_brewing"
-                  ? "Approving books the commitment and allocates their share of the batch. Raise the ingredient deposit from that allocation on the Deposits list; if it is still unpaid when the beer ships, the export invoice back-charges it."
-                  : "Invoiced at shipment at the product price with the channel discount — no deposit, exactly as any distribution or wholesale deal."
-                : channel === "contract_brewing"
-                  ? "Approving books the commitment. Schedule its batch from the Commitments list below; the ingredient deposit is raised there once the batch is allocated."
-                  : "Approving books the commitment. Schedule its batch from the Commitments list below; it is invoiced at shipment."}
+                ? "Approving books the commitment and their share of the batch."
+                : "Approving books the commitment; schedule its batch under Commitments."}
             </p>
             {!isClaim && !waiting && (
               <Field label="Share of the batch" hint={`% — they asked for ${askedPct}%. Change it to send a counter-offer.`}>

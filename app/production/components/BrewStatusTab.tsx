@@ -817,12 +817,12 @@ export default function BrewStatusTab() {
               >
                 {/* Header: name + type badge + upcoming-plans button on one line */}
                 <div className={`shrink-0 px-1.5 py-1 flex items-center justify-between gap-1 min-w-0 ${eq.headerBg}`}>
-                  <span className="font-semibold text-primary truncate leading-tight" style={{ fontSize: tiny ? 8 : 10 }}>
+                  <span className="font-semibold text-primary truncate leading-tight" style={{ fontSize: tiny ? 11 : 12 }}>
                     {tank.name}
                   </span>
                   <div className="flex items-center gap-1 shrink-0">
                     {!tiny && (
-                      <span className={`px-1 py-px rounded border leading-none ${eq.badge}`} style={{ fontSize: 7 }}>
+                      <span className={`px-1 py-px rounded border leading-none ${eq.badge}`} style={{ fontSize: 11 }}>
                         {eq.label}
                       </span>
                     )}
@@ -849,22 +849,22 @@ export default function BrewStatusTab() {
                       <div className="flex-1 min-h-0 flex flex-col gap-0.5">
                         <div className="flex-1 min-h-0 overflow-y-auto">
                           {planningBatches.length === 0 ? (
-                            <p className="text-disabled text-center mt-1" style={{ fontSize: 9 }}>No planned batches</p>
+                            <p className="text-disabled text-center mt-1" style={{ fontSize: 11 }}>No planned batches</p>
                           ) : (
                             <div className="space-y-1.5">
                               {groupByDate(planningBatches, (b) => b.planned_brew_date).map((group) => (
                                 <div key={group.date}>
-                                  <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>{fmtDate(group.date)}</p>
+                                  <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: 11 }}>{fmtDate(group.date)}</p>
                                   <div className="space-y-0.5 mt-0.5">
                                     {group.items.map((b) => (
                                       <div key={b.id} className="leading-tight">
                                         <div className="flex items-center justify-between gap-1 min-w-0">
-                                          <span className="text-faint font-mono shrink-0" style={{ fontSize: 8 }}>{b.batch_number ? `#${b.batch_number}` : "—"}</span>
+                                          <span className="text-faint font-mono shrink-0" style={{ fontSize: 11 }}>{b.batch_number ? `#${b.batch_number}` : "—"}</span>
                                           {b.volume_bbl != null && (
-                                            <span className="text-accent-emphasis/80 font-mono shrink-0" style={{ fontSize: 8 }}>{Number(b.volume_bbl).toFixed(1)} BBL</span>
+                                            <span className="text-accent-emphasis/80 font-mono shrink-0" style={{ fontSize: 11 }}>{Number(b.volume_bbl).toFixed(1)} BBL</span>
                                           )}
                                         </div>
-                                        <p className="text-body truncate" style={{ fontSize: 9 }} title={b.beer_name}>{b.beer_name}</p>
+                                        <p className="text-body truncate" style={{ fontSize: 11 }} title={b.beer_name}>{b.beer_name}</p>
                                       </div>
                                     ))}
                                   </div>
@@ -891,17 +891,17 @@ export default function BrewStatusTab() {
                     {isColdStorage && (
                       <div className="flex-1 min-h-0 overflow-y-auto">
                         {coldStorageLots.length === 0 ? (
-                          <p className="text-disabled text-center mt-1" style={{ fontSize: 9 }}>Empty</p>
+                          <p className="text-disabled text-center mt-1" style={{ fontSize: 11 }}>Empty</p>
                         ) : (
                           <div className="space-y-1">
                             {coldStorageLots.map((lot) => (
                               <div key={lot.id} className="flex flex-col gap-0 leading-tight">
                                 <div className="flex items-center gap-1 min-w-0">
-                                  <span className="text-body truncate flex-1 min-w-0 font-medium" style={{ fontSize: 9 }} title={lot.beer_name ?? undefined}>{lot.beer_name ?? "—"}</span>
-                                  <span className="text-faint shrink-0" style={{ fontSize: 8 }}>{lot.quantity_on_hand}</span>
+                                  <span className="text-body truncate flex-1 min-w-0 font-medium" style={{ fontSize: 11 }} title={lot.beer_name ?? undefined}>{lot.beer_name ?? "—"}</span>
+                                  <span className="text-faint shrink-0" style={{ fontSize: 11 }}>{lot.quantity_on_hand}</span>
                                 </div>
                                 {lot.variation_name && (
-                                  <span className="text-muted pl-1" style={{ fontSize: 8 }}>{lot.variation_name}</span>
+                                  <span className="text-muted pl-1" style={{ fontSize: 11 }}>{lot.variation_name}</span>
                                 )}
                               </div>
                             ))}
@@ -927,7 +927,7 @@ export default function BrewStatusTab() {
                         {/* Capacity + fill bar — fixed, always visible */}
                         {!isUnconstrained && tank.capacity_bbl && (
                           <div className="shrink-0">
-                            <p className="text-faint" style={{ fontSize: 9 }}>
+                            <p className="text-faint" style={{ fontSize: 11 }}>
                               {batch ? `${ledgerVol.toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
                             </p>
                             {batch && (
@@ -949,19 +949,19 @@ export default function BrewStatusTab() {
                             {/* Batch identity — fixed, single line, ellipsized rather than wrapped */}
                             <div className="shrink-0 flex items-center gap-1 min-w-0">
                               {batch.batch_number && (
-                                <span className="text-muted font-mono shrink-0" style={{ fontSize: 9 }}>#{batch.batch_number}</span>
+                                <span className="text-muted font-mono shrink-0" style={{ fontSize: 11 }}>#{batch.batch_number}</span>
                               )}
-                              <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 10 }} title={batch.beer_name}>
+                              <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 12 }} title={batch.beer_name}>
                                 {batch.beer_name}
                               </span>
                               {drawGap(batchById[batch.id]) && (
-                                <span className="px-1 py-px rounded border border-danger-border bg-danger-surface/40 text-danger shrink-0 leading-none" style={{ fontSize: 7 }} title={drawGap(batchById[batch.id])!}>
+                                <span className="px-1 py-px rounded border border-danger-border bg-danger-surface/40 text-danger shrink-0 leading-none" style={{ fontSize: 11 }} title={drawGap(batchById[batch.id])!}>
                                   No draw
                                 </span>
                               )}
                             </div>
                             {assignment && (
-                              <p className="shrink-0 text-faint truncate" style={{ fontSize: 8 }}>since {fmtDate(assignment.assigned_at)}</p>
+                              <p className="shrink-0 text-faint truncate" style={{ fontSize: 11 }}>since {fmtDate(assignment.assigned_at)}</p>
                             )}
 
                             {/* Always rendered (even empty) so the Transfer button below stays
@@ -986,9 +986,9 @@ export default function BrewStatusTab() {
                                   return (
                                     <div key={a.id} className="flex items-center gap-1 min-w-0 pt-0.5 border-t border-line/60">
                                       {otherBatch.batch_number && (
-                                        <span className="text-muted font-mono shrink-0" style={{ fontSize: 9 }}>#{otherBatch.batch_number}</span>
+                                        <span className="text-muted font-mono shrink-0" style={{ fontSize: 11 }}>#{otherBatch.batch_number}</span>
                                       )}
-                                      <span className="text-body truncate flex-1 min-w-0" style={{ fontSize: 9 }} title={otherBatch.beer_name}>
+                                      <span className="text-body truncate flex-1 min-w-0" style={{ fontSize: 11 }} title={otherBatch.beer_name}>
                                         {otherBatch.beer_name} <span className="text-faint">+combined</span>
                                       </span>
                                       {!editMode && (
@@ -1034,7 +1034,7 @@ export default function BrewStatusTab() {
                               </div>
                             )}
                             {!nextPlanned?.brew_batches && (
-                              <p className="shrink-0 text-disabled" style={{ fontSize: 9 }}>Empty</p>
+                              <p className="shrink-0 text-disabled" style={{ fontSize: 11 }}>Empty</p>
                             )}
                             {/* Button slot — always reserved, even when no button renders,
                                 so Next planned sits at the same height as the Transfer slot
@@ -1082,33 +1082,7 @@ export default function BrewStatusTab() {
                             .map((b) => [b.id, b] as [string, BrewBatch])
                         ).values()];
 
-                        // Upcoming kegging/canning days scheduled at this tank — not yet executed.
-                        const upcomingPkg = upcomingByEquipment.get(tank.id) ?? [];
-
-                        const upcomingSection = upcomingPkg.length > 0 && (
-                          <div className={pkgBatches.length > 0 ? "mt-1.5 pt-1.5 border-t border-line/60 space-y-1.5" : "space-y-1.5"}>
-                            <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Upcoming</p>
-                            {groupByDate(upcomingPkg, (e) => e.planned_start).map((group) => (
-                              <div key={group.date}>
-                                <p className="text-muted" style={{ fontSize: 8 }}>{fmtDate(group.date)}</p>
-                                <div className="space-y-0.5 mt-0.5">
-                                  {group.items.map((e) => (
-                                    <div key={e.id} className="leading-tight">
-                                      <div className="flex items-center justify-between gap-1 min-w-0">
-                                        <span className="text-faint font-mono shrink-0" style={{ fontSize: 8 }}>{e.brew_batches?.batch_number ? `#${e.brew_batches.batch_number}` : "—"}</span>
-                                        {e.volume_bbl != null && (
-                                          <span className="text-accent-emphasis/80 font-mono shrink-0" style={{ fontSize: 8 }}>{Number(e.volume_bbl).toFixed(1)} BBL</span>
-                                        )}
-                                      </div>
-                                      <p className="text-body truncate" style={{ fontSize: 9 }} title={e.brew_batches?.beer_name}>{e.brew_batches?.beer_name ?? "—"}</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        );
-
+                        // Upcoming kegging/canning days live behind the calendar button (plans popup).
                         return (
                           <div className="flex-1 min-h-0 overflow-y-auto">
                             {pkgBatches.length > 0 ? (
@@ -1120,9 +1094,9 @@ export default function BrewStatusTab() {
                                       {/* Batch identity */}
                                       <div className="flex items-center gap-1 min-w-0">
                                         {b.batch_number && (
-                                          <span className="text-muted font-mono shrink-0" style={{ fontSize: 9 }}>#{b.batch_number}</span>
+                                          <span className="text-muted font-mono shrink-0" style={{ fontSize: 11 }}>#{b.batch_number}</span>
                                         )}
-                                        <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 10 }} title={b.beer_name}>
+                                        <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 12 }} title={b.beer_name}>
                                           {b.beer_name}
                                         </span>
                                       </div>
@@ -1132,8 +1106,8 @@ export default function BrewStatusTab() {
                                         <div className="space-y-px">
                                           {incoming.filter((tr) => tr.variation_id && tr.packaging_variations).map((tr) => (
                                             <div key={tr.id} className="flex items-center gap-1 min-w-0">
-                                              <span className="text-accent font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{tr.quantity}×</span>
-                                              <span className="text-secondary truncate" style={{ fontSize: 9 }} title={tr.packaging_variations!.name}>{tr.packaging_variations!.name}</span>
+                                              <span className="text-accent font-mono font-semibold shrink-0" style={{ fontSize: 11 }}>{tr.quantity}×</span>
+                                              <span className="text-secondary truncate" style={{ fontSize: 11 }} title={tr.packaging_variations!.name}>{tr.packaging_variations!.name}</span>
                                             </div>
                                           ))}
                                         </div>
@@ -1142,15 +1116,9 @@ export default function BrewStatusTab() {
                                     </div>
                                   );
                                 })}
-                                {upcomingSection}
                               </div>
                             ) : (
-                              <div className="flex flex-col gap-1">
-                                {upcomingPkg.length === 0 && (
-                                  <p className="text-disabled text-center" style={{ fontSize: 9 }}>Empty</p>
-                                )}
-                                {upcomingSection}
-                              </div>
+                              <p className="text-disabled text-center" style={{ fontSize: 11 }}>Empty</p>
                             )}
                           </div>
                         );
