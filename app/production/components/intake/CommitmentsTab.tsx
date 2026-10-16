@@ -56,6 +56,27 @@ const CHANNEL_OPTIONS = [
 /** Open deals first, then closed, then cancelled. */
 const STAGE_SORT_RANK: Record<CommitmentStage, number> = { open: 0, closed: 1, cancelled: 2 };
 
+/**
+ * What the row needs from a human, as a sort rank (1 = most urgent, 9 = nothing).
+ * Mirrors lib/production/ledgerAttention: money first, then the thing that
+ * stops the deal moving. Only open deals can need anything.
+ *   1  deposit not charged — contract deal has a batch, no invoice raised
+ *   2  draft ready, not sent
+ *   3  invoice sent / collecting on an export invoice, money not in
+ *   4  needs a batch — nothing scheduled yet
+ */
+function actionRankOf(q: ContractBrewingRequest, stage: CommitmentStage): number {
+  if (stage !== "open") return 9;
+  const allocs = q.batch_allocations ?? [];
+  if (allocs.length === 0) return 4;
+  if (q.channel !== "contract_brewing") return 9;
+  const unpaid = allocs.filter((a) => !a.invoice_paid_at);
+  if (unpaid.length === 0) return 9;
+  if (unpaid.some((a) => !a.invoice_generated_at && !a.deposit_backcharged_invoice_id)) return 1;
+  if (unpaid.some((a) => a.invoice_generated_at && !a.invoice_sent_at && !a.deposit_backcharged_invoice_id)) return 2;
+  return 3;
+}
+
 const STAGE_OPTIONS = (["open", "closed", "cancelled"] as CommitmentStage[]).map((k) => ({ value: k, label: STAGE_META[k].label }));
 
 const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
@@ -68,8 +89,8 @@ const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
   sort: {
     default: { key: "default_order", dir: "asc" },
     columns: [
-      // Composite default: status rank, then channel, then received date.
-      { key: "default_order", accessor: (r) => `${STAGE_SORT_RANK[r.stage_key] ?? 9}|${r.channel}|${r.received_on ?? "9999"}` },
+      // Composite default: what needs doing, then status rank, then channel, then received date.
+      { key: "default_order", accessor: (r) => `${r.action_rank}|${STAGE_SORT_RANK[r.stage_key] ?? 9}|${r.channel}|${r.received_on ?? "9999"}` },
       { key: "channel", accessor: (r) => r.channel },
       { key: "status", accessor: (r) => STAGE_SORT_RANK[r.stage_key] ?? 9 },
       { key: "progress", accessor: (r) => r.progress_sort },
@@ -391,6 +412,8 @@ function CommitmentModal({
 
 interface SortableRow extends ContractBrewingRequest {
   stage_key: CommitmentStage;
+  /** See actionRankOf. */
+  action_rank: number;
   progress_sort: number;
   partner_name: string;
   schedule_sort: string;
@@ -464,6 +487,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
     () => rows.map((q) => ({
       ...q,
       stage_key: stageOf(q),
+      action_rank: actionRankOf(q, stageOf(q)),
       progress_sort: (q.owed_bbl ?? 0) > 0 ? (q.exported_bbl ?? 0) / (q.owed_bbl ?? 1) : -1,
       partner_name: q.contract_brewing_partners?.company_name ?? "",
       schedule_sort: q.desired_delivery_date ?? "",
