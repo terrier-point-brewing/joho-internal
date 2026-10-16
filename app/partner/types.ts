@@ -64,6 +64,14 @@ export function monthLabel(month: string): string {
   return `${LONG_MONTHS[m - 1]} ${y}`;
 }
 export const bbl = (n: number) => `${Number(n.toFixed(2))} bbl`;
+/**
+ * The message behind a failed portal call. Routes answer `{ error }` as JSON,
+ * but the sign-in guard answers plain text — read either, never swallow it.
+ */
+export async function apiError(res: Response, fallback: string): Promise<string> {
+  const body = await res.text().catch(() => "");
+  try { return (JSON.parse(body) as { error?: string }).error || fallback; } catch { return body.trim() || fallback; }
+}
 /** One decimal — for headline figures, where 25.61 reads as false precision. */
 export const bbl1 = (n: number) => `${n.toFixed(1)} bbl`;
 export const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

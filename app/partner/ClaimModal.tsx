@@ -3,9 +3,14 @@
 import { useState } from "react";
 import Banner from "@/app/components/ui/Banner";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
-import { bbl, shortDate, type ClaimableBatch } from "./types";
+import { apiError, bbl, shortDate, type ClaimableBatch } from "./types";
 
-export default function ClaimModal({ batch, onClose, onSubmitted }: { batch: ClaimableBatch; onClose: () => void; onSubmitted: () => void }) {
+export default function ClaimModal({ batch, previewAs, onClose, onSubmitted }: {
+  batch: ClaimableBatch;
+  /** Staff preview only: the company being previewed, so the API can say "preview cannot submit" rather than "not a partner". */
+  previewAs: string | null;
+  onClose: () => void; onSubmitted: () => void;
+}) {
   const [volume, setVolume] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -20,10 +25,10 @@ export default function ClaimModal({ batch, onClose, onSubmitted }: { batch: Cla
     setSaving(true);
     const form = new FormData();
     form.set("payload", JSON.stringify({ kind: "claim", batch_id: batch.batch_id, volume_bbl: amount, notes }));
-    const res = await fetch("/api/partner/requests", { method: "POST", body: form });
+    const res = await fetch(`/api/partner/requests${previewAs ? `?as=${encodeURIComponent(previewAs)}` : ""}`, { method: "POST", body: form });
     setSaving(false);
     if (res.ok) return onSubmitted();
-    setError((await res.json().catch(() => ({}))).error ?? "Could not send the claim.");
+    setError(await apiError(res, "Could not send the claim."));
   }
 
   return (

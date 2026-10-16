@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import Banner from "@/app/components/ui/Banner";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
-import { longDate, monthLabel, shortDate, type BrewWindow, type Overview } from "./types";
+import { apiError, longDate, monthLabel, shortDate, type BrewWindow, type Overview } from "./types";
 
 const NEW = "__new__";
 const MAX_FILES = 5;
@@ -55,10 +55,10 @@ export default function BatchRequestModal({ overview, month, previewAs, onClose,
       ...(isNew ? { new_beer: newBeer } : { recipe_id: beer }),
     }));
     for (const f of files) form.append("files", f);
-    const res = await fetch("/api/partner/requests", { method: "POST", body: form });
+    const res = await fetch(`/api/partner/requests${previewAs ? `?as=${encodeURIComponent(previewAs)}` : ""}`, { method: "POST", body: form });
     setSaving(false);
     if (res.ok) return onSubmitted();
-    setError((await res.json().catch(() => ({}))).error ?? "Could not send the request.");
+    setError(await apiError(res, "Could not send the request."));
   }
 
   const setNB = (k: keyof typeof newBeer) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>

@@ -15,8 +15,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   let caller;
   try { caller = await requirePartner(req); } catch (res) { return res as Response; }
-  // A preview is for looking. Staff who want a deal on the books write a commitment.
-  if (caller.preview) return NextResponse.json({ error: "Preview mode cannot submit requests." }, { status: 403 });
+  // Staff previewing a company submit on its behalf — a partner who asked by
+  // phone or email still gets a request in the inbox, stamped with who sent it.
 
   const form = await req.formData().catch(() => null);
   let payload: Record<string, unknown> | null = null;

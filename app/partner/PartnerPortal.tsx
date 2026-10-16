@@ -109,7 +109,7 @@ export default function PartnerPortal() {
   if (needsCompany) return <PreviewPicker onPick={(id) => router.replace(`/partner?as=${id}`)} />;
 
   const data = overview.data;
-  const readOnly = data?.preview ?? false;
+  const preview = data?.preview ?? false;
 
   return (
     <div className={`px-4 sm:px-6 pb-8 ${isPartner ? "md:pt-11" : ""}`}>
@@ -117,9 +117,9 @@ export default function PartnerPortal() {
         title={data?.company_name ?? "Partner portal"}
         description="See what we can brew for you, claim beer that's coming available, and track your requests."
       />
-      {readOnly && (
+      {preview && (
         <Banner tone="info" className="mb-3">
-          Preview — this is what {data?.company_name} sees. You can open the forms, but a preview cannot submit them.{" "}
+          Preview — this is what {data?.company_name} sees. Anything you send from here is sent on their behalf, under your name.{" "}
           <a href="/production/partners" className="underline">Back to Partners</a>
         </Banner>
       )}
@@ -258,7 +258,7 @@ export default function PartnerPortal() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>
-                    {r.status === "submitted" && !readOnly && (
+                    {r.status === "submitted" && (
                       <button className="btn-secondary btn-xxs" onClick={() => withdraw(r.id)}>Withdraw</button>
                     )}
                   </div>
@@ -272,7 +272,7 @@ export default function PartnerPortal() {
                     <p className="text-xs text-muted mt-1">
                       Nothing is booked yet. Accept and we book it at that share; rescind and the request is withdrawn.
                     </p>
-                    {!readOnly && (
+                    {(
                       <div className="flex gap-2 mt-2">
                         <button className="btn-primary btn-xxs" onClick={() => answer(r.id, "accept")}>Accept {r.offer.pct}%</button>
                         <button className="btn-secondary btn-xxs" onClick={() => answer(r.id, "rescind")}>Rescind request</button>
@@ -372,6 +372,7 @@ export default function PartnerPortal() {
       {claiming && (
         <ClaimModal
           batch={claiming}
+          previewAs={as}
           onClose={() => setClaiming(null)}
           onSubmitted={() => submitted("Claim sent. The beer is yours once we approve it.")}
         />

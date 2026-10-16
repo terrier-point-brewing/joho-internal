@@ -11,7 +11,6 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let caller;
   try { caller = await requirePartner(req); } catch (res) { return res as Response; }
-  if (caller.preview) return NextResponse.json({ error: "Preview mode cannot answer an offer." }, { status: 403 });
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   try {
