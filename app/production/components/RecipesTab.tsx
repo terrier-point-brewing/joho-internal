@@ -487,7 +487,8 @@ export default function RecipesTab() {
             const addedIds = new Set((billSplit?.added ?? []).map((l) => l.id));
             const costPerTurn = recipeCostPerTurn(r);
             const costPerBblYield = r.expected_yield_bbl ? costPerTurn / r.expected_yield_bbl : null;
-            const hasIdentity = Boolean((r.style && r.style !== r.beer_name) || r.abv != null || r.ibu != null || r.partner?.company_name);
+            // Always true: every recipe carries a partner pill (the partner's name, or "House brew").
+            const hasIdentity = true;
             const hasSchedule = Boolean(r.expected_yield_bbl || leadTimeDays(r) > 0 || r.days_brewhouse != null || r.days_fermenter != null || r.days_brite != null);
 
             return (
@@ -533,11 +534,9 @@ export default function RecipesTab() {
                         {r.ibu != null && (
                           <span className="text-xs text-muted tabular-nums">{r.ibu} IBU</span>
                         )}
-                        {r.partner?.company_name && (
-                          <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
-                            {r.partner.company_name}
-                          </span>
-                        )}
+                        <span className="text-xs text-muted bg-surface-mid px-2 py-0.5 rounded">
+                          {r.partner?.company_name ?? PARTNER_HOUSE}
+                        </span>
                       </div>
                     )}
                     {hasSchedule && (
