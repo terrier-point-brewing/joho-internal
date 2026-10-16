@@ -46,8 +46,10 @@ const STATUS: Record<PortalRequest["status"], { label: string; tone: Tone }> = {
   declined: { label: "Declined", tone: "danger" },
   withdrawn: { label: "Withdrawn", tone: "neutral" },
 };
-/** Sort order in My requests: waiting on the partner first, then on us, then the rest. */
-const rank = (s: PortalRequest["status"]) => (s === "adjusted" ? 0 : s === "submitted" ? 1 : 2);
+/** Sort order in My requests: waiting on the partner, then on us, then approved, declined, withdrawn; newest first within each. */
+const RANK: Record<PortalRequest["status"], number> = { adjusted: 0, submitted: 1, approved: 2, declined: 3, withdrawn: 4 };
+const byStatusThenNewest = (a: PortalRequest, b: PortalRequest) =>
+  RANK[a.status] - RANK[b.status] || b.created_at.localeCompare(a.created_at);
 
 export default function PartnerPortal() {
   const params = useSearchParams();
@@ -240,7 +242,7 @@ export default function PartnerPortal() {
             <Card><p className="text-sm text-muted">No requests yet. Start from Capacity or Available beer.</p></Card>
           )}
           <div className="flex flex-col gap-2">
-            {[...(requests.data ?? [])].sort((a, b) => rank(a.status) - rank(b.status)).map((r) => (
+            {[...(requests.data ?? [])].sort(byStatusThenNewest).map((r) => (
               <Card key={r.id}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
