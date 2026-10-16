@@ -10,7 +10,6 @@ export const dynamic = "force-dynamic";
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let caller;
   try { caller = await requirePartner(req); } catch (res) { return res as Response; }
-  if (caller.preview) return NextResponse.json({ error: "Preview mode cannot withdraw requests." }, { status: 403 });
   const { id } = await params;
   try {
     await withdrawRequest(createSupabaseAdminClient(), caller.partnerId, id, caller.session.user.id);

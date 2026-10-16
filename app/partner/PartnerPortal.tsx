@@ -40,10 +40,13 @@ const STAGE_LABEL: Record<ClaimableBatch["stage"], string> = {
 
 const STATUS: Record<PortalRequest["status"], { label: string; tone: Tone }> = {
   submitted: { label: "Awaiting our reply", tone: "info" },
+  adjusted: { label: "Needs your answer", tone: "accent" },
   approved: { label: "Approved", tone: "success" },
   declined: { label: "Declined", tone: "danger" },
   withdrawn: { label: "Withdrawn", tone: "neutral" },
 };
+/** Sort order in My requests: waiting on the partner first, then on us, then the rest. */
+const rank = (s: PortalRequest["status"]) => (s === "adjusted" ? 0 : s === "submitted" ? 1 : 2);
 
 export default function PartnerPortal() {
   const params = useSearchParams();
@@ -92,10 +95,21 @@ export default function PartnerPortal() {
     qc.invalidateQueries({ queryKey: ["partner", "requests"] });
   }
 
+  async function answer(id: string, action: "accept" | "rescind") {
+    if (action === "rescind" && !confirm("Rescind this request? It will be withdrawn.")) return;
+    const res = await fetch(`/api/partner/requests/${id}/offer`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }),
+    });
+    if (!res.ok) setNotice((await res.json().catch(() => ({}))).error ?? "Could not send your answer.");
+    else setNotice(action === "accept" ? "Accepted — we will book it at that share and let you know." : "Request rescinded.");
+    qc.invalidateQueries({ queryKey: ["partner", "requests"] });
+  }
+  const waitingOnYou = (requests.data ?? []).filter((r) => r.status === "adjusted").length;
+
   if (needsCompany) return <PreviewPicker onPick={(id) => router.replace(`/partner?as=${id}`)} />;
 
   const data = overview.data;
-  const readOnly = data?.preview ?? false;
+  const preview = data?.preview ?? false;
 
   return (
     <div className={`px-4 sm:px-6 pb-8 ${isPartner ? "md:pt-11" : ""}`}>
@@ -103,9 +117,9 @@ export default function PartnerPortal() {
         title={data?.company_name ?? "Partner portal"}
         description="See what we can brew for you, claim beer that's coming available, and track your requests."
       />
-      {readOnly && (
+      {preview && (
         <Banner tone="info" className="mb-3">
-          Preview — this is what {data?.company_name} sees. You can open the forms, but a preview cannot submit them.{" "}
+          Preview — this is what {data?.company_name} sees. Anything you send from here is sent on their behalf, under your name.{" "}
           <a href="/production/partners" className="underline">Back to Partners</a>
         </Banner>
       )}
@@ -113,6 +127,12 @@ export default function PartnerPortal() {
 
       {overview.error && <Banner className="mb-4">{(overview.error as Error).message}</Banner>}
       {notice && <Banner tone="success" className="mb-4">{notice}</Banner>}
+      {waitingOnYou > 0 && tab !== "requests" && (
+        <Banner tone="info" className="mb-4">
+          We have come back with a different share on {waitingOnYou === 1 ? "one of your requests" : `${waitingOnYou} of your requests`}.{" "}
+          <button className="underline" onClick={() => setTab("requests")}>Answer under My requests</button>
+        </Banner>
+      )}
       {overview.isLoading && <p className="text-sm text-muted">Loading…</p>}
 
       {data && tab === "home" && (
@@ -209,7 +229,7 @@ export default function PartnerPortal() {
       {tab === "requests" && (
         <section>
           <p className="text-sm text-secondary mb-4">
-            Everything you have asked for, with the ones still waiting on us first. Once a request is approved it becomes a
+            Everything you have asked for, with the ones waiting on you first, then the ones waiting on us. Once a request is approved it becomes a
             commitment: follow it under My batches while it is in progress, and find it in History once it has shipped.
           </p>
           {requests.isLoading && <p className="text-sm text-muted">Loading…</p>}
@@ -217,7 +237,7 @@ export default function PartnerPortal() {
             <Card><p className="text-sm text-muted">No requests yet. Start from Capacity or Available beer.</p></Card>
           )}
           <div className="flex flex-col gap-2">
-            {[...(requests.data ?? [])].sort((a, b) => Number(b.status === "submitted") - Number(a.status === "submitted")).map((r) => (
+            {[...(requests.data ?? [])].sort((a, b) => rank(a.status) - rank(b.status)).map((r) => (
               <Card key={r.id}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -230,14 +250,43 @@ export default function PartnerPortal() {
                         : `Claim · ${bbl(r.volume_bbl)}`}
                       {" · sent "}{longDate(r.created_at)}{r.submitted_by ? ` by ${r.submitted_by}` : ""}
                     </div>
+                    {r.kind === "batch" && r.wanted_bbl != null && r.share_pct != null && r.share_pct < 100 && (
+                      <div className="text-xs text-body mt-0.5">
+                        {r.status === "adjusted" ? "You asked for" : r.offer?.answered_at && r.status !== "withdrawn" ? "Agreed share:" : "You want"} about {bbl(r.wanted_bbl)} — {r.share_pct}% of the batch.
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>
-                    {r.status === "submitted" && !readOnly && (
+                    {r.status === "submitted" && (
                       <button className="btn-secondary btn-xxs" onClick={() => withdraw(r.id)}>Withdraw</button>
                     )}
                   </div>
                 </div>
+                {r.status === "adjusted" && r.offer && (
+                  <div className="mt-3 rounded-md border border-accent/40 bg-accent/5 p-3">
+                    <div className="text-sm font-semibold text-primary">
+                      We can offer {r.offer.pct}% of the batch — about {bbl(r.offer.bbl)}
+                    </div>
+                    {r.offer.note && <p className="text-xs text-body mt-1 whitespace-pre-wrap">{r.offer.note}</p>}
+                    <p className="text-xs text-muted mt-1">
+                      Nothing is booked yet. Accept and we book it at that share; rescind and the request is withdrawn.
+                    </p>
+                    {(
+                      <div className="flex gap-2 mt-2">
+                        <button className="btn-primary btn-xxs" onClick={() => answer(r.id, "accept")}>Accept {r.offer.pct}%</button>
+                        <button className="btn-secondary btn-xxs" onClick={() => answer(r.id, "rescind")}>Rescind request</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {r.status !== "adjusted" && r.offer?.answered_at && (
+                  <p className="text-xs text-muted mt-2">
+                    We offered {r.offer.pct}% ({bbl(r.offer.bbl)}){r.offer.offered_at ? ` on ${longDate(r.offer.offered_at)}` : ""};
+                    {r.status === "withdrawn" ? " you rescinded the request." : ` you accepted on ${longDate(r.offer.answered_at)}.`}
+                    {r.offer.note ? ` Our note: ${r.offer.note}` : ""}
+                  </p>
+                )}
                 {r.status === "approved" && (
                   <p className="text-xs text-success mt-2">
                     Approved{r.decided_at ? ` ${longDate(r.decided_at)}` : ""} — now a commitment.{" "}
@@ -323,6 +372,7 @@ export default function PartnerPortal() {
       {claiming && (
         <ClaimModal
           batch={claiming}
+          previewAs={as}
           onClose={() => setClaiming(null)}
           onSubmitted={() => submitted("Claim sent. The beer is yours once we approve it.")}
         />

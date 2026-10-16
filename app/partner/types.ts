@@ -9,9 +9,14 @@ export interface Overview {
   capacity: MonthCapacity[]; available: ClaimableBatch[]; recipes: OwnRecipe[];
 }
 export interface BrewWindow { week_of: string; ready_around: string }
+export interface RequestOffer { pct: number; bbl: number; note: string | null; offered_at: string | null; answered_at: string | null }
 export interface PortalRequest {
   id: string; kind: "batch" | "claim"; beer_name: string; is_new_beer: boolean; turns: number | null; volume_bbl: number;
-  desired_date: string | null; notes: string | null; status: "submitted" | "approved" | "declined" | "withdrawn";
+  /** Batch requests: the beer actually wanted and the share of the brew it is. Claims: null. */
+  wanted_bbl: number | null; share_pct: number | null;
+  /** The brewery's counter-offer, if one was ever made. Waiting on the partner while status is "adjusted". */
+  offer: RequestOffer | null;
+  desired_date: string | null; notes: string | null; status: "submitted" | "adjusted" | "approved" | "declined" | "withdrawn";
   decision_note: string | null; decided_at: string | null; created_at: string; file_names: string[];
   submitted_by: string | null; withdrawn_by: string | null;
 }
@@ -59,6 +64,14 @@ export function monthLabel(month: string): string {
   return `${LONG_MONTHS[m - 1]} ${y}`;
 }
 export const bbl = (n: number) => `${Number(n.toFixed(2))} bbl`;
+/**
+ * The message behind a failed portal call. Routes answer `{ error }` as JSON,
+ * but the sign-in guard answers plain text — read either, never swallow it.
+ */
+export async function apiError(res: Response, fallback: string): Promise<string> {
+  const body = await res.text().catch(() => "");
+  try { return (JSON.parse(body) as { error?: string }).error || fallback; } catch { return body.trim() || fallback; }
+}
 /** One decimal — for headline figures, where 25.61 reads as false precision. */
 export const bbl1 = (n: number) => `${n.toFixed(1)} bbl`;
 export const dollars = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

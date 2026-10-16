@@ -7,7 +7,7 @@ const recheck = vi.fn().mockResolvedValue(undefined);
 vi.mock("./portal.server", () => ({ loadClaimPools: (...a: unknown[]) => loadClaimPools(...a) }));
 vi.mock("@/lib/production/commitmentFulfillment", () => ({ recheckCommitmentFulfillment: (...a: unknown[]) => recheck(...a) }));
 
-import { decideRequest, RequestError } from "./requests.server";
+import { answerOffer, decideRequest, RequestError } from "./requests.server";
 
 /**
  * A tiny in-memory stand-in for the service-role client: enough of the query
@@ -21,7 +21,7 @@ function fakeDb(tables: Record<string, Row[]>, opts: { failInsertInto?: string }
   const from = (table: string) => {
     const state: { op: string; values?: Row; filters: Row } = { op: "select", filters: {} };
     const rows = () => (tables[table] ??= []);
-    const match = (r: Row) => Object.entries(state.filters).every(([k, v]) => r[k] === v);
+    const match = (r: Row) => Object.entries(state.filters).every(([k, v]) => (Array.isArray(v) ? v.includes(r[k]) : r[k] === v));
     const run = () => {
       if (state.op === "insert") {
         writes.push({ table, ...state });
@@ -41,6 +41,7 @@ function fakeDb(tables: Record<string, Row[]>, opts: { failInsertInto?: string }
       update: (values: Row) => { state.op = "update"; state.values = values; return b; },
       delete: () => { state.op = "delete"; return b; },
       eq: (k: string, v: unknown) => { state.filters[k] = v; return b; },
+      in: (k: string, v: unknown[]) => { state.filters[k] = v; return b; },
       single: async () => { const r = run(); return { data: r.data?.[0] ?? null, error: r.error }; },
       maybeSingle: async () => { const r = run(); return { data: r.data?.[0] ?? null, error: r.error }; },
       then: (resolve: (v: unknown) => unknown) => Promise.resolve(run()).then(resolve),
@@ -163,5 +164,65 @@ describe("decideRequest — new batches", () => {
     await expect(decideRequest(db.client, "brewer-1", "req-2", { action: "approve", channel: "contract_brewing", recipe_id: "argus-recipe" })).rejects.toThrow(/different partner/);
     await decideRequest(db.client, "brewer-1", "req-2", { action: "approve", channel: "contract_brewing", recipe_id: "recipe-9" });
     expect(db.tables.partner_requests[0]).toMatchObject({ status: "approved", recipe_id: "recipe-9" });
+  });
+});
+
+describe("partial batches — a share of the brew, and a counter-offer", () => {
+  const partial = (over: Row = {}): Row => ({
+    id: "req-3", status: "submitted", partner_id: "fortnight", kind: "batch", recipe_id: "recipe-9", batch_id: null, turns: 2,
+    volume_bbl: 40, wanted_bbl: 30, share_pct: 75, desired_date: null, notes: null, created_at: "2026-09-18T12:00:00Z",
+    offered_pct: null, offered_bbl: null, offer_note: null, offered_by: null, offered_at: null, offer_answered_at: null, ...over,
+  });
+  const recipe = { id: "recipe-9", partner_id: "fortnight", days_brewhouse: 1, days_fermenter: 16, days_brite: 5 };
+  const seed = (req = partial()) => fakeDb({ partner_requests: [req], recipes: [recipe], commitments: [], batch_allocations: [] });
+
+  it("approving books the beer they want, not the whole brew, and says so on the deal", async () => {
+    const db = seed();
+    await decideRequest(db.client, "brewer-1", "req-3", { action: "approve", channel: "contract_brewing" });
+    expect(db.tables.commitments[0]).toMatchObject({ volume_bbl: 30, channel: "contract_brewing" });
+    expect(String(db.tables.commitments[0].notes)).toMatch(/75% of a 2-turn brew \(30 of 40 bbl\)/);
+  });
+
+  it("adjusting counters with a share and a note, and hands the offer back for the email", async () => {
+    const db = seed();
+    await expect(decideRequest(db.client, "brewer-1", "req-3", { action: "adjust", share_pct: 90 })).rejects.toThrow(/needs a note/);
+    await expect(decideRequest(db.client, "brewer-1", "req-3", { action: "adjust", share_pct: 75, note: "x" })).rejects.toThrow(/approve it instead/);
+    await expect(decideRequest(db.client, "brewer-1", "req-3", { action: "adjust", share_pct: 120, note: "x" })).rejects.toThrow(/between 1% and 100%/);
+
+    const out = await decideRequest(db.client, "brewer-1", "req-3", { action: "adjust", share_pct: 90, note: "We can't place 10 bbl of this style." });
+    expect(out.commitment_id).toBeNull();
+    expect(out.offer).toMatchObject({ partner_id: "fortnight", pct: 90, bbl: 36, turns: 2, brew_bbl: 40, note: "We can't place 10 bbl of this style." });
+    expect(db.tables.partner_requests[0]).toMatchObject({ status: "adjusted", offered_pct: 90, offered_bbl: 36, offered_by: "brewer-1", wanted_bbl: 30, share_pct: 75 });
+    expect(db.tables.commitments).toEqual([]);
+  });
+
+  it("a claim has no share to adjust", async () => {
+    const db = fakeDb({ partner_requests: [claimRequest()], commitments: [] });
+    await expect(decideRequest(db.client, "brewer-1", "req-1", { action: "adjust", share_pct: 50, note: "x" })).rejects.toThrow(/Only a batch request/);
+  });
+
+  it("while the partner is answering, an approval is refused but a decline still goes through", async () => {
+    const db = seed(partial({ status: "adjusted", offered_pct: 90, offered_bbl: 36 }));
+    await expect(decideRequest(db.client, "brewer-1", "req-3", { action: "approve", channel: "contract_brewing" })).rejects.toMatchObject({ status: 409 });
+    await decideRequest(db.client, "brewer-1", "req-3", { action: "decline", note: "Tank fell through." });
+    expect(db.tables.partner_requests[0].status).toBe("declined");
+  });
+
+  it("accepting makes the offer the request and sends it back to the inbox", async () => {
+    const db = seed(partial({ status: "adjusted", offered_pct: 90, offered_bbl: 36, offer_note: "n" }));
+    await answerOffer(db.client, "fortnight", "req-3", "partner-user", "accept");
+    expect(db.tables.partner_requests[0]).toMatchObject({ status: "submitted", wanted_bbl: 36, share_pct: 90, offered_pct: 90 });
+    expect(db.tables.partner_requests[0].offer_answered_at).toBeTruthy();
+    // Now it books at the agreed share.
+    await decideRequest(db.client, "brewer-1", "req-3", { action: "approve", channel: "contract_brewing" });
+    expect(db.tables.commitments[0]).toMatchObject({ volume_bbl: 36 });
+  });
+
+  it("rescinding withdraws it, by the partner's own login; only the right company can answer", async () => {
+    const db = seed(partial({ status: "adjusted", offered_pct: 90, offered_bbl: 36 }));
+    await expect(answerOffer(db.client, "argus", "req-3", "someone", "accept")).rejects.toMatchObject({ status: 409 });
+    await answerOffer(db.client, "fortnight", "req-3", "partner-user", "rescind");
+    expect(db.tables.partner_requests[0]).toMatchObject({ status: "withdrawn", decided_by: "partner-user" });
+    await expect(answerOffer(db.client, "fortnight", "req-3", "partner-user", "accept")).rejects.toMatchObject({ status: 409 });
   });
 });

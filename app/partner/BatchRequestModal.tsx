@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import Banner from "@/app/components/ui/Banner";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
-import { longDate, monthLabel, shortDate, type BrewWindow, type Overview } from "./types";
+import { apiError, longDate, monthLabel, shortDate, type BrewWindow, type Overview } from "./types";
 
 const NEW = "__new__";
 const MAX_FILES = 5;
@@ -21,6 +21,8 @@ export default function BatchRequestModal({ overview, month, previewAs, onClose,
 }) {
   const [beer, setBeer] = useState(overview.recipes[0]?.id ?? NEW);
   const [turns, setTurns] = useState(1);
+  // What they actually want out of the brew. "" = all of it.
+  const [wanted, setWanted] = useState("");
   const [week, setWeek] = useState<string | null>(null); // null = not chosen yet; "" = flexible
   const [notes, setNotes] = useState("");
   const [newBeer, setNewBeer] = useState({ name: "", style: "", abv: "", ingredients: "", instructions: "", ingredient_supply: "brewery" });
@@ -37,20 +39,26 @@ export default function BatchRequestModal({ overview, month, previewAs, onClose,
   // Until the partner picks, lean toward the month they clicked.
   const chosen = week ?? options.find((w) => month && w.week_of.startsWith(month))?.week_of ?? options[0]?.week_of ?? "";
 
+  const brewBbl = turns * overview.turn_bbl;
+  const wantedBbl = wanted === "" ? brewBbl : Number(wanted);
+  const wantedOk = Number.isFinite(wantedBbl) && wantedBbl > 0 && wantedBbl <= brewBbl + 1e-4;
+  const sharePct = wantedOk ? Math.round((wantedBbl / brewBbl) * 1000) / 10 : null;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!wantedOk) { setError(`Ask for between 1 and ${brewBbl} bbl, or add a turn.`); return; }
     setSaving(true);
     const form = new FormData();
     form.set("payload", JSON.stringify({
-      kind: "batch", turns, notes, desired_date: chosen || null,
+      kind: "batch", turns, wanted_bbl: wantedBbl, notes, desired_date: chosen || null,
       ...(isNew ? { new_beer: newBeer } : { recipe_id: beer }),
     }));
     for (const f of files) form.append("files", f);
-    const res = await fetch("/api/partner/requests", { method: "POST", body: form });
+    const res = await fetch(`/api/partner/requests${previewAs ? `?as=${encodeURIComponent(previewAs)}` : ""}`, { method: "POST", body: form });
     setSaving(false);
     if (res.ok) return onSubmitted();
-    setError((await res.json().catch(() => ({}))).error ?? "Could not send the request.");
+    setError(await apiError(res, "Could not send the request."));
   }
 
   const setNB = (k: keyof typeof newBeer) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -111,6 +119,20 @@ export default function BatchRequestModal({ overview, month, previewAs, onClose,
           </select>
           <p className="text-xs text-muted mt-1">
             One turn is a {overview.turn_bbl} bbl brew. Expect less after shrinkage in fermentation and packaging.
+          </p>
+        </Field>
+
+        <Field label="How much do you actually want?" hint={`bbl, up to ${brewBbl}`}>
+          <input
+            type="number" inputMode="decimal" min={1} max={brewBbl} step={0.5} value={wanted}
+            placeholder={`${brewBbl} — the whole brew`}
+            onChange={(e) => setWanted(e.target.value)}
+            className="inp w-full"
+          />
+          <p className={`text-xs mt-1 ${wantedOk ? "text-muted" : "text-danger"}`}>
+            {!wantedOk ? `Ask for between 1 and ${brewBbl} bbl, or add a turn.`
+              : sharePct === 100 ? "The whole batch is yours."
+              : `About ${sharePct}% of the batch. We will confirm whether we can take the rest, or come back with a different share.`}
           </p>
         </Field>
 
