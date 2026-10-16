@@ -398,7 +398,7 @@ export default function IngredientsTab() {
   const [adjType, setAdjType] = useState<AdjustmentType>("received");
   const [adjQty, setAdjQty] = useState("");
   const [adjPurchaseCost, setAdjPurchaseCost] = useState("");
-  const [adjShippingCost, setAdjShippingCost] = useState("");
+  const [adjShippingCost, setAdjShippingCost] = useState("0");
   const [adjNote, setAdjNote] = useState("");
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
@@ -537,7 +537,7 @@ export default function IngredientsTab() {
     setAdjType("received");
     setAdjQty("");
     setAdjPurchaseCost("");
-    setAdjShippingCost("");
+    setAdjShippingCost("0");
     setAdjNote("");
     setShowAdjModal(true);
   }
@@ -872,14 +872,11 @@ export default function IngredientsTab() {
                   </button>
                 )}
               </Field>
-              <Field label="Cost per Unit ($)">
+              <Field label={<>Landed cost per unit ($) <span className="text-faint cursor-help" title="Includes freight and shipping. A Received stock adjustment recalculates it automatically.">ⓘ</span></>}>
                 <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000"
                   value={ingForm.cost_per_unit_usd}
                   onChange={(e) => setIngForm((f) => ({ ...f, cost_per_unit_usd: e.target.value }))} />
               </Field>
-            </div>
-            <div className="rounded bg-accent-muted/20 border border-accent-border/40 px-3 py-2 text-xs text-accent-soft">
-              Cost per unit must be the <strong>landed cost</strong> — include freight and shipping. Use stock adjustments (Received) to recalculate this automatically when new inventory arrives.
             </div>
             <Field label="Starting Stock">
               <input type="number" step="0.001" min="0" className="inp" value={ingForm.stock_quantity}
@@ -979,7 +976,6 @@ export default function IngredientsTab() {
                 <Field label="Shipping Cost ($ total)" required>
                   <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
                     required value={adjShippingCost} onChange={(e) => setAdjShippingCost(e.target.value)} />
-                  <p className="text-xs mt-1 text-muted">Enter 0 if no freight charge on this order.</p>
                 </Field>
                 {previewQty > 0 && previewCost > 0 && (
                   <div className="p-2.5 rounded bg-surface-mid/60 border border-line-strong text-xs space-y-1">

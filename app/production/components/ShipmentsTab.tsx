@@ -788,7 +788,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                               className="text-[10px] px-1.5 py-0.5 rounded bg-surface-mid text-muted whitespace-nowrap shrink-0"
                               title="Reviewed under Export Bay and dismissed — there was no cold-storage keg to draw down, so this recount stays batchless by design."
                             >
-                              No cold-storage stock
+                              No stock
                             </span>
                           )}
                         </span>

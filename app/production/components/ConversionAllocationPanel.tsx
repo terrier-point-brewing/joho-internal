@@ -194,7 +194,7 @@ export default function ConversionAllocationPanel({
               <span className="text-[10px] text-muted w-3">%</span>
             </div>
           ))}
-          <p className="text-[10px] text-faint">Set a row to 0 to keep that party off the new batch — their total below will drop.</p>
+          <p className="text-[10px] text-faint">Set a row to 0 to keep that party off the new batch.</p>
         </div>
       </div>
 
@@ -207,7 +207,6 @@ export default function ConversionAllocationPanel({
             <span className="tabular-nums text-muted">{row.beforeBbl.toFixed(2)} → {row.afterBbl.toFixed(2)} BBL</span>
           </div>
         ))}
-        <p className="text-[10px] text-faint">Estimates on booked volume — final entitlements settle on packaged volume.</p>
       </div>
 
       {/* ── Coverage transfers (no money moves) ── */}

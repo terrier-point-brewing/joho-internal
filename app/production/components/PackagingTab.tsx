@@ -99,13 +99,13 @@ export default function PackagingTab() {
   const [adjType, setAdjType] = useState<PackagingAdjustmentType>("received");
   const [adjQty, setAdjQty] = useState("");
   const [adjCost, setAdjCost] = useState("");
-  const [adjShipping, setAdjShipping] = useState("");
+  const [adjShipping, setAdjShipping] = useState("0");
   const [adjNote, setAdjNote] = useState("");
   const [adjSubmitting, setAdjSubmitting] = useState(false);
 
 
   function openAdj(item: PackagingItem) {
-    setAdjItem(item); setAdjType("received"); setAdjQty(""); setAdjCost(""); setAdjShipping(""); setAdjNote("");
+    setAdjItem(item); setAdjType("received"); setAdjQty(""); setAdjCost(""); setAdjShipping("0"); setAdjNote("");
   }
 
   async function handleAdjSubmit(e: React.FormEvent) {
@@ -393,13 +393,10 @@ export default function PackagingTab() {
               </Field>
             </div>
 
-            <Field label="Unit Cost ($)">
+            <Field label={<>Landed cost per unit ($) <span className="text-faint cursor-help" title="Includes freight and shipping. A Received stock adjustment recalculates it automatically.">ⓘ</span></>}>
               <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000" value={form.unit_cost_usd}
                 onChange={(e) => setForm((f) => ({ ...f, unit_cost_usd: e.target.value }))} />
             </Field>
-            <div className="rounded bg-accent-muted/20 border border-accent-border/40 px-3 py-2 text-xs text-accent-soft">
-              Unit cost must be the <strong>landed cost</strong> — include freight and shipping. Use stock adjustments (Received) to recalculate this automatically when new inventory arrives.
-            </div>
 
             {needsVolume(form.type) && (
               <Field label="Volume (fl oz)" required>
@@ -502,7 +499,6 @@ export default function PackagingTab() {
                 <Field label="Shipping Cost ($ total)" required>
                   <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
                     required value={adjShipping} onChange={(e) => setAdjShipping(e.target.value)} />
-                  <p className="text-xs mt-1 text-muted">Enter 0 if no freight charge on this order.</p>
                 </Field>
               </>
             )}

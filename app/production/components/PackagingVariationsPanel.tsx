@@ -361,23 +361,6 @@ export default function PackagingVariationsPanel() {
                     </select>
                   </Field>
                 )}
-                {needsBreaksInto(form.format) && (
-                  <Field
-                    label="Breaks Into"
-                    required
-                    hint="Which pack size this case is assembled from — set the lid/label/partner above first so the matching 4-pack/6-pack siblings show up here."
-                  >
-                    <select className="inp w-full" value={form.breaks_into_variation_id} onChange={(e) => updateForm({ breaks_into_variation_id: e.target.value })} required>
-                      <option value="">Select…</option>
-                      {caseBreakOptions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
-                    {caseBreakOptions.length === 0 && (
-                      <p className="text-xs text-muted mt-1">
-                        No matching 4-pack/6-pack variation yet for this container/lid/label/partner combination — create that variation first.
-                      </p>
-                    )}
-                  </Field>
-                )}
                 <Field label="Can Type" required>
                   <div className="flex gap-4">
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -414,6 +397,23 @@ export default function PackagingVariationsPanel() {
                 {partners.map((p) => <option key={p.id} value={p.id}>{p.company_name}</option>)}
               </select>
             </Field>
+            {!isKeg && needsBreaksInto(form.format) && (
+              <Field
+                label="Breaks Into"
+                required
+                hint="the pack this case is built from"
+              >
+                <select className="inp w-full" value={form.breaks_into_variation_id} onChange={(e) => updateForm({ breaks_into_variation_id: e.target.value })} required>
+                  <option value="">Select…</option>
+                  {caseBreakOptions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+                {caseBreakOptions.length === 0 && (
+                  <p className="text-xs text-muted mt-1">
+                    No matching 4-pack/6-pack variation for this container, lid, label and partner — create it first.
+                  </p>
+                )}
+              </Field>
+            )}
             {error && <p className="text-xs text-danger">{error}</p>}
             <ModalActions submitting={submitting} onCancel={() => setShowModal(false)} label={editingId ? "Save" : "Create"} />
           </form>

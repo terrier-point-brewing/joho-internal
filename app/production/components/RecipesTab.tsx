@@ -431,7 +431,6 @@ export default function RecipesTab() {
   return (
     <>
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-muted">Define beer recipes with ingredient bills and brew steps</p>
         <button onClick={openNew} className="btn-primary">+ New Recipe</button>
       </div>
 
@@ -1239,7 +1238,7 @@ export default function RecipesTab() {
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-faint mb-2">When a new batch is created from this recipe, these steps are copied into the batch&apos;s activity log.</p>
+              <p className="text-xs text-faint mb-2">Copied into each new batch&apos;s log.</p>
               {activityLines.length > 0 && (
                 <div className="rounded border border-line overflow-x-auto">
                   <table className="w-full text-sm min-w-[480px]">

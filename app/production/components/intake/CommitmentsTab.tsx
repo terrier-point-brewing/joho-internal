@@ -149,7 +149,7 @@ function InvoicingCell({
   onSend: (id: string) => void;
   onDelete: (id: string, sent: boolean) => void;
 }) {
-  if (commitment.channel !== "contract_brewing") return <span className="text-faint text-xs">— (Deposit invoices are only used for Contract Brewing)</span>;
+  if (commitment.channel !== "contract_brewing") return <span className="text-faint text-xs">—</span>;
   const allocs = commitment.batch_allocations ?? [];
   if (allocs.length === 0) return <span className="text-faint text-xs">No batch yet</span>;
 
@@ -478,7 +478,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
   return (
     <div>
       <h2 className="text-sm font-semibold text-primary mb-1">Commitments</h2>
-      <p className="text-sm text-muted mb-3">Beer promised to partners. A deal with no batch yet shows a Schedule button.</p>
+      <p className="text-sm text-muted mb-3">Beer promised to partners.</p>
       <div className="flex items-start gap-3 mb-4">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search recipes…" />
