@@ -40,16 +40,27 @@ import DataQualityPanel from "./DataQualityPanel";
 import { buildTree } from "./buildTree";
 import { buildFinancialsControls, retainAncestors, CHANNEL_OPTIONS, QUALITY_OPTIONS, SECTION_LABEL } from "./controls";
 import { totalModeFor } from "@/lib/finance/financials/statementTotal";
+import SpendWatchTab, { type SpendBasis } from "./SpendWatchTab";
+import { defaultFocusMonth } from "@/lib/finance/financials/spendWatch";
+import { todayLocalDate } from "@/lib/utils/datetime";
+
+/**
+ * What the tab bar switches between: the three statements, plus Spend Watch,
+ * which is not a statement of its own but a reading of one (the P&L or the
+ * cash flow, per its basis toggle) and so reuses that statement's query.
+ */
+export type FinancialsView = StatementKind | "spend_watch";
 
 // Stable empty-array reference so useTableControls/useMemo deps don't churn
 // on every render while `data` is still loading (a fresh `[]` literal would
 // be a new reference each time).
 const EMPTY_ROWS: FinancialsRow[] = [];
 
-const STATEMENT_TABS: TabDef<StatementKind>[] = [
+const STATEMENT_TABS: TabDef<FinancialsView>[] = [
   { key: "pl",            label: "P&L" },
   { key: "balance_sheet", label: "Balance Sheet" },
   { key: "cash_flow",     label: "Cash Flow" },
+  { key: "spend_watch",   label: "Spend Watch" },
 ];
 
 // Measure is a required, always-exactly-one-selected view mode (never "none"),
@@ -148,14 +159,22 @@ export default function FinancialsClient({
   initialStatement,
   initialYear,
 }: {
-  initialStatement: StatementKind;
+  initialStatement: FinancialsView;
   initialYear: number;
 }) {
   const [year, setYear] = useState(initialYear);
-  const [statement, setStatement] = useState<StatementKind>(initialStatement);
+  const [view, setView] = useState<FinancialsView>(initialStatement);
+  const [spendBasis, setSpendBasis] = useState<SpendBasis>("pl");
+  const [focusMonth, setFocusMonth] = useState<string | null>(null);
   const [measure, setMeasure] = useState<Measure>("amount");
   const [showGlNumbers, setShowGlNumbers] = useState(true);
   const years = Array.from({ length: 3 }, (_, i) => initialYear - i);
+
+  // Spend Watch reads the P&L or cash-flow statement it is set to; the three
+  // statement tabs read themselves. One query either way, keyed on the
+  // statement actually fetched, so flipping to Spend Watch on the P&L basis
+  // is a cache hit when the P&L tab was just open.
+  const statement: StatementKind = view === "spend_watch" ? spendBasis : view;
 
   const { data, isFetching, error, refetch } = useQuery({
     queryKey: queryKeys.finance.financials(statement, year),
@@ -163,13 +182,19 @@ export default function FinancialsClient({
       fetchJson<FinancialsResponse>(`/api/finance/financials?statement=${statement}&year=${year}`),
   });
 
-  function handleStatementSelect(next: StatementKind) {
-    setStatement(next);
+  function handleStatementSelect(next: FinancialsView) {
+    setView(next);
     // BS/CF only ever report `$` -- drop back to amount so switching away from
     // P&L never leaves a BBL/$-per-BBL measure stuck on a statement that has
     // no volume dimension.
     if (next !== "pl") setMeasure("amount");
   }
+
+  const openMonth = todayLocalDate().slice(0, 7);
+  const resolvedFocusMonth =
+    focusMonth && data?.months.includes(focusMonth)
+      ? focusMonth
+      : (data ? defaultFocusMonth(data.months, openMonth) : null);
 
   // Search/filter/sort config is dynamic (Total + one sort column per fetched
   // month) -- rebuild it whenever the month range changes, matching
@@ -237,7 +262,7 @@ export default function FinancialsClient({
               <button onClick={() => void refetch()} className="btn-primary">Refresh</button>
             </div>
           </div>
-          <TabBar tabs={STATEMENT_TABS} activeKey={statement} onSelect={handleStatementSelect} className="mb-0" />
+          <TabBar tabs={STATEMENT_TABS} activeKey={view} onSelect={handleStatementSelect} className="mb-0" />
         </StickyHeader>
       </div>
 
@@ -249,6 +274,25 @@ export default function FinancialsClient({
 
       <CloseTasksBanner />
 
+      {view === "spend_watch" ? (
+        <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
+          {isFetching && !data && (
+            <div className="flex items-center justify-center h-32">
+              <p className="text-xs text-faint">Loading…</p>
+            </div>
+          )}
+          {data && resolvedFocusMonth && (
+            <SpendWatchTab
+              data={data}
+              basis={spendBasis}
+              onBasisChange={setSpendBasis}
+              openMonth={openMonth}
+              focusMonth={resolvedFocusMonth}
+              onFocusMonthChange={setFocusMonth}
+            />
+          )}
+        </div>
+      ) : (
       <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
         <KpiStrip data={data} />
 
@@ -308,6 +352,7 @@ export default function FinancialsClient({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
