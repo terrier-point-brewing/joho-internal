@@ -40,7 +40,7 @@ export interface TrendRow {
 export interface Trend {
   /** Every bucket start date in the window, oldest first — including empty ones. */
   buckets: string[];
-  /** One row per beer with events, ranked by volume (sum) or by event count (mean). */
+  /** One row per beer with events, ranked by avg per event (sum mode) or by event count (mean mode). */
   rows: TrendRow[];
   /** Every event in the window combined, as one row. */
   overall: TrendRow;
@@ -110,7 +110,9 @@ export function buildTrend(data: TrendData, grouping: TrendGrouping, mode: Trend
     byRecipe.set(e.recipe_id, list);
   }
 
-  const rank = (r: TrendRow) => (mode === "sum" ? r.sum : r.count);
+  // Sell-through ranks by avg/day, not total: a beer tapped for four days
+  // shouldn't sit below one that merely poured for the whole window.
+  const rank = (r: TrendRow) => (mode === "sum" ? r.mean : r.count);
   const rows = [...byRecipe.entries()]
     .map(([id, events]) => combine(id, nameById.get(id) ?? "—", events, grouping, mode))
     .sort((a, b) => rank(b) - rank(a) || a.beer_name.localeCompare(b.beer_name));

@@ -34,7 +34,16 @@ describe("bucketsBetween", () => {
 });
 
 describe("buildTrend", () => {
-  it("sums pours per bucket and ranks by volume", () => {
+  it("ranks sell-through by avg per day, not total", () => {
+    const d: TrendData = { ...data, events: [
+      { recipe_id: "a", date: "2026-09-29", value: 100 },
+      { recipe_id: "a", date: "2026-10-01", value: 300 }, // total 400, avg 200
+      { recipe_id: "b", date: "2026-10-06", value: 250 }, // total 250, avg 250
+    ] };
+    expect(buildTrend(d, "week", "sum").rows.map((r) => r.beer_name)).toEqual(["Bravo", "Alpha"]);
+  });
+
+  it("sums pours per bucket", () => {
     const t = buildTrend(data, "week", "sum");
     expect(t.rows.map((r) => r.beer_name)).toEqual(["Alpha", "Bravo"]);
     expect(t.rows[0].by_bucket).toEqual({ "2026-09-28": 400 });
