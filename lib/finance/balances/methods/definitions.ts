@@ -106,7 +106,7 @@ const manualEntry: BalanceMethod = {
       kind: "user",
       key: "responsibleUserId",
       label: "Person responsible for this balance",
-      help: "Whoever checks this account and enters its balance each month. They are the one emailed when the balance is due, so name a person rather than leaving it to whoever notices.",
+      help: "Who enters this balance each month. They get the reminder email.",
     },
     {
       // Optional because there is already a business-wide close deadline, and
@@ -117,7 +117,7 @@ const manualEntry: BalanceMethod = {
       unit: "days",
       optional: true,
       label: "Days after month end this is due",
-      help: "How long after a month ends this balance should be entered. Leave it blank to use the deadline set for the business as a whole, and fill it in only for an account that genuinely takes longer, such as one waiting on a statement in the post.",
+      help: "Days after month end. Blank uses the business-wide deadline.",
     },
   ],
 };
@@ -414,7 +414,7 @@ const inventoryOnHand: BalanceMethod = {
       kind: "select",
       key: INVENTORY_POOL_KEY,
       label: "Which inventory this account holds",
-      help: "Pick what this account is for. Raw materials are the malt, hops, yeast and adjuncts tracked under Production, Ingredients; packaging materials are the cans, lids, labels, PakTechs and trays; work in process is beer still in a fermenter or brite, at the cost of the ingredients that went into it; finished goods are the packaged beer sitting in cold storage. Nothing can be valued until this is chosen, because the calculation would otherwise not know which shelf to count.",
+      help: "Which shelf this account counts.",
       options: [
         { value: "rawMaterials", label: "Raw materials (ingredients)" },
         { value: "packagingMaterials", label: "Packaging materials" },
@@ -437,7 +437,7 @@ const inventoryOnHand: BalanceMethod = {
       sections: ["cogs"],
       optional: true,
       label: "Cost account the monthly change posts against",
-      help: "Name the cost-of-goods account this shelf's purchases are coded to. Those purchases are then moved onto the balance sheet each month (a purchase is stock, not yet a cost), the cost of the beer that actually left is charged there, and anything the shelf lost or gained that no sale explains \u2014 a count correction, a missed receipt \u2014 goes to 6460 Inventory Shrinkage & Adjustments below gross profit. The first month this shelf has a value is treated as an opening balance and never touches the P&L. Leave it blank to keep the balance-sheet figure only.",
+      help: "COGS account for this shelf's purchases. Blank skips the P&L.",
     },
   ],
   steps: [
@@ -524,7 +524,7 @@ const rampAccountBalance: BalanceMethod = {
       // sign in to.
       connect: "discover",
       label: "Ramp account",
-      help: "Choose which of your Ramp accounts this general ledger account represents, so the right balance is read each month.",
+      help: "The Ramp account this GL account represents.",
     },
     {
       // Ramp keeps the same cash in more than one account -- operating and
@@ -536,7 +536,7 @@ const rampAccountBalance: BalanceMethod = {
       provider: "ramp",
       optional: true,
       label: "Other Ramp accounts to include",
-      help: "Tick any other Ramp accounts whose money belongs in this same general ledger account, such as an investment account. Their balances are added to the one above, so moving money between them does not change this account.",
+      help: "Other Ramp accounts whose balance belongs here too.",
     },
   ],
   steps: [
@@ -581,7 +581,7 @@ const rampCardBalance: BalanceMethod = {
       // nothing for an operator to sign in to.
       connect: "discover",
       label: "Ramp cards",
-      help: "Confirm that this general ledger account is the one your Ramp card spending is owed on. Ramp reports a single balance covering every card, so there is one thing here to connect and no need to pick a card.",
+      help: "One balance covers every Ramp card.",
     },
   ],
   steps: [
@@ -629,13 +629,13 @@ const squareStoredBalance: BalanceMethod = {
       provider: "square",
       connect: "discover",
       label: "Square account",
-      help: "Choose which Square business this general ledger account holds the money for.",
+      help: "The Square business this account holds money for.",
     },
     {
       kind: "operatorBalance",
       key: "operatorBalance",
       label: "Balance you read off Square",
-      help: "Square never publishes a running balance, so the calculation needs a figure a person has checked to start from. This one is only the starting point — each month end asks for it again under Finance, Transactions, Manual Entries.",
+      help: "A checked starting balance. Asked again each month end.",
     },
     {
       // Read by squareSweepsSinceAnchor, which DEDUCTS the named account's
@@ -650,7 +650,7 @@ const squareStoredBalance: BalanceMethod = {
       sections: ["bank"],
       optional: true,
       label: "Bank account Square pays out to",
-      help: "Which of your bank accounts Square moves this money into. Square never reports those transfers, so naming the account here is the only way they can be taken off the Square balance as they happen — without it, the figure climbs all month and is only corrected at month end.",
+      help: "Bank account Square pays out to.",
     },
     {
       // OPTIONAL, same contract as inventoryOnHand's COGS offset: the method
@@ -663,7 +663,7 @@ const squareStoredBalance: BalanceMethod = {
       sections: ["expenses", "cogs"],
       optional: true,
       label: "Account Square's processing fees expense to",
-      help: "Square keeps its processing fee before anything reaches this balance, so the money you receive is smaller than the sales the P&L records — the fee is a real cost that otherwise appears on no statement. Name the expense account it belongs to (usually Bank & Credit Card Fees) and each month's fees appear there automatically, on both the P&L and the cash-flow statement. Leave it blank and the fees stay unrecorded, as before.",
+      help: "Expense account for Square's fees. Blank leaves them unrecorded.",
     },
   ],
   steps: [
@@ -723,7 +723,7 @@ const plaidBankBalance: BalanceMethod = {
       // their own bank, and only that sign-in produces anything to choose from.
       connect: "authorize",
       label: "Bank account",
-      help: "Sign in at your bank to let this app read the balance, then choose which of your accounts this general ledger account represents.",
+      help: "Sign in at your bank, then pick the account.",
     },
   ],
   steps: [

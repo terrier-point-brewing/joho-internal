@@ -20,11 +20,13 @@ interface GrantsResponse {
 // admin has to be able to tell "inherits read" from "revoked".
 type DisplayLevel = "inherit" | Level;
 
+// One-word gloss beside each internal level name, so a non-admin reading a
+// grant knows what it lets them do (§7 of the 2026-10-16 UI review).
 const LEVEL_LABELS: Record<Level, string> = {
   none: "None",
-  read: "Read",
-  operate: "Operate",
-  manage: "Manage",
+  read: "Read · view",
+  operate: "Operate · use",
+  manage: "Manage · configure",
   admin: "Admin",
 };
 
@@ -52,9 +54,9 @@ function levelOptions(inherited: Level | null): { value: DisplayLevel; label: st
   return [
     { value: "inherit", label: inherited ? `Inherit (${LEVEL_LABELS[inherited]})` : "Inherit (no access)" },
     { value: "none", label: "None (revoked)" },
-    { value: "read", label: "Read" },
-    { value: "operate", label: "Operate" },
-    { value: "manage", label: "Manage" },
+    { value: "read", label: LEVEL_LABELS.read },
+    { value: "operate", label: LEVEL_LABELS.operate },
+    { value: "manage", label: LEVEL_LABELS.manage },
     { value: "admin", label: "Admin" },
   ];
 }

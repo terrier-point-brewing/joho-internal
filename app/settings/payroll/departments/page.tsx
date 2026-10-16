@@ -219,9 +219,7 @@ export default function PayrollDepartmentMappingsPage() {
 
           <Card>
             <h3 className="text-sm font-semibold text-strong">Payroll taxes account</h3>
-            <p className="text-xs text-muted mt-1 mb-2">
-              Every department&apos;s employer taxes (Social Security, Medicare, FUTA, NC Unemployment) are summed into this one account.
-            </p>
+            <p className="text-xs text-muted mt-1 mb-2">All departments&apos; employer taxes, one account.</p>
             <AccountSelect
               value={payrollTaxesAccountId}
               onChange={setPayrollTaxesAccountId}
@@ -234,9 +232,7 @@ export default function PayrollDepartmentMappingsPage() {
 
           <Card>
             <h3 className="text-sm font-semibold text-strong">Tips liability account</h3>
-            <p className="text-xs text-muted mt-1 mb-2">
-              Paycheck tips from Gusto uploads post here instead of to wage accounts. Tips never appear on the P&amp;L.
-            </p>
+            <p className="text-xs text-muted mt-1 mb-2">Paycheck tips post here, never to wages.</p>
             <AccountSelect
               value={tipsAccountId}
               onChange={setTipsAccountId}
@@ -249,12 +245,7 @@ export default function PayrollDepartmentMappingsPage() {
 
           <Card>
             <h3 className="text-sm font-semibold text-strong">Shift-tracked wages account</h3>
-            <p className="text-xs text-muted mt-1 mb-2">
-              The one wage account whose staff clock shifts in Square, so the app can check what Gusto paid them
-              against its own hours and tip pool. Every other wage account is salaried payroll with no shift data
-              behind it — Finance → Payroll shows those figures but never checks them. Leave unset to turn the
-              taproom check off entirely.
-            </p>
+            <p className="text-xs text-muted mt-1 mb-2">The wage account checked against Square shifts. Unset skips the check.</p>
             <AccountSelect
               value={taproomAccountId}
               onChange={setTaproomAccountId}

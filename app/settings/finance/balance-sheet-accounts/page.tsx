@@ -42,7 +42,6 @@ import { EM_DASH, formatBalanceCents } from "@/lib/format";
 import { STATED_BALANCE_KEY } from "@/lib/finance/balances/statedBalanceKey";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
-import Card from "@/app/components/ui/Card";
 import Badge from "@/app/components/ui/Badge";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import { Modal } from "@/app/components/ui/Modal";
@@ -239,28 +238,24 @@ function MethodExplainer({
           ))}
         </div>
 
-        {/* An operator's stated balance, shown as what it actually did rather
-            than as a figure standing on its own. All three numbers matter: what
-            the source reported, what the person said, and the gap between them,
-            which is the thing anyone reconciling this account is looking for.
-            The stored contribution is the DIFFERENCE, so the source's own figure
-            is recovered by subtracting it back out. */}
+        {/* An operator's stated balance, shown as three labelled rows rather
+            than narrated: what the source reported, what was entered, and the
+            difference. The stored contribution is the DIFFERENCE, so the
+            source's own figure is recovered by subtracting it back out. */}
         {statedDifferenceCents !== undefined && (
           <div className="border-t border-line pt-3 flex flex-col gap-1">
-            <p className="text-xs text-body">Balance entered by hand</p>
-            <p className="text-2xs text-faint leading-relaxed">
-              Somebody entered this month&rsquo;s balance under Finance &gt; Transactions &gt; Manual Entries, and it is
-              being used instead of the figure above. It applies to this month only — next month goes back to what this
-              account&rsquo;s source reports, because that reading stands on its own and owes nothing to this one.
+            <p className="text-xs text-body">
+              Balance entered by hand
+              <span className="ml-1.5 text-2xs text-faint font-normal">this month only</span>
             </p>
             <div className="flex items-baseline justify-between gap-3 mt-1">
-              <span className="text-2xs text-muted">This account&rsquo;s source reported</span>
+              <span className="text-2xs text-muted">Reported</span>
               <span className="font-mono text-2xs tabular-nums text-body">
                 {formatBalanceCents(figure!.cents - statedDifferenceCents)}
               </span>
             </div>
             <div className="flex items-baseline justify-between gap-3">
-              <span className="text-2xs text-muted">Entered by hand</span>
+              <span className="text-2xs text-muted">Entered</span>
               <span className="font-mono text-2xs tabular-nums text-body">{formatBalanceCents(figure!.cents)}</span>
             </div>
             <div className="flex items-baseline justify-between gap-3">
@@ -306,15 +301,6 @@ function MethodExplainer({
               </div>
             ))}
           </div>
-        )}
-
-        {method.steps.length > 1 && (
-          <Card padding="p-3">
-            <p className="text-2xs text-faint leading-relaxed">
-              These steps always run together and cannot be enabled separately. Running only the first would report
-              what has built up without ever subtracting what has been settled.
-            </p>
-          </Card>
         )}
 
         {!hasFigures && (
@@ -851,14 +837,10 @@ export default function BalanceSheetAccountsPage() {
             </table>
           </div>
 
-          <Card padding="p-3" className="mt-3">
-            <p className="text-2xs text-faint">
-              &ldquo;Right now&rdquo; is worked out fresh every time this page loads, for the month still in progress —
-              it is never stored. &ldquo;Last closed month&rdquo; is the saved snapshot, and is what the balance sheet
-              reports for a finished month. Neither can be edited here; to correct a manually-entered figure use{" "}
-              <a href={MANUAL_ENTRIES_HREF} className="text-accent hover:text-accent-soft">Manual Entries</a>.
-            </p>
-          </Card>
+          <p className="mt-3 text-2xs text-faint">
+            To correct a hand-entered figure use{" "}
+            <a href={MANUAL_ENTRIES_HREF} className="text-accent hover:text-accent-soft">Manual Entries</a>.
+          </p>
         </div>
       )}
 

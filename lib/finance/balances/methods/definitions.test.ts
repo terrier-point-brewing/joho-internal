@@ -184,19 +184,20 @@ describe("explainer copy is readable by a non-technical operator", () => {
   });
 
   /**
-   * Setup copy is held to the same standard as step copy, and for a stronger
-   * reason: a step description is read by someone checking a number they already
-   * have, while this is read by someone who is STUCK. It is the sentence that
-   * has to explain why an account is blank.
+   * Setup help is one short plain-English line under the field — at most
+   * twelve words, ending in a period. The rationale behind a field lives in
+   * code comments and the explainer, not under the input
+   * (docs/audits/2026-10-16-ui-information-overload-review.md §6).
    */
-  it("every setup field has a full-sentence explanation in plain English", () => {
+  it("every setup field has a short plain-English help line", () => {
     const allFields = listMethods().flatMap((m) => (m.setup ?? []).map((f) => ({ method: m.key, field: f })));
     const providerKeys = listMethods().flatMap((m) => m.steps.map((s) => s.providerKey));
 
     for (const { method, field } of allFields) {
       const id = `${method}.${field.key}`;
       expect(field.label.length, `${id} label`).toBeGreaterThan(3);
-      expect(field.help.length, `${id} help`).toBeGreaterThan(40);
+      expect(field.help.length, `${id} help`).toBeGreaterThan(10);
+      expect(field.help.split(/\s+/).length, `${id} help is longer than 12 words`).toBeLessThanOrEqual(12);
       expect(field.help.endsWith("."), `${id} help must end in a period`).toBe(true);
 
       const prose = `${field.label} ${field.help}`;
@@ -225,8 +226,9 @@ describe("explainer copy is readable by a non-technical operator", () => {
         const id = `${m.key}.${field.key}`;
         // Naming a person or an account has consequences a reader cannot see
         // from the picker -- an alert goes somewhere, a balance is read from
-        // somewhere -- so the help has to say what those are.
-        expect(field.help.length, `${id} help must explain what naming this does`).toBeGreaterThan(60);
+        // somewhere -- so the help has to say what is being named, in a
+        // sentence, not a fragment.
+        expect(field.help.split(/\s+/).length, `${id} help must say what naming this does`).toBeGreaterThanOrEqual(5);
         expect(field.label.toLowerCase(), `${id} label must not be bare "user"`).not.toBe("user");
       }
     }

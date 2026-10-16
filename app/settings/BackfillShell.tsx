@@ -1,38 +1,41 @@
 "use client";
 
-// The chrome every backfill screen shares, so the four of them differ only in
-// what they call and how they render their results.
+// The chrome every history-repair ("backfill") screen shares, so the four of
+// them differ only in what they call and how they render their results.
 //
 // Backfills are one-time, irreversible, whole-table data repairs. They were
 // previously reachable only by hand (curl) or buried at the bottom of an
 // unrelated feature page, which is how the tips backfill sat un-run for a day
-// after its migrations landed. Putting them in Settings makes them findable;
-// this shell makes them uniformly *legible* before they are run.
+// after its migrations landed. Putting them in Settings makes them findable.
 //
-// Three things every screen must state before the button, because an operator
-// deciding whether to press it needs all three: what it does, what it changes,
-// and whether it can be undone.
+// The screen says two things up front — one line on what the repair does and
+// a row of chips naming what it changes — and keeps the irreversibility
+// warning for the confirm step, where the decision is actually made. A
+// standing banner on every screen taught operators to skim past it
+// (docs/audits/2026-10-16-ui-information-overload-review.md §6, house rule 7).
 //
 // The preview -> review -> run gate is the same one GlBackfillPanel introduced:
 // a live run is unreachable until a clean preview exists, and the preview is
 // cleared afterwards so a second run needs a fresh one. Backfills that CANNOT
-// preview (see `preview: null`) say so loudly instead of pretending.
+// preview (see `preview: null`) say so in a chip, and again on confirm.
 
 import { useState, type ReactNode } from "react";
 import Card from "@/app/components/ui/Card";
+import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import SettingsHeader from "./SettingsHeader";
 
 export interface BackfillShellProps<T> {
   title: string;
-  /** What the operation does, in one or two sentences. */
+  /** What the repair does, in one sentence. */
   what: ReactNode;
-  /** Which tables/figures move as a result. Shown as a distinct "Impacts" line. */
-  impacts: ReactNode;
+  /** What it changes — short names, one chip each. */
+  changes: string[];
   /**
    * Dry run. `null` means this backfill has no preview mode at all — the shell
-   * then hides the preview button, shows a standing warning, and allows the run
-   * without a preview gate (there is nothing to gate on).
+   * then hides the preview button, marks the screen "No preview", and allows
+   * the run without a preview gate (there is nothing to gate on).
    */
   preview: (() => Promise<T>) | null;
   apply: () => Promise<T>;
@@ -47,14 +50,14 @@ export interface BackfillShellProps<T> {
   controls?: ReactNode;
   /** Blocks both buttons while required `controls` inputs are incomplete. */
   disabled?: boolean;
-  /** Extra caution shown in the header — for operations that cannot be previewed. */
+  /** Extra caution for the confirm step — for operations that cannot be previewed. */
   danger?: ReactNode;
 }
 
 export default function BackfillShell<T>({
   title,
   what,
-  impacts,
+  changes,
   preview,
   apply,
   children,
@@ -72,7 +75,7 @@ export default function BackfillShell<T>({
   const canPreview = preview !== null;
   const found = previewResult !== null ? blockers?.(previewResult) ?? [] : [];
   // With no preview mode there is nothing to gate on, so the run is allowed
-  // directly — the standing `danger` warning carries the caution instead.
+  // directly — the confirm step carries the `danger` caution instead.
   const canRun = canPreview ? previewResult !== null && found.length === 0 : true;
 
   async function go(mode: "preview" | "run") {
@@ -102,15 +105,15 @@ export default function BackfillShell<T>({
       <div className="mt-4 pb-4 sm:pb-8">
       <Card className="max-w-4xl">
         <p className="text-xs text-secondary">{what}</p>
-        <p className="text-xs text-secondary mt-2">
-          <span className="text-muted">Impacts:</span> {impacts}
-        </p>
-
-        <Banner className="mt-3">
-          <span className="font-medium">Irreversible.</span> This writes to the production database
-          and cannot be undone. Take a backup first, and run it once.
-          {danger && <span className="block mt-1">{danger}</span>}
-        </Banner>
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          <span className="text-2xs text-muted">Changes:</span>
+          {changes.map((c) => (
+            <Badge key={c}>{c}</Badge>
+          ))}
+          {!canPreview && (
+            <Badge tone="danger" className="ml-1">No preview</Badge>
+          )}
+        </div>
 
         {controls && <div className="mt-3">{controls}</div>}
 
@@ -124,44 +127,44 @@ export default function BackfillShell<T>({
               {busy === "preview" ? "Previewing…" : "Preview changes"}
             </button>
           )}
-
-          {!confirming ? (
-            <button
-              onClick={() => setConfirming(true)}
-              disabled={!canRun || busy !== null || disabled}
-              className="btn-primary"
-              title={canRun ? undefined : "Run a clean preview first"}
-            >
-              Run backfill
-            </button>
-          ) : (
-            <>
-              {/* Also gated on `disabled`: required inputs can be cleared AFTER
-                  entering the confirm state, which would otherwise fire the
-                  write with incomplete parameters. */}
-              <button
-                onClick={() => go("run")}
-                disabled={busy !== null || disabled}
-                className="btn-danger"
-              >
-                {busy === "run" ? "Writing…" : "Confirm — write changes"}
-              </button>
-              <button
-                onClick={() => setConfirming(false)}
-                disabled={busy !== null}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => setConfirming(true)}
+            disabled={!canRun || busy !== null || disabled}
+            className="btn-primary"
+            title={canRun ? undefined : "Run a clean preview first"}
+          >
+            {busy === "run" ? "Writing…" : "Repair history"}
+          </button>
         </div>
+
+        {/* The irreversibility warning lives here, at the decision, not as a
+            standing banner. Also gated on `disabled`: required inputs can be
+            cleared AFTER opening the confirm, which would otherwise fire the
+            write with incomplete parameters. */}
+        {confirming && (
+          <ConfirmDialog
+            title="Write these changes?"
+            confirmLabel="Write changes"
+            busy={busy !== null || disabled}
+            onConfirm={() => go("run")}
+            onCancel={() => setConfirming(false)}
+            message={
+              <>
+                <p>
+                  <span className="font-medium">This cannot be undone.</span> It writes to the
+                  production database. Take a backup first, and run it once.
+                </p>
+                {danger && <p className="mt-2">{danger}</p>}
+              </>
+            }
+          />
+        )}
 
         {error && <Banner className="mt-3">{error}</Banner>}
 
         {applied && (
           <Banner tone="success" className="mt-3">
-            Backfill applied. Re-run the preview if you need to confirm the resulting state.
+            Changes written. Re-run the preview to confirm the resulting state.
           </Banner>
         )}
 

@@ -324,11 +324,8 @@ export default function DepreciationSettingsPage() {
               </button>
             )}
 
-            <p className="text-2xs text-faint leading-relaxed max-w-3xl">
-              Each month&apos;s additions to a scheduled account depreciate straight-line from the month they were coded, over the life above.
-              The charge appears on the P&amp;L automatically and accumulates on the balance sheet — nothing is entered by hand.
-              Changing a life applies <span className="text-body">from this month forward</span>: the remaining book value spreads over the remaining new life,
-              and months already reported keep their old charge. That is the standard treatment for a change in estimate — history is never rewritten from here.
+            <p className="text-2xs text-faint max-w-3xl">
+              Changing a life applies from next month; past months don&apos;t change.
             </p>
           </>
         )}

@@ -40,28 +40,14 @@ export default function TaxBackfillPage() {
 
   return (
     <BackfillShell<LineItemTaxResult>
-      title="Line item tax backfill"
-      what={
-        <>
-          Re-fetches every already-synced POS order in a date range from Square and rebuilds its
-          per-line tax rows. For orders synced before <code>pos_line_item_taxes</code> existed, or to
-          re-derive rows after a mapping fix.
-        </>
-      }
-      impacts={
-        <>
-          Replaces <code>pos_line_item_taxes</code> for the chosen range. The sales-tax liability on
-          the balance sheet and the NC DOR / Wake County taxable base are both derived from this
-          table, so both move with it.
-        </>
-      }
+      title="Repair history: line item tax"
+      what="Re-fetches every synced Square order in the date range and rebuilds its per-line tax rows."
+      changes={["Line item taxes", "Sales tax liability", "NC DOR / Wake County taxable base"]}
       danger={
         <>
-          <span className="font-medium">This backfill cannot be previewed.</span> It has no dry-run
-          mode — the only call it supports writes. It also deletes each order&rsquo;s existing tax
-          rows before inserting rows rebuilt from a live Square fetch, so if Square returns an order
-          without its taxes, those rows are removed and not replaced. Use the narrowest date range
-          that covers what you need.
+          No preview exists for this repair. Each order&rsquo;s tax rows are deleted and rebuilt from
+          a live Square fetch, so an order Square returns without taxes loses its rows. Use the
+          narrowest date range you can.
         </>
       }
       preview={null}

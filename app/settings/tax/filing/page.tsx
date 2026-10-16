@@ -34,7 +34,7 @@ export default function TaxFilingSettingsPage() {
       <div className="shrink-0 px-4 sm:px-6">
         <SettingsHeader
           title="Tax Filing"
-          description="Per-module Square mappings and the statutory rate tables each filing worksheet relies on."
+          description="Square mappings and rate tables per filing."
         />
       </div>
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">

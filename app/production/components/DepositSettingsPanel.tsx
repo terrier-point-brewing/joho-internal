@@ -44,7 +44,6 @@ function IngredientDepositMappingSection() {
   return (
     <section>
       <h3 className="text-sm font-medium text-strong mb-2">Ingredient Deposit — Square Item</h3>
-      <p className="text-xs text-faint mb-2">Default Square catalog item for deposit invoices, with optional per-partner overrides.</p>
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted italic w-28">Default</span>
@@ -104,19 +103,19 @@ function DepositInvoiceTermsSection() {
   return (
     <section>
       <h3 className="text-sm font-medium text-strong mb-2">Deposit Invoice Net Terms</h3>
-      <p className="text-xs text-faint mb-2">
-        Days from the draft date until a deposit invoice is due. Applies to every partner.
-      </p>
       <div className="flex items-center gap-2">
-        <input
-          type="number"
-          min={1}
-          max={365}
-          value={draft !== "" ? draft : days}
-          onChange={(e) => setDraft(e.target.value)}
-          className="inp-sm w-20"
-        />
-        <span className="text-xs text-muted">days</span>
+        <label className="text-xs text-secondary flex items-center gap-2">
+          Due in
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={draft !== "" ? draft : days}
+            onChange={(e) => setDraft(e.target.value)}
+            className="inp-sm w-20"
+          />
+          days after draft
+        </label>
         <button onClick={save} disabled={saving} className="btn-primary">
           {saving ? "Saving…" : "Save"}
         </button>
@@ -129,9 +128,9 @@ function DepositInvoiceTermsSection() {
  * The house packaging-yield rule. Not a per-invoice value — Settings holds the
  * rule, the deposit calculation applies it.
  *
- * The copy has to spell out which way to err, because the direction reads
- * backwards: the factor is a denominator, so a HIGHER percentage charges LESS.
- * Nobody guesses that from the label.
+ * The direction reads backwards: the factor is a denominator, so a HIGHER
+ * percentage charges LESS. That rationale lives in the ⓘ tooltip, not in the
+ * panel copy — the one visible line only says what to set it to.
  */
 function PackagingYieldSection() {
   const { data } = useDepositPackagingYieldQuery();
@@ -157,14 +156,17 @@ function PackagingYieldSection() {
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-strong mb-2">Expected Packaging Yield</h3>
-      <p className="text-xs text-faint mb-2">
-        How much of the beer still in tank is expected to survive packaging. An ingredient deposit divides a
-        shipment by what its batch will yield, and beer that hasn&rsquo;t been packaged yet still has its loss
-        ahead of it — this shrinks it before it counts. Set it at, or a touch above, the yield you actually get:
-        a higher number charges less, which is recoverable, while a number below your real yield bills a partner
-        for grain that was never theirs.
-      </p>
+      <h3 className="text-sm font-medium text-strong mb-2">
+        Expected packaging yield (%)
+        <span
+          className="ml-1.5 text-faint font-normal cursor-help"
+          title="Beer still in tank is shrunk by this before a deposit share is worked out. A higher number charges partners less (recoverable later); a number below your real yield bills them for grain that was never theirs."
+          aria-label="Why this matters"
+        >
+          ⓘ
+        </span>
+      </h3>
+      <p className="text-xs text-faint mb-2">Used to estimate finished volume for deposits. Set to what you actually get.</p>
       <div className="flex items-center gap-2">
         <input
           type="number"
@@ -174,6 +176,7 @@ function PackagingYieldSection() {
           value={draft !== "" ? draft : pct}
           onChange={(e) => setDraft(e.target.value)}
           className="inp-sm w-20"
+          aria-label="Expected packaging yield percent"
         />
         <span className="text-xs text-muted">%</span>
         <button onClick={save} disabled={saving} className="btn-primary">
