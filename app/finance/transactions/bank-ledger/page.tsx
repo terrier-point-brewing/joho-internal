@@ -10,6 +10,8 @@ import { LedgerTable, Th } from "../components/LedgerTable";
 import Badge from "@/app/components/ui/Badge";
 import AccountSelect, { type CoARef } from "../../AccountSelect";
 import Banner from "@/app/components/ui/Banner";
+import Popover from "@/app/components/ui/Popover";
+import Link from "next/link";
 import SaveHint from "@/app/components/ui/SaveHint";
 import SortableTh from "@/app/components/ui/SortableTh";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -44,13 +46,6 @@ interface BankRow {
   gl_splits: BankSplitRow[];
 }
 
-// No dedicated "warning" tone exists in app/components/ui/tone.ts (Tone = neutral | accent |
-// success | danger | info) — "accent" is the codebase's convention for "needs review" states
-// (see SummaryStatBar's needsReview stat and MappingStatusPill's partial state).
-function flowTone(f: FlowType): "success" | "accent" | "neutral" {
-  if (f === "unclassified") return "accent";
-  return getFlowType(f)?.affectsPl ? "success" : "neutral";
-}
 function fmtDate(s: string | null) {
   if (!s) return "—";
   const [y, m, d] = s.split("-");
@@ -99,12 +94,14 @@ const PAGE_SIZE = 50;
  * about changing a flow -- the API rewrites affects_pl and the account to match
  * -- so the control stays live.
  *
- * ── The consequence line ─────────────────────────────────────────────────────
+ * ── The consequence ──────────────────────────────────────────────────────────
  * The complaint this cell was rebuilt to answer is "I don't know what happens
- * when I pick one of these". So the chosen flow's `effect` sentence is rendered
- * underneath it, and the optgroup headings say the same thing a level up. Both
- * come from lib/finance/flowTypes.ts, which is also what the readers consult,
- * so the sentence cannot describe behaviour the code does not have.
+ * when I pick one of these". The optgroup headings state the consequence, the
+ * chosen flow's `effect` sentence is the select's tooltip, and the P&L column
+ * beside it shows the result as a badge. All of it comes from
+ * lib/finance/flowTypes.ts, which is also what the readers consult, so the
+ * copy cannot describe behaviour the code does not have. The sentence used to
+ * sit under every row; fifty of them on a page was the loudest noise in Finance.
  *
  * ── Why the account picker comes and goes ────────────────────────────────────
  * Four of the eight flows never use an account. Showing a picker for them
@@ -113,9 +110,9 @@ const PAGE_SIZE = 50;
  *
  * The one exception is a row that is still `unclassified` and ALREADY carries an
  * account -- a state only a hand-coded row from before this screen existed can
- * be in. Its account is shown read-only rather than hidden, because silently
- * concealing a stored value that still feeds the balance sheet is worse than
- * showing a state that should not exist.
+ * be in. That account still feeds the balance sheet, so the cell clears it on
+ * sight (the same PATCH a reclassification would make) rather than asking the
+ * operator to resolve a state that should not exist.
  *
  * ── One account, or several ──────────────────────────────────────────────────
  * A balance sheet movement can be more than one thing at once: a single wire
@@ -143,12 +140,20 @@ function FlowCell({ row, accounts, saving, editingSplit, onPatch, onEditSplit, o
   const canSplit = flowAllowsSplit(row.flow_type) && row.amount_cents !== 0;
   const orphanedAccount = !flowNeedsAccount(row.flow_type) && row.chart_of_accounts_id !== null;
 
+  // An account on a flow that does not use one is cleared the moment it is
+  // seen, not reported. The balance-sheet reader matches on the account alone.
+  useEffect(() => {
+    if (orphanedAccount && !saving) onPatch({ chart_of_accounts_id: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orphanedAccount]);
+
   return (
     <div className="flex flex-col gap-1 min-w-[220px]">
       <div className="flex items-center gap-1.5">
         <select
           className="inp-sm w-full"
           value={row.flow_type}
+          title={def?.effect}
           onChange={(e) => onPatch({ flow_type: e.target.value as FlowType })}
         >
           {/* A stored value this build does not know: shown rather than silently
@@ -164,12 +169,16 @@ function FlowCell({ row, accounts, saving, editingSplit, onPatch, onEditSplit, o
           ))}
         </select>
         {row.mapping_source === "rule" && (
-          <span className="text-2xs text-info shrink-0" title="Set by a counterparty rule">auto</span>
+          <Link
+            href="/settings/finance/gl-mapping?tab=counterparties"
+            className="text-2xs text-info shrink-0 hover:underline"
+            title="Set by this counterparty's standing rule — open it"
+          >
+            auto
+          </Link>
         )}
         <SaveHint saving={saving} />
       </div>
-
-      {def && <p className="text-2xs text-faint leading-snug">{def.effect}</p>}
 
       {/* While the editor is open the single-account picker is not merely
           redundant, it contradicts what is being typed underneath. */}
@@ -190,12 +199,6 @@ function FlowCell({ row, accounts, saving, editingSplit, onPatch, onEditSplit, o
         <button type="button" className="btn-secondary self-start" onClick={() => onEditSplit(!editingSplit)}>
           {editingSplit ? "Close split editor" : isSplit ? "Edit split" : "Split across accounts"}
         </button>
-      )}
-
-      {orphanedAccount && (
-        <p className="text-2xs text-accent leading-snug">
-          An account is still set on this row. Pick a flow above that uses one, or it will be cleared.
-        </p>
       )}
 
       {row.flow_type === "unclassified" && (
@@ -285,10 +288,23 @@ export default function BankLedgerPage() {
           <GlAccountFilter accounts={accounts} value={filters.gl?.[0] ?? null}
             onChange={(id) => setFilter("gl", id ? [id] : [])} />
           {/* Two feeds land in this ledger and neither can refresh the other, so
-              both are offered here rather than sending someone to the Expenses
+              one button runs both rather than sending someone to the Expenses
               tab for one of them. */}
-          <RunJobButton job="ramp-expenses-sync" label="Refresh Ramp" onFinished={() => loadAll(from, to)} />
-          <RunJobButton job="bank-transactions-sync" label="Refresh bank feed" onFinished={() => loadAll(from, to)} />
+          <RunJobButton job={["ramp-expenses-sync", "bank-transactions-sync"]} label="Refresh" onFinished={() => loadAll(from, to)} />
+          <Popover label="How flows work">
+            <p>
+              The flow decides what a line does. Only <span className="text-accent">operating expense</span> and{" "}
+              <span className="text-accent">income</span> reach the P&amp;L; settlements and transfers are left out so
+              the card, bill and sale records they pay off are not counted twice. Any line can be recoded at any time.
+            </p>
+            <p className="mt-2">
+              To stop answering the same question every month, give the counterparty a standing rule under{" "}
+              <Link href="/settings/finance/gl-mapping?tab=counterparties" className="underline hover:text-accent">
+                Settings → GL Mapping → Counterparties
+              </Link>
+              .
+            </p>
+          </Popover>
         </FilterBar>
       </div>
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
@@ -296,7 +312,7 @@ export default function BankLedgerPage() {
         <div className="flex-1 flex items-center justify-center"><p className="text-xs text-muted">Loading…</p></div>
       ) : rows.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-center px-6">
-          <p className="text-sm text-secondary">No bank-account activity for {from} – {to}. Use the refresh buttons above to import it.</p>
+          <p className="text-sm text-secondary">No bank-account activity for {from} – {to}. Use Refresh above to import it.</p>
         </div>
       ) : (
         <>
@@ -323,7 +339,9 @@ export default function BankLedgerPage() {
                     onToggleAccept={() => handleToggleAccept(r.id, !r.unmapped_accepted)}
                   />
                 </td>
-                <td className="px-4 py-2 text-2xs text-faint">{r.affects_pl ? "yes" : "—"}</td>
+                <td className="px-4 py-2">
+                  {r.affects_pl ? <Badge tone="success">Counted</Badge> : <span className="text-2xs text-faint">—</span>}
+                </td>
                 <td className="px-4 py-2"><QbSyncBadge status={r.qb_sync_status} rampObject="bank" /></td>
                 <td className="px-4 py-2 text-right font-mono tabular-nums text-strong">{formatCurrencyCents(r.amount_cents)}</td>
               </tr>
@@ -353,7 +371,6 @@ export default function BankLedgerPage() {
               </Fragment>
             ))}
           </LedgerTable>
-          <p className="py-3 text-2xs text-faint">The flow type decides what happens to a line, and the sentence under each one says which. Only <span className="text-accent">operating expense</span> and <span className="text-accent">income</span> reach the P&amp;L; settlements and transfers are deliberately left out so the card, bill and sale records they pay off are not counted twice. Any line can be recoded at any time. To stop answering the same question every month, give the counterparty a standing flow under Settings → Finance → GL Mapping → Counterparties.</p>
         </div>
         <Pagination page={safePage} totalPages={totalPages} total={visible.length} unit="bank lines" onPageChange={setPage} />
         </>

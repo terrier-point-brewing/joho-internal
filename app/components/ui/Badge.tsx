@@ -14,13 +14,17 @@ export default function Badge({
   children,
   tone = "neutral",
   className = "",
+  title,
 }: {
   children: ReactNode;
   tone?: Tone | "none";
   className?: string;
+  /** Short hover text — the one place a chip may carry a sentence. */
+  title?: string;
 }) {
   return (
     <span
+      title={title}
       className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full border ${
         tone === "none" ? "" : TONE_SOFT[tone]
       } ${className}`.trim()}

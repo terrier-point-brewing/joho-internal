@@ -33,7 +33,7 @@ export default function Loading() {
       <FinanceNav mobile />
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
         <div className="flex items-center justify-between">
-          <PageHeader title="Financials" description="Consolidated P&L, Balance Sheet, and Cash Flow — persisted, CoA-mapped data" />
+          <PageHeader title="Financials" description="Monthly statements" />
           <div className="h-7 w-40 rounded bg-surface-mid/60 animate-pulse" />
         </div>
 

@@ -32,6 +32,7 @@ import SearchInput from "@/app/components/ui/SearchInput";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
+import Popover from "@/app/components/ui/Popover";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FinanceNav from "../FinanceNav";
 import CloseTasksBanner from "../CloseTasksBanner";
@@ -77,7 +78,7 @@ const MEASURE_OPTIONS: { value: Measure; label: string }[] = [
 
 // ── KPI health strip ────────────────────────────────────────────────────────
 
-/** A single stat tile. `null` renders a muted em-dash rather than a fake `$0`. */
+/** A single stat tile. A KPI the statement does not carry renders nothing — not "n/a". */
 function KpiTile({ label, cents, pct, percentDenominated, subLabel }: {
   label: string;
   cents?: number | null;
@@ -87,6 +88,7 @@ function KpiTile({ label, cents, pct, percentDenominated, subLabel }: {
   subLabel?: string;
 }) {
   const primaryMissing = percentDenominated ? pct == null : cents == null;
+  if (primaryMissing) return null;
   const primaryText = percentDenominated
     ? (pct == null ? EM_DASH : formatPercent(pct / 100))
     : formatCurrencyCents(cents);
@@ -121,10 +123,10 @@ function KpiStrip({ data }: { data: FinancialsResponse | undefined }) {
   // The lifeline, said in one line under the cash figure. A burn quotes months
   // of runway at the trailing average; positive operating cash means there is
   // no countdown to quote, which is worth saying outright rather than leaving
-  // the tile mute. Only the cash-flow statement carries these fields.
+  // the tile mute. Only the cash-flow statement carries these fields; on the
+  // others the tile is simply absent.
   const cashSubLabel =
-    cashOnHand == null ? "n/a"
-    : runway != null ? `≈ ${runway} months of runway at the current burn`
+    runway != null ? `≈ ${runway} months of runway at the current burn`
     : burnRate != null && burnRate >= 0 ? "cash-flow positive — no burn to outrun"
     : undefined;
 
@@ -133,23 +135,50 @@ function KpiStrip({ data }: { data: FinancialsResponse | undefined }) {
       <KpiTile label="Net Income" cents={netIncome} />
       <KpiTile label="Gross Margin" pct={grossMargin} percentDenominated />
       <KpiTile label="Revenue" cents={revenue} pct={revenueMoM} />
-      <KpiTile label="Operating Cash" cents={operatingCash} subLabel={operatingCash == null ? "n/a" : undefined} />
+      <KpiTile label="Operating Cash" cents={operatingCash} />
       <KpiTile label="Cash on Hand" cents={cashOnHand} subLabel={cashSubLabel} />
     </div>
   );
 }
 
-/** Exclusive-choice chip group for Measure -- same visual language as FilterChips (app/components/ui/FilterChips.tsx) but with no "All"/off state, since exactly one measure is always active. */
-function MeasureChips({ value, onChange }: { value: Measure; onChange: (v: Measure) => void }) {
+/**
+ * The View menu: how the table is drawn, as opposed to which rows it shows.
+ * GL numbers and the P&L's measure are display choices, so they live behind
+ * one button rather than beside the filters. Measure is an exclusive choice
+ * with no "All"/off state, so it is a ToggleChip row rather than FilterChips.
+ */
+function ViewMenu({
+  showGlNumbers,
+  onShowGlNumbers,
+  measure,
+  onMeasure,
+  measureAvailable,
+}: {
+  showGlNumbers: boolean;
+  onShowGlNumbers: (v: boolean) => void;
+  measure: Measure;
+  onMeasure: (v: Measure) => void;
+  measureAvailable: boolean;
+}) {
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-xs text-muted mr-0.5">Measure:</span>
-      {MEASURE_OPTIONS.map((o) => (
-        <ToggleChip key={o.value} active={value === o.value} onClick={() => onChange(o.value)}>
-          {o.label}
-        </ToggleChip>
-      ))}
-    </div>
+    <Popover label="View">
+      <div className="flex flex-col gap-3">
+        <label className="flex items-center gap-2 text-xs text-body">
+          <input type="checkbox" checked={showGlNumbers} onChange={(e) => onShowGlNumbers(e.target.checked)} />
+          Show GL numbers
+        </label>
+        {measureAvailable && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs text-muted mr-0.5">Measure:</span>
+            {MEASURE_OPTIONS.map((o) => (
+              <ToggleChip key={o.value} active={measure === o.value} onClick={() => onMeasure(o.value)}>
+                {o.label}
+              </ToggleChip>
+            ))}
+          </div>
+        )}
+      </div>
+    </Popover>
   );
 }
 
@@ -244,7 +273,7 @@ export default function FinancialsClient({
         <StickyHeader>
           <FinanceNav mobile />
           <div className="flex items-start justify-between gap-4">
-            <PageHeader title="Financials" description="Consolidated P&L, Balance Sheet, and Cash Flow — persisted, CoA-mapped data" />
+            <PageHeader title="Financials" description="Monthly statements" />
             <div className="flex items-center gap-2 shrink-0 mt-4">
               {data && (
                 <DataQualityPanel
@@ -321,14 +350,13 @@ export default function FinancialsClient({
             value={filters.quality ?? []}
             onChange={(v) => setFilter("quality", v)}
           />
-          <FilterChips
-            label="GL #"
-            options={[{ value: "show", label: "Show" }]}
-            value={showGlNumbers ? ["show"] : []}
-            onChange={(v) => setShowGlNumbers(v.includes("show"))}
-            allLabel="Hide"
+          <ViewMenu
+            showGlNumbers={showGlNumbers}
+            onShowGlNumbers={setShowGlNumbers}
+            measure={measure}
+            onMeasure={setMeasure}
+            measureAvailable={statement === "pl"}
           />
-          {statement === "pl" && <MeasureChips value={measure} onChange={setMeasure} />}
         </FilterBar>
 
         {isFetching && !data && (

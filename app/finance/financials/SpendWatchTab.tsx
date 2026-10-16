@@ -54,10 +54,10 @@ function DeltaCell({ m }: { m: SpendMover }) {
   );
 }
 
-function Tile({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "danger" | "success" }) {
+function Tile({ label, value, sub, tone, title }: { label: string; value: string; sub?: string; tone?: "danger" | "success"; title?: string }) {
   const valueCls = tone === "danger" ? "text-danger" : tone === "success" ? "text-success" : "text-primary";
   return (
-    <Card padding="p-3" className="flex flex-col gap-1 min-w-0">
+    <Card padding="p-3" className="flex flex-col gap-1 min-w-0" title={title}>
       <span className="text-xs text-muted uppercase tracking-wide truncate">{label}</span>
       <span className={`text-base sm:text-xl font-semibold font-mono tabular-nums ${valueCls}`}>{value}</span>
       {sub && <span className="text-xs text-muted truncate">{sub}</span>}
@@ -96,32 +96,34 @@ export default function SpendWatchTab({
   const baselineLabel = result.baselineMonths.length > 0
     ? `${result.baselineMonths.length}-month average`
     : "no earlier months";
-  const isOpen = focusMonth === openMonth;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <ButtonGroup tabs={BASIS_TABS} activeKey={basis} onSelect={onBasisChange} />
+        <div className="flex items-center gap-1.5">
+          <ButtonGroup tabs={BASIS_TABS} activeKey={basis} onSelect={onBasisChange} />
+          <span
+            className="text-xs text-muted cursor-help"
+            title="Accrual counts a bill in the month it belongs to; cash counts it when paid, so bills settled early the next month swing between months. Judge spend on accrual."
+            aria-label="Accrual vs cash"
+          >
+            ⓘ
+          </span>
+        </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs text-muted mr-0.5">Month:</span>
           {data.months.map((m) => (
             <ToggleChip key={m} active={m === focusMonth} onClick={() => onFocusMonthChange(m)}>
               {MONTH_NAMES[Number(m.slice(5, 7)) - 1] ?? m}
+              {m === openMonth && (
+                <span className="text-2xs opacity-70 ml-1" title="Month in progress: month-to-date against full months, so most accounts read low">
+                  · partial
+                </span>
+              )}
             </ToggleChip>
           ))}
         </div>
       </div>
-
-      {isOpen && (
-        <p className="text-xs text-muted">
-          {monthLabel(focusMonth)} is still in progress: month-to-date spend compared against full months, so most accounts will read low.
-        </p>
-      )}
-      {basis === "cash_flow" && (
-        <p className="text-xs text-muted">
-          Cash basis counts a bill in the month it was paid. Rent and other bills that settle early the next month will swing between months here; the accrual view is the one to judge spend by.
-        </p>
-      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Tile
@@ -138,7 +140,7 @@ export default function SpendWatchTab({
         <Tile
           label="Accounts up"
           value={String(upCount)}
-          sub="≥ $250 and ≥ 15% over average"
+          title="Counted when ≥ $250 and ≥ 15% over the average"
           tone={upCount > 0 ? "danger" : undefined}
         />
         <Tile

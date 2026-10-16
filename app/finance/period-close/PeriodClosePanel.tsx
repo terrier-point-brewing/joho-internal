@@ -150,19 +150,6 @@ function OutstandingRow({
         </span>
       </div>
 
-      <p className="text-2xs text-faint">
-        {task.computedCents !== null && (
-          <>
-            The feed computes {formatBalanceCents(task.computedCents)}
-            {task.computedAt ? ` (as of ${fmtDate(task.computedAt.slice(0, 10))})` : ""} — save to confirm it, or
-            correct it first.{" "}
-          </>
-        )}
-        {task.previousBalance
-          ? `Last entered ${formatBalanceCents(task.previousBalance.cents)} as at ${fmtDate(task.previousBalance.asOfDate)}.`
-          : "No balance has ever been entered for this account."}
-      </p>
-
       <div className="flex items-center gap-2 flex-wrap mt-0.5">
         <div className="relative">
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted text-xs pointer-events-none">$</span>
@@ -182,6 +169,21 @@ function OutstandingRow({
         <button type="button" className="btn-secondary" disabled={busy} onClick={onSkip}>
           No balance this month
         </button>
+        {/* Where the pre-filled figure came from, and what was entered last
+            time, as chips: a reader compares two numbers, not two sentences. */}
+        {task.computedCents !== null && (
+          <Badge tone="info" title="The feed's own figure — save to confirm it, or correct it first">
+            Suggested {formatBalanceCents(task.computedCents)}
+            {task.computedAt ? ` · ${fmtDate(task.computedAt.slice(0, 10))}` : ""}
+          </Badge>
+        )}
+        {task.previousBalance ? (
+          <Badge title="The last balance entered for this account">
+            Last {formatBalanceCents(task.previousBalance.cents)} · {fmtDate(task.previousBalance.asOfDate)}
+          </Badge>
+        ) : (
+          <Badge>Never entered</Badge>
+        )}
       </div>
     </div>
   );
@@ -329,7 +331,7 @@ export default function PeriodClosePanel({
                         .catch((err: Error) => setError(err.message))
                     }
                   >
-                    put back on the list
+                    Reopen
                   </button>
                 )}
               </p>
@@ -404,9 +406,7 @@ function SkipModal({
     <Modal title={`No balance for ${task.accountName}`} onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <p className="text-xs text-secondary">
-          This records that {task.accountName} genuinely had nothing to report for{" "}
-          {formatPeriodLabel(task.periodEnd)}, rather than that it was missed. It does not enter a balance, and the
-          account will read as unsourced for the month.
+          Records that {task.accountName} had no balance for {formatPeriodLabel(task.periodEnd)}. Reason required.
         </p>
         <Field label="Why is there no balance?" required>
           <input

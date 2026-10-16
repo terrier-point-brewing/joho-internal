@@ -67,7 +67,7 @@ export default function FinancePayrollPage() {
     <main className="px-4 sm:px-6">
       <StickyHeader divider>
         <FinanceNav mobile />
-        <PageHeader title="Payroll" description="Pay periods, payroll basis, and Gusto reconciliation." />
+        <PageHeader title="Payroll" description="Pay periods" />
       </StickyHeader>
 
       <div className="mt-4 pb-4 sm:pb-8">
