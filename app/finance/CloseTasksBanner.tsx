@@ -57,29 +57,20 @@ export default function CloseTasksBanner() {
   if (readyAndDue) {
     return (
       <Banner tone="info" className="mx-4 sm:mx-6 mb-4 mt-4">
-        Every account has been answered for {label}, but nobody has closed the month — its balances are still
-        recomputing.{" "}
+        {label} close: every balance in, not yet closed →{" "}
         <a href={`${ENTRY_PATH}/${periodEnd}`} className="underline">
-          Close it in Period Close
+          Period Close
         </a>
-        .
       </Banner>
     );
   }
 
-  // The earliest deadline among the outstanding accounts, not the period's:
-  // accounts may carry their own allowance, and the one that bites first is the
-  // only date worth putting in a one-line nudge.
-  const soonest = open.reduce((a, t) => (t.dueDate < a ? t.dueDate : a), open[0].dueDate);
-
   return (
     <Banner tone="info" className="mx-4 sm:mx-6 mb-4 mt-4">
-      {open.length} balance-sheet account{open.length === 1 ? "" : "s"} still need
-      {open.length === 1 ? "s" : ""} a {label} balance, from {soonest}.{" "}
+      {label} close: {open.length} balance{open.length === 1 ? "" : "s"} outstanding →{" "}
       <a href={`${ENTRY_PATH}/${periodEnd}`} className="underline">
-        Enter them in Period Close
+        Period Close
       </a>
-      .
     </Banner>
   );
 }

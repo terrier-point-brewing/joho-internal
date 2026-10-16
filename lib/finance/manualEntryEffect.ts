@@ -34,10 +34,19 @@ export interface ManualEntryEffectInput {
   accountLabel?: string;
 }
 
+/**
+ * What the form can offer beside the sentence: flip to the kind that works, or
+ * go to where the account's calculation is set up. The UI renders the chip; the
+ * sentence stays one line.
+ */
+export type ManualEntryEffectAction =
+  | { kind: "switch"; to: ManualEntryKind }
+  | { kind: "settings" };
+
 export type ManualEntryEffect =
   | { level: "ok" }
-  | { level: "warn"; message: string }
-  | { level: "info"; message: string };
+  | { level: "warn"; message: string; action?: ManualEntryEffectAction }
+  | { level: "info"; message: string; action?: ManualEntryEffectAction };
 
 const KIND_NOUN: Record<ManualEntryKind, string> = {
   flow: "transaction",
@@ -58,8 +67,8 @@ export function manualEntryEffect(input: ManualEntryEffectInput): ManualEntryEff
   if (accepted === null) {
     return {
       level: "info",
-      message:
-        "This account has no calculation set up yet, so nothing reads this entry into the balance sheet. It will be saved and will start counting once the account is given a calculation under Settings, Finance, Balance Sheet Accounts.",
+      message: "No calculation reads this account yet — the entry saves now and counts once one is set up.",
+      action: { kind: "settings" },
     };
   }
 
@@ -69,8 +78,7 @@ export function manualEntryEffect(input: ManualEntryEffectInput): ManualEntryEff
   if (!alternative) {
     return {
       level: "warn",
-      message:
-        "This account's balance comes entirely from a source that neither kind of entry can change. Saving this will record it in the ledger, but the balance sheet will not move.",
+      message: "This account's source ignores both kinds of entry — it will be recorded, but the balance sheet will not move.",
     };
   }
 
@@ -78,7 +86,8 @@ export function manualEntryEffect(input: ManualEntryEffectInput): ManualEntryEff
     level: "warn",
     message:
       alternative === "balance"
-        ? `This account's balance is reported by the service it is linked to, so a ${KIND_NOUN[entryKind]} entry will not change it. Switch to Balance to state this month's figure instead — it replaces the reported one for that month only.`
-        : `This account adds up what is recorded against it, so a ${KIND_NOUN[entryKind]} entry will not change it. Switch to Transaction to record the correction as a movement — it will carry forward on its own, so it only needs entering once.`,
+        ? `A ${KIND_NOUN[entryKind]} will not change this feed-reported account. Switch to Balance to override that month only.`
+        : `A ${KIND_NOUN[entryKind]} will not change this summed account. Switch to Transaction — it will carry forward, so enter it once.`,
+    action: { kind: "switch", to: alternative },
   };
 }

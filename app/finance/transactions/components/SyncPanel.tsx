@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import RunJobButton from "@/app/components/RunJobButton";
+import Popover from "@/app/components/ui/Popover";
 
 /** Whole days elapsed since an ISO timestamp. */
 export function daysSince(isoStr: string): number {
@@ -79,11 +80,12 @@ export interface SyncPanelProps<T> {
 }
 
 /**
- * Shared sync control for the Transactions subtabs: the "Auto-sync: Nd ago"
- * badge (sourced from real cron_runs history for `cronJob`, not a client-side
- * flag — a manual click here doesn't mean the daily cron is healthy, and vice
- * versa), an optional month picker, a manual sync button, and error/result
- * readout for that manual run.
+ * Shared sync control for the Transactions subtabs: a status dot for the
+ * scheduled run (sourced from real cron_runs history for `cronJob`, not a
+ * client-side flag — a manual click here doesn't mean the daily cron is
+ * healthy, and vice versa; the words live in its tooltip), an optional month
+ * picker, one Sync button, and error/result readout for that manual run. The
+ * scheduled job can be repeated from the "⋯" overflow.
  */
 export default function SyncPanel<T>({
   year,
@@ -130,19 +132,17 @@ export default function SyncPanel<T>({
 
   const scope = showMonthPicker ? (month === 0 ? "full year" : MONTH_LABELS[month - 1]) : "";
   const days = cronStatus.lastSuccessAt != null ? daysSince(cronStatus.lastSuccessAt) : null;
+  const ago = days == null ? "never" : days === 0 ? "today" : `${days}d ago`;
+  const dotTone = cronStatus.latestFailed ? "bg-danger" : cronStatus.overdue ? "bg-accent" : "bg-success";
+  const dotTitle = cronStatus.latestFailed
+    ? `Last scheduled sync failed: ${cronStatus.latestError ?? "no detail"}. Last success ${ago}.`
+    : cronStatus.overdue
+      ? `Scheduled sync overdue — last success ${ago}.`
+      : `Scheduled sync ran ${ago}.`;
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      {days != null && (
-        <span className={`text-xs ${cronStatus.overdue ? "text-accent" : "text-muted"}`}>
-          Auto-sync: {days === 0 ? "today" : `${days}d ago`}
-        </span>
-      )}
-      {cronStatus.latestFailed && (
-        <span className="text-xs text-danger" title={cronStatus.latestError ?? "Last automated sync failed"}>
-          ⚠ last auto-sync failed
-        </span>
-      )}
+      <span className={`inline-block w-2 h-2 rounded-full ${dotTone}`} title={dotTitle} aria-label={dotTitle} />
       {showMonthPicker && (
         <select
           value={month}
@@ -157,11 +157,14 @@ export default function SyncPanel<T>({
           ? `Syncing${scope ? " " + scope : ""}…`
           : `Sync ${scope ? scope + " " : ""}${label}`}
       </button>
-      {/* Beside the targeted sync, not instead of it. The button to its left
-          pulls the range someone chose; this one repeats the scheduled job
-          exactly, which is what to reach for when the badge above says the
-          automatic run is late or failed. */}
-      <RunJobButton job={cronJob} label="Run scheduled sync" onFinished={onSynced} />
+      {/* Behind an overflow, not beside the targeted sync. The button to its
+          left pulls the range someone chose; this one repeats the scheduled job
+          exactly, which is what to reach for when the dot says the automatic
+          run is late or failed. */}
+      <Popover label="⋯" align="right">
+        <p className="mb-2">Scheduled sync {ago}.</p>
+        <RunJobButton job={cronJob} label="Run scheduled sync" onFinished={onSynced} />
+      </Popover>
       {error && <span className="text-xs text-danger">{error}</span>}
       {result && renderResult && <span className="text-xs text-secondary">{renderResult(result)}</span>}
     </div>

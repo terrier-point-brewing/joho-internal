@@ -214,10 +214,10 @@ function ExpenseRowView({
         className="w-full max-w-[360px]"
       />
       {e.mapping_source === "manual" && (
-        <span className="text-2xs text-info shrink-0" title="Manually pinned — sync and auto-map leave it alone">pin</span>
+        <Badge tone="info" className="shrink-0" title="Sync leaves this account alone">Pinned</Badge>
       )}
       {e.mapping_source === "rule" && (
-        <span className="text-2xs text-faint shrink-0" title="Coded from the source-account rule (Settings → Expense Accounts)">rule</span>
+        <Badge className="shrink-0" title="From the source-account rule">Rule</Badge>
       )}
       <SaveHint saving={saving} />
     </div>
@@ -659,12 +659,6 @@ export default function ExpensesPage() {
               />
             ))}
           </LedgerTable>
-          <p className="py-3 text-2xs text-faint">
-            Expenses auto-map to the chart of accounts by their source account (rules live in
-            Settings → Expense Accounts). Override an individual expense in its row — pinned rows show
-            <span className="text-info"> pin</span> and are left untouched by sync and auto-map.
-            Mapped totals feed the P&amp;L, Balance Sheet, and Cash Flow statements.
-          </p>
         </div>
       )}
 

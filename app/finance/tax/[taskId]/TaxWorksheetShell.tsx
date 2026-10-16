@@ -509,10 +509,15 @@ function IdentityHeader({
   ].filter((group) => group.rows.length > 0);
   if (groups.length === 0) return null;
 
+  // Collapsed by default: the identity is the same every period, and the
+  // worksheet below is what the filer came for.
   return (
     <Card className="mt-2" padding="p-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-faint mb-2">Filing Identity</p>
-      <div className="space-y-3">
+      <details>
+        <summary className="text-xs font-semibold uppercase tracking-wide text-faint cursor-pointer select-none">
+          Filing Identity
+        </summary>
+      <div className="space-y-3 mt-2">
         {groups.map((group) => (
           <div key={group.title}>
             <p className="text-xs font-medium text-secondary mb-1">{group.title}</p>
@@ -532,6 +537,7 @@ function IdentityHeader({
           </div>
         ))}
       </div>
+      </details>
     </Card>
   );
 }

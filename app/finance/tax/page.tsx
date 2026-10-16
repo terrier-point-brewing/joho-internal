@@ -47,7 +47,7 @@ function FinanceTaxPageInner() {
     <main className="px-4 sm:px-6">
       <StickyHeader>
         <FinanceNav mobile />
-        <PageHeader title="Tax" description="Upcoming and completed tax filing tasks." />
+        <PageHeader title="Tax" description="Filing tasks" />
         <TabBar tabs={TABS} activeKey={tab} onSelect={setTab} className="mb-0" />
       </StickyHeader>
 

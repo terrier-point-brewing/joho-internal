@@ -12,11 +12,12 @@
 // this says who decided it was finished, and when.
 //
 // ── It shows what is being asserted, not just a button ───────────────────────
-// Closing a month is a claim about every account in it, so the coverage line is
-// part of the control rather than a detail elsewhere: how many configured
-// accounts actually produced a figure, and which ones did not. An account with
-// a source that returned nothing is the interesting one — somebody expected a
-// balance there and none arrived.
+// Closing a month is a claim about every account in it, so the three figures
+// the claim rests on sit in a strip above the button rather than in prose:
+// how many accounts still owe an answer, how many configured accounts actually
+// produced a figure (the ones that did not are a disclosure away — somebody
+// expected a balance there and none arrived), and the balancing difference the
+// close would land at, which is the same column the periods index shows.
 //
 // ── Refusals arrive as sentences ─────────────────────────────────────────────
 // The server recalculates before it closes and refuses on two things it
@@ -130,24 +131,75 @@ export default function ClosePeriodFooter({
     }
   }
 
+  const actor = close?.actorEmail ?? "(removed user)";
+  // A dry run's figure while one is in hand; otherwise the stored snapshot's,
+  // which is what the periods index shows for a closed month.
+  const balancing = preview ? preview.wouldCloseAtCents : coverage.balancingDifferenceCents;
+
   return (
-    <div className="mt-3 pt-3 border-t border-line/40 flex flex-col gap-2">
+    <div className="mt-3 pt-3 border-t border-line/40 flex flex-col gap-3">
+      {/* The three figures the close asserts. Shown whether or not the button
+          is available, because "is this month actually finished?" is not only
+          a question for the person allowed to press it. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Stat label="Outstanding" value={String(openCount)} tone={openCount > 0 ? "accent" : undefined} />
+        <Stat
+          label="Coverage"
+          value={coverage.configured === 0 ? "—" : `${coverage.withBalance} / ${coverage.configured}`}
+          title={coverage.configured === 0 ? "No account has a balance source configured." : "Configured accounts that produced a balance"}
+          detail={
+            coverage.missing.length > 0 ? (
+              <details>
+                <summary className="cursor-pointer hover:text-secondary select-none">
+                  {coverage.missing.length} produced nothing
+                </summary>
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {coverage.missing.map((m) => (
+                    <li key={m}>{m}</li>
+                  ))}
+                </ul>
+              </details>
+            ) : undefined
+          }
+        />
+        <Stat
+          label="Balancing difference"
+          value={balancing === null ? "—" : formatBalanceCents(balancing)}
+          tone={balancing === null ? undefined : balancing === 0 ? "success" : "danger"}
+          detail={
+            balancing === null
+              ? preview
+                ? "Nothing would be computed."
+                : canManage && !isClosed
+                  ? "Preview to compute"
+                  : undefined
+              : balancing === 0
+                ? "Balanced"
+                : preview
+                  ? "Still unaccounted for"
+                  : "As closed"
+          }
+        />
+      </div>
+
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           <Badge tone={isClosed ? "success" : "neutral"}>{isClosed ? "Closed" : "Open"}</Badge>
-          <span className="text-2xs text-muted">
-            {isClosed && close ? (
-              <>
-                {label} was closed by {close.actorEmail ?? "somebody whose login has since been removed"} on{" "}
-                {fmtMoment(close.at)}. Its balances no longer recompute.
-                {close.reason ? ` — “${close.reason}”` : ""}
-              </>
-            ) : (
-              <>
-                {label} is still open, so its balances keep recomputing. Nothing is final until somebody says so.
-              </>
-            )}
-          </span>
+          {isClosed && close && (
+            <span className="text-2xs text-muted">
+              Closed by {actor} on {fmtMoment(close.at)}
+              {close.reason ? ` — “${close.reason}”` : ""}
+            </span>
+          )}
+          {/* Why a previously-closed month is open again. Without this the
+              reopen is invisible after the fact and the month simply looks
+              unfinished. */}
+          {!isClosed && close?.action === "reopened" && (
+            <span className="text-2xs text-muted">
+              Reopened by {actor} on {fmtMoment(close.at)}
+              {close.reason ? ` — “${close.reason}”` : ""}
+            </span>
+          )}
         </div>
 
         {canManage &&
@@ -175,75 +227,11 @@ export default function ClosePeriodFooter({
           ))}
       </div>
 
-      {/* Why a previously-closed month is open again. Without this the reopen
-          is invisible after the fact and the month simply looks unfinished. */}
-      {!isClosed && close?.action === "reopened" && (
-        <p className="text-2xs text-faint">
-          Reopened by {close.actorEmail ?? "somebody whose login has since been removed"} on {fmtMoment(close.at)}
-          {close.reason ? ` — “${close.reason}”` : ""}.
+      {preview && preview.errors.length > 0 && (
+        <p className="text-xs text-danger">
+          The recalculation did not finish cleanly, so the balancing difference is partial:{" "}
+          {preview.errors.join("; ")}
         </p>
-      )}
-
-      {/* What closing asserts. Shown whether or not the button is available,
-          because it is the answer to "is this month actually finished?" and
-          that question is not only for the person allowed to press it. The
-          accounts that produced nothing used to be one comma-joined sentence —
-          at 28 accounts that is a wall nobody reads — so the count stays on the
-          line and the names live behind a disclosure. */}
-      <div className="text-xs text-muted">
-        {coverage.configured === 0 ? (
-          "No account has a balance source configured, so this month has nothing computed behind it."
-        ) : (
-          <>
-            {coverage.withBalance} of {coverage.configured} configured account
-            {coverage.configured === 1 ? "" : "s"} produced a balance for {label}.
-            {coverage.missing.length > 0 && (
-              <details className="mt-0.5">
-                <summary className="cursor-pointer hover:text-secondary select-none">
-                  {coverage.missing.length} account{coverage.missing.length === 1 ? "" : "s"} produced nothing —
-                  usually because nothing has happened on them yet
-                </summary>
-                <ul className="mt-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-0.5 text-2xs text-faint">
-                  {coverage.missing.map((m) => (
-                    <li key={m}>{m}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </>
-        )}
-      </div>
-
-      {preview && (
-        <div className="rounded-md border border-line/60 bg-surface-mid/30 px-4 py-3">
-          {preview.wouldCloseAtCents === null ? (
-            <p className="text-xs text-secondary">Nothing would be computed for {label}.</p>
-          ) : (
-            <div className="flex items-baseline justify-between gap-3 flex-wrap">
-              <span className="text-xs text-secondary">Closing now would land {label} at</span>
-              <span className="flex items-baseline gap-2">
-                <span
-                  className={`text-base sm:text-xl font-semibold font-mono tabular-nums ${
-                    preview.wouldCloseAtCents === 0 ? "text-success" : "text-danger"
-                  }`}
-                >
-                  {formatBalanceCents(preview.wouldCloseAtCents)}
-                </span>
-                {preview.wouldCloseAtCents === 0 ? (
-                  <Badge tone="success">Balanced</Badge>
-                ) : (
-                  <span className="text-xs text-danger">still unaccounted for</span>
-                )}
-              </span>
-            </div>
-          )}
-          {preview.errors.length > 0 && (
-            <p className="text-xs text-danger mt-1.5">
-              The recalculation did not finish cleanly, so this figure is partial:{" "}
-              {preview.errors.join("; ")}
-            </p>
-          )}
-        </div>
       )}
 
       {blockers.length > 0 && (
@@ -285,6 +273,31 @@ export default function ClosePeriodFooter({
   );
 }
 
+/** One figure in the strip above the close button. */
+function Stat({
+  label,
+  value,
+  tone,
+  title,
+  detail,
+}: {
+  label: string;
+  value: string;
+  tone?: "accent" | "success" | "danger";
+  title?: string;
+  detail?: React.ReactNode;
+}) {
+  const valueCls =
+    tone === "danger" ? "text-danger" : tone === "success" ? "text-success" : tone === "accent" ? "text-accent" : "text-strong";
+  return (
+    <div className="min-w-0" title={title}>
+      <p className="text-2xs text-faint uppercase tracking-wide truncate">{label}</p>
+      <p className={`text-base sm:text-xl font-semibold font-mono tabular-nums ${valueCls}`}>{value}</p>
+      {detail && <div className="text-2xs text-faint">{detail}</div>}
+    </div>
+  );
+}
+
 /**
  * "These books are final" — with room to say what the reader should know.
  *
@@ -315,14 +328,14 @@ function CloseModal({
     <Modal title={`Close ${label}`} onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <p className="text-xs text-secondary">
-          {label}&apos;s balances stop recomputing and the month reads as final with your name on it. Reopening later
-          requires a reason.
+          {label}&apos;s balances stop recomputing. The month reads as final with your name on it; reopening needs a
+          reason.
         </p>
         <Field label="Note for the record (optional)">
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. closes at +$822.07 of month-boundary timing: wages paid Jun 2, card statement, untracked inventory"
+            placeholder="e.g. +$822.07 is month-boundary timing: wages paid Jun 2"
             className="inp min-h-20"
             autoFocus
           />
@@ -374,8 +387,7 @@ function ReopenModal({
     <Modal title={`Reopen ${label}`} onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <p className="text-xs text-secondary">
-          {label}&apos;s balances will start recomputing again from the next nightly run, so figures on the balance
-          sheet for that month can change. Close it again once whatever is being corrected has landed.
+          {label}&apos;s figures can change again until it is closed a second time.
         </p>
         <Field label="Why is this month being reopened?" required>
           <input

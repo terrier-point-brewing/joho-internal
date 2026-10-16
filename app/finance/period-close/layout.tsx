@@ -16,7 +16,7 @@ export default async function PeriodCloseLayout({ children }: { children: React.
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8 pb-4 border-b border-line">
         <PageHeader
           title="Period Close"
-          description="The month-end checklist and the human act of closing a period — a closed month's balances stop recomputing."
+          description="Month-end checklist."
         />
       </div>
       <div className="flex-1 overflow-auto">{children}</div>
