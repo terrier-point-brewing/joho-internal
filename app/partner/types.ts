@@ -9,9 +9,14 @@ export interface Overview {
   capacity: MonthCapacity[]; available: ClaimableBatch[]; recipes: OwnRecipe[];
 }
 export interface BrewWindow { week_of: string; ready_around: string }
+export interface RequestOffer { pct: number; bbl: number; note: string | null; offered_at: string | null; answered_at: string | null }
 export interface PortalRequest {
   id: string; kind: "batch" | "claim"; beer_name: string; is_new_beer: boolean; turns: number | null; volume_bbl: number;
-  desired_date: string | null; notes: string | null; status: "submitted" | "approved" | "declined" | "withdrawn";
+  /** Batch requests: the beer actually wanted and the share of the brew it is. Claims: null. */
+  wanted_bbl: number | null; share_pct: number | null;
+  /** The brewery's counter-offer, if one was ever made. Waiting on the partner while status is "adjusted". */
+  offer: RequestOffer | null;
+  desired_date: string | null; notes: string | null; status: "submitted" | "adjusted" | "approved" | "declined" | "withdrawn";
   decision_note: string | null; decided_at: string | null; created_at: string; file_names: string[];
   submitted_by: string | null; withdrawn_by: string | null;
 }

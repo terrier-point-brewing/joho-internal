@@ -13,6 +13,13 @@ import { loadClaimPools } from "./portal.server";
  * data, and it does so by creating the same commitment (and, for a claim, the
  * same allocation) a brewer would have created by hand. From that moment the
  * deal is an ordinary commitment and the request is a closed record.
+ *
+ * A batch request is sized in whole turns, but the partner may want less beer
+ * than the turns yield (two turns, thirty barrels). That ask is wanted_bbl and
+ * the share of the brew it works out to is share_pct. The brewery can counter
+ * with a different share and a note — the request then waits on the partner
+ * ('adjusted') until they accept (back to 'submitted' at the offered share) or
+ * rescind it ('withdrawn').
  */
 
 export const REQUEST_BUCKET = "partner-requests";
@@ -38,6 +45,12 @@ export interface NewBeer {
 export interface RequestFile { path: string; name: string; size: number; type: string }
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** The slice of a brew that `wantedBbl` is, as a whole-number-friendly percentage. */
+export const shareOf = (wantedBbl: number, brewBbl: number) => round2((wantedBbl / brewBbl) * 100);
+/** The barrels a share of a brew comes to. */
+export const bblOfShare = (pct: number, brewBbl: number) => round2((pct / 100) * brewBbl);
 
 function parseNewBeer(raw: unknown): NewBeer {
   const b = (raw ?? {}) as Record<string, unknown>;
@@ -95,8 +108,14 @@ export async function submitRequest(
       newBeer = parseNewBeer(payload.new_beer);
     }
     const desired = text(payload.desired_date, 10);
+    const brewBbl = turns * TURN_BBL;
+    // How much of the brew they actually want. Blank means all of it.
+    const wanted = payload.wanted_bbl == null || payload.wanted_bbl === "" ? brewBbl : round2(Number(payload.wanted_bbl));
+    if (!(wanted > 0)) throw new RequestError("Tell us roughly how many barrels you want.");
+    if (wanted > brewBbl + 1e-4) throw new RequestError(`${turns} turn${turns === 1 ? "" : "s"} brews about ${brewBbl} bbl — ask for more turns if you need more beer.`);
     row = {
-      kind: "batch", recipe_id: recipeId, new_beer: newBeer, turns, volume_bbl: turns * TURN_BBL,
+      kind: "batch", recipe_id: recipeId, new_beer: newBeer, turns, volume_bbl: brewBbl,
+      wanted_bbl: wanted, share_pct: shareOf(wanted, brewBbl),
       desired_date: /^\d{4}-\d{2}-\d{2}$/.test(desired) ? desired : null,
     };
   } else {
@@ -127,24 +146,38 @@ export async function submitRequest(
 
 // ── Read ────────────────────────────────────────────────────────────────────
 
-const REQUEST_SELECT = `id, partner_id, kind, recipe_id, batch_id, turns, volume_bbl, desired_date, notes, new_beer, files,
+const REQUEST_SELECT = `id, partner_id, kind, recipe_id, batch_id, turns, volume_bbl, wanted_bbl, share_pct, desired_date, notes, new_beer, files,
   status, channel, decision_note, decided_at, decided_by, created_by, commitment_id, allocation_id, created_at,
+  offered_pct, offered_bbl, offer_note, offered_by, offered_at, offer_answered_at,
   recipes(beer_name, style), brew_batches(beer_name, batch_number), contract_brewing_partners(company_name)`;
 
 interface RequestRow {
   id: string; partner_id: string; kind: "batch" | "claim"; recipe_id: string | null; batch_id: string | null;
-  turns: number | null; volume_bbl: number | string; desired_date: string | null; notes: string | null;
+  turns: number | null; volume_bbl: number | string; wanted_bbl: number | string | null; share_pct: number | string | null;
+  desired_date: string | null; notes: string | null;
   new_beer: NewBeer | null; files: RequestFile[]; status: string; channel: string | null;
   decision_note: string | null; decided_at: string | null; decided_by: string | null; created_by: string | null;
   commitment_id: string | null; allocation_id: string | null; created_at: string;
+  offered_pct: number | string | null; offered_bbl: number | string | null; offer_note: string | null;
+  offered_by: string | null; offered_at: string | null; offer_answered_at: string | null;
   recipes: { beer_name: string | null; style: string | null } | null;
   brew_batches: { beer_name: string | null; batch_number: string | null } | null;
   contract_brewing_partners: { company_name: string } | null;
 }
 
+/** The brewery's counter-offer on a batch request: a different share of the brew, and why. */
+export interface RequestOffer {
+  pct: number; bbl: number; note: string | null; offered_at: string | null;
+  /** When the partner accepted or rescinded; null while it waits on them. */
+  answered_at: string | null;
+}
+
 export interface PortalRequest {
   id: string; kind: "batch" | "claim"; beer_name: string; is_new_beer: boolean;
   turns: number | null; volume_bbl: number; desired_date: string | null; notes: string | null;
+  /** Batch requests: the beer actually wanted and the share of the brew it is. Claims: null. */
+  wanted_bbl: number | null; share_pct: number | null;
+  offer: RequestOffer | null;
   status: string; decision_note: string | null; decided_at: string | null; created_at: string; file_names: string[];
   /** Which of the company's logins sent it — a company can have several. */
   submitted_by: string | null;
@@ -161,6 +194,17 @@ async function emailsOf(admin: SupabaseClient, ids: Array<string | null>): Promi
 }
 
 const beerName = (r: RequestRow) => r.recipes?.beer_name ?? r.new_beer?.name ?? r.brew_batches?.beer_name ?? "Beer";
+const num = (v: number | string | null) => (v == null ? null : Number(v));
+const offerOf = (r: RequestRow): RequestOffer | null => r.offered_pct == null ? null
+  : { pct: Number(r.offered_pct), bbl: Number(r.offered_bbl), note: r.offer_note, offered_at: r.offered_at, answered_at: r.offer_answered_at };
+const shapeOf = (r: RequestRow) => ({
+  id: r.id, kind: r.kind, beer_name: beerName(r), is_new_beer: r.kind === "batch" && !r.recipe_id,
+  turns: r.turns, volume_bbl: Number(r.volume_bbl), desired_date: r.desired_date, notes: r.notes,
+  wanted_bbl: r.kind === "batch" ? num(r.wanted_bbl) ?? Number(r.volume_bbl) : null,
+  share_pct: r.kind === "batch" ? num(r.share_pct) ?? 100 : null,
+  offer: offerOf(r),
+  status: r.status, decision_note: r.decision_note, decided_at: r.decided_at, created_at: r.created_at,
+});
 
 /** A partner's own requests — no channel, no batch number, no staff identity. */
 export async function listRequestsForPartner(admin: SupabaseClient, partnerId: string): Promise<PortalRequest[]> {
@@ -168,11 +212,9 @@ export async function listRequestsForPartner(admin: SupabaseClient, partnerId: s
   const rows = (data ?? []) as unknown as RequestRow[];
   const emails = await emailsOf(admin, rows.flatMap((r) => [r.created_by, r.status === "withdrawn" ? r.decided_by : null]));
   return rows.map((r) => ({
+    ...shapeOf(r),
     submitted_by: r.created_by ? emails.get(r.created_by) ?? null : null,
     withdrawn_by: r.status === "withdrawn" && r.decided_by ? emails.get(r.decided_by) ?? null : null,
-    id: r.id, kind: r.kind, beer_name: beerName(r), is_new_beer: r.kind === "batch" && !r.recipe_id,
-    turns: r.turns, volume_bbl: Number(r.volume_bbl), desired_date: r.desired_date, notes: r.notes,
-    status: r.status, decision_note: r.decision_note, decided_at: r.decided_at, created_at: r.created_at,
     file_names: (r.files ?? []).map((f) => f.name),
   }));
 }
@@ -180,6 +222,8 @@ export async function listRequestsForPartner(admin: SupabaseClient, partnerId: s
 export interface InboxRequest extends Omit<PortalRequest, "file_names" | "withdrawn_by"> {
   /** Who approved, declined or withdrew it. */
   decided_by: string | null;
+  /** Who made the counter-offer. */
+  offered_by: string | null;
   partner_id: string; partner_name: string; recipe_id: string | null; batch_id: string | null; batch_number: string | null;
   new_beer: NewBeer | null; files: RequestFile[]; channel: string | null;
   commitment_id: string | null;
@@ -195,7 +239,7 @@ export async function listInbox(admin: SupabaseClient): Promise<InboxRequest[]> 
 
   const openClaimBatches = [...new Set(rows.filter((r) => r.status === "submitted" && r.kind === "claim" && r.batch_id).map((r) => r.batch_id!))];
   const partnerIds = [...new Set(rows.map((r) => r.partner_id))];
-  const emails = await emailsOf(admin, rows.flatMap((r) => [r.created_by, r.decided_by]));
+  const emails = await emailsOf(admin, rows.flatMap((r) => [r.created_by, r.decided_by, r.offered_by]));
   const [pools, { data: deals }] = await Promise.all([
     openClaimBatches.length > 0 ? loadClaimPools(admin, { batchIds: openClaimBatches }) : Promise.resolve(new Map()),
     partnerIds.length > 0
@@ -212,11 +256,10 @@ export async function listInbox(admin: SupabaseClient): Promise<InboxRequest[]> 
   return rows.map((r) => {
     const allowed: readonly string[] = r.kind === "claim" ? CLAIM_CHANNELS : BATCH_CHANNELS;
     return {
-      id: r.id, kind: r.kind, beer_name: beerName(r), is_new_beer: r.kind === "batch" && !r.recipe_id,
-      turns: r.turns, volume_bbl: Number(r.volume_bbl), desired_date: r.desired_date, notes: r.notes,
-      status: r.status, decision_note: r.decision_note, decided_at: r.decided_at, created_at: r.created_at,
+      ...shapeOf(r),
       submitted_by: r.created_by ? emails.get(r.created_by) ?? null : null,
       decided_by: r.decided_by ? emails.get(r.decided_by) ?? null : null,
+      offered_by: r.offered_by ? emails.get(r.offered_by) ?? null : null,
       partner_id: r.partner_id, partner_name: r.contract_brewing_partners?.company_name ?? "Partner",
       recipe_id: r.recipe_id, batch_id: r.batch_id, batch_number: r.brew_batches?.batch_number ?? null,
       new_beer: r.new_beer, files: r.files ?? [], channel: r.channel, commitment_id: r.commitment_id,
@@ -231,33 +274,74 @@ export async function listInbox(admin: SupabaseClient): Promise<InboxRequest[]> 
 export async function withdrawRequest(admin: SupabaseClient, partnerId: string, id: string, userId: string): Promise<void> {
   // A withdrawal is a decision too — it records which login made it, and when.
   const { data } = await admin.from("partner_requests")
-    .update({ status: "withdrawn", decided_by: userId, decided_at: new Date().toISOString() }).eq("id", id).eq("partner_id", partnerId).eq("status", "submitted").select("id");
+    .update({ status: "withdrawn", decided_by: userId, decided_at: new Date().toISOString() })
+    .eq("id", id).eq("partner_id", partnerId).in("status", ["submitted", "adjusted"]).select("id");
   if (!data || data.length === 0) throw new RequestError("That request has already been decided.", 409);
+}
+
+// ── Answer a counter-offer ──────────────────────────────────────────────────
+
+/**
+ * The partner's reply to an adjusted share. Accepting makes the offer the
+ * request (wanted and share become the offered figures) and sends it back to
+ * the inbox for the final approval; rescinding withdraws it. The offer itself
+ * stays on the row either way, as the record of what was proposed.
+ */
+export async function answerOffer(
+  admin: SupabaseClient, partnerId: string, id: string, userId: string, action: "accept" | "rescind",
+): Promise<void> {
+  if (action === "rescind") return withdrawRequest(admin, partnerId, id, userId);
+  if (action !== "accept") throw new RequestError("Unknown action.");
+  const { data: rows } = await admin.from("partner_requests").select("id, offered_pct, offered_bbl")
+    .eq("id", id).eq("partner_id", partnerId).eq("status", "adjusted");
+  const row = rows?.[0] as { offered_pct: number | string | null; offered_bbl: number | string | null } | undefined;
+  if (!row || row.offered_pct == null) throw new RequestError("There is no offer waiting on this request.", 409);
+  const { data } = await admin.from("partner_requests")
+    .update({ status: "submitted", share_pct: Number(row.offered_pct), wanted_bbl: Number(row.offered_bbl), offer_answered_at: new Date().toISOString() })
+    .eq("id", id).eq("partner_id", partnerId).eq("status", "adjusted").select("id");
+  if (!data || data.length === 0) throw new RequestError("That request has already been decided.", 409);
+}
+
+/** Every login at a partner company — who to email about their request. */
+export async function partnerEmails(admin: SupabaseClient, partnerId: string): Promise<string[]> {
+  const { data } = await admin.from("profiles").select("email").eq("partner_id", partnerId);
+  return ((data ?? []) as Array<{ email: string | null }>).map((p) => p.email?.trim() ?? "").filter((e) => e.includes("@"));
 }
 
 // ── Decide ──────────────────────────────────────────────────────────────────
 
 export interface DecideInput {
-  action: "approve" | "decline";
+  action: "approve" | "decline" | "adjust";
   note?: string;
   channel?: string;
   /** For a new beer: the recipe the brewer built from the partner's write-up. */
   recipe_id?: string;
+  /** For adjust: the share of the brew the brewery is willing to book. */
+  share_pct?: number;
 }
 
-export async function decideRequest(admin: SupabaseClient, deciderId: string, id: string, input: DecideInput): Promise<{ commitment_id: string | null; allocation_id: string | null }> {
+export interface Decision {
+  commitment_id: string | null; allocation_id: string | null;
+  /** For adjust: what the partner is being offered, for the email. */
+  offer?: { partner_id: string; pct: number; bbl: number; turns: number; brew_bbl: number; note: string; beer_name: string };
+}
+
+export async function decideRequest(admin: SupabaseClient, deciderId: string, id: string, input: DecideInput): Promise<Decision> {
   const note = text(input.note, 2000) || null;
   if (input.action === "decline" && !note) throw new RequestError("Tell the partner why — a declined request needs a note.");
+  if (input.action === "adjust") return adjustRequest(admin, deciderId, id, input.share_pct, note);
   if (input.action !== "approve" && input.action !== "decline") throw new RequestError("Unknown action.");
 
   // Take the decision first, atomically: two brewers clicking Approve must not
   // both create the deal. Anything that fails below hands the request back.
+  // A decline can also end a request still waiting on the partner's answer;
+  // an approval cannot — the share is not agreed yet.
   const stamp = { decided_by: deciderId, decided_at: new Date().toISOString(), decision_note: note };
   const { data: taken } = await admin.from("partner_requests")
     .update({ status: input.action === "approve" ? "approved" : "declined", ...stamp })
-    .eq("id", id).eq("status", "submitted")
-    .select("id, partner_id, kind, recipe_id, batch_id, volume_bbl, desired_date, notes, created_at");
-  const req = taken?.[0] as { id: string; partner_id: string; kind: "batch" | "claim"; recipe_id: string | null; batch_id: string | null; volume_bbl: number | string; desired_date: string | null; notes: string | null; created_at: string } | undefined;
+    .eq("id", id).in("status", input.action === "approve" ? ["submitted"] : ["submitted", "adjusted"])
+    .select("id, partner_id, kind, recipe_id, batch_id, turns, volume_bbl, wanted_bbl, share_pct, desired_date, notes, created_at");
+  const req = taken?.[0] as Taken | undefined;
   if (!req) throw new RequestError("That request has already been decided or withdrawn.", 409);
   if (input.action === "decline") return { commitment_id: null, allocation_id: null };
 
@@ -276,9 +360,42 @@ export async function decideRequest(admin: SupabaseClient, deciderId: string, id
   }
 }
 
-type Taken = { id: string; partner_id: string; recipe_id: string | null; batch_id: string | null; volume_bbl: number | string; desired_date: string | null; notes: string | null; created_at: string };
+type Taken = {
+  id: string; partner_id: string; kind: "batch" | "claim"; recipe_id: string | null; batch_id: string | null; turns: number | null;
+  volume_bbl: number | string; wanted_bbl: number | string | null; share_pct: number | string | null;
+  desired_date: string | null; notes: string | null; created_at: string;
+};
 
 const dealNotes = (req: Taken) => `Requested through the partner portal.${req.notes ? ` Partner's note: ${req.notes}` : ""}`;
+
+/**
+ * Counter with a different share of the brew. The request leaves the inbox
+ * and waits on the partner; nothing is booked until they accept and a brewer
+ * approves the agreed share.
+ */
+async function adjustRequest(admin: SupabaseClient, deciderId: string, id: string, sharePct: number | undefined, note: string | null): Promise<Decision> {
+  const pct = round2(Number(sharePct));
+  if (!(pct > 0) || pct > 100) throw new RequestError("The share must be between 1% and 100% of the brew.");
+  if (!note) throw new RequestError("Tell the partner why — an adjusted share needs a note.");
+  const { data: rows } = await admin.from("partner_requests")
+    .select("id, kind, turns, volume_bbl, share_pct, wanted_bbl, new_beer, recipes(beer_name)").eq("id", id).eq("status", "submitted");
+  const req = rows?.[0] as { kind: string; turns: number | null; volume_bbl: number | string; share_pct: number | string | null; new_beer: { name?: string } | null; recipes: { beer_name: string | null } | { beer_name: string | null }[] | null } | undefined;
+  if (!req) throw new RequestError("That request has already been decided or withdrawn.", 409);
+  if (req.kind !== "batch") throw new RequestError("Only a batch request has a share to adjust — decline a claim with a note instead.");
+  if (Math.abs(pct - Number(req.share_pct ?? 100)) < 1e-6) throw new RequestError("That is the share they asked for — approve it instead.");
+  const brewBbl = Number(req.volume_bbl);
+  const bbl = bblOfShare(pct, brewBbl);
+  const { data } = await admin.from("partner_requests")
+    .update({ status: "adjusted", offered_pct: pct, offered_bbl: bbl, offer_note: note, offered_by: deciderId, offered_at: new Date().toISOString(), offer_answered_at: null })
+    .eq("id", id).eq("status", "submitted").select("id, partner_id");
+  const row = data?.[0] as { partner_id: string } | undefined;
+  if (!row) throw new RequestError("That request has already been decided or withdrawn.", 409);
+  const recipe = Array.isArray(req.recipes) ? req.recipes[0] : req.recipes;
+  return {
+    commitment_id: null, allocation_id: null,
+    offer: { partner_id: row.partner_id, pct, bbl, turns: req.turns ?? 0, brew_bbl: brewBbl, note, beer_name: recipe?.beer_name ?? req.new_beer?.name ?? "your beer" },
+  };
+}
 
 async function insertCommitment(admin: SupabaseClient, row: Record<string, unknown>): Promise<string> {
   const { data, error } = await admin.from("commitments")
@@ -301,9 +418,17 @@ async function approveBatch(admin: SupabaseClient, req: Taken, input: DecideInpu
   const delivery = req.desired_date
     ? new Date(Date.parse(`${req.desired_date}T00:00:00Z`) + lead * 86_400_000).toISOString().slice(0, 10)
     : null;
+  // The deal is for the beer they want, not the whole brew. The share is the
+  // allocation to write when the batch is scheduled from this commitment.
+  const brewBbl = Number(req.volume_bbl);
+  const wanted = req.wanted_bbl == null ? brewBbl : Number(req.wanted_bbl);
+  const share = req.share_pct == null ? 100 : Number(req.share_pct);
+  const sizing = share < 100
+    ? ` ${share}% of a ${req.turns ?? Math.round(brewBbl / TURN_BBL)}-turn brew (${wanted} of ${brewBbl} bbl) — allocate that share when the batch is scheduled.`
+    : "";
   const commitment_id = await insertCommitment(admin, {
-    recipe_id: recipeId, partner_id: req.partner_id, volume_bbl: Number(req.volume_bbl), channel: input.channel,
-    desired_delivery_date: delivery, received_on: req.created_at.slice(0, 10), notes: dealNotes(req),
+    recipe_id: recipeId, partner_id: req.partner_id, volume_bbl: wanted, channel: input.channel,
+    desired_delivery_date: delivery, received_on: req.created_at.slice(0, 10), notes: dealNotes(req) + sizing,
   });
   return { commitment_id, allocation_id: null };
 }

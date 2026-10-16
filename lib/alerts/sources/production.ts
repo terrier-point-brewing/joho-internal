@@ -101,20 +101,26 @@ export const partnerRequests: AlertSource = {
   async load(admin, { today }) {
     const { data, error } = await admin
       .from("partner_requests")
-      .select("id, kind, volume_bbl, desired_date, created_at, new_beer, contract_brewing_partners(company_name), recipes(beer_name)")
+      .select("id, kind, volume_bbl, wanted_bbl, share_pct, offer_answered_at, desired_date, created_at, new_beer, contract_brewing_partners(company_name), recipes(beer_name)")
       .eq("status", "submitted")
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
-    type Row = { id: string; kind: "batch" | "claim"; volume_bbl: number | string; desired_date: string | null; created_at: string; new_beer: { name?: string } | null; contract_brewing_partners: { company_name: string } | { company_name: string }[] | null; recipes: { beer_name: string } | { beer_name: string }[] | null };
+    type Row = { id: string; kind: "batch" | "claim"; volume_bbl: number | string; wanted_bbl: number | string | null; share_pct: number | string | null; offer_answered_at: string | null; desired_date: string | null; created_at: string; new_beer: { name?: string } | null; contract_brewing_partners: { company_name: string } | { company_name: string }[] | null; recipes: { beer_name: string } | { beer_name: string }[] | null };
     return ((data ?? []) as Row[]).map((r) => {
       const beer = one(r.recipes)?.beer_name?.trim() ?? r.new_beer?.name?.trim() ?? "a new beer";
+      const partner = one(r.contract_brewing_partners)?.company_name ?? "A partner";
+      const partial = r.kind === "batch" && r.share_pct != null && Number(r.share_pct) < 100;
+      // An accepted counter-offer is a fresh ask, dated from the answer, not the original send.
+      const since = r.offer_answered_at ?? r.created_at;
       return {
         key: `partner-request:${r.id}`,
-        title: `${one(r.contract_brewing_partners)?.company_name ?? "A partner"} asks for ${r.kind === "batch" ? "a batch of" : "beer from"} ${beer}`,
-        detail: `${bbl(r.volume_bbl)}${r.desired_date ? ` wanted by ${r.desired_date}` : ""}. Approve or decline it.`,
+        title: r.offer_answered_at
+          ? `${partner} accepted your offer of ${Number(r.share_pct)}% of ${beer}`
+          : `${partner} asks for ${r.kind === "batch" ? (partial ? "part of a batch of" : "a batch of") : "beer from"} ${beer}`,
+        detail: `${partial ? `${bbl(r.wanted_bbl ?? r.volume_bbl)} of a ${bbl(r.volume_bbl)} brew (${Number(r.share_pct)}%)` : bbl(r.volume_bbl)}${r.desired_date ? ` wanted by ${r.desired_date}` : ""}. ${r.offer_answered_at ? "Approve to book it." : "Approve, adjust the share, or decline it."}`,
         href: "/production/intake",
-        severity: agedSeverity(r.created_at, today, 7),
-        when: isoDate(r.created_at),
+        severity: agedSeverity(since, today, 7),
+        when: isoDate(since),
       };
     });
   },

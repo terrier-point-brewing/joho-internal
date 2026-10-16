@@ -25,7 +25,11 @@ import type { Recipe } from "@/app/production/types";
 
 interface InboxRequest {
   id: string; kind: "batch" | "claim"; beer_name: string; is_new_beer: boolean; turns: number | null; volume_bbl: number;
-  desired_date: string | null; notes: string | null; status: "submitted" | "approved" | "declined" | "withdrawn";
+  /** Batch requests: the beer actually wanted and the share of the brew it is. Claims: null. */
+  wanted_bbl: number | null; share_pct: number | null;
+  offer: { pct: number; bbl: number; note: string | null; offered_at: string | null; answered_at: string | null } | null;
+  offered_by: string | null;
+  desired_date: string | null; notes: string | null; status: "submitted" | "adjusted" | "approved" | "declined" | "withdrawn";
   decision_note: string | null; decided_at: string | null; created_at: string;
   partner_id: string; partner_name: string; recipe_id: string | null; batch_id: string | null; batch_number: string | null;
   new_beer: { name: string; style: string | null; abv: number | null; ingredients: string; instructions: string; ingredient_supply: "partner" | "brewery" } | null;
@@ -37,6 +41,7 @@ interface InboxRequest {
 const CHANNEL_LABEL: Record<string, string> = { contract_brewing: "Contract brewing", distribution: "Distribution", wholesale: "Wholesale" };
 const STATUS: Record<InboxRequest["status"], { label: string; tone: Tone }> = {
   submitted: { label: "Needs a decision", tone: "accent" },
+  adjusted: { label: "Waiting on the partner", tone: "info" },
   approved: { label: "Approved", tone: "success" },
   declined: { label: "Declined", tone: "danger" },
   withdrawn: { label: "Withdrawn", tone: "neutral" },
@@ -54,7 +59,14 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
   const [deciding, setDeciding] = useState<InboxRequest | null>(null);
   const { data = [], isLoading, error } = useQuery({ queryKey: QUERY_KEY, queryFn: () => fetchJson<InboxRequest[]>("/api/production/partner-requests") });
 
-  const rows = view === "open" ? data.filter((r) => r.status === "submitted") : data;
+  const rows = view === "open" ? data.filter((r) => r.status === "submitted" || r.status === "adjusted") : data;
+  /** A partial batch, or a counter-offer the partner came back on — the inbox says which. */
+  const sizing = (r: InboxRequest) => {
+    if (r.kind !== "batch" || r.share_pct == null || r.wanted_bbl == null) return null;
+    if (r.status === "submitted" && r.offer?.answered_at) return `Partner accepted your offer of ${r.share_pct}% (${r.wanted_bbl} bbl) — approve to book it.`;
+    if (r.share_pct >= 100) return null;
+    return `Wants about ${r.wanted_bbl} bbl — ${r.share_pct}% of the batch. We would carry the other ${Number((r.volume_bbl - r.wanted_bbl).toFixed(2))} bbl.`;
+  };
 
   // The inbox sits above Commitments: loud when something waits, one line when not.
   return (
@@ -62,7 +74,7 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
       <h2 className="text-sm font-semibold text-primary mb-2">Partner requests</h2>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <ButtonGroup<View>
-          tabs={[{ key: "open", label: `Needs a decision (${data.filter((r) => r.status === "submitted").length})` }, { key: "all", label: "Everything" }]}
+          tabs={[{ key: "open", label: `Open (${data.filter((r) => r.status === "submitted" || r.status === "adjusted").length})` }, { key: "all", label: "Everything" }]}
           activeKey={view}
           onSelect={setView}
         />
@@ -91,10 +103,19 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
                     {r.claimable_now_bbl} bbl claimable on that batch right now, after the taproom&apos;s reserve.
                   </div>
                 )}
+                {sizing(r) && (
+                  <div className={`text-xs mt-1 ${r.status === "submitted" && r.offer?.answered_at ? "text-success" : "text-secondary"}`}>{sizing(r)}</div>
+                )}
                 {r.notes && <p className="text-xs text-body mt-1">Partner&apos;s note: {r.notes}</p>}
-                {r.status !== "submitted" && (
+                {r.status === "adjusted" && r.offer && (
                   <p className="text-xs text-muted mt-1">
-                    {r.status === "approved" ? "Approved" : r.status === "declined" ? "Declined" : "Withdrawn"}
+                    Offered {r.offer.pct}% ({r.offer.bbl} bbl){r.offered_by ? ` by ${r.offered_by}` : ""}{r.offer.offered_at ? ` on ${day(r.offer.offered_at)}` : ""} — the partner has not answered yet.
+                    {r.offer.note ? ` Note: ${r.offer.note}` : ""}
+                  </p>
+                )}
+                {r.status !== "submitted" && r.status !== "adjusted" && (
+                  <p className="text-xs text-muted mt-1">
+                    {r.status === "approved" ? "Approved" : r.status === "declined" ? "Declined" : r.offer && !r.offer.answered_at ? "Withdrawn" : r.offer ? "Rescinded by the partner after our offer" : "Withdrawn"}
                     {r.decided_by ? ` by ${r.decided_by}` : ""}{r.decided_at ? ` on ${day(r.decided_at)}` : ""}
                   </p>
                 )}
@@ -103,7 +124,7 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
               </div>
               <div className="flex items-center gap-2">
                 <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>
-                {r.status === "submitted" && (
+                {(r.status === "submitted" || r.status === "adjusted") && (
                   <button className="btn-primary btn-xxs" onClick={() => setDeciding(r)}>{canDecide ? "Review" : "View"}</button>
                 )}
               </div>
@@ -124,22 +145,32 @@ function DecideModal({ request: r, recipes, canDecide, onClose }: { request: Inb
   const [recipeId, setRecipeId] = useState(r.recipe_id ?? "");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"approve" | "decline" | null>(null);
+  const [busy, setBusy] = useState<"approve" | "decline" | "adjust" | null>(null);
+  // Counter-offer: a different share of the brew. Starts at what they asked for.
+  const askedPct = r.share_pct ?? 100;
+  const [sharePct, setSharePct] = useState(String(askedPct));
+  const waiting = r.status === "adjusted";
 
   const partnerRecipes = recipes.filter((x) => x.partner_id === r.partner_id);
   const short = isClaim && r.claimable_now_bbl != null && r.claimable_now_bbl + 1e-4 < r.volume_bbl;
-  const blocked = !channel ? "Choose the partnership model."
+  const blocked = waiting ? "Waiting on the partner's answer to the offer. You can still decline it."
+    : !channel ? "Choose the partnership model."
     : short ? "There is not enough claimable beer left on that batch. Decline with a note so the partner can ask again."
     : !isClaim && !recipeId ? "Build the recipe under this partner in Recipes, then pick it here."
     : null;
+  const pctNum = Number(sharePct);
+  const pctOk = Number.isFinite(pctNum) && pctNum > 0 && pctNum <= 100;
+  const offeredBbl = pctOk ? Math.round((pctNum / 100) * r.volume_bbl * 100) / 100 : null;
+  const changed = pctOk && Math.abs(pctNum - askedPct) > 1e-6;
 
-  async function decide(action: "approve" | "decline") {
+  async function decide(action: "approve" | "decline" | "adjust") {
     setError(null);
     if (action === "decline" && !note.trim()) { setError("Tell the partner why — a declined request needs a note."); return; }
+    if (action === "adjust" && !note.trim()) { setError("Tell the partner why — an adjusted share needs a note."); return; }
     setBusy(action);
     const res = await fetch(`/api/production/partner-requests/${r.id}/decide`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, note, channel, recipe_id: recipeId || undefined }),
+      body: JSON.stringify({ action, note, channel, recipe_id: recipeId || undefined, ...(action === "adjust" ? { share_pct: pctNum } : {}) }),
     });
     setBusy(null);
     if (!res.ok) { setError((await res.json().catch(() => ({}))).error ?? "Could not save the decision."); return; }
@@ -163,6 +194,21 @@ function DecideModal({ request: r, recipes, canDecide, onClose }: { request: Inb
           <p className={`text-xs ${short ? "text-danger" : "text-muted"}`}>
             {r.claimable_now_bbl} bbl is claimable right now, after the taproom&apos;s reserve. Approving takes {r.volume_bbl} bbl out of the
             unallocated share first, then the taproom&apos;s allocation, and gives it to a new allocation for {r.partner_name}.
+          </p>
+        )}
+        {!isClaim && r.wanted_bbl != null && r.share_pct != null && (
+          <p className={`text-xs ${r.share_pct < 100 ? "text-secondary" : "text-muted"}`}>
+            {r.offer?.answered_at && r.status === "submitted"
+              ? `The partner accepted your offer of ${r.share_pct}% — about ${r.wanted_bbl} bbl. Approving books that share.`
+              : r.share_pct < 100
+                ? `They want about ${r.wanted_bbl} bbl — ${r.share_pct}% of the batch. Approving books that share; the other ${Number((r.volume_bbl - r.wanted_bbl).toFixed(2))} bbl is ours to sell.`
+                : "They want the whole batch."}
+          </p>
+        )}
+        {waiting && r.offer && (
+          <p className="text-xs text-muted">
+            Offered {r.offer.pct}% ({r.offer.bbl} bbl){r.offered_by ? ` by ${r.offered_by}` : ""}{r.offer.offered_at ? ` on ${day(r.offer.offered_at)}` : ""}.
+            {r.offer.note ? ` Note sent: ${r.offer.note}` : ""}
           </p>
         )}
         {r.notes && <p className="text-xs text-body">Partner&apos;s note: {r.notes}</p>}
@@ -207,14 +253,28 @@ function DecideModal({ request: r, recipes, canDecide, onClose }: { request: Inb
                   ? "Approving books the commitment. Schedule its batch from the Commitments list below; the ingredient deposit is raised there once the batch is allocated."
                   : "Approving books the commitment. Schedule its batch from the Commitments list below; it is invoiced at shipment."}
             </p>
-            <Field label="Note to the partner" hint="required to decline">
+            {!isClaim && !waiting && (
+              <Field label="Share of the batch" hint={`% — they asked for ${askedPct}%. Change it to send a counter-offer.`}>
+                <div className="flex items-center gap-2">
+                  <input type="number" inputMode="decimal" min={1} max={100} step={1} value={sharePct} onChange={(e) => setSharePct(e.target.value)} className="inp w-28" />
+                  <span className={`text-xs ${pctOk ? "text-muted" : "text-danger"}`}>
+                    {!pctOk ? "Between 1 and 100." : `= about ${offeredBbl} bbl of ${r.volume_bbl}${changed ? " — the partner must accept this before it can be booked" : ""}`}
+                  </span>
+                </div>
+              </Field>
+            )}
+            <Field label="Note to the partner" hint={changed ? "required — it goes in the email with the new share" : "required to decline"}>
               <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} className="inp w-full" />
             </Field>
             {blocked && <p className="text-xs text-accent-soft">{blocked}</p>}
             <div className="flex justify-end gap-2 pt-2 border-t border-line mt-2">
               <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
               <button type="button" className="btn-danger" disabled={busy != null} onClick={() => decide("decline")}>{busy === "decline" ? "Saving…" : "Decline"}</button>
-              <button type="button" className="btn-primary" disabled={busy != null || blocked != null} onClick={() => decide("approve")}>{busy === "approve" ? "Saving…" : "Approve"}</button>
+              {changed ? (
+                <button type="button" className="btn-primary" disabled={busy != null || waiting} onClick={() => decide("adjust")}>{busy === "adjust" ? "Sending…" : `Offer ${pctNum}% to the partner`}</button>
+              ) : (
+                <button type="button" className="btn-primary" disabled={busy != null || blocked != null} onClick={() => decide("approve")}>{busy === "approve" ? "Saving…" : "Approve"}</button>
+              )}
             </div>
           </>
         )}
