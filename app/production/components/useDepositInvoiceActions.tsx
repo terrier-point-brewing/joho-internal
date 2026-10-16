@@ -16,7 +16,7 @@ type DepositInvoiceTarget = DepositInvoiceAllocationLike & { id: string };
  */
 export function useDepositInvoiceActions(onChanged: () => unknown) {
   const [invoiceModalAlloc, setInvoiceModalAlloc] = useState<DepositInvoiceTarget | null>(null);
-  const [invoicePreview, setInvoicePreview] = useState<{ calculation: DepositCalculation } | null>(null);
+  const [invoicePreview, setInvoicePreview] = useState<{ calculation: DepositCalculation; description?: string | null } | null>(null);
   const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
   const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null);
 
@@ -25,7 +25,7 @@ export function useDepositInvoiceActions(onChanged: () => unknown) {
     setInvoicePreview(null);
     setInvoicePreviewLoading(true);
     try {
-      const data = await fetchJson<{ calculation: DepositCalculation }>(`/api/production/allocations/${a.id}/invoice`);
+      const data = await fetchJson<{ calculation: DepositCalculation; description?: string | null }>(`/api/production/allocations/${a.id}/invoice`);
       setInvoicePreview(data);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Failed to load invoice preview");
