@@ -13,7 +13,8 @@ import Card from "@/app/components/ui/Card";
 import type { Tone } from "@/app/components/ui/tone";
 import BatchRequestModal from "./BatchRequestModal";
 import ClaimModal from "./ClaimModal";
-import { bbl, bbl1, dollars, longDate, monthLabel, shortDate, type ClaimableBatch, type Overview, type PaymentStatus, type PortalDeal, type PortalHistory, type PortalInvoice, type PortalRequest, type PortalShipment, PROGRESS_STEPS } from "./types";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
+import { apiError, bbl, bbl1, dollars, longDate, monthLabel, shortDate, type ClaimableBatch, type Overview, type PaymentStatus, type PortalDeal, type PortalHistory, type PortalInvoice, type PortalRequest, type PortalShipment, PROGRESS_STEPS } from "./types";
 
 type TabKey = "home" | "batches" | "available" | "capacity" | "requests" | "history";
 
@@ -61,6 +62,8 @@ export default function PartnerPortal() {
   const [batchForm, setBatchForm] = useState<{ month: string | null } | null>(null);
   const [claiming, setClaiming] = useState<ClaimableBatch | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // A withdraw or rescind waiting on a "are you sure?".
+  const [pending, setPending] = useState<{ id: string; action: "withdraw" | "rescind" } | null>(null);
 
   const needsCompany = !isPartner && !as;
   const overview = useQuery({
@@ -89,18 +92,18 @@ export default function PartnerPortal() {
   }
 
   async function withdraw(id: string) {
-    if (!confirm("Withdraw this request?")) return;
-    const res = await fetch(`/api/partner/requests/${id}`, { method: "DELETE" });
-    if (!res.ok) setNotice((await res.json().catch(() => ({}))).error ?? "Could not withdraw the request.");
+    setPending(null);
+    const res = await fetch(`/api/partner/requests/${id}${qs}`, { method: "DELETE" });
+    if (!res.ok) setNotice(await apiError(res, "Could not withdraw the request."));
     qc.invalidateQueries({ queryKey: ["partner", "requests"] });
   }
 
   async function answer(id: string, action: "accept" | "rescind") {
-    if (action === "rescind" && !confirm("Rescind this request? It will be withdrawn.")) return;
-    const res = await fetch(`/api/partner/requests/${id}/offer`, {
+    setPending(null);
+    const res = await fetch(`/api/partner/requests/${id}/offer${qs}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }),
     });
-    if (!res.ok) setNotice((await res.json().catch(() => ({}))).error ?? "Could not send your answer.");
+    if (!res.ok) setNotice(await apiError(res, "Could not send your answer."));
     else setNotice(action === "accept" ? "Accepted — we will book it at that share and let you know." : "Request rescinded.");
     qc.invalidateQueries({ queryKey: ["partner", "requests"] });
   }
@@ -259,7 +262,7 @@ export default function PartnerPortal() {
                   <div className="flex items-center gap-2">
                     <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>
                     {r.status === "submitted" && (
-                      <button className="btn-secondary btn-xxs" onClick={() => withdraw(r.id)}>Withdraw</button>
+                      <button className="btn-secondary btn-xxs" onClick={() => setPending({ id: r.id, action: "withdraw" })}>Withdraw</button>
                     )}
                   </div>
                 </div>
@@ -275,7 +278,7 @@ export default function PartnerPortal() {
                     {(
                       <div className="flex gap-2 mt-2">
                         <button className="btn-primary btn-xxs" onClick={() => answer(r.id, "accept")}>Accept {r.offer.pct}%</button>
-                        <button className="btn-secondary btn-xxs" onClick={() => answer(r.id, "rescind")}>Rescind request</button>
+                        <button className="btn-secondary btn-xxs" onClick={() => setPending({ id: r.id, action: "rescind" })}>Rescind request</button>
                       </div>
                     )}
                   </div>
@@ -367,6 +370,15 @@ export default function PartnerPortal() {
           previewAs={as}
           onClose={() => setBatchForm(null)}
           onSubmitted={() => submitted("Request sent. We will review it and reply here.")}
+        />
+      )}
+      {pending && (
+        <ConfirmDialog
+          title={pending.action === "withdraw" ? "Withdraw this request?" : "Rescind this request?"}
+          message={pending.action === "withdraw" ? "It will be marked withdrawn. You can send a new one any time." : "The offer is declined and the request is marked withdrawn. You can send a new one any time."}
+          confirmLabel={pending.action === "withdraw" ? "Withdraw" : "Rescind"}
+          onConfirm={() => (pending.action === "withdraw" ? withdraw(pending.id) : answer(pending.id, "rescind"))}
+          onCancel={() => setPending(null)}
         />
       )}
       {claiming && (
