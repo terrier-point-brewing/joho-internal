@@ -140,7 +140,7 @@ export default function PartnerRequestsTab({ recipes }: { recipes: Recipe[] }) {
 function DecideModal({ request: r, recipes, canDecide, onClose }: { request: InboxRequest; recipes: Recipe[]; canDecide: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const isClaim = r.kind === "claim";
-  const channels = isClaim ? ["distribution", "wholesale"] : ["contract_brewing", "distribution", "wholesale"];
+  const channels = ["contract_brewing", "distribution", "wholesale"];
   const [channel, setChannel] = useState(r.suggested_channel ?? "");
   const [recipeId, setRecipeId] = useState(r.recipe_id ?? "");
   const [note, setNote] = useState("");
@@ -248,7 +248,9 @@ function DecideModal({ request: r, recipes, canDecide, onClose }: { request: Inb
             )}
             <p className="text-xs text-muted">
               {isClaim
-                ? "Invoiced at shipment at the product price with the channel discount — no deposit, exactly as any distribution or wholesale deal."
+                ? channel === "contract_brewing"
+                  ? "Approving books the commitment and allocates their share of the batch. Raise the ingredient deposit from that allocation on the Deposits list; if it is still unpaid when the beer ships, the export invoice back-charges it."
+                  : "Invoiced at shipment at the product price with the channel discount — no deposit, exactly as any distribution or wholesale deal."
                 : channel === "contract_brewing"
                   ? "Approving books the commitment. Schedule its batch from the Commitments list below; the ingredient deposit is raised there once the batch is allocated."
                   : "Approving books the commitment. Schedule its batch from the Commitments list below; it is invoiced at shipment."}

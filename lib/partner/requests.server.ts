@@ -25,7 +25,12 @@ import { loadClaimPools } from "./portal.server";
 export const REQUEST_BUCKET = "partner-requests";
 export const MAX_FILES = 5;
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const CLAIM_CHANNELS = ["distribution", "wholesale"] as const;
+// A claim on beer already brewing may be any of the three models. Approved as
+// contract brewing, the allocation it writes is an ordinary contract allocation:
+// the ingredient deposit is raised from it on demand (the share divides by the
+// batch's PROJECTED yield, so an unpackaged batch bills correctly), and a deposit
+// nobody sent is back-charged onto the export invoice as the beer ships.
+const CLAIM_CHANNELS = ["contract_brewing", "distribution", "wholesale"] as const;
 const BATCH_CHANNELS = ["contract_brewing", "distribution", "wholesale"] as const;
 
 export class RequestError extends Error {
@@ -435,7 +440,7 @@ async function approveBatch(admin: SupabaseClient, req: Taken, input: DecideInpu
 
 async function approveClaim(admin: SupabaseClient, req: Taken, input: DecideInput) {
   if (!(CLAIM_CHANNELS as readonly string[]).includes(input.channel ?? "")) {
-    throw new RequestError("A claim on existing beer is a distribution or wholesale deal.");
+    throw new RequestError("Choose the partnership model for this deal.");
   }
   if (!req.batch_id) throw new RequestError("This claim no longer points at a batch.");
   const entry = (await loadClaimPools(admin, { batchIds: [req.batch_id] })).get(req.batch_id);

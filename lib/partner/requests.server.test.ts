@@ -95,10 +95,22 @@ describe("decideRequest — claims", () => {
     expect(allocWrites).toEqual(["update", "insert"]);
   });
 
-  it("refuses contract brewing for a claim, and hands the request back undecided", async () => {
+  it("approves a claim as contract brewing: an ordinary contract allocation, deposit raised on demand", async () => {
     const db = seed();
-    await expect(decideRequest(db.client, "brewer-1", "req-1", { action: "approve", channel: "contract_brewing" }))
-      .rejects.toThrow(/distribution or wholesale/);
+    const out = await decideRequest(db.client, "brewer-1", "req-1", { action: "approve", channel: "contract_brewing" });
+    expect(db.tables.commitments).toEqual([expect.objectContaining({ partner_id: "fortnight", volume_bbl: 10, channel: "contract_brewing", status: "open" })]);
+    const created = db.tables.batch_allocations.find((a) => a.partner_id === "fortnight")!;
+    // Nothing deposit-related is stamped at approval — the allocation is uninvoiced
+    // until someone raises the deposit from it (or the export invoice back-charges it).
+    expect(created).toMatchObject({ batch_id: "b1", channel: "contract_brewing", percentage: 25, contract_request_id: out.commitment_id });
+    expect(created.invoice_generated_at).toBeUndefined();
+    expect(db.tables.batch_allocations.find((a) => a.id === "taproom")!.percentage).toBe(35);
+  });
+
+  it("refuses a claim with no model chosen, and hands the request back undecided", async () => {
+    const db = seed();
+    await expect(decideRequest(db.client, "brewer-1", "req-1", { action: "approve", channel: "retail" }))
+      .rejects.toThrow(/Choose the partnership model/);
     expect(db.tables.partner_requests[0]).toMatchObject({ status: "submitted", decided_by: null });
     expect(db.tables.commitments).toEqual([]);
   });
