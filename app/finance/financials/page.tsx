@@ -25,17 +25,17 @@ import { createServerQueryClient } from "@/lib/query-server";
 import { buildFinancials } from "@/lib/finance/financials";
 import type { StatementKind } from "@/lib/finance/financials/types";
 import { localDateString } from "@/lib/utils/datetime";
-import FinancialsClient from "./FinancialsClient";
+import FinancialsClient, { type FinancialsView } from "./FinancialsClient";
 
-const VALID_STATEMENTS: StatementKind[] = ["pl", "balance_sheet", "cash_flow"];
+const VALID_VIEWS: FinancialsView[] = ["pl", "balance_sheet", "cash_flow", "spend_watch"];
 
 /**
  * Reads the `?statement=` param the old /finance/statements redirects preserve.
  * Typed against what Next actually hands over -- a repeated param arrives as an
- * array, which is not a StatementKind and falls through to the P&L default.
+ * array, which is not a view and falls through to the P&L default.
  */
-function initialStatementFrom(param: string | string[] | undefined): StatementKind {
-  return VALID_STATEMENTS.includes(param as StatementKind) ? (param as StatementKind) : "pl";
+function initialViewFrom(param: string | string[] | undefined): FinancialsView {
+  return VALID_VIEWS.includes(param as FinancialsView) ? (param as FinancialsView) : "pl";
 }
 
 /**
@@ -55,7 +55,9 @@ export default async function FinancialsPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const { statement: statementParam } = await searchParams;
-  const statement = initialStatementFrom(statementParam);
+  const view = initialViewFrom(statementParam);
+  // Spend Watch opens on the accrual basis, so it reads the P&L.
+  const statement: StatementKind = view === "spend_watch" ? "pl" : view;
   const year = breweryYear();
 
   const queryClient = createServerQueryClient();
@@ -70,7 +72,7 @@ export default async function FinancialsPage({
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <FinancialsClient initialStatement={statement} initialYear={year} />
+      <FinancialsClient initialStatement={view} initialYear={year} />
     </HydrationBoundary>
   );
 }
