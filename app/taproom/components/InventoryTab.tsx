@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import ButtonGroup from "@/app/components/ButtonGroup";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import SquareDriftPanel from "./SquareDriftPanel";
 import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
@@ -87,13 +89,11 @@ function QuantityCard({
   return (
     <div className="rounded-md border border-accent-border/30 bg-accent-muted/20 px-1.5 py-1">
       {label && <div className="text-[9px] text-accent-soft leading-none">{label}</div>}
-      <div className="flex items-baseline gap-1">
+      {/* Barrelage is in the row total and the footer; the cell is the count only. */}
+      <div className="flex items-baseline gap-1" title={isDraft ? undefined : `${fmtBbl(v.currentBbl)} bbl`}>
         <span className="text-sm font-semibold text-accent-emphasis leading-none tabular-nums">{headline}</span>
         <span className="text-[10px] text-muted">{unit}</span>
       </div>
-      {!isDraft && (
-        <div className="text-[10px] text-secondary tabular-nums leading-tight">{fmtBbl(v.currentBbl)} bbl</div>
-      )}
     </div>
   );
 }
@@ -119,11 +119,6 @@ function Cell({ cell, col }: { cell: InventoryCell | null | undefined; col: Mapp
         {stocked.map((v) => (
           <QuantityCard key={v.variationId} v={v} label={multi ? varLabel(v.variationName, col.label) : null} />
         ))}
-        {multi && (
-          <div className="text-[10px] text-secondary text-right tabular-nums pr-0.5">
-            {fmtBbl(cell.totalBbl)} bbl
-          </div>
-        )}
       </div>
     </td>
   );
@@ -133,6 +128,10 @@ function Cell({ cell, col }: { cell: InventoryCell | null | undefined; col: Mapp
 
 export default function InventoryTab() {
   const [view, setView] = useState<View>("onHand");
+  // Square drift is a reconciliation tool: manager+ only. Lower roles never see
+  // the switcher, so the on-hand grid is simply the tab.
+  const { can } = usePermissions();
+  const canReconcile = can(CAP.taproomPerformanceOperate);
 
   // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
   // React Query has paused reads as false while there is still no data — the
@@ -175,11 +174,11 @@ export default function InventoryTab() {
   // The view switcher renders above every branch so it stays reachable while the
   // grid loads or errors — the drift view is the one you want when on-hand is
   // misbehaving.
-  const switcher = (
+  const switcher = canReconcile ? (
     <ButtonGroup className="mb-2" tabs={VIEWS} activeKey={view} onSelect={setView} />
-  );
+  ) : null;
 
-  if (view === "drift") return <div>{switcher}<SquareDriftPanel /></div>;
+  if (view === "drift" && canReconcile) return <div>{switcher}<SquareDriftPanel /></div>;
 
   if (isPending) return <div>{switcher}<div className="text-sm text-muted py-8 text-center">Loading inventory…</div></div>;
   if (error) return <div>{switcher}<div className="text-sm text-danger py-8 text-center">{(error as Error).message}</div></div>;

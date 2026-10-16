@@ -60,6 +60,16 @@ function formatCurrency(cents: number, decimals = 0) {
   return formatCurrencyCents(cents, decimals);
 }
 
+function kpiValue(metric: KpiMetric, data: PulseData | null): number | null {
+  if (!data) return null;
+  switch (metric) {
+    case "net_sales":   return data.net_sales_cents;
+    case "gross_sales": return data.gross_sales_cents;
+    case "avg_ticket":  return data.avg_ticket_cents;
+    case "guest_count": return data.order_count;
+  }
+}
+
 function formatMetricValue(metric: KpiMetric, value: number): string {
   if (metric === "net_sales" || metric === "gross_sales") return formatCurrency(value);
   if (metric === "avg_ticket") return formatCurrency(value);
@@ -225,10 +235,7 @@ function CategoryDrill({
       </div>
 
       {anyProrated && (
-        <div className="mt-2 text-2xs text-muted italic">
-          &ldquo;est.&rdquo; — Square sent this refund without per-line detail, so it was split across the
-          order by value. No receipt shows that exact amount.
-        </div>
+        <div className="mt-2 text-2xs text-muted italic">est. = refund split across the order.</div>
       )}
 
       {/* The drill is emitted by the same code that produced the total, so this
@@ -248,20 +255,31 @@ function CategoryDrill({
 // KPI card
 // ---------------------------------------------------------------------------
 
+// The tile is also the chart's metric selector — one control, not a tile row
+// plus a chip row saying the same four names.
 function KpiCard({
-  label, current, prior, metric,
+  label, current, prior, metric, active, onSelect,
 }: {
   label: string;
   current: number | null;
   prior: number | null;
   metric: KpiMetric;
+  active: boolean;
+  onSelect: () => void;
 }) {
   const change = current !== null && prior !== null ? pctChange(current, prior) : null;
   const isUp = change !== null && change >= 0;
 
   return (
-    <div className="bg-surface border border-line rounded-lg p-4">
-      <div className="text-xs text-muted mb-1">{label}</div>
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onSelect}
+      className={`text-left bg-surface border rounded-lg p-4 transition-colors ${
+        active ? "border-accent-border bg-accent-muted/20" : "border-line hover:border-line-subtle"
+      }`}
+    >
+      <div className={`text-xs mb-1 ${active ? "text-accent-soft" : "text-muted"}`}>{label}</div>
       <div className="text-base sm:text-xl font-semibold text-primary">
         {current !== null ? formatMetricValue(metric, current) : <span className="text-faint">—</span>}
       </div>
@@ -273,7 +291,7 @@ function KpiCard({
       {change === null && prior !== null && (
         <div className="text-xs mt-1 text-faint">No prior week data</div>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -434,57 +452,25 @@ export default function SalesPulseTab() {
         <TimezoneLabel className="w-full sm:w-auto sm:ml-auto" />
       </div>
 
-      {/* 4 KPI cards */}
+      {/* 4 KPI tiles — the selected one is what the chart draws */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <KpiCard
-          label="Net Sales"
-          metric="net_sales"
-          current={currentData?.net_sales_cents ?? null}
-          prior={priorData?.net_sales_cents ?? null}
-        />
-        <KpiCard
-          label="Gross Sales"
-          metric="gross_sales"
-          current={currentData?.gross_sales_cents ?? null}
-          prior={priorData?.gross_sales_cents ?? null}
-        />
-        <KpiCard
-          label="Avg Ticket Size"
-          metric="avg_ticket"
-          current={currentData?.avg_ticket_cents ?? null}
-          prior={priorData?.avg_ticket_cents ?? null}
-        />
-        <KpiCard
-          label="Guest Count"
-          metric="guest_count"
-          current={currentData?.order_count ?? null}
-          prior={priorData?.order_count ?? null}
-        />
+        {KPI_OPTIONS.map(({ value, label }) => (
+          <KpiCard
+            key={value}
+            label={label}
+            metric={value}
+            active={chartMetric === value}
+            onSelect={() => setChartMetric(value)}
+            current={kpiValue(value, currentData)}
+            prior={kpiValue(value, priorData)}
+          />
+        ))}
       </div>
 
       {/* Chart */}
       <div className="bg-surface border border-line rounded-lg p-3 sm:p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div className="text-sm font-medium text-body">Daily Performance</div>
-          <div className="flex items-start sm:items-center gap-2">
-            <span className="text-xs text-muted shrink-0 pt-1.5 sm:pt-0">Metric</span>
-            {/* Mobile: 2×2 grid */}
-            <div className="sm:hidden grid grid-cols-2 gap-1 flex-1">
-              {KPI_OPTIONS.map(({ value, label }) => (
-                <ToggleChip key={value} active={chartMetric === value} onClick={() => setChartMetric(value)}>
-                  {label}
-                </ToggleChip>
-              ))}
-            </div>
-            {/* Desktop: horizontal strip */}
-            <div className="hidden sm:flex items-center gap-1">
-              {KPI_OPTIONS.map(({ value, label }) => (
-                <ToggleChip key={value} active={chartMetric === value} onClick={() => setChartMetric(value)}>
-                  {label}
-                </ToggleChip>
-              ))}
-            </div>
-          </div>
+        <div className="text-sm font-medium text-body mb-4">
+          Daily {KPI_OPTIONS.find((o) => o.value === chartMetric)?.label ?? "Performance"}
         </div>
 
         <SalesPulseChart chartData={chartData} chartMetric={chartMetric} />
@@ -521,17 +507,6 @@ export default function SalesPulseTab() {
 
         {catSource && (
           <>
-            <div className="flex items-center gap-4 mb-3 text-xs text-muted">
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-0.5 bg-text-secondary rounded" />
-                Included in taproom net sales
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block w-3 h-0.5 bg-surface-high rounded" />
-                Excluded
-              </span>
-            </div>
-
             <div className="overflow-x-auto -mx-5 px-5">
             <table className="w-full text-sm min-w-[540px]">
               <thead>
