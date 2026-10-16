@@ -124,10 +124,11 @@ describe("injectInventoryCostRows", () => {
     );
     const byName = Object.fromEntries(rows.map((r) => [r.accountName, r]));
 
-    expect(byName["Raw Materials Purchases (Capitalised to inventory)"].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": 100_000, "2026-06": 50_000 });
-    expect(byName["Raw Materials Purchases (Cost of beer sold)"].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": -40_000, "2026-06": -60_000 });
-    // May: change 0 (opening) − 1,000 + 400 = −600 lost. June: +500 − 500 + 600 = +600 gained.
-    expect(byName["Inventory Shrinkage & Adjustments (Inventory shrinkage & adjustments)"].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": -60_000, "2026-06": 60_000 });
+    // May is the opening month: its purchases stay the cost, no rows.
+    expect(byName["Raw Materials Purchases (Capitalised to inventory)"].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": 0, "2026-06": 50_000 });
+    expect(byName["Raw Materials Purchases (Cost of beer sold)"].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": 0, "2026-06": -60_000 });
+    // June: +500 − 500 + 600 = +600 gained.
+    expect(byName["Inventory Shrinkage & Adjustments (Inventory shrinkage & adjustments)"].amountCentsByMonth).toEqual({ "2026-04": 0, "2026-05": 0, "2026-06": 60_000 });
 
     // The three derived rows sum to the month's change in inventory (the
     // purchase row itself is still on the statement), so the P&L nets to
@@ -153,11 +154,15 @@ describe("injectInventoryCostRows", () => {
     expect(byCoa).toEqual({ "coa-5100": -300, "coa-5120": -70 });
   });
 
-  it("leaves months before tracking began untouched — their purchases stay the cost", () => {
-    const rows = injectInventoryCostRows([purchase], [{ source: raw, valueByMonth: { "2026-06": 2_500_000 } }], sold, MONTHS, COA_WITH_6460);
+  it("leaves months through the opening month untouched — their purchases stay the cost", () => {
+    const rows = injectInventoryCostRows([purchase], [{ source: raw, valueByMonth: { "2026-05": 2_500_000 } }], sold, MONTHS, COA_WITH_6460);
     for (const r of rows.filter((x) => x !== purchase)) {
+      expect(r.amountCentsByMonth["2026-04"]).toBe(0);
       expect(r.amountCentsByMonth["2026-05"]).toBe(0);
     }
+    // Tracking that begins in the last month of the window injects nothing at all.
+    const none = injectInventoryCostRows([purchase], [{ source: raw, valueByMonth: { "2026-06": 2_500_000 } }], sold, MONTHS, COA_WITH_6460);
+    expect(none).toEqual([purchase]);
   });
 
   it("injects nothing when no shelf is configured", () => {

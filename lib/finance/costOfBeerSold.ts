@@ -14,6 +14,19 @@
  * batch is exhausted and the real shrinkage is known, the months it sold in
  * are restated to the real cost, automatically.
  *
+ * ── Beer brewed before tracking began is already a cost ──────────────────────
+ * Inventory tracking started the first month a shelf has a value. Every
+ * purchase before that was expensed straight to COGS the day it was coded, so
+ * the beer brewed from it has ALREADY been charged. Costing it again when it
+ * sells books the same ingredients twice — and because the shelves never gave
+ * that beer up, the inventory residual (GL 6460) booked a matching "gain" of
+ * exactly that amount every month pre-tracking beer sold (≈$3.5k/month in
+ * Aug–Oct 2026). A batch whose brew date (planned_brew_date, else created_at;
+ * a conversion child follows its root parent) falls before the first tracked
+ * month therefore carries NO beer cost here. Its packaging still does: cans
+ * and PakTechs leave the packaging shelf the day the beer is packaged, which
+ * can be well after the brew.
+ *
  * ── What this replaces ───────────────────────────────────────────────────────
  * Until 2026-10 the P&L carried purchases as cost and corrected them by the
  * month's change in inventory. That formula cannot tell a sale from a count
@@ -67,6 +80,8 @@ export function costSoldRows(
   recipePerBblCents: ReadonlyMap<string, number>,
   variationsById: ReadonlyMap<string, PackagingVariationRow>,
   itemsById: Map<string, PackagingItemRow>,
+  /** Batches brewed before inventory tracking began: their beer is already a cost, so it carries none here. */
+  expensedBatchIds: ReadonlySet<string> = new Set(),
 ): CostOfBeerSoldByMonth {
   const out: CostOfBeerSoldByMonth = {};
   for (const m of months) out[m] = { beerCents: 0, packagingCents: 0, ids: [] };
@@ -78,7 +93,9 @@ export function costSoldRows(
 
     const bbl = Number(r.volume_bbl ?? 0);
     const batch = r.batch_id ? batchCosts.get(r.batch_id) : undefined;
-    const perBbl = batch && batch.costPerBblCents > 0
+    const alreadyExpensed = r.batch_id !== null && expensedBatchIds.has(r.batch_id);
+    const perBbl = alreadyExpensed ? 0
+      : batch && batch.costPerBblCents > 0
       ? batch.costPerBblCents
       : r.recipe_id ? (recipePerBblCents.get(r.recipe_id) ?? 0) : 0;
     bucket.beerCents += Math.round(bbl * perBbl);
@@ -96,15 +113,50 @@ export function costSoldRows(
   return out;
 }
 
+export interface BatchDateRow {
+  id: string;
+  planned_brew_date: string | null;
+  created_at: string;
+  converted_from_batch_id: string | null;
+}
+
+/**
+ * Pure: the batches brewed before `trackedFrom` ("YYYY-MM"), whose ingredients
+ * were expensed when bought. A conversion child is as old as its root parent —
+ * the beer in it was brewed then, whatever day the conversion was recorded.
+ * No tracking month → nothing is pre-tracking.
+ */
+export function preTrackingBatchIds(batches: readonly BatchDateRow[], trackedFrom: string | null): Set<string> {
+  const out = new Set<string>();
+  if (!trackedFrom) return out;
+  const cutoff = `${trackedFrom}-01`;
+  const byId = new Map(batches.map((b) => [b.id, b]));
+  const brewDate = (b: BatchDateRow): string => (b.planned_brew_date ?? b.created_at).slice(0, 10);
+  for (const b of batches) {
+    let root = b;
+    const seen = new Set<string>([b.id]);
+    while (root.converted_from_batch_id) {
+      const parent = byId.get(root.converted_from_batch_id);
+      if (!parent || seen.has(parent.id)) break;
+      seen.add(parent.id);
+      root = parent;
+    }
+    if (brewDate(root) < cutoff) out.add(b.id);
+  }
+  return out;
+}
+
 export async function fetchCostOfBeerSoldByMonth(
   supabase: SupabaseClient,
   months: string[],
+  /** First month inventory has a value (inventoryRelief.firstTrackedMonth); beer brewed before it carries no cost. */
+  trackedFrom: string | null = null,
 ): Promise<CostOfBeerSoldByMonth> {
   if (months.length === 0) return {};
   const first = `${months[0]}-01`;
   const last = monthEnd(`${months[months.length - 1]}-01`);
 
-  const [rows, variations, items, recipeCost, batchCosts] = await Promise.all([
+  const [rows, variations, items, recipeCost, batchCosts, batches] = await Promise.all([
     fetchAllRows<SoldRow>(() =>
       supabase
         .from("export_transactions")
@@ -124,6 +176,12 @@ export async function fetchCostOfBeerSoldByMonth(
     ),
     fetchRecipeCostCents(supabase),
     loadBatchCosts(supabase),
+    fetchAllRows<BatchDateRow>(() =>
+      supabase
+        .from("brew_batches")
+        .select("id, planned_brew_date, created_at, converted_from_batch_id")
+        .order("id", { ascending: true }),
+    ),
   ]);
 
   return costSoldRows(
@@ -133,5 +191,6 @@ export async function fetchCostOfBeerSoldByMonth(
     recipeCost.perBbl,
     new Map(variations.map((v: PackagingVariationRow) => [v.id, v])),
     new Map(items.map((i: PackagingItemRow) => [i.id, i])),
+    preTrackingBatchIds(batches, trackedFrom),
   );
 }

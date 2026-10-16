@@ -127,8 +127,12 @@ export { reliefDeltasByMonth };
  *
  * Opening balances — the first month a shelf has a value — are excluded from
  * the change (reliefDeltasByMonth excludeOpening): equity absorbs them, not
- * the month's P&L. Months before tracking began get no rows at all: their
- * purchases stay the cost, as they always were.
+ * the month's P&L. Months up to and INCLUDING the first tracked month get no
+ * rows at all: their purchases stay the cost, as they always were. The opening
+ * month is the pre-tracking world closing out — its purchases are already in
+ * the opening value equity absorbs — so capitalising them while its change is
+ * forced to zero dropped the whole month's purchases onto 6460 as a loss
+ * ($8.8k in July 2026).
  */
 export function injectInventoryCostRows(
   rows: FinancialsRow[],
@@ -141,7 +145,7 @@ export function injectInventoryCostRows(
   const coaMap = new Map(coa.map((c) => [c.id, c]));
   const trackedFrom = firstTrackedMonth(series);
   if (!trackedFrom) return rows;
-  const active = months.filter((m) => m >= trackedFrom);
+  const active = months.filter((m) => m > trackedFrom);
   if (active.length === 0) return rows;
 
   const offsets = [...new Set(series.map((s) => s.source.offsetCoaId))];
