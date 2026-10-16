@@ -1,7 +1,7 @@
 // Cost of beer sold: each unit that left × its batch's unit cost, plus the
 // packaging around it, bucketed by the month it left.
 import { describe, it, expect } from "vitest";
-import { costSoldRows } from "./costOfBeerSold";
+import { costSoldRows, preTrackingBatchIds } from "./costOfBeerSold";
 import type { BatchCost } from "./batchCost";
 import type { PackagingItemRow } from "./inventoryValuation";
 
@@ -62,5 +62,40 @@ describe("costSoldRows", () => {
     );
     expect(Object.keys(out)).toEqual(MONTHS);
     expect(out["2026-08"].beerCents).toBe(0);
+  });
+
+  it("charges no beer for a batch brewed before tracking began, but still its packaging", () => {
+    const out = costSoldRows(
+      [{ id: "x4", batch_id: "old", recipe_id: "r1", variation_id: "v-4pk", volume_bbl: 0.5, quantity: 3, created_at: "2026-08-10T15:00:00Z" }],
+      MONTHS,
+      new Map([["old", batchCost(5_000)]]),
+      new Map([["r1", 4_000]]),
+      variations,
+      items,
+      new Set(["old"]),
+    );
+    // The ingredients were expensed when bought; costing them again would
+    // surface as a phantom gain on the inventory residual.
+    expect(out["2026-08"].beerCents).toBe(0);
+    expect(out["2026-08"].packagingCents).toBe(240);
+    expect(out["2026-08"].ids).toEqual(["x4"]);
+  });
+});
+
+describe("preTrackingBatchIds", () => {
+  const batches = [
+    { id: "june", planned_brew_date: "2026-06-20", created_at: "2026-06-18T00:00:00Z", converted_from_batch_id: null },
+    { id: "july", planned_brew_date: "2026-07-01", created_at: "2026-06-25T00:00:00Z", converted_from_batch_id: null },
+    { id: "undated", planned_brew_date: null, created_at: "2026-06-30T12:00:00Z", converted_from_batch_id: null },
+    { id: "child", planned_brew_date: "2026-08-05", created_at: "2026-08-05T00:00:00Z", converted_from_batch_id: "june" },
+    { id: "grandchild", planned_brew_date: "2026-09-01", created_at: "2026-09-01T00:00:00Z", converted_from_batch_id: "child" },
+  ];
+
+  it("takes the brew date, falls back to created_at, and follows a conversion to its root", () => {
+    expect([...preTrackingBatchIds(batches, "2026-07")].sort()).toEqual(["child", "grandchild", "june", "undated"]);
+  });
+
+  it("is empty when tracking has not begun", () => {
+    expect(preTrackingBatchIds(batches, null).size).toBe(0);
   });
 });

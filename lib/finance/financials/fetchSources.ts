@@ -12,7 +12,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchDepreciationState, type ScheduleState } from "@/lib/finance/depreciation/state";
-import { fetchInventoryValueSeries, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
+import { fetchInventoryValueSeries, firstTrackedMonth, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
 import { fetchCostOfBeerSoldByMonth, type CostOfBeerSoldByMonth } from "@/lib/finance/costOfBeerSold";
 import { fetchSquareFeeSeries, type SquareFeeSeries } from "@/lib/finance/squareFees";
 import { fetchExciseExpenseByMonth } from "@/lib/finance/exciseExpense";
@@ -758,14 +758,18 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
   // Depreciation and inventory relief inputs, P&L only — see the result type.
   // The live month uses the runtime clock the same way trailingMonths does.
   const liveMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  const [depreciationStates, inventoryValueSeries, exciseExpenseByMonth, costOfBeerSold] = statement === "pl"
+  // Cost of beer sold waits for the value series: beer brewed before the first
+  // tracked month was expensed when bought and must not be costed again.
+  const [depreciationStates, inventoryValueSeries, exciseExpenseByMonth] = statement === "pl"
     ? await Promise.all([
         fetchDepreciationState(supabase, coa),
         fetchInventoryValueSeries(supabase, months, liveMonth),
         fetchExciseExpenseByMonth(supabase, months[months.length - 1]),
-        fetchCostOfBeerSoldByMonth(supabase, months),
       ])
-    : [[], [], {}, {}];
+    : [[], [], {}];
+  const costOfBeerSold = statement === "pl"
+    ? await fetchCostOfBeerSoldByMonth(supabase, months, firstTrackedMonth(inventoryValueSeries))
+    : {};
   const squareFeeSeries = await fetchSquareFeeSeries(supabase, months);
 
   return {
