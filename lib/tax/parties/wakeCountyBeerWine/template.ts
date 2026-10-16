@@ -101,7 +101,7 @@ const scheduleConfigSchema: FieldSpec[] = [
       value: t.value,
       label: `${t.label} — $${(t.feeCents / 100).toFixed(2)}`,
     })),
-    help: "Which Wake County beer & wine licenses this brewery renews. The renewal total is the sum of the selected licenses' annual fees.",
+    help: "Licenses this brewery renews.",
   },
 ];
 

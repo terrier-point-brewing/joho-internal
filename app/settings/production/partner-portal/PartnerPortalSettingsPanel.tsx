@@ -36,12 +36,17 @@ export default function PartnerPortalSettingsPanel() {
   return (
     <div className="flex flex-col gap-8">
       <section>
-        <h3 className="text-sm font-medium text-strong mb-2">Taproom Reserve</h3>
-        <p className="text-xs text-faint mb-2">
-          Partners can claim the taproom&rsquo;s unshipped share of a batch, plus anything nobody allocated — less this
-          much of the whole batch, which is always kept back for the taproom. At 10%, a 40 bbl batch never offers its
-          last 4 bbl. A higher number protects the taproom; a lower one offers partners more.
-        </p>
+        <h3 className="text-sm font-medium text-strong mb-2">
+          Taproom Reserve
+          <span
+            className="ml-1.5 text-faint font-normal cursor-help"
+            title="Partners can claim the taproom's unshipped share plus anything unassigned, less this reserve. At 10%, a 40 bbl batch never offers its last 4 bbl."
+            aria-label="Example"
+          >
+            ⓘ
+          </span>
+        </h3>
+        <p className="text-xs text-faint mb-2">Share of every batch never offered to partners.</p>
         <div className="flex items-center gap-2">
           <input
             type="number" min={0} max={100} step={1}
@@ -57,14 +62,18 @@ export default function PartnerPortalSettingsPanel() {
       </section>
 
       <section>
-        <h3 className="text-sm font-medium text-strong mb-2">Who can sign in</h3>
-        <p className="text-xs text-faint">
-          A partner login is a user with the <span className="text-secondary">partner</span> role, linked to one company, created
-          in <Link href="/settings/environment/users" className="text-accent hover:underline">Users</Link>. To keep one
-          partner&rsquo;s beer from ever being offered to the others, tick &ldquo;Beer is exclusive&rdquo; on that company
-          in <Link href="/production/partners" className="text-accent hover:underline">Partners</Link>. To see the portal as a
-          company sees it, open <Link href="/partner" className="text-accent hover:underline">the preview</Link>.
-        </p>
+        <h3 className="text-sm font-medium text-strong mb-2">Partner logins</h3>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/settings/environment/users" className="btn-secondary" title="A partner login is a user with the partner role, linked to one company.">
+            Add a partner user
+          </Link>
+          <Link href="/production/partners" className="btn-secondary" title="Tick “Beer is exclusive” on a company to keep its beer from being offered to other partners.">
+            Mark a partner exclusive
+          </Link>
+          <Link href="/partner" className="btn-secondary" title="See the portal as a partner company sees it.">
+            Preview the portal
+          </Link>
+        </div>
       </section>
     </div>
   );

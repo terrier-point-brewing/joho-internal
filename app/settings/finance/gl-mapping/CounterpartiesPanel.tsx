@@ -305,49 +305,27 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
   return (
     <MappingFrame
       selector={selector}
-      search={<SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search counterparties…" />}
+      search={<SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search payees and payers…" />}
       loading={loading}
       error={error}
       hasAccounts={accounts.length > 0}
       rowCount={rows.length}
       summary={rows.length === 0
-        ? "Counterparties appear here after syncing bank-account lines on the Transactions → Bank Ledger tab."
+        ? "Payees and payers appear here after syncing bank-account lines on the Transactions → Bank Ledger tab."
         : needsMapping === 0
-        ? `No counterparties left to map${asides.length > 0 ? ` (${asides.join(", ")})` : ""}`
-        : `${mapped} of ${needsMapping} counterparties mapped to the chart of accounts`
+        ? `No payees or payers left to map${asides.length > 0 ? ` (${asides.join(", ")})` : ""}`
+        : `${mapped} of ${needsMapping} payees and payers mapped to the chart of accounts`
           + (asides.length > 0 ? ` (${asides.join(", ")})` : "")}
       summaryTone={summaryTone}
       emptyRows={{
-        title: "No counterparties yet.",
+        title: "No payees or payers yet.",
         hint: "Sync a bank account on the Transactions → Bank Ledger tab to import them.",
       }}
-      headers={[...(showFeed ? ["Bank feed"] : []), "Counterparty", "What is it?", "Account comes from", "Account"]}
-      footer={
-        <>
-          Each counterparty is settled by two questions, and the second only appears when the
-          first makes it matter.
-          {" "}
-          <strong>What is it?</strong> Six of the answers end there — a settlement, a transfer,
-          an exclusion or &ldquo;leave for review&rdquo; all use no account, so the remaining
-          columns disappear. Only an expense, an income or a balance sheet movement carries on.
-          Leave it on &ldquo;leave for review&rdquo; when the answer genuinely differs line by
-          line.
-          {" "}
-          <strong>Account comes from</strong> is the second question: pick the account here, or
-          say that something else owns it. A counterparty marked <em>set elsewhere</em> is
-          already accounted for by a balance sheet calculation — follow its Manage link to see
-          where. That answers which account, not what the money is, so those rows still need
-          the first question.
-          {" "}
-          A feed marked <em>classified on sync</em> tells us what each of its lines is at import
-          time, so the first question is already answered and only the account remains.
-          {" "}
-          Rows are seeded automatically the first time a counterparty appears in a sync.
-        </>
-      }
+      headers={[...(showFeed ? ["Bank feed"] : []), "Payee / payer", "What is it?", "Account comes from", "Account"]}
+      footer="Rows appear automatically after a bank sync."
     >
       {visible.length === 0 && (
-        <tr><td colSpan={showFeed ? 5 : 4} className="px-4 py-6 text-center text-faint">No counterparties match.</td></tr>
+        <tr><td colSpan={showFeed ? 5 : 4} className="px-4 py-6 text-center text-faint">No payees or payers match.</td></tr>
       )}
       {visible.map((rule) => {
         const key = rowKey(rule);
@@ -362,9 +340,9 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
         // to code would have been told to answer a question it was never shown.
         const [whyNoAccountShort, whyNoAccount] =
           feedOff
-            ? ["feed is off", "This whole bank feed is switched off, so nothing about this counterparty is counted."]
+            ? ["feed is off", "This whole bank feed is switched off, so nothing about this payee is counted."]
           : selfClassifying
-            ? ["nothing to code", `${feedName(rule.source)} routes this counterparty's spend to expenses and leaves transfers and settlements in the bank ledger. There is none of the first, so there is no account to choose.`]
+            ? ["nothing to code", `${feedName(rule.source)} routes this payee's spend to expenses and leaves transfers and settlements in the bank ledger. There is none of the first, so there is no account to choose.`]
           : treatmentDef
             ? ["no account needed", treatmentDef.effect]
             : ["answer step 1 first", "Say what this money is first — an account is only used by some of the answers."];
@@ -375,7 +353,7 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-body truncate">{rule.counterparty_label}</span>
                 {rule.auto_matched && rule.chart_of_accounts_id && (
-                  <span className="text-2xs text-info shrink-0" title="Auto-matched from the counterparty name">
+                  <span className="text-2xs text-info shrink-0" title="Auto-matched from the payee name">
                     auto
                   </span>
                 )}
@@ -388,7 +366,7 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
                 already say. */}
             <td className="px-4 py-2">
               {feedOff ? (
-                <span className="text-2xs text-faint" title="This whole bank feed is switched off, so nothing about this counterparty is counted. Turn the feed on under Bank Feeds.">
+                <span className="text-2xs text-faint" title="This whole bank feed is switched off, so nothing about this payee is counted. Turn the feed on under Bank Feeds.">
                   feed is off
                 </span>
               ) : selfClassifying ? (
@@ -481,7 +459,7 @@ export default function CounterpartiesPanel({ selector }: { selector?: ReactNode
                     value={rule.chart_of_accounts_id}
                     onChange={(id) => handleSetRule(rule, id)}
                     accounts={accounts as CoARef[]}
-                    placeholder="— map this counterparty —"
+                    placeholder="— map this payee —"
                     shortLabel
                     className="w-full max-w-[360px]"
                   />

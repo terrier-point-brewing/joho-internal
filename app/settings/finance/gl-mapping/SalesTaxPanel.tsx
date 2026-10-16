@@ -146,15 +146,8 @@ export default function SalesTaxPanel({ selector }: { selector?: ReactNode }) {
       headers={["Tax", "Rate", "Filings", "Excluded", "Liability Account"]}
       footer={
         <>
-          Collected sales tax is credited to the account mapped here instead of being recognized as
-          revenue. An unmapped tax contributes nothing to the balance sheet — its collections are
-          simply omitted. Only balance-sheet liability accounts are selectable, so a tax can never be
-          mapped back into revenue. Mark a tax excluded when it should never get a liability
-          account (e.g. a $0 test tax) — excluded taxes stop counting toward the summary above.
-          {" "}Filings counts the active tax filings in{" "}
-          <a href={TAX_FILING_HREF} className="text-accent hover:underline">Settings → Tax → Tax Filing</a>{" "}
-          that compute a return from each tax; hover the count to see which. Excluding or unmapping a
-          tax with a filing against it breaks that return&apos;s books, so those rows are flagged.
+          An unmapped tax is left out of the balance sheet; unmapping one with a{" "}
+          <a href={TAX_FILING_HREF} className="text-accent hover:underline">filing</a> against it breaks that return.
         </>
       }
     >

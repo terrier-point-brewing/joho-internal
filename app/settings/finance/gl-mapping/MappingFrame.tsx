@@ -56,7 +56,8 @@ export default function MappingFrame({
   summaryTone?: Tone;
   emptyRows: { title: string; hint: ReactNode };
   headers: string[];
-  footer: ReactNode;
+  /** One sentence under the table, at most — anything longer belongs in a header or badge `title=`. */
+  footer?: ReactNode;
   /** The panel-picker ButtonGroup, rendered in line with this panel's own summary/actions row. */
   selector?: ReactNode;
   /** A panel's `<SearchInput>`, shown above the table. The panel filters its own rows. */
@@ -109,7 +110,7 @@ export default function MappingFrame({
               <tbody>{children}</tbody>
             </table>
           </div>
-          <p className="py-3 text-2xs text-faint">{footer}</p>
+          {footer && <p className="py-3 text-2xs text-faint">{footer}</p>}
         </div>
       )}
     </>

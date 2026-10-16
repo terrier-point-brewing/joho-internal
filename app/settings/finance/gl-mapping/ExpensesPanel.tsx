@@ -93,35 +93,27 @@ export default function ExpensesPanel({ selector }: { selector?: ReactNode }) {
   return (
     <MappingFrame
       selector={selector}
-      search={<SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search source accounts…" />}
+      search={<SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search Ramp accounts…" />}
       loading={loading}
       error={error}
       hasAccounts={accounts.length > 0}
       rowCount={rows.length}
       summary={rows.length === 0
-        ? "Source accounts appear here after importing expenses on the Transactions → Expenses tab."
+        ? "Ramp accounts appear here after importing expenses on the Transactions → Expenses tab."
         : needsMapping === 0
-        ? `All ${rows.length} source accounts excluded from mapping`
-        : `${mapped} of ${needsMapping} source accounts mapped to the chart of accounts`
+        ? `All ${rows.length} Ramp accounts excluded from mapping`
+        : `${mapped} of ${needsMapping} Ramp accounts mapped to the chart of accounts`
           + (excludedCount > 0 ? ` (${excludedCount} excluded)` : "")}
       summaryTone={summaryTone}
       emptyRows={{
-        title: "No expense source accounts yet.",
+        title: "No Ramp accounts yet.",
         hint: "Sync Ramp on the Transactions → Expenses tab to import them.",
       }}
-      headers={["Source account", "Excluded", "Chart of Accounts"]}
-      footer={
-        <>
-          Mapping a source account here codes every expense on it (except manually-pinned rows).
-          Use <span className="text-body">Auto-map all</span> on the Expenses tab to re-apply these
-          rules to unmapped expenses. Mark a source account excluded when it should never get a
-          blanket rule (e.g. a catch-all account coded line by line) — excluded accounts stop
-          counting toward the summary above.
-        </>
-      }
+      headers={["Ramp account", "Excluded", "Chart of Accounts"]}
+      footer="A mapping codes every expense on that Ramp account except hand-pinned rows; Auto-map all on the Expenses tab re-applies it."
     >
       {visible.length === 0 && (
-        <tr><td colSpan={3} className="px-4 py-6 text-center text-faint">No source accounts match.</td></tr>
+        <tr><td colSpan={3} className="px-4 py-6 text-center text-faint">No Ramp accounts match.</td></tr>
       )}
       {visible.map((rule) => (
         <tr key={rule.id} className="border-t border-line/40 hover:bg-surface-mid/20">
@@ -132,7 +124,7 @@ export default function ExpensesPanel({ selector }: { selector?: ReactNode }) {
                 <span className="text-2xs text-faint font-mono shrink-0">{rule.external_account_code}</span>
               )}
               {rule.auto_matched && rule.chart_of_accounts_id && (
-                <span className="text-2xs text-info shrink-0" title="Auto-matched from the source account name">
+                <span className="text-2xs text-info shrink-0" title="Auto-matched from the Ramp account name">
                   auto
                 </span>
               )}
@@ -146,7 +138,7 @@ export default function ExpensesPanel({ selector }: { selector?: ReactNode }) {
           <td className="px-4 py-2">
             <div className="flex items-center gap-2">
               {rule.excluded ? (
-                <span className="text-2xs text-faint" title="This source account was marked excluded from mapping">
+                <span className="text-2xs text-faint" title="This Ramp account was marked excluded from mapping">
                   excluded
                 </span>
               ) : (
