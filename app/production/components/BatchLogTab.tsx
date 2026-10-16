@@ -263,7 +263,7 @@ export default function BatchLogTab() {
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-info-emphasis text-canvas text-[10px] font-bold leading-none">!</span>
-            Allocation plan incomplete
+            Not fully assigned
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-canvas text-[10px] font-bold leading-none">$</span>
@@ -392,7 +392,7 @@ export default function BatchLogTab() {
             )}
             {editingBatch && (
               <p className="text-xs text-muted">
-                Allocation plan and equipment schedule are managed from the batch row — expand it with ▶ on the Batch Log table.
+                Shares and the equipment schedule are managed from the batch row — expand it with ▶ on the Batch Log table.
               </p>
             )}
 
@@ -625,8 +625,8 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
   }
 
   async function handleDelete(id: string, isPaid: boolean) {
-    if (isPaid) { alert("Cannot delete an allocation with a paid invoice."); return; }
-    if (!confirm("Remove this allocation?")) return;
+    if (isPaid) { alert("This share has a paid deposit — refund it first."); return; }
+    if (!confirm("Remove this share?")) return;
     const res = await fetch(`/api/production/allocations/${id}`, { method: "DELETE" });
     if (!res.ok) alert((await res.json()).error ?? "Error");
     await refresh();
@@ -691,10 +691,10 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
     <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-secondary uppercase tracking-wide">Allocation Plan</p>
+        <p className="text-xs font-semibold text-secondary uppercase tracking-wide">Who gets this batch</p>
         <button type="button" onClick={() => setShowAddForm(v => !v)}
           className="text-xs text-accent-emphasis hover:text-accent transition-colors">
-          {showAddForm ? "Cancel" : "+ Add allocation"}
+          {showAddForm ? "Cancel" : "+ Add share"}
         </button>
       </div>
 
@@ -754,8 +754,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
       {/* Allocation incomplete banner */}
       {remaining > 0.1 && (
         <div className="px-3 py-2 rounded border border-info-border/50 bg-info-surface/20 text-xs text-info leading-relaxed">
-          <span className="font-semibold">⚠ Allocation plan incomplete</span>
-          {" "}— {remaining.toFixed(1)}% ({((remaining / 100) * batchVol).toFixed(2)} BBL) unallocated.
+          <span className="font-semibold">⚠ {remaining.toFixed(1)}% of this batch ({((remaining / 100) * batchVol).toFixed(2)} BBL) has no home yet</span>
         </div>
       )}
 
@@ -773,15 +772,15 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
         ].filter(Boolean).join(", ");
         return (
           <div className="px-3 py-2 rounded border border-orange-700/50 bg-orange-950/20 text-orange-400 text-xs leading-relaxed">
-            <span className="font-semibold">⚠ Unpaid contract {label}</span>
-            {" "}— {unpaid.length} contract brewing allocation{unpaid.length > 1 ? "s" : ""} {detail ? `(${detail}) ` : ""}awaiting deposit payment.
+            <span className="font-semibold">⚠ {unpaid.length} unpaid contract {label}</span>
+            {detail ? <span> — {detail}</span> : null}
           </div>
         );
       })()}
 
       {/* Allocation rows */}
       {allocations.length === 0 && !showAddForm && (
-        <p className="text-xs text-faint py-1">No allocations yet. Click &quot;+ Add allocation&quot; to start.</p>
+        <p className="text-xs text-faint py-1">No shares yet.</p>
       )}
 
       {allocations.length > 0 && (
@@ -1559,7 +1558,7 @@ function AllocationBadge({ batchId, batchVol, status }: { batchId: string; batch
   return (
     <span
       className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-info-emphasis text-canvas text-[10px] font-bold leading-none shrink-0"
-      title={`Allocation plan incomplete — ${totalPct.toFixed(1)}% allocated`}
+      title={`Not fully assigned — ${totalPct.toFixed(1)}% has a home`}
     >
       !
     </span>

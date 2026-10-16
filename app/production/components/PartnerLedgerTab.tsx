@@ -34,6 +34,7 @@ import { attentionRank, commitmentAttention, type Attention } from "@/lib/produc
 import { useQueryClient } from "@tanstack/react-query";
 import InvoicePreviewModal from "./InvoicePreviewModal";
 import type { HomesForBatch } from "@/lib/production/rehome";
+import HomeSourcePicker from "./HomeSourcePicker";
 import { Modal } from "./shared";
 
 /**
@@ -83,16 +84,15 @@ function RehomeModal({ partner, shipment, onClose, onDone }: {
   }
 
   return (
-    <Modal title={`Give ${bbl(bblNeeded)} bbl a home`} onClose={onClose}>
+    <Modal title={`Assign ${bbl(bblNeeded)} bbl to a deal`} onClose={onClose}>
       <div className="space-y-3 text-sm">
         <p className="text-xs text-secondary">
-          Shipped {fmtDate(shipment.date)} to {partner.company_name} from #{shipment.batch_number ?? "?"} with no commitment behind it.
-          Pick the commitment it belongs to; its booking rises by {bbl(bblNeeded)} bbl and the share comes from the source you choose.
+          Shipped {fmtDate(shipment.date)} to {partner.company_name} from #{shipment.batch_number ?? "?"} with no deal behind it.
         </p>
         {targets.length === 0 ? (
-          <p className="text-xs text-danger">{partner.company_name} has no allocation on this batch. Add one in Batch Log (against their commitment) first, then come back.</p>
+          <p className="text-xs text-danger">{partner.company_name} has no share of this batch. Add one in Batch Log first, then come back.</p>
         ) : (
-          <label className="block text-xs text-secondary">Commitment
+          <label className="block text-xs text-secondary">Deal
             <select className="inp w-full mt-1" value={targetId} onChange={(e) => { setTargetId(e.target.value); setHomes(null); setSource(""); }}>
               {targets.map((t) => <option key={t.allocation_id} value={t.allocation_id}>{t.recipe_name ?? "—"} · #{t.batch_number ?? "?"}</option>)}
             </select>
@@ -100,33 +100,14 @@ function RehomeModal({ partner, shipment, onClose, onDone }: {
         )}
         {homes && (
           <div className="space-y-1">
-            <div className="text-xs text-secondary">Share comes from</div>
-            {homes.sources.length === 0 && <p className="text-xs text-danger">Nothing on this batch can give up share.</p>}
-            {homes.sources.map((h) => {
-              const key = h.kind === "unallocated" ? "unallocated" : (h.allocationId ?? "");
-              const enough = h.freeBbl + 0.0001 >= bblNeeded;
-              const disabled = h.requires === "refund" || !enough;
-              const who = h.kind === "unallocated" ? "Unallocated share of the batch"
-                : h.kind === "self" ? "This commitment's own unshipped share (nothing moves; the booking rises)"
-                : h.partnerName ?? (h.channel === "taproom" ? "Taproom" : h.channel === "safety_stock" ? "Safety stock" : h.channel ?? "");
-              return (
-                <label key={key} className={`flex items-start gap-2 text-xs ${disabled ? "text-faint" : "text-body cursor-pointer"}`}>
-                  <input type="radio" name="rehome-source" className="mt-0.5" disabled={disabled} checked={source === key} onChange={() => setSource(key)} />
-                  <span>
-                    {who} · {h.freeBbl.toFixed(2)} bbl free
-                    {h.requires === "refund" && " — deposit paid; refund part of it in Batch Log first"}
-                    {h.requires === "regenerate_deposit" && " — their draft deposit invoice will need regenerating"}
-                    {!enough && h.requires !== "refund" && " — not enough"}
-                  </span>
-                </label>
-              );
-            })}
+            <div className="text-xs text-secondary">Its share comes from</div>
+            <HomeSourcePicker name="rehome-source" sources={homes.sources} bblNeeded={bblNeeded} value={source} onChange={setSource} />
           </div>
         )}
         {err && <p className="text-xs text-danger">{err}</p>}
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" disabled={!ok || busy} onClick={save}>{busy ? "Saving…" : "Give it a home"}</button>
+          <button type="button" className="btn-primary" disabled={!ok || busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>
         </div>
       </div>
     </Modal>
@@ -303,9 +284,9 @@ function DepositCell({ c }: { c: LedgerCommitment }) {
   const anyUncharged = c.allocations.some((a) => a.deposit.state === "uncharged");
   const collecting = c.allocations.some((a) => a.deposit.state === "collecting");
   const hasMoney = t.deposit_paid_cents > 0 || t.deposit_billed_cents > 0 || t.deposit_refunded_cents > 0;
-  const label = allSettled
-    ? (t.deposit_paid_cents > 0 ? "paid" : anyPaid ? "paid · amount not recorded" : "written off, never paid")
-    : anyUncharged ? "not yet charged" : collecting ? "collecting per shipment" : "invoiced, awaiting payment";
+  const [label, detail] = allSettled
+    ? (t.deposit_paid_cents > 0 ? ["Paid", null] : anyPaid ? ["Paid", "Paid, but the amount was never recorded"] : ["Waived", "Written off, never paid"])
+    : anyUncharged ? ["Due", "Not yet charged"] : collecting ? ["Partly paid", "Collected on each export invoice as the beer ships"] : ["Due", "Invoiced, awaiting payment"];
   return (
     <div className="text-xs leading-4">
       {hasMoney && (
@@ -321,7 +302,7 @@ function DepositCell({ c }: { c: LedgerCommitment }) {
           )}
         </div>
       )}
-      <div className={allSettled && t.deposit_paid_cents === 0 && anyPaid ? "text-[var(--cat-amber-fg)]" : anyUncharged ? "text-[var(--cat-amber-fg)]" : "text-muted"}>{label}</div>
+      <div className={allSettled && t.deposit_paid_cents === 0 && anyPaid ? "text-[var(--cat-amber-fg)]" : anyUncharged ? "text-[var(--cat-amber-fg)]" : "text-muted"} title={detail ?? undefined}>{label}</div>
     </div>
   );
 }
@@ -335,32 +316,35 @@ function ShareExplainer({ a, booked, channel }: { a: LedgerAllocation; booked: n
   // so "packaged so far" says nothing about whose beer it is.
   const fromTank = Math.max(0, a.projected_bbl - a.produced_bbl);
   const share = (a.percentage / 100) * a.projected_bbl;
+  const capped = contract && booked > 0 && share > booked + 0.005;
   return (
-    <div className="text-xs text-muted leading-5">
-      <div>
-        <span className="text-secondary font-medium">{a.percentage.toFixed(2)}%</span> of #{a.batch_number ?? "?"}
-        {a.batch_planned_bbl > 0 && (
-          <> — {bbl(booked)} bbl booked ÷ {bbl(a.batch_planned_bbl)} bbl planned</>
-        )}
-        {a.batch_converted_pct > 0.05 && (
-          <span className="text-muted"> · {a.batch_converted_pct.toFixed(1)}% converted to {a.batch_converted_to.join(", ") || "another beer"}</span>
+    <div className="text-xs leading-5">
+      <div className="text-secondary">
+        <span className="text-strong font-medium">Owed {bbl(a.owed_bbl)} bbl</span>
+        <span className="text-muted"> · shipped {bbl(a.exported_bbl)} · remaining {bbl(a.remaining_bbl)}</span>
+        {a.written_off_bbl != null && (
+          <span className="text-muted"> · {bbl(a.written_off_bbl)} marked delivered{a.write_off_note ? ` (“${a.write_off_note}”)` : ""}</span>
         )}
         {a.batch_unallocated_pct > 0.05 && (
-          <span className="text-[var(--cat-amber-fg)]"> · {a.batch_unallocated_pct.toFixed(1)}% of this batch is unallocated</span>
+          <span className="text-[var(--cat-amber-fg)]"> · {a.batch_unallocated_pct.toFixed(1)}% of #{a.batch_number ?? "?"} is unassigned</span>
         )}
       </div>
-      <div>
-        {fromTank > 0.005
-          ? <>Packaged {bbl(a.produced_bbl)} + {bbl(fromTank)} expected from tank = {bbl(a.projected_bbl)} bbl</>
-          : <>Produced {bbl(a.produced_bbl)} bbl</>}
-        {" "}→ share {bbl(share)}
-        {contract && booked > 0 && share > booked + 0.005 && <> → capped at booked {bbl(booked)}</>}
-        {" "}= <span className="text-secondary font-medium">owed {bbl(a.owed_bbl)} bbl</span>
-        {" "}· shipped {bbl(a.exported_bbl)} · remaining {bbl(a.remaining_bbl)}
-        {a.written_off_bbl != null && (
-          <span className="text-muted"> · written off {bbl(a.written_off_bbl)}{a.write_off_note ? ` (“${a.write_off_note}”)` : ""}</span>
-        )}
-      </div>
+      <details className="text-muted">
+        <summary className="cursor-pointer text-faint select-none">How is this calculated?</summary>
+        <div className="pl-3">
+          <div>
+            {a.percentage.toFixed(2)}% of #{a.batch_number ?? "?"}
+            {a.batch_planned_bbl > 0 && <> — {bbl(booked)} bbl booked ÷ {bbl(a.batch_planned_bbl)} bbl planned</>}
+            {a.batch_converted_pct > 0.05 && <> · {a.batch_converted_pct.toFixed(1)}% converted to {a.batch_converted_to.join(", ") || "another beer"}</>}
+          </div>
+          <div>
+            {fromTank > 0.005
+              ? <>Packaged {bbl(a.produced_bbl)} + {bbl(fromTank)} expected from tank = {bbl(a.projected_bbl)} bbl</>
+              : <>Produced {bbl(a.produced_bbl)} bbl</>}
+            {" "}→ share {bbl(share)}{capped && <> → capped at booked {bbl(booked)}</>} = owed {bbl(a.owed_bbl)} bbl
+          </div>
+        </div>
+      </details>
     </div>
   );
 }
@@ -573,12 +557,17 @@ export default function PartnerLedgerTab({ onNavigateToInvoice, focusCommitmentI
 
       </FilterBar>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
-        <span className="text-secondary"><span className={`font-medium tabular-nums ${summary.uninvoicedBbl > 0.005 ? "text-[var(--cat-amber-fg)]" : "text-strong"}`}>{bbl(summary.uninvoicedBbl)}</span> bbl shipped, not invoiced</span>
-        <span className="text-muted">|</span>
-        <span className="text-secondary"><span className="text-accent-soft font-medium tabular-nums">{fmtUsd(summary.outstandingCents / 100)}</span> invoiced, unpaid</span>
-        <span className="text-muted">|</span>
-        <span className="text-secondary"><span className="text-strong font-medium tabular-nums">{bbl(summary.remainingBbl)}</span> bbl still to deliver</span>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+        {[
+          { label: "Shipped, not invoiced", value: `${bbl(summary.uninvoicedBbl)} bbl`, cls: summary.uninvoicedBbl > 0.005 ? "text-[var(--cat-amber-fg)]" : "text-strong" },
+          { label: "Invoiced, unpaid", value: fmtUsd(summary.outstandingCents / 100), cls: "text-accent-soft" },
+          { label: "Still to deliver", value: `${bbl(summary.remainingBbl)} bbl`, cls: "text-strong" },
+        ].map((t) => (
+          <div key={t.label} className="px-3 py-2 bg-surface/60 border border-line rounded">
+            <div className={`text-base font-medium tabular-nums ${t.cls}`}>{t.value}</div>
+            <div className="text-muted">{t.label}</div>
+          </div>
+        ))}
       </div>
 
       {error ? (
