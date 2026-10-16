@@ -18,6 +18,7 @@ import { Modal } from "@/app/components/ui/Modal";
 import ColdStorageTransformModal from "./ColdStorageTransformModal";
 import ColdStorageConvertModal from "./ColdStorageConvertModal";
 import DepositCoverageLine from "./DepositCoverageLine";
+import HomeSourcePicker from "./HomeSourcePicker";
 
 function formatShipmentWarning(w: ShipmentWarning): string {
   switch (w.type) {
@@ -694,7 +695,7 @@ export default function ExportBayTab() {
   }
 
   async function undoWriteOff(a: BatchAllocation) {
-    if (!window.confirm("Reopen this allocation? It will no longer count as fulfilled.")) return;
+    if (!window.confirm("Reopen this share? It will no longer count as delivered.")) return;
     try {
       const res = await fetch(`/api/production/allocations/${a.id}/write-off`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Error");
@@ -804,7 +805,7 @@ export default function ExportBayTab() {
       {/* Sticky column labels */}
       <div className="sticky top-0 z-10 bg-canvas grid grid-cols-1 md:grid-cols-2 gap-6 py-2 border-b border-line/60">
         <h3 className="text-sm font-medium text-body">Available</h3>
-        <h3 className="text-sm font-medium text-body">Allocations</h3>
+        <h3 className="text-sm font-medium text-body">Shares</h3>
       </div>
 
       {!anyData ? (
@@ -857,7 +858,7 @@ export default function ExportBayTab() {
                         )}
                       </>
                     ) : (
-                      <span className="text-faint">no allocations</span>
+                      <span className="text-faint">no shares yet</span>
                     )}
                     {hasInventory && (
                       <>
@@ -917,7 +918,7 @@ export default function ExportBayTab() {
                       <div className="divide-y divide-line/60 flex-1">
                         {visiblePartnerGroups.length === 0 ? (
                           <div className="px-3 py-3 text-xs text-faint italic">
-                            All allocations fulfilled
+                            All shares delivered
                           </div>
                         ) : (
                           visiblePartnerGroups.map((g) => (
@@ -954,7 +955,7 @@ export default function ExportBayTab() {
                                     <div className="flex flex-col items-end gap-0.5 shrink-0">
                                       <span className="text-secondary tabular-nums text-xs">
                                         {a.exported_bbl.toFixed(2)} / {allocDenomBbl(a) != null ? allocDenomBbl(a)!.toFixed(2) : "—"} BBL
-                                        <span className="text-faint ml-1">{a.deposit_backed ? "booked" : "plan"}</span>
+                                        <span className="text-faint ml-1">{a.deposit_backed ? "booked" : "planned"}</span>
                                       </span>
                                       {a.deposit_backed && a.final_entitlement_bbl == null && (
                                         <span className="text-[10px] text-faint tabular-nums">≈ {a.realizable_bbl.toFixed(2)} so far</span>
@@ -995,7 +996,7 @@ export default function ExportBayTab() {
                                           <button
                                             type="button"
                                             onClick={() => setWriteOffAlloc(a)}
-                                            title="Forgive the remaining owed volume and mark this allocation fulfilled"
+                                            title="Mark the remaining owed volume as delivered — no refund"
                                             className="btn-secondary btn-xxs"
                                           >
                                             Write off
@@ -1593,31 +1594,9 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                       <option value="distribution">Distribution</option>
                     </select>
                   </div>
-                  <p className="text-xs text-secondary">
-                    Its share of #{book.homes.batchNumber ?? "?"} comes from:
-                  </p>
-                  <div className="space-y-1">
-                    {book.homes.sources.map((h) => {
-                      const key = h.kind === "unallocated" ? "unallocated" : (h.allocationId ?? "");
-                      const enough = h.freeBbl + 0.0001 >= book.bbl;
-                      const disabled = h.requires === "refund" || !enough;
-                      const who = h.kind === "unallocated" ? "Unallocated share of the batch"
-                        : h.partnerName ?? (h.channel === "taproom" ? "Taproom" : h.channel === "safety_stock" ? "Safety stock" : h.channel ?? "");
-                      return (
-                        <label key={key} className={`flex items-start gap-2 text-xs ${disabled ? "text-faint" : "text-body cursor-pointer"}`}>
-                          <input type="radio" name="book-home" className="mt-0.5" disabled={disabled} checked={bookSource === key} onChange={() => setBookSource(key)} />
-                          <span>
-                            {who} · {h.freeBbl.toFixed(2)} bbl free
-                            {h.requires === "refund" && " — deposit paid; refund part of it in Batch Log first"}
-                            {h.requires === "regenerate_deposit" && " — their draft deposit invoice will need regenerating"}
-                            {!enough && h.requires !== "refund" && " — not enough"}
-                          </span>
-                        </label>
-                      );
-                    })}
-                    {book.homes.sources.length === 0 && <p className="text-xs text-danger">Nothing on this batch can give up share.</p>}
-                  </div>
-                  <p className="text-xs text-faint">The commitment is flagged for someone on Intake → Commitments to confirm its price and terms.</p>
+                  <p className="text-xs text-secondary">Its share of #{book.homes.batchNumber ?? "?"} comes from</p>
+                  <HomeSourcePicker name="book-home" sources={book.homes.sources} bblNeeded={book.bbl} value={bookSource} onChange={setBookSource} />
+                  <p className="text-xs text-faint">A deal is created and flagged for review on Intake.</p>
                 </>
               )}
             </div>
@@ -1635,34 +1614,12 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                 {over.bbl.toFixed(2)} bbl of this shipment is beyond the booking
               </p>
               <p className="text-xs text-secondary">
-                It needs a home on #{over.homes.batchNumber ?? "?"} before it ships. The booking rises by {over.bbl.toFixed(2)} bbl and the share
-                {overShort > 0.0001 && ` (plus ${overShort.toFixed(2)} bbl this deal lost when the batch finished short)`} comes from:
+                Where does the extra {(over.bbl + overShort).toFixed(2)} bbl on #{over.homes.batchNumber ?? "?"} come from?
               </p>
               {!over.targetAllocationId && (
-                <p className="text-xs text-danger">This partner has no allocation on the drawn batch to grow — add one in Batch Log first.</p>
+                <p className="text-xs text-danger">This partner has no share of the drawn batch to grow — add one in Batch Log first.</p>
               )}
-              <div className="space-y-1">
-                {over.homes.sources.map((h) => {
-                  const key = h.kind === "unallocated" ? "unallocated" : (h.allocationId ?? "");
-                  const enough = h.freeBbl + 0.0001 >= over.bbl + overShort;
-                  const disabled = h.requires === "refund" || !enough;
-                  const who = h.kind === "unallocated" ? "Unallocated share of the batch"
-                    : h.kind === "self" ? "This commitment's own unshipped share (nothing moves; the booking catches up)"
-                    : h.partnerName ?? (h.channel === "taproom" ? "Taproom" : h.channel === "safety_stock" ? "Safety stock" : h.channel ?? "");
-                  return (
-                    <label key={key} className={`flex items-start gap-2 text-xs ${disabled ? "text-faint" : "text-body cursor-pointer"}`}>
-                      <input type="radio" name="home" className="mt-0.5" disabled={disabled} checked={homeSource === key} onChange={() => setHomeSource(key)} />
-                      <span>
-                        {who} · {h.freeBbl.toFixed(2)} bbl free
-                        {h.requires === "refund" && " — deposit paid; refund part of it in Batch Log first"}
-                        {h.requires === "regenerate_deposit" && " — their draft deposit invoice will need regenerating"}
-                        {!enough && h.requires !== "refund" && " — not enough"}
-                      </span>
-                    </label>
-                  );
-                })}
-                {over.homes.sources.length === 0 && <p className="text-xs text-danger">Nothing on this batch can give up share.</p>}
-              </div>
+              <HomeSourcePicker name="home" sources={over.homes.sources} bblNeeded={over.bbl + overShort} value={homeSource} onChange={setHomeSource} />
             </div>
           )}
           {(unpaidDeposit.length > 0 || bookNeedsDepositAck) && (
@@ -1670,13 +1627,9 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
               <p className="text-xs font-medium text-danger">
                 Deposit not paid{unpaidDeposit.length > 0 ? ` — ${unpaidDeposit.map((u) => `#${u.batchNumber ?? u.batchId.slice(0, 8)}`).join(", ")}` : " — new commitment"}
               </p>
-              <p className="text-xs text-secondary">
-                This shipment credits a contract allocation whose ingredient deposit has not been paid.
-                Ship anyway and the deposit is back-charged on the export invoice; the shipment is recorded as shipped before deposit.
-              </p>
               <label className="flex items-start gap-2 text-xs text-body cursor-pointer">
                 <input type="checkbox" className="mt-0.5" checked={ackUnpaidDeposit} onChange={(e) => setAckUnpaidDeposit(e.target.checked)} />
-                <span>Ship before the deposit is paid</span>
+                <span>Ship before the deposit is paid — it will be added to the export invoice</span>
               </label>
             </div>
           )}
@@ -1791,11 +1744,6 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
               <option value="taproom">Taproom</option>
               <option value="partner">A partner</option>
             </select>
-            {channel === "partner" && (
-              <p className="text-xs text-faint mt-1">
-                Credited to the partner&rsquo;s commitment for this beer. If they have none, the next step books one as it ships.
-              </p>
-            )}
           </div>
           {channel === "partner" && (
             <div>
