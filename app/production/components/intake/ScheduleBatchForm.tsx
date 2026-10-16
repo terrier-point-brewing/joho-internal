@@ -158,7 +158,8 @@ function EquipmentSection({
 }) {
   const brewhouses = tanks.filter((t) => t.type === "brewhouse");
   const fermenters = tanks.filter((t) => t.type === "fermenter");
-  const brites = tanks.filter((t) => t.type === "brite");
+  // A fermenter can double as a brite (in-place conditioning), so the brite slot offers both — brites first.
+  const brites = [...tanks.filter((t) => t.type === "brite"), ...fermenters];
   const stageEquipment: Record<string, Equipment[]> = { brewhouse: brewhouses, fermenter: fermenters, brite: brites };
 
   const stages: EditableSlot["stage"][] = ["brewhouse", "fermenter", "brite"];
