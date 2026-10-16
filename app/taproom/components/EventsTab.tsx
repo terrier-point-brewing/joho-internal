@@ -170,7 +170,7 @@ function PourTable({ eventId }: { eventId: string }) {
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-line bg-surface/60">
-              <th className="text-left px-3 py-2.5 text-muted font-medium">Variation</th>
+              <th className="text-left px-3 py-2.5 text-muted font-medium">Item</th>
               <th className="text-right px-3 py-2.5 text-muted font-medium">Qty</th>
               <th className="text-right px-3 py-2.5 text-muted font-medium">Gross</th>
               <th className="text-right px-3 py-2.5 text-muted font-medium">Discounts</th>
@@ -276,8 +276,7 @@ export default function EventsTab() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted">Create and track events &mdash; pours are attributed from Square &ldquo;Event Pours&rdquo; items within each event&apos;s time window.</p>
+      <div className="flex items-center justify-end">
         {!creating && (
           <button
             onClick={() => { setCreating(true); setEditingId(null); setFormError(null); }}
@@ -308,7 +307,9 @@ export default function EventsTab() {
       {isFetching && !events.length ? (
         <p className="text-xs text-faint py-6 text-center">Loading events…</p>
       ) : events.length === 0 && !creating ? (
-        <p className="text-xs text-faint italic py-6 text-center">No events yet. Create one above.</p>
+        <p className="text-xs text-faint italic py-6 text-center">
+          No events yet. Create one above — pours rung as Square &ldquo;Event Pours&rdquo; during its time window count toward it.
+        </p>
       ) : (
         <div className="space-y-2">
           {events.map((ev) => {

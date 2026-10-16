@@ -99,10 +99,7 @@ export default function SquareDriftPanel() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between rounded-lg border border-accent-border/30 bg-accent-muted/20 px-3 py-2">
-        <span className="text-sm text-body">
-          Square measured against cold storage. Cold storage is the app&apos;s record; neither side is
-          being corrected to the other.
-        </span>
+        <span className="text-sm text-body">Square vs cold storage (nothing changes here).</span>
         <span className="text-sm tabular-nums whitespace-nowrap">
           <span className="text-strong font-semibold">{summary.agreeing}</span>
           <span className="text-muted"> agree · </span>
@@ -132,23 +129,19 @@ export default function SquareDriftPanel() {
           IN_STOCK down while the commitment is still outstanding, and payment
           then takes the same units again — so these are skipped on purpose. */}
       {holds.length > 0 && (
-        <div className="rounded-lg border border-info-border bg-info-surface/30 px-3 py-2.5">
-          <div className="text-sm font-semibold text-body mb-1">
-            {holds.length} recipe{holds.length === 1 ? " is" : "s are"} held back from the push
+        <div
+          className="rounded-lg border border-info-border bg-info-surface/30 px-3 py-2.5"
+          title="Square counts an invoice's units as committed from the moment it is raised and only deducts them when it is paid. Pushing before then would take the same beer twice, so these recipes are skipped; everything else was pushed."
+        >
+          <div className="text-sm font-semibold text-body mb-1.5">
+            {holds.length} not pushed yet — Square holds {holds.length === 1 ? "it" : "these"} against an open invoice.
           </div>
-          <p className="text-xs text-muted mb-2 leading-relaxed">
-            Square holds an invoice&apos;s units as <span className="text-body font-medium">committed</span> from
-            the moment it is raised, and only deducts them from stock when it is paid. Pushing before
-            then would take the same beer twice. Everything not listed here was pushed normally.
-          </p>
           <ul className="text-xs flex flex-col gap-1">
             {holds.map((h) => (
               <li key={h.recipeId} className="flex flex-wrap items-baseline gap-x-1.5">
                 <span className="text-body font-medium">{name(h.recipeId)}</span>
                 <span className="text-muted">
-                  {h.reason === "awaiting_payment"
-                    ? "— committed to a sent invoice; Square deducts on payment"
-                    : "— shipped, but no sent invoice yet for Square to deduct against"}
+                  {h.reason === "awaiting_payment" ? "— awaiting payment" : "— awaiting invoice"}
                 </span>
                 {h.invoiceIds.length > 0 && (
                   <span className="text-faint tabular-nums">
@@ -163,13 +156,9 @@ export default function SquareDriftPanel() {
 
       {data.deadLinks.length > 0 && (
         <Banner tone="danger">
-          <div className="font-semibold mb-1">
-            {data.deadLinks.length} mapping{data.deadLinks.length === 1 ? "" : "s"} point at a Square
-            variation that isn&apos;t live.
-          </div>
-          <div className="text-xs mb-1.5">
-            These are not zero stock — they are unmeasurable. Nothing can be read from or written to
-            them until they&apos;re re-pointed.
+          <div className="font-semibold mb-1.5">
+            {data.deadLinks.length} mapping{data.deadLinks.length === 1 ? " points" : "s point"} at a deleted
+            Square item — re-point {data.deadLinks.length === 1 ? "it" : "them"}.
           </div>
           <ul className="text-xs flex flex-col gap-0.5">
             {data.deadLinks.map((d) => (
@@ -236,7 +225,7 @@ export default function SquareDriftPanel() {
                   <th className="px-3 py-2 text-right font-semibold text-secondary">Kegs</th>
                   <th
                     className="px-3 py-2 text-right font-semibold text-secondary"
-                    title="Units Square holds against an unpaid invoice. They stay inside Square's count until the invoice is paid, so the count has to carry them for available to equal cold storage."
+                    title="On an unpaid invoice — Square still counts them"
                   >
                     Committed
                   </th>
@@ -288,10 +277,6 @@ export default function SquareDriftPanel() {
       {/* ── Cans ─────────────────────────────────────────────────────────── */}
       <div>
         <SectionHeading count={data.cans.length}>Cans</SectionHeading>
-        <p className="text-[11px] text-muted mb-1.5">
-          Square holds one loose-can count per family and derives packs from it, so cold storage&apos;s
-          tiers are shown as the slices that sum to the figure being compared.
-        </p>
         {data.cans.length === 0 ? (
           <p className="text-xs text-faint">No can families could be compared.</p>
         ) : (

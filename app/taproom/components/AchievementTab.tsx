@@ -37,15 +37,26 @@ type Period = {
 
 // `color` is a raw data-category hex kept ONLY for the Recharts series
 // (AchievementChart) — the deliberate palette exception per docs/UI_STANDARD.md.
-// `selected` maps each tier onto the theme-aware --cat-{hue} badge tokens so the
-// pill flips correctly between light (brand skin) and dark. Class strings are
-// literal (not interpolated) so Tailwind statically emits them.
-const TIERS: { value: Tier; label: string; color: string; selected: string }[] = [
-  { value: "baseline", label: "Baseline", color: "#71717a", selected: "bg-[var(--cat-stone-bg)] text-[var(--cat-stone-fg)] border-[var(--cat-stone-bd)]" },
-  { value: "recovery", label: "Recovery", color: "#60a5fa", selected: "bg-[var(--cat-blue-bg)] text-[var(--cat-blue-fg)] border-[var(--cat-blue-bd)]" },
-  { value: "target",   label: "Target",   color: "#f59e0b", selected: "bg-[var(--cat-amber-bg)] text-[var(--cat-amber-fg)] border-[var(--cat-amber-bd)]" },
-  { value: "stretch",  label: "Stretch",  color: "#34d399", selected: "bg-[var(--cat-emerald-bg)] text-[var(--cat-emerald-fg)] border-[var(--cat-emerald-bd)]" },
+const TIERS: { value: Tier; label: string; color: string }[] = [
+  { value: "baseline", label: "Baseline", color: "#71717a" },
+  { value: "recovery", label: "Recovery", color: "#60a5fa" },
+  { value: "target",   label: "Target",   color: "#f59e0b" },
+  { value: "stretch",  label: "Stretch",  color: "#34d399" },
 ];
+
+/** The ⓘ a tile label carries instead of a paragraph under the tiles. */
+function Info({ text }: { text: string }) {
+  return (
+    <span
+      role="img"
+      aria-label={text}
+      title={text}
+      className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-line-strong text-[9px] leading-none text-muted cursor-help select-none align-middle"
+    >
+      i
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -394,37 +405,29 @@ export default function AchievementTab() {
           ))}
         </div>
 
-        <TimezoneLabel className="w-full sm:w-auto sm:ml-auto" />
-      </div>
-
-      {/* Tier selector — label + 2×2 on mobile, single row on sm+ */}
-      <div className="space-y-1.5 sm:space-y-0">
-        <span className="text-xs text-muted">Compare vs.</span>
-        <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2 sm:items-center mt-1.5 sm:mt-0">
-          {TIERS.map((t) => {
-            const has = targets.some((x) =>
-              scope === "quarter"
-                ? x.year === year && x.quarter === quarter && x.tier === t.value
-                : x.year === year && x.tier === t.value
-            );
-            return (
-              <ToggleChip
-                key={t.value}
-                active={activeTier === t.value}
-                onClick={() => has && setActiveTier(t.value)}
-                disabled={!has}
-                className={activeTier === t.value ? t.selected : ""}
-              >
+        {/* Tier: one select, Target by default; tiers with no target are listed but disabled. */}
+        <label className="flex items-center gap-1.5 text-xs text-muted">
+          vs.
+          <select
+            value={activeTier}
+            onChange={(e) => setActiveTier(e.target.value as Tier)}
+            className="inp-sm w-auto"
+            aria-label="Compare against tier"
+          >
+            {TIERS.map((t) => (
+              <option key={t.value} value={t.value} disabled={!quarterTiers.some((q) => q.value === t.value)}>
                 {t.label}
-              </ToggleChip>
-            );
-          })}
-          {quarterTiers.length === 0 && (
-            <span className="col-span-2 text-xs text-faint italic">
-              {scope === "year" ? "Need all 4 quarters set for year total" : "No targets set for this quarter"}
-            </span>
-          )}
-        </div>
+              </option>
+            ))}
+          </select>
+        </label>
+        {quarterTiers.length === 0 && (
+          <span className="text-xs text-faint italic">
+            {scope === "year" ? "Need all 4 quarters set for year total" : "No targets set for this quarter"}
+          </span>
+        )}
+
+        <TimezoneLabel className="w-full sm:w-auto sm:ml-auto" />
       </div>
 
       {/* Summary cards */}
@@ -445,7 +448,10 @@ export default function AchievementTab() {
         <div className={`bg-surface border rounded-lg p-4 ${
           onPace === true ? "border-success-border" : onPace === false ? "border-danger-border" : "border-line"
         }`}>
-          <div className="text-xs text-secondary mb-1">Actual Net Sales</div>
+          <div className="text-xs text-secondary mb-1">
+            Actual Net Sales
+            <Info text={`On pace = sales so far are at or above target × ${pct(elapsedFrac * 100, 0)} elapsed.`} />
+          </div>
           <div className="text-xl font-semibold text-primary">{currency(actualCents)}</div>
           {targetCents !== null && (
             <div className="text-xs text-muted mt-0.5">{pct((actualCents / targetCents) * 100)} of target</div>
@@ -467,7 +473,12 @@ export default function AchievementTab() {
           : projectedOnTrack === true ? "border-success-border"
           : projectedOnTrack === false ? "border-danger-border" : "border-line"
         }`}>
-          <div className="text-xs text-secondary mb-1">Projected {scope === "year" ? "Full Year" : "Full Quarter"} · run rate</div>
+          <div className="text-xs text-secondary mb-1">
+            Projected {scope === "year" ? "Full Year" : "Full Quarter"}
+            <Info
+              text={`Today's daily sales rate carried across the whole ${scope === "year" ? "year" : "quarter"}. An early estimate until ${pct(projectionMinElapsed * 100, 0)} has elapsed.`}
+            />
+          </div>
           <div className={`text-base sm:text-xl font-semibold ${
             !projectionConfident ? "text-primary"
             : projectedOnTrack === true ? "text-success"
@@ -484,7 +495,7 @@ export default function AchievementTab() {
               </div>
             ) : (
               <div className="text-xs mt-0.5 text-muted">
-                Trending {projectedOnTrack ? "above" : "below"} · low confidence, {pct(elapsedFrac * 100, 0)} elapsed
+                Trending {projectedOnTrack ? "above" : "below"} · early estimate
               </div>
             )
           )}
@@ -540,19 +551,6 @@ export default function AchievementTab() {
               <span>{pct(elapsedFrac * 100)} elapsed · {currency(expectedToDateCents)} expected by today</span>
             )}
           </div>
-        </div>
-      )}
-
-      {/* How to read the two signals — documents the metric definitions in-UI */}
-      {targetCents !== null && (
-        <div className="rounded-lg border border-line bg-surface-mid/40 px-3 py-2.5 text-xs text-muted leading-relaxed">
-          <span className="text-secondary font-medium">On pace</span> compares sales so far to the straight-line
-          target for today — <span className="text-secondary">target × {pct(elapsedFrac * 100, 0)} elapsed</span>.{" "}
-          <span className="text-secondary font-medium">Projected · run rate</span> extends your current daily sales
-          rate across the whole {scope === "year" ? "year" : "quarter"}, so it&apos;s always on the same side of target
-          as the pace bar. Early on it rests on only a few days of sales and swings a lot, so it stays a neutral
-          &ldquo;low confidence&rdquo; estimate until {pct(projectionMinElapsed * 100, 0)} of the{" "}
-          {scope === "year" ? "year" : "quarter"} has elapsed.
         </div>
       )}
 

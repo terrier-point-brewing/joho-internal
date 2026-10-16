@@ -105,23 +105,24 @@ interface SwapKegOption {
 
 type DraftView = "taps" | "sell-through" | "shrinkage";
 
+// "Loss" on screen, "shrinkage" in the data — the key and endpoint are unchanged.
 const DRAFT_VIEWS: { key: DraftView; label: string }[] = [
   { key: "taps",      label: "Taps" },
   { key: "sell-through", label: "Sell-through" },
-  { key: "shrinkage", label: "Shrinkage" },
+  { key: "shrinkage", label: "Loss" },
 ];
 
 const oz = (v: number) => Math.round(v).toLocaleString();
 
 const SELL_THROUGH_COLUMNS: TrendSummaryColumn[] = [
-  { label: "Total", value: (r) => oz(r.sum) },
+  { label: "Total (fl oz)", value: (r) => oz(r.sum) },
   // One event per beer per day, so the mean is over the days it actually
   // poured — a beer tapped four days ago isn't made to look slow.
-  { label: "Avg / day", title: "Average over the days this beer poured", value: (r) => oz(r.mean) },
+  { label: "Avg / day (fl oz)", title: "Average over the days this beer poured", value: (r) => oz(r.mean) },
 ];
 
 const SHRINKAGE_COLUMNS: TrendSummaryColumn[] = [
-  { label: "Avg oz", title: "Average fl oz unaccounted for per keg", value: (r) => oz(r.mean) },
+  { label: "Avg (fl oz)", title: "Average fl oz unaccounted for per keg", value: (r) => oz(r.mean) },
   { label: "Avg %", title: "Average share of the keg unaccounted for", value: (r) => (r.aux_mean != null ? `${r.aux_mean.toFixed(1)}%` : "—") },
   { label: "Kegs", title: "Kegs replaced in the range", value: (r) => r.count.toLocaleString() },
 ];
@@ -218,6 +219,13 @@ export default function DraftStatsTab() {
   // Full-keg volume is the packaging variation's coded fl oz — never hand-entered.
   const codedVolumeFor = (line: SwapKegOption): number | null => line.total_volume_fl_oz;
   const isSixthKeg = (line: SwapKegOption): boolean => /\b1\/6\b/.test(line.variation_name);
+  // "1/6 Keg · 661 fl oz (3 on hand)": the volume IS the recount target, so it
+  // lives in the option rather than in a read-only field of its own.
+  const kegOptionLabel = (k: SwapKegOption): string => {
+    const vol = codedVolumeFor(k);
+    return `${k.variation_name}${vol != null ? ` · ${vol.toLocaleString()} fl oz` : ""}${
+      k.quantity_on_hand != null ? ` (${k.quantity_on_hand} on hand)` : ""}`;
+  };
 
 
   // Two tiers. Running the taps — retire, queue a swap, fill an empty tap,
@@ -427,8 +435,6 @@ export default function DraftStatsTab() {
   const swapSameBeer = !!swapRecipeId && swapRecipeId === swapSourceTap?.recipe_id;
   const swapKegChoices = (kegOptionsByRecipe.get(swapRecipeId) ?? [])
     .filter((k) => !swapSameBeer || k.variation_id !== swapSourceConfig?.swap_variation_id);
-  const swapKegPick = swapKegChoices.find((k) => k.variation_id === swapKegId);
-  const swapKegVolume = swapKegPick ? codedVolumeFor(swapKegPick) : null;
 
   function openSwap(tapNumber: number, mode: "beer" | "size") {
     // Same staleness trap as startEditTaps — "Beer going on" is the same draft
@@ -467,7 +473,7 @@ export default function DraftStatsTab() {
         }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "Could not queue the swap");
+      if (!res.ok) throw new Error(body.error ?? "Could not save the change");
       if (body.warning) setSwapError(body.warning);
       else closeSwap();
       await Promise.all([
@@ -475,7 +481,7 @@ export default function DraftStatsTab() {
         qc.invalidateQueries({ queryKey: queryKeys.taproom.tapConfig() }),
       ]);
     } catch (err) {
-      setSwapError(err instanceof Error ? err.message : "Could not queue the swap");
+      setSwapError(err instanceof Error ? err.message : "Could not save the change");
     } finally {
       setSwapSubmitting(false);
     }
@@ -509,12 +515,7 @@ export default function DraftStatsTab() {
   return (
     <div>
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
-        <div>
-          <p className="text-sm text-muted">
-            Draft tap status, sell-through rates, and shrinkage trends from Square inventory.
-          </p>
-        </div>
+      <div className="flex flex-wrap items-start justify-end gap-3 mb-5">
         <div className="flex gap-2">
           <button onClick={() => setShowHelp(true)} className="btn-secondary">
             How to use
@@ -545,7 +546,7 @@ export default function DraftStatsTab() {
       {view === "sell-through" && (
         <DraftTrendView
           title="Sell-through"
-          subtitle="fl oz poured per beer, from Square pour sales"
+          subtitle="From Square pour sales"
           endpoint="/api/taproom/draft-pours"
           queryKey={queryKeys.taproom.draftPours}
           mode="sum"
@@ -561,13 +562,13 @@ export default function DraftStatsTab() {
 
       {view === "shrinkage" && (
         <DraftTrendView
-          title="Draft shrinkage"
-          subtitle="fl oz unaccounted for when a keg was replaced — lower is better"
+          title="Draft loss"
+          subtitle="Lower is better"
           endpoint="/api/taproom/draft-shrinkage"
           queryKey={queryKeys.taproom.draftShrinkage}
           mode="mean"
           unit="fl oz"
-          chartTitle={(g) => `Average shrinkage per keg, by ${g} (fl oz)`}
+          chartTitle={(g) => `Average loss per keg, by ${g} (fl oz)`}
           defaultGrouping="week"
           defaultRange="90"
           summaryColumns={SHRINKAGE_COLUMNS}
@@ -611,8 +612,7 @@ export default function DraftStatsTab() {
             ))}
           </ul>
           <p className="mt-2 text-xs">
-            Ring <span className="font-medium">Draft Restock</span> in Square each time a keg goes on, including
-            the first. Assigning a beer here does not move inventory.
+            Ring <span className="font-medium">Draft Restock</span>{" "}in Square every time a keg goes on — assigning a beer here doesn&rsquo;t book it.
           </p>
         </Banner>
       )}
@@ -626,22 +626,15 @@ export default function DraftStatsTab() {
             value={tapCountInput}
             onChange={(e) => setTapCountInput(e.target.value)}
           />
-          <span className="text-xs text-faint">Tap assignment slots will update below.</span>
         </div>
       )}
 
       {/* ── Draft Restock mapping + Square setup explainer ── */}
       {editingTaps && (
         <div className="mb-6 p-4 rounded-lg bg-surface border border-line-strong space-y-3">
-          <div>
-            <h3 className="text-sm font-semibold text-strong">Draft Restock line item → tap mapping</h3>
-            <p className="text-xs text-muted mt-1 leading-relaxed">
-              When a bartender rings the <span className="text-body font-medium">Draft Restock</span> line for a tap,
-              the app records a keg-swap shipment (draining the tap&rsquo;s{" "}
-              <span className="text-body font-medium">keg to drain</span> set on each tap card below) and recounts that
-              tap&rsquo;s draft item back to full in Square. Map each tap to its restock variation here.
-            </p>
-          </div>
+          <h3 className="text-sm font-semibold text-strong">
+            Pick which Square Draft Restock line belongs to each tap.
+          </h3>
 
           {/* Square setup explainer */}
           <details className="text-xs rounded-md border border-line bg-canvas/40 px-3 py-2">
@@ -684,9 +677,6 @@ export default function DraftStatsTab() {
             >
               Auto-map kegs
             </button>
-            {!restockItemId && (
-              <span className="text-xs text-faint">Pick the Square item to enable per-tap mapping.</span>
-            )}
           </div>
         </div>
       )}
@@ -784,7 +774,7 @@ export default function DraftStatsTab() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="block text-xs text-secondary">Square “Draft Restock” line</label>
+                      <label className="block text-xs text-secondary">Restock line</label>
                       <select
                         className="inp-sm w-full disabled:opacity-40"
                         value={edit.restock_variation_id}
@@ -805,43 +795,26 @@ export default function DraftStatsTab() {
                       // (a short swap still books via a phantom export).
                       const needsKeg = !!edit.recipe_id && kegs.length === 0;
                       return (
-                        <>
-                          <div className="space-y-1">
-                            <label className="block text-xs text-secondary">Keg to drain on swap</label>
-                            <select
-                              className="inp-sm w-full disabled:opacity-40"
-                              value={edit.swap_variation_id}
-                              disabled={!edit.recipe_id}
-                              title="Keg variation drained when this tap is swapped"
-                              onChange={(e) => setTapEdit(tapNum, "swap_variation_id", e.target.value)}
-                            >
-                              <option value="">— keg to drain —</option>
-                              {kegs.map((k) => (
-                                <option key={k.variation_id} value={k.variation_id}>
-                                  {k.variation_name}
-                                  {k.quantity_on_hand != null ? ` (${k.quantity_on_hand} on hand)` : ""}
-                                </option>
-                              ))}
-                            </select>
-                            {needsKeg && (
-                              <p className="text-xs text-danger">Needs a swap keg</p>
-                            )}
-                          </div>
-                          <div className="space-y-1">
-                            <label className="block text-xs text-secondary">Full-keg volume — recount target</label>
-                            <p className="text-xs text-body tabular-nums px-1 py-1" title="From the selected keg's packaging variation — not editable">
-                              {(() => {
-                                // Read straight off the currently selected keg, so what
-                                // this shows is what the recount will actually use.
-                                const picked = kegs.find((k) => k.variation_id === edit.swap_variation_id);
-                                const vol = picked ? codedVolumeFor(picked) : null;
-                                return vol != null
-                                  ? `${vol.toLocaleString()} fl oz`
-                                  : <span className="text-faint">— select a keg —</span>;
-                              })()}
-                            </p>
-                          </div>
-                        </>
+                        <div className="space-y-1">
+                          {/* The keg's coded volume rides in the option label — it is
+                              the recount target, so there is nothing else to show. */}
+                          <label className="block text-xs text-secondary">Keg size</label>
+                          <select
+                            className="inp-sm w-full disabled:opacity-40"
+                            value={edit.swap_variation_id}
+                            disabled={!edit.recipe_id}
+                            title="Keg drained and refilled when this tap's Draft Restock is rung"
+                            onChange={(e) => setTapEdit(tapNum, "swap_variation_id", e.target.value)}
+                          >
+                            <option value="">— keg size —</option>
+                            {kegs.map((k) => (
+                              <option key={k.variation_id} value={k.variation_id}>{kegOptionLabel(k)}</option>
+                            ))}
+                          </select>
+                          {needsKeg && (
+                            <p className="text-xs text-danger">No keg configured for this beer</p>
+                          )}
+                        </div>
                       );
                     })()}
                   </div>
@@ -889,23 +862,16 @@ export default function DraftStatsTab() {
                   </div>
                 )}
 
-                {/* Metrics */}
+                {/* Metrics: the two numbers that drive a decision. fl oz and BBL
+                    are the same quantity twice, so they sit behind an expander —
+                    except a negative level, which is a fault and stays visible. */}
                 {!editingTaps && tap?.metrics && (
                   <>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
                       <div>
-                        <span className="text-faint">fl oz avail</span>
-                        <p
-                          className={`tabular-nums font-medium ${tap.metrics.current_fl_oz < 0 ? "text-danger" : "text-strong"}`}
-                          title={tap.metrics.current_fl_oz < 0 ? "Negative on-tap level — ring a Draft Restock to swap the keg" : undefined}
-                        >
-                          {tap.metrics.current_fl_oz.toLocaleString()} oz
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-faint">BBL on hand</span>
-                        <p className="text-strong tabular-nums font-medium">
-                          {tap.metrics.current_bbl.toFixed(2)}
+                        <span className="text-faint">days left</span>
+                        <p className={`tabular-nums font-semibold ${daysLeftCls}`}>
+                          {daysLeft !== null ? `~${daysLeft}d` : urgency === "fresh" ? "no pours yet" : "—"}
                         </p>
                       </div>
                       <div>
@@ -914,13 +880,22 @@ export default function DraftStatsTab() {
                           {tap.metrics.daily_fl_oz > 0 ? Math.round(tap.metrics.daily_fl_oz).toLocaleString() : "—"}
                         </p>
                       </div>
-                      <div>
-                        <span className="text-faint">days left</span>
-                        <p className={`tabular-nums font-semibold ${daysLeftCls}`}>
-                          {daysLeft !== null ? `~${daysLeft}d` : urgency === "fresh" ? "no pours yet" : "—"}
-                        </p>
-                      </div>
                     </div>
+                    {tap.metrics.current_fl_oz < 0 ? (
+                      <p
+                        className="text-xs text-danger tabular-nums"
+                        title="Negative on-tap level — ring a Draft Restock to swap the keg"
+                      >
+                        {tap.metrics.current_fl_oz.toLocaleString()} fl oz on tap
+                      </p>
+                    ) : (
+                      <details className="text-xs">
+                        <summary className="cursor-pointer text-faint select-none">On tap</summary>
+                        <p className="mt-0.5 text-body tabular-nums">
+                          {tap.metrics.current_fl_oz.toLocaleString()} fl oz · {tap.metrics.current_bbl.toFixed(2)} BBL
+                        </p>
+                      </details>
+                    )}
                   </>
                 )}
 
@@ -954,13 +929,11 @@ export default function DraftStatsTab() {
                         </>
                       ) : (
                         // No Draft Restock line means no ring could ever book a
-                        // queued change — setup, which is not this user's to do.
-                        canSetUpTaps ? (
+                        // queued change — setup, shown only to who can do it.
+                        canSetUpTaps && (
                           <button onClick={startEditTaps} className="btn-secondary btn-xxs">
                             Map Draft Restock line
                           </button>
-                        ) : (
-                          <span className="text-2xs text-faint">Needs tap setup by an admin</span>
                         )
                       )
                     )}
@@ -979,12 +952,8 @@ export default function DraftStatsTab() {
           onClose={closeSwap}
         >
           <form onSubmit={submitSwap} className="space-y-4">
-            <p className="text-xs text-muted leading-relaxed">
-              This queues the change now and books it when a bartender rings{" "}
-              <span className="text-body font-medium">Draft Restock Tap {swapTap}</span>. Until then the
-              tap {swapSourceTap?.recipe_id
-                ? `keeps showing ${swapSourceTap.beer_name ?? "its current beer"}`
-                : "stays empty"}.
+            <p className="text-xs text-muted">
+              Takes effect when <span className="text-body font-medium">Draft Restock Tap {swapTap}</span> is rung.
             </p>
 
             {swapMode === "size" ? (
@@ -1024,38 +993,21 @@ export default function DraftStatsTab() {
               >
                 <option value="">— keg size —</option>
                 {swapKegChoices.map((k) => (
-                  <option key={k.variation_id} value={k.variation_id}>
-                    {k.variation_name}
-                    {k.quantity_on_hand != null ? ` (${k.quantity_on_hand} on hand)` : ""}
-                  </option>
+                  <option key={k.variation_id} value={k.variation_id}>{kegOptionLabel(k)}</option>
                 ))}
               </select>
               {swapRecipeId && swapKegChoices.length === 0 && (
                 <p className="text-xs text-danger mt-1">
                   {swapSameBeer
                     ? "This beer has no other keg size configured."
-                    : "This beer has no keg variation configured."}
+                    : "This beer has no keg configured."}
                 </p>
               )}
             </Field>
 
-            <Field label="Full-keg volume — recount target">
-              <p className="text-xs text-body tabular-nums" title="From the keg's packaging variation — not editable">
-                {swapKegVolume != null
-                  ? `${swapKegVolume.toLocaleString()} fl oz`
-                  : <span className="text-faint">— select a keg —</span>}
-              </p>
-            </Field>
-
             {/* The residual is Square's calculated on-hand for the outgoing draft
-                SKU — the same number the card shows — so no extra fetch. */}
-            {swapSameBeer && (
-              <Banner tone="info">
-                Same beer, new keg size. Nothing is written off — the tap switches to the new size the
-                next time its restock is rung.
-              </Banner>
-            )}
-
+                SKU — the same number the card shows — so no extra fetch. A same-
+                beer size change writes nothing off, so it says nothing. */}
             {!swapSameBeer && swapSourceTap?.metrics && swapSourceTap.recipe_id && (
               <Banner tone={outgoingOnOtherTap ? "accent" : "info"}>
                 {outgoingOnOtherTap ? (
@@ -1069,7 +1021,7 @@ export default function DraftStatsTab() {
                     <span className="tabular-nums font-medium">
                       {Math.max(0, Math.round(swapSourceTap.metrics.current_fl_oz)).toLocaleString()}
                     </span>{" "}
-                    fl oz of {swapSourceTap.beer_name} as shrinkage when this is rung.
+                    fl oz of {swapSourceTap.beer_name} as loss when this is rung.
                   </>
                 )}
               </Banner>
@@ -1083,10 +1035,7 @@ export default function DraftStatsTab() {
                   onChange={(e) => setSwapRetire(e.target.checked)}
                   className="mt-0.5"
                 />
-                <span>
-                  Also retire {swapSourceTap.beer_name}
-                  <span className="text-faint"> — stops brew suggestions. Tapping it again un-retires it automatically.</span>
-                </span>
+                <span>Also retire {swapSourceTap.beer_name}</span>
               </label>
             )}
 
@@ -1107,7 +1056,7 @@ export default function DraftStatsTab() {
             <ModalActions
               submitting={swapSubmitting}
               onCancel={closeSwap}
-              label={swapSameBeer ? "Queue keg size" : swapSourceTap?.recipe_id ? "Queue swap" : "Queue beer"}
+              label="Save"
               disabled={!swapRecipeId || !swapKegId}
             />
           </form>
