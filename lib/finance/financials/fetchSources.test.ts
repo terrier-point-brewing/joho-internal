@@ -10,7 +10,6 @@ import {
   fetchBank,
   fetchRefunds,
   isInvoiceBackedPosLine,
-  INVOICE_BACKED_POS_RULE_FROM,
 } from "./fetchSources";
 
 interface ExpensesRow {
@@ -552,16 +551,11 @@ describe("isInvoiceBackedPosLine", () => {
     expect(isInvoiceBackedPosLine({ transaction_date: "2026-10-14T18:00:00+00:00", invoice_id: null })).toBe(false);
   });
 
-  // Invoice 000049 (2026-08-16). August is closed and its double count is
-  // already reversed by manual entries dated 2026-10-01; dropping these lines
-  // too would restate a closed month and reverse the same money twice.
-  it("leaves an invoice-linked order from before the cutoff exactly as it was reported", () => {
-    expect(isInvoiceBackedPosLine({ transaction_date: "2026-08-16T15:30:00+00:00", invoice_id: "inv-000049" })).toBe(false);
-  });
-
-  it("starts on the first instant of the cutoff month, the same boundary months are bucketed on", () => {
-    expect(INVOICE_BACKED_POS_RULE_FROM).toBe("2026-10-01");
-    expect(isInvoiceBackedPosLine({ transaction_date: "2026-09-30T23:59:59+00:00", invoice_id: "x" })).toBe(false);
-    expect(isInvoiceBackedPosLine({ transaction_date: "2026-10-01T00:00:00+00:00", invoice_id: "x" })).toBe(true);
+  // Invoice 000049 (August 2026) was once spared by a cutoff and reversed in
+  // October by manual entries instead. The rule has no start date: a sale is
+  // counted once in the month it happened.
+  it("drops an invoice-linked order from any month, including closed ones", () => {
+    expect(isInvoiceBackedPosLine({ transaction_date: "2026-08-26T14:05:22+00:00", invoice_id: "inv-000049" })).toBe(true);
+    expect(isInvoiceBackedPosLine({ transaction_date: "2025-01-01T00:00:00+00:00", invoice_id: "x" })).toBe(true);
   });
 });
