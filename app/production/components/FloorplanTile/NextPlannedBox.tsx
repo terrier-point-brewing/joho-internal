@@ -12,25 +12,16 @@ interface NextPlannedBoxProps {
 }
 
 /**
- * Renders the "Next planned" callout shown on a tank tile when a future,
- * not-yet-started schedule entry exists for it — used identically across
- * the grid tile (occupied-but-has-a-next-occupant case), the grid tile
- * (fully empty case), and the mobile card empty-tank case, so all three
- * read with the same label/format/sizing.
+ * The "Next: …" line shown on an EMPTY tank when a future, not-yet-started
+ * schedule entry exists for it. One muted line, never smaller than 11px —
+ * the full detail (stage, dates, volume) lives in the Up next strip and the
+ * per-equipment plans popup, so the tile only needs to say what is coming.
  */
 export default function NextPlannedBox({ batchNumber, beerName, plannedStart, volumeBbl, size = "xs" }: NextPlannedBoxProps) {
-  const labelSize = size === "sm" ? 11 : 7;
-  const titleSize = size === "sm" ? 13 : 8;
-  const metaSize  = size === "sm" ? 12 : 7;
+  const text = `#${batchNumber ?? "?"} ${beerName} · ${fmtDate(plannedStart)}${volumeBbl != null ? ` · ${volumeBbl} BBL` : ""}`;
   return (
-    <div className="px-1 py-0.5 rounded bg-surface-mid/60 border border-line-strong/50 w-full min-w-0">
-      <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: labelSize }}>Next planned</p>
-      <p className="text-body font-medium truncate" style={{ fontSize: titleSize }} title={`#${batchNumber ?? "?"} ${beerName}`}>
-        #{batchNumber ?? "?"} {beerName}
-      </p>
-      <p className="text-faint truncate" style={{ fontSize: metaSize }}>
-        {fmtDate(plannedStart)}{volumeBbl != null && ` · ${volumeBbl} BBL`}
-      </p>
-    </div>
+    <p className="text-muted truncate w-full min-w-0" style={{ fontSize: size === "sm" ? 13 : 11 }} title={text}>
+      <span className="text-faint">Next:</span> {text}
+    </p>
   );
 }
