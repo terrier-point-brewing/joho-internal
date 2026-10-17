@@ -24,6 +24,7 @@ import {
 import type { CatalogItem } from "@/types/square";
 import { conversionDepositExclusions } from "@/lib/production/exportIngredientDeposit";
 import { getNetTermsDays } from "@/lib/production/invoiceTerms";
+import { depositInvoiceDescription, loadDepositBasis } from "@/lib/production/depositInvoiceNote";
 import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   // Fetch allocation with partner and batch info
   const { data: allocation, error } = await supabase
     .from("batch_allocations")
-    .select("*, brew_batches(id, beer_name, volume_bbl, turns, recipe_id), contract_brewing_partners(id, company_name, square_customer_id)")
+    .select("*, brew_batches(id, beer_name, batch_number, volume_bbl, turns, recipe_id), contract_brewing_partners(id, company_name, square_customer_id)")
     .eq("id", id)
     .single();
 
@@ -75,7 +76,18 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     ? `https://app.squareup.com/dashboard/invoices/${allocation.square_deposit_invoice_id}/edit?currentUnitToken=${process.env.SQUARE_LOCATION_ID}`
     : null;
 
-  return NextResponse.json({ allocation, calculation, invoiceUrl, excludedRecipes });
+  // The note the partner will read on the invoice — previewed here so staff
+  // see the same wording before the draft exists.
+  const previewBatch = allocation.brew_batches as { beer_name: string; batch_number: string | null; volume_bbl: number } | null;
+  const description = previewBatch
+    ? depositInvoiceDescription(await loadDepositBasis(supabase, {
+        allocationId: id, batchId, contractRequestId: allocation.contract_request_id ?? null, percentage,
+        beerName: previewBatch.beer_name, batchNumber: previewBatch.batch_number ?? null, batchBbl: Number(previewBatch.volume_bbl ?? 0),
+        excludedBeerNames: excludedRecipes.map((r) => r.beerName),
+      }))
+    : null;
+
+  return NextResponse.json({ allocation, calculation, invoiceUrl, excludedRecipes, description });
 }
 
 // ── POST /api/production/allocations/[id]/invoice ────────────────────────────
@@ -105,7 +117,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
   // Fetch allocation with all needed joined data
   const { data: allocation, error: fetchErr } = await supabase
     .from("batch_allocations")
-    .select("*, brew_batches(id, beer_name, volume_bbl, turns, recipe_id, expected_delivery_date), contract_brewing_partners(id, company_name, square_customer_id), commitments!contract_request_id(volume_bbl)")
+    .select("*, brew_batches(id, beer_name, batch_number, volume_bbl, turns, recipe_id, expected_delivery_date), contract_brewing_partners(id, company_name, square_customer_id), commitments!contract_request_id(volume_bbl)")
     .eq("id", id)
     .single();
 
@@ -122,7 +134,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     return NextResponse.json({ error: "Partner has no linked Square customer ID — add it in the Partners tab" }, { status: 400 });
   }
 
-  const batch = allocation.brew_batches as { id: string; beer_name: string; volume_bbl: number; turns: number; recipe_id: string; expected_delivery_date: string | null } | null;
+  const batch = allocation.brew_batches as { id: string; beer_name: string; batch_number: string | null; volume_bbl: number; turns: number; recipe_id: string; expected_delivery_date: string | null } | null;
   if (!batch) return NextResponse.json({ error: "Batch not found" }, { status: 404 });
 
   // ── generate ──────────────────────────────────────────────────────────────
@@ -169,11 +181,15 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     const draftDate = todayLocalDate();
     const serviceDate = draftDate;
     const dueDate = addDaysStr(draftDate, netTerms);
-    // Customer-facing: name the beer and nothing else. The derivation (share,
-    // batch volume, conversion exclusions) stays in the ledger and the breakdown
-    // modal — same convention as shippedDepositDescription.
+    // Customer-facing. The title names the beer; the description says how the
+    // figure was arrived at in the terms the partner requested the beer in —
+    // see depositInvoiceDescription.
     const title = `Ingredient Deposit — ${batch.beer_name}`;
-    const description = `Ingredient deposit for your ${batch.beer_name} batch.`;
+    const description = depositInvoiceDescription(await loadDepositBasis(supabase, {
+      allocationId: id, batchId: batch.id, contractRequestId: allocation.contract_request_id ?? null,
+      percentage: Number(allocation.percentage), beerName: batch.beer_name, batchNumber: batch.batch_number ?? null,
+      batchBbl: Number(batch.volume_bbl ?? 0), excludedBeerNames: excludedRecipes.map((r) => r.beerName),
+    }));
 
     const invoiceParams = {
       squareCustomerId: partner.square_customer_id,
