@@ -13,6 +13,8 @@ import SortableTh from "@/app/components/ui/SortableTh";
 import type { ControlsConfig } from "@/lib/table/types";
 import { CreditInvoiceModal } from "./CreditInvoiceModal";
 import CancelInvoiceModal from "./CancelInvoiceModal";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
+import { Modal } from "@/app/components/ui/Modal";
 
 /**
  * A line item is two things and only two things: a LABEL and a NOTE.
@@ -129,6 +131,11 @@ function InvoiceExpandedPanel({
   // Non-fatal follow-up from an action that otherwise succeeded.
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [creditOpen, setCreditOpen] = useState(false);
+  // A line-item change waiting on its reason (every hand change is recorded
+  // on the invoice with one — the route refuses without it).
+  const [pendingPatch, setPendingPatch] = useState<{ title: string; message?: string; body: Record<string, unknown>; after?: () => void } | null>(null);
+  const [patchReason, setPatchReason] = useState("");
+  const [sendPending, setSendPending] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const queryClient = useQueryClient();
 
@@ -164,11 +171,12 @@ function InvoiceExpandedPanel({
       m.service_type !== "distribution_discount" && m.service_type !== "wholesale_discount"
   );
 
-  async function patchLineItem(body: Record<string, unknown>) {
-    // Every hand change to a generated line is recorded on the invoice with a
-    // reason — the route refuses without one.
-    const reason = window.prompt("Why is this line changing? This is recorded on the invoice.")?.trim();
-    if (!reason) return;
+  function requestPatch(title: string, message: string | undefined, body: Record<string, unknown>, after?: () => void) {
+    setPatchReason("");
+    setPendingPatch({ title, message, body, after });
+  }
+
+  async function patchLineItem(body: Record<string, unknown>, reason: string) {
     setActionLoading(true); setActionError(null);
     try {
       const res = await fetch(`/api/production/export/invoices/${invoice.id}/line-items`, {
@@ -183,9 +191,8 @@ function InvoiceExpandedPanel({
     } finally { setActionLoading(false); }
   }
 
-  async function removeLineItem(lineItemId: string) {
-    if (!confirm("Remove this line item? The Square draft will be cancelled and recreated.")) return;
-    await patchLineItem({ action: "remove", line_item_id: lineItemId });
+  function removeLineItem(lineItemId: string) {
+    requestPatch("Remove this line item?", "The Square draft will be cancelled and recreated.", { action: "remove", line_item_id: lineItemId });
   }
 
   function startEdit(li: InvoiceLineItem) {
@@ -207,14 +214,13 @@ function InvoiceExpandedPanel({
       setActionError("Quantity must be positive and unit price non-negative");
       return;
     }
-    await patchLineItem({
+    requestPatch("Why is this line changing?", undefined, {
       action: "edit",
       line_item_id: lineItemId,
       note: editNote,
       quantity,
       unit_price_cents: unitPriceCents,
-    });
-    setEditingId(null);
+    }, () => setEditingId(null));
   }
 
   async function addLineItem() {
@@ -231,18 +237,17 @@ function InvoiceExpandedPanel({
       }
     }
 
-    await patchLineItem({
+    requestPatch("Why is this line being added?", undefined, {
       action: "add",
       note,
       quantity: Number(addQty) || 1,
       unit_price_cents: unitPriceCents,
       square_catalog_variation_id: squareCatalogVariationId,
-    });
-    setAddNote(""); setAddQty("1"); setAddPrice(""); setAddMappingId(""); setAddOpen(false);
+    }, () => { setAddNote(""); setAddQty("1"); setAddPrice(""); setAddMappingId(""); setAddOpen(false); });
   }
 
   async function handleSend() {
-    if (!confirm("Send this invoice to the customer via email?")) return;
+    setSendPending(false);
     setActionLoading(true); setActionError(null);
     try {
       const txIds = invoice.shipments.map((s) => s.id);
@@ -597,7 +602,7 @@ function InvoiceExpandedPanel({
         <div className={`${panelClass} flex items-center gap-2`}>
           {isDraft && (
             <button
-              onClick={handleSend}
+              onClick={() => setSendPending(true)}
               disabled={actionLoading}
               className="btn-primary"
             >
@@ -638,6 +643,46 @@ function InvoiceExpandedPanel({
           {actionError && <span className="text-xs text-danger">{actionError}</span>}
           {actionNotice && <span className="text-xs text-accent">{actionNotice}</span>}
         </div>
+      )}
+
+      {sendPending && (
+        <ConfirmDialog
+          title="Send this invoice?"
+          message="It goes to the customer by email."
+          confirmLabel="Send"
+          tone="primary"
+          onConfirm={handleSend}
+          onCancel={() => setSendPending(false)}
+        />
+      )}
+
+      {pendingPatch && (
+        <Modal title={pendingPatch.title} onClose={() => setPendingPatch(null)}>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const reason = patchReason.trim();
+              if (!reason) return;
+              const { body, after } = pendingPatch;
+              setPendingPatch(null);
+              await patchLineItem(body, reason);
+              after?.();
+            }}
+            className="space-y-3"
+          >
+            {pendingPatch.message && <p className="text-sm text-body">{pendingPatch.message}</p>}
+            <label className="block text-xs text-secondary">
+              Reason <span className="text-faint">— recorded on the invoice</span>
+              <textarea rows={2} autoFocus required className="inp w-full mt-1" value={patchReason} onChange={(e) => setPatchReason(e.target.value)} />
+            </label>
+            <div className="flex justify-end gap-2 pt-3 border-t border-line">
+              <button type="button" className="btn-secondary" onClick={() => setPendingPatch(null)}>Cancel</button>
+              <button type="submit" disabled={!patchReason.trim()} className={pendingPatch.body.action === "remove" ? "btn-danger" : "btn-primary"}>
+                {pendingPatch.body.action === "remove" ? "Remove" : "Save"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {cancelOpen && (

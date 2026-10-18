@@ -433,10 +433,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                             Move it here
                           </button>
                         </div>
-                        <p className="text-[11px] text-muted">
-                          Sharing keeps both packagings. A sale drains the oldest stock first, and
-                          each one still books the can that actually left.
-                        </p>
+                        <p className="text-[11px] text-muted">Oldest stock sells first.</p>
                       </div>
                     ) : pendingId ? (
                       <button

@@ -198,10 +198,7 @@ export default function CronMonitor() {
           })}
 
           <p className="text-2xs text-faint mt-1">
-            Runs are recorded by the jobs themselves. A job with no runs has either never fired or predates run logging.
-            Vercel triggers these on the schedules in <span className="font-mono">vercel.json</span>.
             Running a job here does exactly what the schedule does, and is recorded in the same history.
-            A job that is already running will say so rather than starting a second time.
           </p>
         </div>
       )}

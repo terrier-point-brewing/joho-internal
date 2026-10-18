@@ -13,8 +13,8 @@ import {
   type LineItemCoa,
 } from "@/lib/finance/invoiceLineItems";
 import type { CatalogItem } from "@/types/square";
-import { getNetTermsDays } from "@/lib/production/invoiceTerms";
-import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
+import { invoiceDraftDates } from "@/lib/production/invoiceTerms";
+import { exportInvoiceTitle } from "@/lib/production/invoiceCustomerText";
 
 export const dynamic = "force-dynamic";
 
@@ -78,7 +78,7 @@ export async function PATCH(
   // Load invoice — must be draft and have a Square ID.
   const { data: inv, error: invErr } = await supabase
     .from("invoices")
-    .select("id, status, square_invoice_id, partner_id, total_cents, line_edits, line_edit_reason")
+    .select("id, status, square_invoice_id, partner_id, total_cents, line_edits, line_edit_reason, customer_note")
     .eq("id", invoiceId)
     .single();
   if (invErr || !inv) {
@@ -103,23 +103,22 @@ export async function PATCH(
 
   // Editing line items recreates the Square draft, so the due date re-derives
   // from today (a redraft resets the clock).
-  const netTerms = await getNetTermsDays(supabase, "export");
-  const draftDate = todayLocalDate();
-  const dueDate = addDaysStr(draftDate, netTerms);
+  const { draftDate, dueDate } = await invoiceDraftDates(supabase, "export");
 
   // Load current line items.
   const { data: currentItems, error: itemsErr } = await supabase
     .from("invoice_line_items")
-    .select("id, sort_order, note, quantity, unit_price_cents, total_cents, square_catalog_variation_id, chart_of_accounts_id")
+    .select("id, sort_order, line_item_name, note, quantity, unit_price_cents, total_cents, square_catalog_variation_id, square_catalog_discount_id, chart_of_accounts_id")
     .eq("invoice_id", invoiceId)
     .order("sort_order");
   if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 });
 
   // Build updated items list.
   type StoredItem = {
-    id: string; sort_order: number; note: string | null;
+    id: string; sort_order: number; line_item_name?: string | null; note: string | null;
     quantity: number; unit_price_cents: number; total_cents: number;
-    square_catalog_variation_id: string | null; chart_of_accounts_id?: string | null;
+    square_catalog_variation_id: string | null; square_catalog_discount_id?: string | null;
+    chart_of_accounts_id?: string | null;
   };
 
   let updatedItems: StoredItem[] = currentItems ?? [];
@@ -191,23 +190,31 @@ export async function PATCH(
   }
 
   // `description` here is the Square draft's field, not a column: it becomes the
-  // Square line's note (catalog lines) or its name (custom lines). The stored
-  // `note` is the only free text we hold, so it is what we send.
+  // Square line's note (catalog lines) or its name (custom lines). The read-back
+  // stores a custom line's name in `line_item_name` with a null note, so a
+  // custom line falls back to it rather than going to Square nameless.
   const lineItemsForSquare = updatedItems.map((item) => ({
     id: item.id,
-    description: item.note ?? "",
+    description: item.square_catalog_variation_id
+      ? (item.note ?? "")
+      : (item.note ?? item.line_item_name ?? ""),
     quantity: item.quantity,
     unitPriceCents: item.unit_price_cents,
     squareCatalogVariationId: item.square_catalog_variation_id,
+    discountCatalogId: item.square_catalog_discount_id ?? null,
   }));
 
   let newSquareResult;
   try {
     newSquareResult = await createExportInvoice({
       squareCustomerId: partner.square_customer_id,
-      title: `Export Invoice — ${partner.company_name}`,
+      title: exportInvoiceTitle(partner.company_name),
       lineItems: lineItemsForSquare,
       dueDate,
+      serviceDate: draftDate,
+      // The note and discounts the original draft carried come along; before
+      // they were stored, every edit silently dropped both.
+      description: (inv.customer_note as string | null) ?? undefined,
     });
   } catch (err) {
     // The old Square draft was already cancelled. Clear square_invoice_id so the UI
@@ -296,6 +303,7 @@ export async function PATCH(
         unit_price_cents: item.unit_price_cents,
         total_cents: item.total_cents,
         square_catalog_variation_id: item.square_catalog_variation_id,
+        square_catalog_discount_id: item.square_catalog_discount_id ?? null,
         chart_of_accounts_id: item.chart_of_accounts_id ?? null,
       }))
     );

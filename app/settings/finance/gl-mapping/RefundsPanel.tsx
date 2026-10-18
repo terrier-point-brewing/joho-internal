@@ -131,21 +131,10 @@ export default function RefundsPanel({ selector }: { selector?: ReactNode }) {
       headers={["Refunds of this account", "Post to this account instead", "In effect", ""]}
       footer={
         <>
-          A refund normally counts as a sale coming back, so it posts to Sales Returns &amp;
-          Refunds. That is wrong when the original charge was never a sale. A returnable keg or
-          pump deposit is the case this exists for: taking the deposit records money you owe the
-          customer, and handing it back settles it — netting it against beer sales would leave
-          the deposit on the books forever.
-          {" "}A rule pointing an account <em>at itself</em> is the normal shape and is not a
-          mistake: it means the refund goes back where the charge came from.
-          {" "}Rules apply to refunds Square gives you no line detail for — till refunds and ones
-          raised by hand in the Square dashboard. A refund is only routed when its amount matches
-          that account&apos;s share of the original ticket exactly, tax included; a partial refund
-          off a mixed ticket cannot be attributed safely and stays on Sales Returns &amp; Refunds.
-          {" "}Refunds the app issued against an invoice already carry their own line detail and
-          ignore these rules.
-          {" "}Changes take effect on the next refund sync — they do not re-code refunds already
-          imported.
+          Refunds post to Sales Returns &amp; Refunds unless an exception here sends them back where the
+          charge came from (a deposit account pointing at itself is the normal shape).
+          {" "}Applies on the next refund sync, only when the amount matches that account&apos;s share of
+          the ticket exactly.
         </>
       }
     >

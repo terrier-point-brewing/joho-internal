@@ -318,7 +318,6 @@ export default function BrewStepTemplatesTab() {
   return (
     <>
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-muted">Reusable step sequences — apply to any recipe to populate its brew activity log</p>
         <button onClick={() => setEditingTemplate("new")} className="btn-primary">+ New Template</button>
       </div>
 

@@ -23,8 +23,12 @@ import { CRON_JOBS } from "@/lib/cron/registry";
  * timeout waiting to happen, and the run history is where the answer belongs.
  */
 export interface RunJobButtonProps {
-  /** Job id, as it appears in the registry and in the run history. */
-  job: string;
+  /**
+   * Job id, as it appears in the registry and in the run history. A list runs
+   * each in turn under one button and one confirmation — for a screen two feeds
+   * land on, where "Refresh" should mean both.
+   */
+  job: string | string[];
   /** Button copy. Defaults to "Run now". */
   label?: string;
   /** Called once a run that waited has finished, so the caller can reload. */
@@ -40,7 +44,8 @@ export default function RunJobButton({ job, label = "Run now", onFinished }: Run
   // The registry is plain data with no server dependencies, so both the wording
   // and the wait-or-start decision come straight from the same definition the
   // route uses rather than being restated at each place the button appears.
-  const meta = CRON_JOBS.find((j) => j.job === job);
+  const jobs = Array.isArray(job) ? job : [job];
+  const metas = jobs.map((id) => CRON_JOBS.find((j) => j.job === id));
 
   async function start() {
     setConfirming(false);
@@ -48,17 +53,21 @@ export default function RunJobButton({ job, label = "Run now", onFinished }: Run
     setMessage(null);
     setFailed(false);
     try {
-      const res = await fetch(`/api/cron/run/${encodeURIComponent(job)}`, { method: "POST" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setFailed(true);
-        setMessage(typeof body.error === "string" ? body.error : "The job could not be started.");
-        return;
+      let lastMessage: string | null = null;
+      for (const id of jobs) {
+        const res = await fetch(`/api/cron/run/${encodeURIComponent(id)}`, { method: "POST" });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setFailed(true);
+          setMessage(typeof body.error === "string" ? body.error : "The job could not be started.");
+          return;
+        }
+        lastMessage = typeof body.message === "string" ? body.message : null;
       }
       setMessage(
-        typeof body.message === "string"
-          ? body.message
-          : "The job finished. Its result is in the run history.",
+        jobs.length > 1
+          ? "Refreshed. Results are in the run history."
+          : lastMessage ?? "The job finished. Its result is in the run history.",
       );
       onFinished?.();
     } catch {
@@ -71,9 +80,13 @@ export default function RunJobButton({ job, label = "Run now", onFinished }: Run
 
   // A job the history knows about but the registry does not has nothing behind
   // it to run, so it gets no button rather than one that answers "no such job".
-  if (!meta) return null;
+  if (metas.some((m) => !m)) return null;
 
-  const { manualRun, manualNote } = meta;
+  // One confirmation covers every job in the list; a note from any of them is
+  // reason enough to pause, and all of them are shown.
+  const manualNotes = metas.flatMap((m) => (m?.manualNote ? [m.manualNote] : []));
+  const manualNote = manualNotes.length > 0 ? manualNotes.join(" ") : undefined;
+  const manualRun = metas.every((m) => m?.manualRun === "start") ? "start" : "wait";
   const runningLabel = manualRun === "start" ? "Starting…" : "Running…";
 
   return (
@@ -94,7 +107,7 @@ export default function RunJobButton({ job, label = "Run now", onFinished }: Run
 
       {confirming && manualNote && (
         <ConfirmDialog
-          title="Run this job now?"
+          title={jobs.length > 1 ? "Refresh now?" : "Run this job now?"}
           message={
             <div className="space-y-2">
               <p>{manualNote}</p>

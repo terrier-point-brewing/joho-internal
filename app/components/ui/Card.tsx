@@ -17,6 +17,7 @@ export default function Card({
   padding = "p-4",
   scroll,
   bleed = false,
+  title,
 }: {
   children: ReactNode;
   className?: string;
@@ -24,11 +25,13 @@ export default function Card({
   padding?: string;
   scroll?: "x";
   bleed?: boolean;
+  /** Hover text for the whole card (a tile's rule or caveat). */
+  title?: string;
 }) {
   const scrollCls = scroll === "x" ? "scroll-x" : "";
   const bleedCls = bleed ? "-mx-4 sm:mx-0 max-sm:rounded-none max-sm:border-x-0" : "";
   return (
-    <div className={`bg-surface border border-line rounded-lg ${padding} ${scrollCls} ${bleedCls} ${className}`.replace(/\s+/g, " ").trim()}>
+    <div title={title} className={`bg-surface border border-line rounded-lg ${padding} ${scrollCls} ${bleedCls} ${className}`.replace(/\s+/g, " ").trim()}>
       {children}
     </div>
   );

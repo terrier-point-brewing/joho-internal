@@ -24,10 +24,7 @@ export default function AppearanceSettings({
           <div>
             <ThemeToggle />
           </div>
-          <p className="text-xs text-muted">
-            Light/dark for the brand surfaces — and, when the brand skin is on, the whole
-            internal app. Saved per browser.
-          </p>
+          <p className="text-xs text-muted">Saved on this device.</p>
         </div>
 
         {isAdmin && (

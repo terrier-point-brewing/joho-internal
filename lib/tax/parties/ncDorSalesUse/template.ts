@@ -117,7 +117,7 @@ const settingsSchema: FieldSpec[] = [
     label: "Square General Sales Tax",
     type: "select",
     source: "square_tax",
-    help: "The Square catalog tax representing NC general sales & use tax. Options are fetched from Square's catalog taxes when this field is rendered.",
+    help: "The Square tax for NC sales & use tax.",
   },
 ];
 
@@ -127,7 +127,7 @@ const scheduleConfigSchema: FieldSpec[] = [
     label: "Counties",
     type: "select",
     options: NC_COUNTIES.map((c) => ({ value: c.code, label: c.name })),
-    help: "Counties where taxable sales occur. Each selected county carries a weight (%) of the period's taxable receipts, stored in schedule.config.counties as { code, weight } pairs whose weights should sum to 100 — the schedule editor UI manages per-county weights beyond this field's option list.",
+    help: "Counties where taxable sales occur.",
   },
 ];
 

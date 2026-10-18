@@ -23,9 +23,9 @@ import {
 } from "@/lib/finance/invoiceLineItems";
 import type { CatalogItem } from "@/types/square";
 import { conversionDepositExclusions } from "@/lib/production/exportIngredientDeposit";
-import { getNetTermsDays } from "@/lib/production/invoiceTerms";
+import { invoiceDraftDates } from "@/lib/production/invoiceTerms";
+import { depositInvoiceTitle } from "@/lib/production/invoiceCustomerText";
 import { depositInvoiceDescription, loadDepositBasis } from "@/lib/production/depositInvoiceNote";
-import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -174,17 +174,12 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
       return NextResponse.json({ error: "Ingredient Deposit is not configured in Deposit Settings — set the Square item mapping before generating this invoice" }, { status: 422 });
     }
 
-    // Due date = the date this invoice is drafted (today) + the single configured
-    // net-terms value. Service date is the same draft date, so both flows behave
-    // identically and the ledger stays consistent (due_date = invoice_date + terms).
-    const netTerms = await getNetTermsDays(supabase, "deposit");
-    const draftDate = todayLocalDate();
+    const { draftDate, dueDate } = await invoiceDraftDates(supabase, "deposit");
     const serviceDate = draftDate;
-    const dueDate = addDaysStr(draftDate, netTerms);
     // Customer-facing. The title names the beer; the description says how the
     // figure was arrived at in the terms the partner requested the beer in —
     // see depositInvoiceDescription.
-    const title = `Ingredient Deposit — ${batch.beer_name}`;
+    const title = depositInvoiceTitle(batch.beer_name);
     const description = depositInvoiceDescription(await loadDepositBasis(supabase, {
       allocationId: id, batchId: batch.id, contractRequestId: allocation.contract_request_id ?? null,
       percentage: Number(allocation.percentage), beerName: batch.beer_name, batchNumber: batch.batch_number ?? null,

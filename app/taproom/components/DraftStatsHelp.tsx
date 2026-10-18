@@ -57,10 +57,22 @@ export default function DraftStatsHelp({
         <Banner tone="info">
           <p className="font-semibold">Nothing changes until Draft Restock is rung.</p>
           <p className="mt-1">
-            Every button below only queues a change. It takes effect the next time Draft Restock is rung for that
-            tap in Square — so ring it every time a keg goes on.
+            Every button below only saves a change. It takes effect the next time Draft Restock is rung for that
+            tap in Square — so ring it every time a keg goes on, including the first. Assigning a beer to a tap on
+            its own books no inventory.
           </p>
         </Banner>
+
+        {/* The mechanism, in one place — the cards and modals only state outcomes. */}
+        <details className="rounded-lg border border-line bg-surface/40 px-4 py-3 text-sm text-body">
+          <summary className="cursor-pointer font-medium text-strong select-none">What a ring does</summary>
+          <ul className="mt-2 ml-5 list-disc space-y-1.5 leading-relaxed marker:text-faint">
+            <li>Pulls one keg of the tap&rsquo;s set size out of cold storage and onto the excise record.</li>
+            <li>Writes off whatever was left of the old keg as loss (same beer, new size: nothing is written off).</li>
+            <li>Recounts the tap&rsquo;s draft item in Square to the new keg&rsquo;s full volume — the fl oz shown next to each keg size.</li>
+            <li>Retiring a beer only stops it being suggested for brewing. Putting it back on a tap un-retires it.</li>
+          </ul>
+        </details>
 
         <Action
           button="Mark Retired"
@@ -81,7 +93,7 @@ export default function DraftStatsHelp({
             <>Ring <span className="font-medium">Draft Restock</span> for that tap in Square.</>,
             <><span className="font-medium">Rename that tap&rsquo;s Draft Restock line in Square</span> to the new beer.</>,
           ]}
-          note="Until the restock is rung the card still shows the old beer. What's left in the old keg is written off then."
+          note="Until the restock is rung the card still shows the old beer."
         />
 
         <Action
@@ -115,18 +127,19 @@ export default function DraftStatsHelp({
           note="Only works before the restock is rung. Nothing has moved yet, so there is nothing else to undo."
         />
 
-        <section className="rounded-lg border border-dashed border-line-strong p-4">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <Btn>Configure Taps</Btn>
-            <p className="text-sm font-medium text-strong">Admin only</p>
-          </div>
-          <p className="mt-2 text-sm text-body leading-relaxed">
-            Number of taps and which Square Draft Restock line belongs to which tap.
-            {canSetUpTaps
-              ? " A wrong setting here stops kegs being booked."
-              : " If a card says it needs tap setup, ask an admin."}
-          </p>
-        </section>
+        {/* Hidden from whoever can't do it — nothing to ask an admin for. */}
+        {canSetUpTaps && (
+          <section className="rounded-lg border border-dashed border-line-strong p-4">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Btn>Configure Taps</Btn>
+              <p className="text-sm font-medium text-strong">Tap setup</p>
+            </div>
+            <p className="mt-2 text-sm text-body leading-relaxed">
+              Number of taps, each tap&rsquo;s Square Draft Restock line and its keg size. A wrong setting here
+              stops kegs being booked.
+            </p>
+          </section>
+        )}
 
         <div className="flex justify-end pt-1">
           <button type="button" onClick={onClose} className="btn-primary">Got it</button>

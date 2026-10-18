@@ -61,12 +61,7 @@ export default function BusinessSettings() {
 
       <section className="mt-4 bg-surface border border-line rounded-lg p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-primary">Reporting timezone</h2>
-        <p className="text-xs text-secondary mt-1">
-          The physical timezone of the taproom. Sales, targets, and every day-,
-          week-, and quarter-bucketed metric are calculated in this zone — not in
-          the timezone of whoever is viewing the report. Change it only if the
-          taproom physically relocates.
-        </p>
+        <p className="text-xs text-secondary mt-1">Change it only if the taproom physically relocates.</p>
 
         <div className="mt-4 rounded-md bg-surface-mid border border-line-subtle px-3 py-2">
           <div className="text-xs text-muted">Currently applied everywhere</div>

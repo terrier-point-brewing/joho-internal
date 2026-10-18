@@ -34,17 +34,8 @@ const TANK_TYPES = new Set(["fermenter", "brite", "brewhouse"]);
 // by a different run — see isPendingWork.
 const PACKAGING_STAGES = new Set(["kegging", "canning"]);
 
-// Minimal calendar glyph for the per-equipment "upcoming plans" button —
-// crisper at tiny sizes than an emoji and matches the rest of the UI's line-icon style.
-function CalendarIcon({ size = 11 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1.5" y="2.5" width="13" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M1.5 6h13" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M4.5 1.2v2.6M11.5 1.2v2.6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
+// The Up next strip shows this many rows before folding the rest behind "+N more".
+const UP_NEXT_VISIBLE = 5;
 
 // A brewed batch whose ingredients were not all drawn. Each turn's draw
 // happens when the turn starts (tank-assignments route), and `turns_completed`
@@ -124,6 +115,7 @@ export default function BrewStatusTab() {
   }, [refreshBrewStatus]);
 
   const [editMode, setEditMode] = useState(false);
+  const [upNextExpanded, setUpNextExpanded] = useState(false);
   const [mobileFilter, setMobileFilter] = useState<string>("all");
   const [transferTankId, setTransferTankId] = useState<string | null>(null);
   const [transferBatchId, setTransferBatchId] = useState<string | null>(null);
@@ -337,10 +329,16 @@ export default function BrewStatusTab() {
   useEffect(() => {
     const el = scaleContainerRef.current;
     if (!el) return;
+    // Fit the width, and also the viewport height left below the grid's top edge
+    // so the whole floorplan is on screen without scrolling — but never shrink
+    // below 0.9 for height alone, or the 11px tile text stops being readable.
     const obs = new ResizeObserver(([entry]) => {
       const { width } = entry.contentRect;
       const naturalW = gridCols * cell;
-      setGridScale(Math.min(1, width / naturalW));
+      const naturalH = gridRows * cell;
+      const availH = window.innerHeight - el.getBoundingClientRect().top - 24;
+      const heightScale = availH > 0 ? Math.max(0.9, availH / naturalH) : 1;
+      setGridScale(Math.min(1, width / naturalW, heightScale));
     });
     obs.observe(el);
     return () => obs.disconnect();
@@ -376,113 +374,97 @@ export default function BrewStatusTab() {
         </div>
       )}
 
-      {/* What's next — upcoming equipment-schedule tasks + pending conversions, soonest first */}
-      {(upNextTasks.length > 0 || pendingConversions.length > 0) && (
-        <div className="mb-4 rounded-lg border border-line bg-surface/50 px-3 py-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted mb-1.5">Up next</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {upNextTasks.slice(0, 10).map((e) => {
-              const b = e.brew_batches ?? (e.batch_id ? batchById[e.batch_id] : null);
-              const eqName = e.equipment?.name ?? tanks.find(t => t.id === e.equipment_id)?.name ?? "—";
-              const overdue = e.planned_start.slice(0, 10) < new Date().toISOString().slice(0, 10);
-              const currentTank = currentTankByBatchId[e.batch_id];
-              const actionLabel = currentTank ? "Transfer" : null;
-              return (
-                <button
-                  key={e.id}
-                  onClick={() => openUpNextAction(e)}
-                  className={`shrink-0 flex flex-col gap-0.5 text-left px-2.5 py-1.5 rounded border transition-colors min-w-[150px] ${
-                    overdue
-                      ? "border-danger-border/60 bg-danger-surface/30 hover:bg-danger-surface/50"
-                      : "border-line-strong/60 bg-surface-mid/40 hover:bg-surface-mid/70"
-                  }`}
-                >
-                  <span className={`text-[9px] font-semibold uppercase tracking-wide ${overdue ? "text-danger" : "text-accent-emphasis"}`}>
-                    {STAGE_LABELS[e.stage] ?? e.stage} · {eqName}
-                  </span>
-                  <span className="text-xs text-strong truncate">
-                    {b ? `#${b.batch_number} ${b.beer_name}` : "—"}
-                  </span>
-                  <span className="text-[10px] text-muted">
-                    {fmtDate(e.planned_start)}{e.volume_bbl != null && ` · ${Number(e.volume_bbl).toFixed(1)} BBL`}
-                  </span>
-                  {actionLabel && (
-                    <span className="text-[9px] text-accent-emphasis font-medium mt-0.5">{actionLabel} →</span>
-                  )}
-                </button>
-              );
-            })}
-            {/* Pending conversion cards — shown after schedule tasks */}
-            {pendingConversions.map(conv => {
-              const sourceBatch = batchById[conv.source_batch_id];
-              const sourceTank = conv.source_equipment_id ? tanks.find(t => t.id === conv.source_equipment_id) : null;
-              const overdue = conv.planned_date ? conv.planned_date < new Date().toISOString().slice(0, 10) : false;
-              return (
-                <button key={conv.id} onClick={() => openPendingConversionAction(conv.id)}
-                  className={`shrink-0 flex flex-col gap-0.5 text-left px-2.5 py-1.5 rounded border transition-colors min-w-[150px] ${
-                    overdue
-                      ? "border-danger-border/60 bg-danger-surface/30 hover:bg-danger-surface/50"
-                      : "border-accent-border/50 bg-accent-muted/20 hover:bg-accent-muted/40"
-                  }`}
-                >
-                  <span className={`text-[9px] font-semibold uppercase tracking-wide ${overdue ? "text-danger" : "text-accent"}`}>
-                    Conversion{sourceTank ? ` · ${sourceTank.name}` : ""}
-                  </span>
-                  <span className="text-xs text-strong truncate">
-                    {sourceBatch ? `#${sourceBatch.batch_number} ${sourceBatch.beer_name}` : "—"}
-                  </span>
-                  {conv.target_batch && (
-                    <span className="text-[10px] text-secondary">→ {conv.target_batch.beer_name}</span>
-                  )}
-                  <span className="text-[10px] text-muted">
-                    {conv.planned_date ? fmtDate(conv.planned_date) : "—"}{` · ${Number(conv.volume_bbl).toFixed(1)} BBL`}
-                  </span>
-                  {sourceTank && <span className="text-[9px] text-accent-emphasis font-medium mt-0.5">Convert →</span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Header — mobile new batch, legend, and edit layout controls (desktop) on one row */}
-      <div className="flex items-center justify-between gap-2 mb-4">
-        {/* Mobile: New Batch shortcut */}
-        <button
-          onClick={() => setShowNewBatch(true)}
-          className="md:hidden btn-primary"
-        >
-          + New Batch
-        </button>
-        {canOperate && <div className="md:hidden"><UndoTransferActions onUndone={onRefresh} /></div>}
-
-        {/* Desktop: legend (left) + Edit Layout controls (right), same row */}
-        <div className="hidden md:flex items-center justify-between w-full gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {EQ_TYPES.map(([type, meta]) => (
-              <span key={type} className={`text-xs px-2 py-px rounded border ${meta.badge}`}>
-                {meta.label}
-              </span>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {canOperate && <UndoTransferActions onUndone={onRefresh} />}
-            {canEditEquipment && (
-              <>
-                <button
-                  onClick={() => setEditMode((v) => !v)}
-                  aria-pressed={editMode}
-                  className="btn-secondary"
-                >
-                  {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
-                </button>
-                {editMode && (
-                  <button onClick={eqCrud.openNew} className="btn-primary">+ Add Equipment</button>
+      {/* Up next — one row per pending task or conversion, soonest first,
+          with the floorplan controls (Undo / Edit Layout) on the header row
+          so they don't need a row of their own. */}
+      {(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        type Row = { key: string; overdue: boolean; stage: string; where: string; what: string; when: string; action: string | null; onClick: () => void; isConversion: boolean };
+        const rows: Row[] = [
+          ...upNextTasks.map((e): Row => {
+            const b = e.brew_batches ?? (e.batch_id ? batchById[e.batch_id] : null);
+            const eqName = e.equipment?.name ?? tanks.find(t => t.id === e.equipment_id)?.name ?? "—";
+            return {
+              key: e.id,
+              overdue: e.planned_start.slice(0, 10) < today,
+              stage: STAGE_LABELS[e.stage] ?? e.stage,
+              where: eqName,
+              what: b ? `#${b.batch_number} ${b.beer_name}` : "—",
+              when: `${fmtDate(e.planned_start)}${e.volume_bbl != null ? ` · ${Number(e.volume_bbl).toFixed(1)} BBL` : ""}`,
+              action: currentTankByBatchId[e.batch_id] ? "Transfer" : null,
+              onClick: () => openUpNextAction(e),
+              isConversion: false,
+            };
+          }),
+          ...pendingConversions.map((conv): Row => {
+            const sourceBatch = batchById[conv.source_batch_id];
+            const sourceTank = conv.source_equipment_id ? tanks.find(t => t.id === conv.source_equipment_id) : null;
+            return {
+              key: conv.id,
+              overdue: conv.planned_date ? conv.planned_date < today : false,
+              stage: "Conversion",
+              where: sourceTank?.name ?? "—",
+              what: `${sourceBatch ? `#${sourceBatch.batch_number} ${sourceBatch.beer_name}` : "—"}${conv.target_batch ? ` → ${conv.target_batch.beer_name}` : ""}`,
+              when: `${conv.planned_date ? fmtDate(conv.planned_date) : "—"} · ${Number(conv.volume_bbl).toFixed(1)} BBL`,
+              action: sourceTank ? "Convert" : null,
+              onClick: () => openPendingConversionAction(conv.id),
+              isConversion: true,
+            };
+          }),
+        ];
+        const hidden = Math.max(0, rows.length - UP_NEXT_VISIBLE);
+        const visible = upNextExpanded ? rows : rows.slice(0, UP_NEXT_VISIBLE);
+        return (
+          <div className="mb-3 rounded-lg border border-line bg-surface/50 px-3 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                Up next{rows.length > 0 && <span className="font-normal normal-case tracking-normal text-faint"> · {rows.length}</span>}
+              </p>
+              <div className="hidden md:flex items-center gap-2 shrink-0">
+                {canOperate && <UndoTransferActions onUndone={onRefresh} />}
+                {canEditEquipment && (
+                  <>
+                    <button onClick={() => setEditMode((v) => !v)} aria-pressed={editMode} className="btn-secondary">
+                      {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
+                    </button>
+                    {editMode && <button onClick={eqCrud.openNew} className="btn-primary">+ Add Equipment</button>}
+                  </>
                 )}
-              </>
+              </div>
+            </div>
+            {rows.length === 0 ? (
+              <p className="text-xs text-faint mt-1">Nothing scheduled.</p>
+            ) : (
+              <ul className="mt-0.5 divide-y divide-line/60">
+                {visible.map((r) => (
+                  <li key={r.key}>
+                    <button
+                      onClick={r.onClick}
+                      className={`w-full flex items-center gap-2 text-left py-0.5 text-xs rounded transition-colors hover:bg-surface-mid/60 ${r.overdue ? "text-danger" : "text-body"}`}
+                    >
+                      <span className={`font-semibold uppercase tracking-wide shrink-0 w-24 truncate ${r.overdue ? "text-danger" : r.isConversion ? "text-accent" : "text-accent-emphasis"}`}>{r.stage}</span>
+                      <span className="shrink-0 w-24 truncate text-secondary" title={r.where}>{r.where}</span>
+                      <span className="flex-1 min-w-0 truncate text-strong" title={r.what}>{r.what}</span>
+                      <span className="shrink-0 text-muted">{r.when}</span>
+                      {r.action && <span className="shrink-0 w-16 text-right text-accent-emphasis font-medium">{r.action} →</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {hidden > 0 && (
+              <button onClick={() => setUpNextExpanded((v) => !v)} className="mt-0.5 text-xs text-accent-emphasis hover:underline">
+                {upNextExpanded ? "Show fewer" : `+${hidden} more`}
+              </button>
             )}
           </div>
-        </div>
+        );
+      })()}
+
+      {/* Mobile-only: New Batch shortcut + Undo (desktop controls live on the Up next row) */}
+      <div className="md:hidden flex items-center justify-between gap-2 mb-4">
+        <button onClick={() => setShowNewBatch(true)} className="btn-primary">+ New Batch</button>
+        {canOperate && <UndoTransferActions onUndone={onRefresh} />}
       </div>
 
       {/* ── Mobile card list (hidden on md+) ── */}
@@ -810,33 +792,24 @@ export default function BrewStatusTab() {
                 draggable={editMode && canEditEquipment}
                 onDragStart={editMode && canEditEquipment ? (e) => onDragStart(e, tank) : undefined}
                 onDragEnd={clearDrag}
-                className={`absolute flex flex-col rounded border transition-opacity select-none ${
+                className={`group absolute flex flex-col rounded border transition-opacity select-none ${
                   isDragging ? "opacity-30" : "opacity-100"
                 } ${editMode && canEditEquipment ? "cursor-grab active:cursor-grabbing" : ""} ${eq.border}`}
                 style={{ ...style, background: "color-mix(in srgb, var(--color-surface) 88%, transparent)" }}
               >
-                {/* Header: name + type badge + upcoming-plans button on one line */}
-                <div className={`shrink-0 px-1.5 py-1 flex items-center justify-between gap-1 min-w-0 ${eq.headerBg}`}>
-                  <span className="font-semibold text-primary truncate leading-tight" style={{ fontSize: tiny ? 8 : 10 }}>
+                {/* Header: the name alone — the border colour already says the type,
+                    and clicking the name opens this equipment's upcoming plans. */}
+                <div className={`shrink-0 px-1.5 py-1 flex items-center min-w-0 ${eq.headerBg}`}>
+                  <button
+                    type="button"
+                    onClick={() => setPlansEquipmentId(tank.id)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    title={`${eq.label} · upcoming plans`}
+                    className="font-semibold text-primary truncate leading-tight text-left min-w-0 max-w-full hover:text-accent transition-colors"
+                    style={{ fontSize: tiny ? 11 : 12 }}
+                  >
                     {tank.name}
-                  </span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {!tiny && (
-                      <span className={`px-1 py-px rounded border leading-none ${eq.badge}`} style={{ fontSize: 7 }}>
-                        {eq.label}
-                      </span>
-                    )}
-                    {!tiny && (
-                      <button
-                        onClick={() => setPlansEquipmentId(tank.id)}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        title="Upcoming plans for this equipment"
-                        className="flex items-center leading-none text-muted hover:text-accent transition-colors"
-                      >
-                        <CalendarIcon />
-                      </button>
-                    )}
-                  </div>
+                  </button>
                 </div>
 
                 {/* Body — own scroll region per section, so fixed controls (Transfer/+New)
@@ -849,22 +822,22 @@ export default function BrewStatusTab() {
                       <div className="flex-1 min-h-0 flex flex-col gap-0.5">
                         <div className="flex-1 min-h-0 overflow-y-auto">
                           {planningBatches.length === 0 ? (
-                            <p className="text-disabled text-center mt-1" style={{ fontSize: 9 }}>No planned batches</p>
+                            <p className="text-disabled text-center mt-1" style={{ fontSize: 11 }}>No planned batches</p>
                           ) : (
                             <div className="space-y-1.5">
                               {groupByDate(planningBatches, (b) => b.planned_brew_date).map((group) => (
                                 <div key={group.date}>
-                                  <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>{fmtDate(group.date)}</p>
+                                  <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: 11 }}>{fmtDate(group.date)}</p>
                                   <div className="space-y-0.5 mt-0.5">
                                     {group.items.map((b) => (
                                       <div key={b.id} className="leading-tight">
                                         <div className="flex items-center justify-between gap-1 min-w-0">
-                                          <span className="text-faint font-mono shrink-0" style={{ fontSize: 8 }}>{b.batch_number ? `#${b.batch_number}` : "—"}</span>
+                                          <span className="text-faint font-mono shrink-0" style={{ fontSize: 11 }}>{b.batch_number ? `#${b.batch_number}` : "—"}</span>
                                           {b.volume_bbl != null && (
-                                            <span className="text-accent-emphasis/80 font-mono shrink-0" style={{ fontSize: 8 }}>{Number(b.volume_bbl).toFixed(1)} BBL</span>
+                                            <span className="text-accent-emphasis/80 font-mono shrink-0" style={{ fontSize: 11 }}>{Number(b.volume_bbl).toFixed(1)} BBL</span>
                                           )}
                                         </div>
-                                        <p className="text-body truncate" style={{ fontSize: 9 }} title={b.beer_name}>{b.beer_name}</p>
+                                        <p className="text-body truncate" style={{ fontSize: 11 }} title={b.beer_name}>{b.beer_name}</p>
                                       </div>
                                     ))}
                                   </div>
@@ -879,6 +852,7 @@ export default function BrewStatusTab() {
                               onClick={() => setShowNewBatch(true)}
                               onMouseDown={(e) => e.stopPropagation()}
                               className="btn-primary btn-xxs w-full"
+                              style={{ fontSize: 11 }}
                             >
                               + New Batch
                             </button>
@@ -887,24 +861,25 @@ export default function BrewStatusTab() {
                       </div>
                     )}
 
-                    {/* === Cold Storage === */}
+                    {/* === Cold Storage === one line per lot: "Beer · Pkg  qty" */}
                     {isColdStorage && (
                       <div className="flex-1 min-h-0 overflow-y-auto">
                         {coldStorageLots.length === 0 ? (
-                          <p className="text-disabled text-center mt-1" style={{ fontSize: 9 }}>Empty</p>
+                          <p className="text-disabled text-center mt-1" style={{ fontSize: 11 }}>Empty</p>
                         ) : (
-                          <div className="space-y-1">
-                            {coldStorageLots.map((lot) => (
-                              <div key={lot.id} className="flex flex-col gap-0 leading-tight">
-                                <div className="flex items-center gap-1 min-w-0">
-                                  <span className="text-body truncate flex-1 min-w-0 font-medium" style={{ fontSize: 9 }} title={lot.beer_name ?? undefined}>{lot.beer_name ?? "—"}</span>
-                                  <span className="text-faint shrink-0" style={{ fontSize: 8 }}>{lot.quantity_on_hand}</span>
+                          <div className="space-y-0.5">
+                            {coldStorageLots.map((lot) => {
+                              const label = `${lot.beer_name ?? "—"}${lot.variation_name ? ` · ${lot.variation_name}` : ""}`;
+                              return (
+                                <div key={lot.id} className="flex items-center gap-1.5 min-w-0 leading-tight">
+                                  <span className="text-body truncate flex-1 min-w-0" style={{ fontSize: 11 }} title={label}>
+                                    <span className="font-medium">{lot.beer_name ?? "—"}</span>
+                                    {lot.variation_name && <span className="text-muted"> · {lot.variation_name}</span>}
+                                  </span>
+                                  <span className="text-strong font-mono shrink-0" style={{ fontSize: 11 }}>{lot.quantity_on_hand}</span>
                                 </div>
-                                {lot.variation_name && (
-                                  <span className="text-muted pl-1" style={{ fontSize: 8 }}>{lot.variation_name}</span>
-                                )}
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -916,102 +891,77 @@ export default function BrewStatusTab() {
                       // batch combined into it (may be a partial split per batch).
                       const volFor = (b: typeof batch) => volumeInTank(b?.id, Number(b?.volume_bbl ?? 0), tank.id);
                       const ledgerVol = volFor(batch) + combinedAssignments.reduce((s, a) => s + volFor(a.brew_batches), 0);
-                      // Next planned occupant — shown even while this tank is in use, hidden
-                      // when it's actually the same batch (e.g. an in-place fermenter → brite move).
+                      // Next planned occupant — only an EMPTY tile says it; an occupied
+                      // tank's next occupant is already a row in the Up next strip.
                       const nextPlanned = nextPlannedByTank.get(tank.id);
-                      const occupantIds = new Set([batch?.id, ...combinedAssignments.map(a => a.brew_batches?.id)]);
-                      const nextOccupant = (nextPlanned?.brew_batches && !occupantIds.has(nextPlanned.batch_id)) ? nextPlanned : null;
+                      const hasCapacity = !isUnconstrained && !!tank.capacity_bbl;
+                      const openTransfer = (b: NonNullable<typeof batch>) => {
+                        setTransferTankId(tank.id); setTransferBatchId(b.id); setTransferFromVol(volFor(b));
+                        setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined);
+                      };
 
                       return (
                       <div className="flex-1 min-h-0 flex flex-col gap-0.5">
-                        {/* Capacity + fill bar — fixed, always visible */}
-                        {!isUnconstrained && tank.capacity_bbl && (
-                          <div className="shrink-0">
-                            <p className="text-faint" style={{ fontSize: 9 }}>
-                              {batch ? `${ledgerVol.toFixed(1)} / ${tank.capacity_bbl} BBL` : `${tank.capacity_bbl} BBL`}
-                            </p>
-                            {batch && (
-                              <div className="w-full rounded-full overflow-hidden" style={{ height: 3, background: "color-mix(in srgb, var(--color-line-strong) 60%, transparent)", marginTop: 2, marginBottom: 2 }}>
-                                <div
-                                  style={{
-                                    height: "100%",
-                                    width: `${Math.min(100, (ledgerVol / tank.capacity_bbl) * 100).toFixed(1)}%`,
-                                    background: "rgba(245,158,11,0.7)",
-                                    borderRadius: "9999px",
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        )}
                         {batch ? (
                           <>
-                            {/* Batch identity — fixed, single line, ellipsized rather than wrapped */}
+                            {/* Line 1 — identity, ellipsized rather than wrapped */}
                             <div className="shrink-0 flex items-center gap-1 min-w-0">
-                              {batch.batch_number && (
-                                <span className="text-muted font-mono shrink-0" style={{ fontSize: 9 }}>#{batch.batch_number}</span>
-                              )}
-                              <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 10 }} title={batch.beer_name}>
+                              <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 12 }} title={`#${batch.batch_number ?? "?"} ${batch.beer_name}`}>
+                                {batch.batch_number && <span className="text-muted font-mono">#{batch.batch_number} </span>}
                                 {batch.beer_name}
                               </span>
                               {drawGap(batchById[batch.id]) && (
-                                <span className="px-1 py-px rounded border border-danger-border bg-danger-surface/40 text-danger shrink-0 leading-none" style={{ fontSize: 7 }} title={drawGap(batchById[batch.id])!}>
+                                <span className="px-1 py-px rounded border border-danger-border bg-danger-surface/40 text-danger shrink-0 leading-none" style={{ fontSize: 11 }} title={drawGap(batchById[batch.id])!}>
                                   No draw
                                 </span>
                               )}
                             </div>
-                            {assignment && (
-                              <p className="shrink-0 text-faint truncate" style={{ fontSize: 8 }}>since {fmtDate(assignment.assigned_at)}</p>
+                            {/* Line 2 — volume · since */}
+                            <p className="shrink-0 text-faint truncate" style={{ fontSize: 11 }}>
+                              {hasCapacity ? `${ledgerVol.toFixed(1)} / ${tank.capacity_bbl} BBL` : `${ledgerVol.toFixed(1)} BBL`}
+                              {assignment && ` · since ${fmtDate(assignment.assigned_at)}`}
+                            </p>
+                            {hasCapacity && (
+                              <div className="shrink-0 w-full rounded-full overflow-hidden" style={{ height: 3, background: "color-mix(in srgb, var(--color-line-strong) 60%, transparent)" }}>
+                                <div style={{ height: "100%", width: `${Math.min(100, (ledgerVol / tank.capacity_bbl!) * 100).toFixed(1)}%`, background: "rgba(245,158,11,0.7)", borderRadius: "9999px" }} />
+                              </div>
                             )}
 
-                            {/* Always rendered (even empty) so the Transfer button below stays
-                                bottom-pinned at the same position regardless of tile contents —
-                                keeps fully-loaded, plan-only, and occupied-only tiles aligned. */}
+                            {/* Same-recipe batches combined into this tank */}
                             <div className="flex-1 min-h-0 overflow-y-auto space-y-0.5">
-                                {nextOccupant && (
-                                  <div className="pt-0.5 border-t border-line/60">
-                                    <NextPlannedBox
-                                      batchNumber={nextOccupant.brew_batches!.batch_number}
-                                      beerName={nextOccupant.brew_batches!.beer_name}
-                                      plannedStart={nextOccupant.planned_start}
-                                      volumeBbl={null}
-                                    />
+                              {combinedAssignments.map((a) => {
+                                const otherBatch = a.brew_batches;
+                                if (!otherBatch) return null;
+                                return (
+                                  <div key={a.id} className="flex items-center gap-1 min-w-0 pt-0.5 border-t border-line/60">
+                                    <span className="text-body truncate flex-1 min-w-0" style={{ fontSize: 11 }} title={otherBatch.beer_name}>
+                                      {otherBatch.batch_number && <span className="text-muted font-mono">#{otherBatch.batch_number} </span>}
+                                      {otherBatch.beer_name} <span className="text-faint">+combined</span>
+                                    </span>
+                                    {!editMode && (
+                                      <button
+                                        onClick={() => openTransfer(otherBatch)}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        className="btn-primary btn-xxs shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
+                                        style={{ fontSize: 11 }}
+                                      >
+                                        Transfer
+                                      </button>
+                                    )}
                                   </div>
-                                )}
-                                {/* Same-recipe batches combined into this tank */}
-                                {combinedAssignments.map((a) => {
-                                  const otherBatch = a.brew_batches;
-                                  if (!otherBatch) return null;
-                                  const otherVol = volFor(otherBatch);
-                                  return (
-                                    <div key={a.id} className="flex items-center gap-1 min-w-0 pt-0.5 border-t border-line/60">
-                                      {otherBatch.batch_number && (
-                                        <span className="text-muted font-mono shrink-0" style={{ fontSize: 9 }}>#{otherBatch.batch_number}</span>
-                                      )}
-                                      <span className="text-body truncate flex-1 min-w-0" style={{ fontSize: 9 }} title={otherBatch.beer_name}>
-                                        {otherBatch.beer_name} <span className="text-faint">+combined</span>
-                                      </span>
-                                      {!editMode && (
-                                        <button
-                                          onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(otherVol); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
-                                          onMouseDown={(e) => e.stopPropagation()}
-                                          className="btn-primary btn-xxs shrink-0"
-                                        >
-                                          Transfer
-                                        </button>
-                                      )}
-                                    </div>
-                                  );
-                                })}
+                                );
+                              })}
                             </div>
 
-                            {/* Transfer button — fixed, always reachable without scrolling */}
+                            {/* Transfer — revealed on hover or keyboard focus so the resting
+                                tile is identity + volume only; still tabbable when hidden. */}
                             {!editMode && (
                               <div className="shrink-0">
                                 <button
-                                  onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
+                                  onClick={() => openTransfer(batch)}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="btn-primary btn-xxs w-full"
+                                  className="btn-primary btn-xxs w-full opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
+                                  style={{ fontSize: 11 }}
                                 >
                                   Transfer
                                 </button>
@@ -1020,36 +970,32 @@ export default function BrewStatusTab() {
                           </>
                         ) : (
                           <div className="flex-1 min-h-0 flex flex-col gap-0.5">
-                            {/* Spacer — pushes Next planned + button slot to the bottom,
-                                same position they occupy on an occupied tile. */}
+                            {hasCapacity && (
+                              <p className="shrink-0 text-faint" style={{ fontSize: 11 }}>{tank.capacity_bbl} BBL</p>
+                            )}
                             <div className="flex-1 min-h-0" />
-                            {nextPlanned?.brew_batches && (
+                            {nextPlanned?.brew_batches ? (
+                              <NextPlannedBox
+                                batchNumber={nextPlanned.brew_batches.batch_number}
+                                beerName={nextPlanned.brew_batches.beer_name}
+                                plannedStart={nextPlanned.planned_start}
+                                volumeBbl={null}
+                              />
+                            ) : (
+                              <p className="shrink-0 text-disabled" style={{ fontSize: 11 }}>Empty</p>
+                            )}
+                            {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                               <div className="shrink-0">
-                                <NextPlannedBox
-                                  batchNumber={nextPlanned.brew_batches.batch_number}
-                                  beerName={nextPlanned.brew_batches.beer_name}
-                                  plannedStart={nextPlanned.planned_start}
-                                  volumeBbl={nextPlanned.brew_batches.volume_bbl}
-                                />
-                              </div>
-                            )}
-                            {!nextPlanned?.brew_batches && (
-                              <p className="shrink-0 text-disabled" style={{ fontSize: 9 }}>Empty</p>
-                            )}
-                            {/* Button slot — always reserved, even when no button renders,
-                                so Next planned sits at the same height as the Transfer slot
-                                on an occupied tile. */}
-                            <div className="shrink-0" style={{ minHeight: !editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 ? undefined : 18 }}>
-                              {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="btn-primary btn-xxs w-full"
+                                  className="btn-primary btn-xxs w-full opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
+                                  style={{ fontSize: 11 }}
                                 >
                                   Assign
                                 </button>
-                              )}
-                            </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1082,75 +1028,33 @@ export default function BrewStatusTab() {
                             .map((b) => [b.id, b] as [string, BrewBatch])
                         ).values()];
 
-                        // Upcoming kegging/canning days scheduled at this tank — not yet executed.
-                        const upcomingPkg = upcomingByEquipment.get(tank.id) ?? [];
-
-                        const upcomingSection = upcomingPkg.length > 0 && (
-                          <div className={pkgBatches.length > 0 ? "mt-1.5 pt-1.5 border-t border-line/60 space-y-1.5" : "space-y-1.5"}>
-                            <p className="text-muted font-semibold uppercase tracking-wide" style={{ fontSize: 7 }}>Upcoming</p>
-                            {groupByDate(upcomingPkg, (e) => e.planned_start).map((group) => (
-                              <div key={group.date}>
-                                <p className="text-muted" style={{ fontSize: 8 }}>{fmtDate(group.date)}</p>
-                                <div className="space-y-0.5 mt-0.5">
-                                  {group.items.map((e) => (
-                                    <div key={e.id} className="leading-tight">
-                                      <div className="flex items-center justify-between gap-1 min-w-0">
-                                        <span className="text-faint font-mono shrink-0" style={{ fontSize: 8 }}>{e.brew_batches?.batch_number ? `#${e.brew_batches.batch_number}` : "—"}</span>
-                                        {e.volume_bbl != null && (
-                                          <span className="text-accent-emphasis/80 font-mono shrink-0" style={{ fontSize: 8 }}>{Number(e.volume_bbl).toFixed(1)} BBL</span>
-                                        )}
-                                      </div>
-                                      <p className="text-body truncate" style={{ fontSize: 9 }} title={e.brew_batches?.beer_name}>{e.brew_batches?.beer_name ?? "—"}</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        );
-
+                        // Upcoming kegging/canning days live behind the tile name (plans popup).
+                        // One line per packaging lot: "#B-0xx Beer · Pkg  qty"; a batch
+                        // with no recorded packaging output gets one line on its own.
                         return (
                           <div className="flex-1 min-h-0 overflow-y-auto">
                             {pkgBatches.length > 0 ? (
-                              <div className="space-y-1.5">
-                                {pkgBatches.map((b) => {
-                                  const incoming = incomingByBatch.get(b.id) ?? [];
-                                  return (
-                                    <div key={b.id} className="flex flex-col gap-0.5">
-                                      {/* Batch identity */}
-                                      <div className="flex items-center gap-1 min-w-0">
-                                        {b.batch_number && (
-                                          <span className="text-muted font-mono shrink-0" style={{ fontSize: 9 }}>#{b.batch_number}</span>
-                                        )}
-                                        <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 10 }} title={b.beer_name}>
-                                          {b.beer_name}
-                                        </span>
-                                      </div>
-
-                                      {/* Packaging output */}
-                                      {incoming.filter((tr) => tr.variation_id && tr.packaging_variations).length > 0 && (
-                                        <div className="space-y-px">
-                                          {incoming.filter((tr) => tr.variation_id && tr.packaging_variations).map((tr) => (
-                                            <div key={tr.id} className="flex items-center gap-1 min-w-0">
-                                              <span className="text-accent font-mono font-semibold shrink-0" style={{ fontSize: 9 }}>{tr.quantity}×</span>
-                                              <span className="text-secondary truncate" style={{ fontSize: 9 }} title={tr.packaging_variations!.name}>{tr.packaging_variations!.name}</span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-
+                              <div className="space-y-0.5">
+                                {pkgBatches.flatMap((b) => {
+                                  const lots = (incomingByBatch.get(b.id) ?? []).filter((tr) => tr.variation_id && tr.packaging_variations);
+                                  const ident = `${b.batch_number ? `#${b.batch_number} ` : ""}${b.beer_name}`;
+                                  const line = (key: string, pkg: string | null, qty: number | null) => (
+                                    <div key={key} className="flex items-center gap-1.5 min-w-0 leading-tight">
+                                      <span className="text-body truncate flex-1 min-w-0" style={{ fontSize: 11 }} title={pkg ? `${ident} · ${pkg}` : ident}>
+                                        {b.batch_number && <span className="text-muted font-mono">#{b.batch_number} </span>}
+                                        <span className="font-medium text-strong">{b.beer_name}</span>
+                                        {pkg && <span className="text-muted"> · {pkg}</span>}
+                                      </span>
+                                      {qty != null && <span className="text-accent font-mono font-semibold shrink-0" style={{ fontSize: 11 }}>{qty}</span>}
                                     </div>
                                   );
+                                  return lots.length === 0
+                                    ? [line(b.id, null, null)]
+                                    : lots.map((tr) => line(tr.id, tr.packaging_variations!.name, tr.quantity));
                                 })}
-                                {upcomingSection}
                               </div>
                             ) : (
-                              <div className="flex flex-col gap-1">
-                                {upcomingPkg.length === 0 && (
-                                  <p className="text-disabled text-center" style={{ fontSize: 9 }}>Empty</p>
-                                )}
-                                {upcomingSection}
-                              </div>
+                              <p className="text-disabled text-center" style={{ fontSize: 11 }}>Empty</p>
                             )}
                           </div>
                         );

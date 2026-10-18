@@ -21,7 +21,7 @@ export default function TaxProfileSettingsPage() {
       <div className="shrink-0 px-4 sm:px-6">
         <SettingsHeader
           title="Tax Profile"
-          description="Business identity, the legal representative who signs filings, the bank account filings are paid from, and the account/license numbers registered with each tax authority."
+          description="Identity, signer, payment account, registrations."
         />
       </div>
       <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">

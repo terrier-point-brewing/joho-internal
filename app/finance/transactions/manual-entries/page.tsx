@@ -20,6 +20,7 @@
 // address, Finance > Period Close -- this page is purely the ledger.
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -42,7 +43,6 @@ import {
   daysInclusive,
   perDayCents,
 } from "@/lib/finance/manualEntryAmount";
-import { ACCOUNT_TYPE_SECTION } from "@/lib/finance/accountSections";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import ToggleChip from "@/app/components/ui/ToggleChip";
@@ -66,16 +66,6 @@ const KIND_OPTIONS = [
   { value: "flow", label: "Transactions" },
   { value: "balance", label: "Balances" },
 ];
-
-/** account_type -> statement_section values that this codebase stores negative
- *  (credit-side of the ledger). Mirrors ACCOUNT_TYPE_SECTION's grouping. */
-const CREDIT_SIDE_SECTIONS = new Set(["ap", "credit_card", "other_current_liabilities", "long_term_liabilities", "equity"]);
-
-function isCreditSideAccount(accountType: string | undefined): boolean {
-  if (!accountType) return false;
-  const section = ACCOUNT_TYPE_SECTION[accountType];
-  return !!section && CREDIT_SIDE_SECTIONS.has(section);
-}
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -103,6 +93,15 @@ function accountLabel(account: CoARef | null): React.ReactNode {
 }
 
 // ── Add / edit form ──────────────────────────────────────────────────────────
+
+/** The action chip beside a kind warning: one click flips to the kind that works. */
+function SwitchKindButton({ to, onClick }: { to: ManualEntryKind; onClick: (next: ManualEntryKind) => void }) {
+  return (
+    <button type="button" className="btn-secondary btn-xxs" onClick={() => onClick(to)}>
+      Use {to === "balance" ? "Balance" : "Transaction"}
+    </button>
+  );
+}
 
 function ManualEntryFormModal({
   accounts,
@@ -132,6 +131,8 @@ function ManualEntryFormModal({
   const [chartOfAccountsId, setChartOfAccountsId] = useState<string | null>(entry?.chartOfAccountsId ?? null);
   const [startDate, setStartDate] = useState(entry?.startDate ?? todayStr);
   const [endDate, setEndDate] = useState(entry?.endDate ?? todayStr);
+  // A balance is a month-end figure, so the form asks for the MONTH and derives
+  // the date; there is no other day it could save as.
   const [asOfDate, setAsOfDate] = useState(entry?.asOfDate ?? monthEnd(todayStr));
   const [amountInput, setAmountInput] = useState(() =>
     entry ? formatAmountInput((entry.amountCents / 100).toFixed(2)) : "",
@@ -140,8 +141,6 @@ function ManualEntryFormModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const selectedAccount = accounts.find((a) => a.id === chartOfAccountsId) ?? null;
-  const isCreditSide = isCreditSideAccount(selectedAccount?.account_type);
   const snappedAsOfDate = monthEnd(asOfDate || todayStr);
   // Advice is per kind AND per account, so it is recomputed as either changes.
   // Withheld entirely until an account is picked -- there is nothing truthful to
@@ -221,9 +220,19 @@ function ManualEntryFormModal({
               know something the configuration does not, and refusing the save
               would turn a wrong guess about their intent into lost work. */}
           {effect.level !== "ok" && (
-            <p className={`text-2xs mt-1.5 leading-relaxed ${effect.level === "warn" ? "text-accent" : "text-faint"}`}>
-              {effect.message}
-            </p>
+            <div className="flex items-center gap-2 flex-wrap mt-1.5">
+              <p className={`text-2xs leading-snug ${effect.level === "warn" ? "text-accent" : "text-faint"}`}>
+                {effect.message}
+              </p>
+              {effect.action?.kind === "switch" && (
+                <SwitchKindButton to={effect.action.to} onClick={handleKindChange} />
+              )}
+              {effect.action?.kind === "settings" && (
+                <Link href="/settings/finance/balance-sheet-accounts" className="text-2xs underline hover:text-accent">
+                  Set up the calculation
+                </Link>
+              )}
+            </div>
           )}
         </Field>
 
@@ -237,19 +246,17 @@ function ManualEntryFormModal({
             </Field>
           </div>
         ) : (
-          <Field label="As of date" required>
-            <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="inp" />
-            <p className={`text-2xs mt-1 ${snappedAsOfDate !== asOfDate ? "text-accent" : "text-faint"}`}>
-              Saves as {fmtDate(snappedAsOfDate)} — balances only save on a month end.
-            </p>
+          <Field label="Month end" required>
+            <input
+              type="month"
+              value={snappedAsOfDate.slice(0, 7)}
+              onChange={(e) => e.target.value && setAsOfDate(monthEnd(`${e.target.value}-01`))}
+              className="inp"
+            />
           </Field>
         )}
 
-        <Field
-          label="Amount"
-          required
-          hint={isCreditSide ? "liability/equity account — often stored negative" : "negatives accepted"}
-        >
+        <Field label="Amount" required hint="negatives accepted">
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm pointer-events-none">$</span>
             <input
@@ -535,11 +542,6 @@ export default function ManualEntriesPage() {
               />
             ))}
           </LedgerTable>
-          <p className="py-3 text-2xs text-faint">
-            A transaction spreads across the days it covers and adds to its account, counting beside the
-            invoices, expenses and bank lines that arrived on their own. A balance states an account&apos;s
-            total at a month end, and is the whole answer for an account set to Manual entry.
-          </p>
         </div>
       )}
 

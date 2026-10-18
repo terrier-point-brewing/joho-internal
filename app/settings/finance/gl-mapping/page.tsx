@@ -49,10 +49,10 @@ type PanelKey = "revenue" | "expenses" | "counterparties" | "bank-feeds" | "sale
 const TABS: TabDef<PanelKey>[] = [
   { key: "revenue",        label: "Revenue" },
   { key: "expenses",       label: "Expenses" },
-  { key: "counterparties", label: "Counterparties" },
+  { key: "counterparties", label: "Payees & payers" },
   { key: "bank-feeds",     label: "Bank Feeds" },
   { key: "sales-tax",      label: "Sales Tax" },
-  { key: "refunds",        label: "Refunds" },
+  { key: "refunds",        label: "Refund routing exceptions" },
 ];
 
 const PANELS: Record<PanelKey, (props: { selector?: React.ReactNode }) => React.ReactElement> = {
@@ -79,7 +79,7 @@ export default function GlMappingPage() {
       <div className="px-4 sm:px-6">
         <SettingsHeader
           title="GL Mapping"
-          description="Where an external thing — a Square item, a Ramp charge, a bank feed — is given a chart-of-accounts code."
+          description="Assign GL accounts to Square items, expenses, bank activity."
         />
       </div>
       <Panel selector={<ButtonGroup tabs={TABS} activeKey={panel} onSelect={setPanel} />} />

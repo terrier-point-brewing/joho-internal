@@ -50,22 +50,9 @@ function blockers(r: BackfillSalesTaxReport): string[] {
 export default function FinanceBackfillPage() {
   return (
     <BackfillShell<BackfillSalesTaxReport>
-      title="Sales tax backfill"
-      what={
-        <>
-          Removes collected sales tax from recognized revenue and rebuilds the per-line tax rows the
-          balance-sheet liability is derived from. Corrects history written before sales tax was
-          treated as a liability.
-        </>
-      }
-      impacts={
-        <>
-          <code>pos_line_items.net_sales_cents</code>, <code>invoice_line_items.total_cents</code>{" "}
-          and <code>.square_line_item_uid</code>, and <code>invoice_line_item_taxes</code>. Taproom
-          revenue drops on the P&amp;L for every affected month; the NC DOR and Wake County
-          worksheets change with it.
-        </>
-      }
+      title="Repair history: sales tax"
+      what="Moves collected sales tax out of revenue and into the liability, for months written before sales tax was treated that way."
+      changes={["POS net sales", "Invoice line totals", "Invoice line taxes", "Taproom revenue (P&L)", "NC DOR / Wake County worksheets"]}
       preview={() => post(true)}
       apply={() => post(false)}
       blockers={blockers}

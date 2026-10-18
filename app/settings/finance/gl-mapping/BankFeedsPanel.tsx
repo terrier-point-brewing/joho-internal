@@ -60,14 +60,7 @@ export default function BankFeedsPanel({ selector }: { selector?: ReactNode }) {
         hint: "Connect a bank account and sync it, and it will appear here.",
       }}
       headers={["Bank feed", "What has been imported", "Counts towards the books"]}
-      footer={
-        <>
-          Switching a feed on makes all of its imported transactions part of the profit and loss, the
-          cash-flow statement and the balance sheet, including transactions dated in months that have
-          already been closed. Switching one off leaves its transactions imported and visible, but
-          out of every report. Nothing changes until you use one of these switches.
-        </>
-      }
+      footer="Switching a feed on also counts its transactions in months that are already closed."
     >
       {feeds.map((feed) => {
         const span = dateSpan(feed.earliest, feed.latest);

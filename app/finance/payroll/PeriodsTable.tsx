@@ -31,12 +31,32 @@ function Money({ cents, className = "" }: { cents: number | null; className?: st
   return <span className={`text-body tabular-nums ${className}`.trim()}>{formatCurrencyCents(cents)}</span>;
 }
 
-/** A check result: "Balanced" within tolerance, the signed gap otherwise, dash
- *  when the check can't run (missing report, missing matches, unlocked period). */
-function Check({ cents, title }: { cents: number | null; title?: string }) {
-  if (cents === null) return <span title={title}>{DASH}</span>;
-  if (withinTolerance(cents)) return <Badge tone="success">Balanced</Badge>;
-  return <Badge tone="danger">{formatCurrencyCents(cents)}</Badge>;
+/**
+ * The two checks as one answer. "Balanced" when every check that could run is
+ * within tolerance; the signed gap(s) otherwise; a dash when neither could run.
+ * What each check needs, and which one is missing, lives in the tooltip rather
+ * than in a column of its own.
+ */
+const CHECKS: { key: "reconciliationCents" | "taproomVarianceCents"; label: string; needs: string }[] = [
+  { key: "reconciliationCents", label: "Bank vs Gusto", needs: "a Gusto report and a matched bank transaction" },
+  { key: "taproomVarianceCents", label: "Shifts vs Gusto", needs: "a locked period, a Gusto report, and a taproom wages account" },
+];
+
+function Reconciled({ p }: { p: PayPeriodSummary }) {
+  const ran = CHECKS.filter((c) => p[c.key] !== null);
+  const missing = CHECKS.filter((c) => p[c.key] === null);
+  const title = [
+    ...ran.map((c) => `${c.label}: ${withinTolerance(p[c.key]!) ? "balanced" : formatCurrencyCents(p[c.key]!)}`),
+    ...missing.map((c) => `${c.label}: needs ${c.needs}`),
+  ].join("\n");
+  if (ran.length === 0) return <span title={title}>{DASH}</span>;
+  const gaps = ran.filter((c) => !withinTolerance(p[c.key]!));
+  if (gaps.length === 0) return <Badge tone="success" title={title}>Balanced{missing.length > 0 ? " *" : ""}</Badge>;
+  return (
+    <Badge tone="danger" title={title}>
+      {gaps.map((c) => formatCurrencyCents(p[c.key]!)).join(" · ")}
+    </Badge>
+  );
 }
 
 function SplitCell({ status }: { status: PayPeriodSummary["splitStatus"] }) {
@@ -68,7 +88,7 @@ export default function PeriodsTable({
             What Gusto says payroll cost
           </th>
           <th
-            colSpan={4}
+            colSpan={3}
             className={`px-3 py-1.5 text-center text-2xs font-medium text-faint uppercase tracking-wide ${BAND}`}
           >
             Checks
@@ -100,15 +120,14 @@ export default function PeriodsTable({
             className="!px-3 !py-2 !text-body"
           />
           <Th label="Bank" align="right" className={`!px-3 ${BAND}`} />
-          <Th label="Bank vs Gusto" align="right" className="!px-3" />
-          <Th label="Taproom vs app" align="right" className="!px-3" />
+          <Th label="Reconciled" align="right" className="!px-3" />
           <Th label="Split" align="center" className="!px-3" />
         </>
       }
     >
       {rows.length === 0 ? (
         <tr>
-          <td colSpan={12} className="py-6 text-center text-faint">
+          <td colSpan={11} className="py-6 text-center text-faint">
             No pay periods yet.
           </td>
         </tr>
@@ -129,14 +148,14 @@ export default function PeriodsTable({
 
             <td
               className={`px-3 py-2 text-right ${BAND}`}
-              title="Wages for staff the app tracks via Square shifts — the only wage bucket it can check"
+              title="Wages for staff on Square shifts — the bucket the app can check"
             >
               <Money cents={p.gustoTaproomWagesCents} />
             </td>
-            <td className="px-3 py-2 text-right" title="Salaried brewery and admin staff — no shift data, so shown but never checked">
+            <td className="px-3 py-2 text-right" title="Salaried staff — no shift data, never checked">
               <Money cents={p.gustoSalariedWagesCents} />
             </td>
-            <td className="px-3 py-2 text-right" title="Paycheck tips — a balance-sheet pass-through, but real money in the bank debit">
+            <td className="px-3 py-2 text-right" title="Paycheck tips — part of the bank debit">
               <Money cents={p.gustoTipsCents} />
             </td>
             <td className="px-3 py-2 text-right">
@@ -161,13 +180,7 @@ export default function PeriodsTable({
               )}
             </td>
             <td className="px-3 py-2 text-right">
-              <Check cents={p.reconciliationCents} title="Needs a Gusto report and at least one matched transaction" />
-            </td>
-            <td className="px-3 py-2 text-right">
-              <Check
-                cents={p.taproomVarianceCents}
-                title="Needs a locked period, a Gusto report, and a taproom wages account in Settings"
-              />
+              <Reconciled p={p} />
             </td>
             <td className="px-3 py-2 text-center">
               <SplitCell status={p.splitStatus} />

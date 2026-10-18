@@ -159,20 +159,9 @@ export default function PayrollBackfillPage() {
 
   return (
     <BackfillShell<BackfillPeriodResult[]>
-      title="Tips GL backfill"
-      what={
-        <>
-          Re-parses each pay period&rsquo;s stored Gusto CSV so paycheck tips move out of the wage
-          accounts and onto the tips liability, then recomputes that period&rsquo;s expense splits.
-        </>
-      }
-      impacts={
-        <>
-          <code>payroll_gl_report_totals</code> and <code>expense_gl_splits</code>. Roughly
-          $900–$1,050 per period leaves Direct Production Labor and Taproom Staff Wages, so COGS
-          falls and gross margin improves. Manual split overrides are left untouched.
-        </>
-      }
+      title="Repair history: paycheck tips"
+      what="Moves paycheck tips out of the wage accounts and onto the tips liability for every past pay period. Manual split overrides are left alone."
+      changes={["Payroll GL totals", "Expense splits", "Wages / COGS (P&L)"]}
       preview={async () => {
         const r = await post(true);
         await ensurePeriods();

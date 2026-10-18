@@ -27,7 +27,18 @@ const BILL_AS_OPTIONS: { value: string; label: string }[] = [
 /** Deposit states whose shipments are charged a share on this invoice. */
 const DEPOSIT_CHARGED = new Set<DepositSummaryState>(["per_shipment", "unpaid", "over_delivery"]);
 
-/** Why each batch is, or is not, charged — one plain sentence apiece. */
+/** Why each batch is, or is not, charged — a short tag, with the full reason in the tooltip. */
+const DEPOSIT_TAG: Record<DepositSummaryState, string> = {
+  per_shipment: "Collected per shipment",
+  unpaid: "Charged here",
+  over_delivery: "Extra charged here",
+  paid_up_front: "Paid up front",
+  paid_by_shipment: "Paid on earlier invoices",
+  written_off: "Waived",
+  deposit_invoice_sent: "On its deposit invoice",
+  over_covered: "Covered by deposit",
+  no_commitment: "No deal behind it",
+};
 const DEPOSIT_REASON: Record<DepositSummaryState, string> = {
   per_shipment: "Deposit is being collected as the beer ships — this is the share for these shipments.",
   unpaid: "Deposit was never paid up front — this is the share for these shipments.",
@@ -538,7 +549,7 @@ export default function InvoicePreviewModal({
                         <span className="font-medium">{row.beerName ?? "Unknown beer"}</span>
                         {row.batchNumber && <span className="text-faint"> · {row.batchNumber}</span>}
                         <span className="text-faint"> · {row.bbl.toFixed(2)} bbl</span>
-                        <span className="block text-faint">{DEPOSIT_REASON[row.state]}</span>
+                        <span className="text-faint" title={DEPOSIT_REASON[row.state]}> · {DEPOSIT_TAG[row.state]}</span>
                       </span>
                       <span className={`shrink-0 tabular-nums ${charged ? "text-body font-medium" : "text-faint"}`}>
                         {!charged

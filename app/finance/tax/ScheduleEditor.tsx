@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import Banner from "@/app/components/ui/Banner";
 import type { FieldSpec, Frequency, TaxSchedule } from "@/lib/tax/types";
@@ -100,7 +101,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
     : sampleEnd
       ? (() => {
           const due = resolveDueDate(sampleEnd, dueRule);
-          return `The period ending ${sampleEnd} is due ${due}, alerting from ${addDaysIso(due, -(Number(leadDays) || 0))}.`;
+          return `Period ending ${sampleEnd} → due ${due} · task opens ${addDaysIso(due, -(Number(leadDays) || 0))}`;
         })()
       : "Select a party to preview the due date.";
 
@@ -204,8 +205,11 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
             ))}
           </select>
           <p className="text-xs text-faint mt-1">
-            {schedule ? "The party can't change after a schedule is created. " : ""}
-            Filing identity (FEIN, contact, account ID) is configured under Settings → Tax Filing, not here.
+            Filing identity lives in{" "}
+            <Link href="/settings/tax/filing" className="underline hover:text-accent">
+              Settings → Tax Filing
+            </Link>
+            .
           </p>
         </Field>
 
@@ -219,19 +223,21 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
               ))}
             </select>
           </Field>
-          <Field label="Lead days">
-            <input
-              type="number"
-              min="0"
-              className="inp"
-              value={leadDays}
-              onChange={(e) => setLeadDays(e.target.value)}
-            />
-            <p className="text-xs text-faint mt-1">Days before the due date to open the task.</p>
+          <Field label="Open task">
+            <div className="flex items-center gap-2 text-sm text-body">
+              <input
+                type="number"
+                min="0"
+                className="inp w-20"
+                value={leadDays}
+                onChange={(e) => setLeadDays(e.target.value)}
+              />
+              <span className="text-muted">days before due</span>
+            </div>
           </Field>
         </div>
 
-        <Field label="Due date" hint="When the filing is due — either relative to each period's end, or a fixed calendar date.">
+        <Field label="Due date">
           <div className="flex flex-wrap items-center gap-2 text-sm text-body mb-2">
             <label className="flex items-center gap-1.5">
               <input

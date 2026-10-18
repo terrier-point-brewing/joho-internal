@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { isValidNetTermsDays, netTermsLabel, MAX_NET_TERMS_DAYS, MIN_NET_TERMS_DAYS } from "@/lib/production/invoiceTerms";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -425,7 +426,7 @@ function ServiceMappingGrid() {
   }
 
   const columns: { partnerId: string | null; label: string }[] = [
-    { partnerId: null, label: "Default" },
+    { partnerId: null, label: "All partners (unprinted)" },
     ...partners.map((p) => ({ partnerId: p.id, label: p.company_name })),
   ];
 
@@ -497,12 +498,7 @@ function ServiceMappingGrid() {
 
   return (
     <section>
-      <h3 className="text-sm font-medium text-strong mb-1">Service Mappings &amp; Discounts</h3>
-      <p className="text-xs text-faint mb-3">
-        Rows are what you&rsquo;re charging for; columns are who gets billed. For packaging fees,
-        Default prices the unprinted container and a partner&rsquo;s cell prices their own printed
-        one — or, if they have none in that size, overrides the unprinted price for them.
-      </p>
+      <h3 className="text-sm font-medium text-strong mb-3">Service Mappings &amp; Discounts</h3>
       <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)] rounded-lg border border-line">
         <table
           className="text-xs border-collapse w-full"
@@ -518,12 +514,17 @@ function ServiceMappingGrid() {
           <thead>
             <tr className="border-b border-line">
               <th className="sticky left-0 top-0 z-30 bg-surface px-4 py-2.5 text-left font-semibold text-secondary whitespace-nowrap">
-                Service
+                Charge <span className="text-faint font-normal">· billed to →</span>
               </th>
               {columns.map((col) => (
                 <th
                   key={col.partnerId ?? "default"}
                   className="sticky top-0 z-20 bg-surface px-3 py-2.5 text-left font-medium text-secondary whitespace-nowrap"
+                  title={
+                    col.partnerId === null
+                      ? "Packaging fees here price the unprinted container for every partner."
+                      : `Packaging fees here price ${col.label}'s own printed container — or, if they have none in that size, override the unprinted price for them.`
+                  }
                 >
                   {col.label}
                 </th>
@@ -612,7 +613,7 @@ function InvoiceTermsSection() {
 
   async function save() {
     const value = Number(draft || days);
-    if (!Number.isInteger(value) || value < 1 || value > 365) return;
+    if (!isValidNetTermsDays(value)) return;
     setSaving(true);
     await fetch("/api/production/export-settings/invoice-due-days", {
       method: "PUT",
@@ -627,19 +628,21 @@ function InvoiceTermsSection() {
   return (
     <section>
       <h3 className="text-sm font-medium text-strong mb-2">Export Invoice Net Terms</h3>
-      <p className="text-xs text-faint mb-2">
-        Days from the draft date until an export invoice is due. Applies to every partner.
-      </p>
       <div className="flex items-center gap-2">
-        <input
-          type="number"
-          min={1}
-          max={365}
-          value={draft !== "" ? draft : days}
-          onChange={(e) => setDraft(e.target.value)}
-          className="inp-sm w-20"
-        />
-        <span className="text-xs text-muted">days</span>
+        <label className="text-xs text-secondary flex items-center gap-2">
+          Due in
+          <input
+            type="number"
+            inputMode="numeric"
+            min={MIN_NET_TERMS_DAYS}
+            max={MAX_NET_TERMS_DAYS}
+            value={draft !== "" ? draft : days}
+            onChange={(e) => setDraft(e.target.value)}
+            className="inp-sm w-20"
+          />
+          days after draft
+          <span className="text-faint">· {netTermsLabel(Number(draft !== "" ? draft : days))}</span>
+        </label>
         <button onClick={save} disabled={saving} className="btn-primary">
           {saving ? "Saving…" : "Save"}
         </button>

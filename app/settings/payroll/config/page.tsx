@@ -242,9 +242,6 @@ export default function PayrollSettingsPage() {
             />
           </label>
         </div>
-        <p className="text-xs text-faint mb-4">
-          Saving creates the current period if it does not exist yet. The daily cron creates the next period as soon as the current one starts.
-        </p>
       </section>
 
       {/* ── Rate Configuration ────────────────────────────────────────────── */}
@@ -279,7 +276,7 @@ export default function PayrollSettingsPage() {
             />
           </label>
           <label className="block">
-            <span className="block text-xs text-secondary">Tip Pool Frequency</span>
+            <span className="block text-xs text-secondary">Tip pool period</span>
             <select
               value={tipPoolFrequency}
               onChange={e => setTipPoolFrequency(e.target.value as TipPoolFrequency)}
@@ -291,7 +288,7 @@ export default function PayrollSettingsPage() {
             </select>
           </label>
           <label className="block">
-            <span className="block text-xs text-secondary">Guaranteed Min Frequency</span>
+            <span className="block text-xs text-secondary">Guaranteed minimum period</span>
             <select
               value={guaranteedMinFrequency}
               onChange={e => setGuaranteedMinFrequency(e.target.value as TipPoolFrequency)}
@@ -303,9 +300,6 @@ export default function PayrollSettingsPage() {
             </select>
           </label>
         </div>
-        <p className="text-xs text-faint mb-3">
-          Controls at what granularity tips and guaranteed-rate bonuses are calculated. Daily and weekly ensure the minimum guarantee applies within each sub-period.
-        </p>
         <div className="flex items-center gap-3 mb-2">
           <button
             onClick={() => saveConfig.mutate()}

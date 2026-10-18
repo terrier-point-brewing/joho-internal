@@ -56,6 +56,27 @@ const CHANNEL_OPTIONS = [
 /** Open deals first, then closed, then cancelled. */
 const STAGE_SORT_RANK: Record<CommitmentStage, number> = { open: 0, closed: 1, cancelled: 2 };
 
+/**
+ * What the row needs from a human, as a sort rank (1 = most urgent, 9 = nothing).
+ * Mirrors lib/production/ledgerAttention: money first, then the thing that
+ * stops the deal moving. Only open deals can need anything.
+ *   1  deposit not charged — contract deal has a batch, no invoice raised
+ *   2  draft ready, not sent
+ *   3  invoice sent / collecting on an export invoice, money not in
+ *   4  needs a batch — nothing scheduled yet
+ */
+function actionRankOf(q: ContractBrewingRequest, stage: CommitmentStage): number {
+  if (stage !== "open") return 9;
+  const allocs = q.batch_allocations ?? [];
+  if (allocs.length === 0) return 4;
+  if (q.channel !== "contract_brewing") return 9;
+  const unpaid = allocs.filter((a) => !a.invoice_paid_at);
+  if (unpaid.length === 0) return 9;
+  if (unpaid.some((a) => !a.invoice_generated_at && !a.deposit_backcharged_invoice_id)) return 1;
+  if (unpaid.some((a) => a.invoice_generated_at && !a.invoice_sent_at && !a.deposit_backcharged_invoice_id)) return 2;
+  return 3;
+}
+
 const STAGE_OPTIONS = (["open", "closed", "cancelled"] as CommitmentStage[]).map((k) => ({ value: k, label: STAGE_META[k].label }));
 
 const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
@@ -68,8 +89,8 @@ const COMMITMENT_CONTROLS: ControlsConfig<SortableRow> = {
   sort: {
     default: { key: "default_order", dir: "asc" },
     columns: [
-      // Composite default: status rank, then channel, then received date.
-      { key: "default_order", accessor: (r) => `${STAGE_SORT_RANK[r.stage_key] ?? 9}|${r.channel}|${r.received_on ?? "9999"}` },
+      // Composite default: what needs doing, then status rank, then channel, then received date.
+      { key: "default_order", accessor: (r) => `${r.action_rank}|${STAGE_SORT_RANK[r.stage_key] ?? 9}|${r.channel}|${r.received_on ?? "9999"}` },
       { key: "channel", accessor: (r) => r.channel },
       { key: "status", accessor: (r) => STAGE_SORT_RANK[r.stage_key] ?? 9 },
       { key: "progress", accessor: (r) => r.progress_sort },
@@ -149,15 +170,18 @@ function InvoicingCell({
   onSend: (id: string) => void;
   onDelete: (id: string, sent: boolean) => void;
 }) {
-  if (commitment.channel !== "contract_brewing") return <span className="text-faint text-xs">— (Deposit invoices are only used for Contract Brewing)</span>;
+  if (commitment.channel !== "contract_brewing") return <span className="text-faint text-xs">—</span>;
   const allocs = commitment.batch_allocations ?? [];
   if (allocs.length === 0) return <span className="text-faint text-xs">No batch yet</span>;
 
+  // The batch is already named under Shipped / Owed; repeat it here only when
+  // the deal sits on more than one batch and the lines need telling apart.
+  const showBatch = allocs.length > 1;
   return (
     <div className="space-y-1.5">
       {allocs.map((a) => (
         <div key={a.id} className="flex items-center gap-1.5 flex-wrap">
-          {a.brew_batches && <span className="text-[10px] text-muted whitespace-nowrap">#{a.brew_batches.batch_number}</span>}
+          {showBatch && a.brew_batches && <span className="text-[10px] text-muted whitespace-nowrap">#{a.brew_batches.batch_number}</span>}
           <InvoiceStatusBadge a={a} />
           <DepositCoverageLine allocation={a} />
           {/* View in Square — available whenever an invoice exists, paid or not */}
@@ -391,6 +415,8 @@ function CommitmentModal({
 
 interface SortableRow extends ContractBrewingRequest {
   stage_key: CommitmentStage;
+  /** See actionRankOf. */
+  action_rank: number;
   progress_sort: number;
   partner_name: string;
   schedule_sort: string;
@@ -464,6 +490,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
     () => rows.map((q) => ({
       ...q,
       stage_key: stageOf(q),
+      action_rank: actionRankOf(q, stageOf(q)),
       progress_sort: (q.owed_bbl ?? 0) > 0 ? (q.exported_bbl ?? 0) / (q.owed_bbl ?? 1) : -1,
       partner_name: q.contract_brewing_partners?.company_name ?? "",
       schedule_sort: q.desired_delivery_date ?? "",
@@ -478,7 +505,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
   return (
     <div>
       <h2 className="text-sm font-semibold text-primary mb-1">Commitments</h2>
-      <p className="text-sm text-muted mb-3">Beer promised to partners. A deal with no batch yet shows a Schedule button.</p>
+      <p className="text-sm text-muted mb-3">Beer promised to partners.</p>
       <div className="flex items-start gap-3 mb-4">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search recipes…" />
@@ -504,35 +531,42 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-surface/50 text-left">
-                <SortableTh label="Channel" sortKey="channel" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
-                <SortableTh label="Stage" sortKey="status" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
-                <SortableTh label="Recipe" sortKey="recipe_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
-                <SortableTh label="Partner" sortKey="partner_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
-                <SortableTh label="Volume (BBL)" sortKey="volume_bbl" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
-                <SortableTh label="Shipped / Owed" sortKey="progress" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 whitespace-nowrap" />
-                <SortableTh label="Delivery" sortKey="schedule_sort" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
-                <SortableTh label="Received" sortKey="received_on" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5" />
-                <th className="px-4 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Invoicing</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Notes</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted" />
+                <SortableTh label="Beer" sortKey="recipe_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3" />
+                <SortableTh label="Partner" sortKey="partner_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3" />
+                <SortableTh label="Channel" sortKey="channel" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3 whitespace-nowrap" />
+                <SortableTh label="Booked" sortKey="volume_bbl" sort={sort} onSort={toggleSort} align="right" className="text-xs !text-muted !py-2.5 !px-3 whitespace-nowrap" />
+                <SortableTh label="Shipped / Owed" sortKey="progress" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3 whitespace-nowrap" />
+                <SortableTh label="Delivery" sortKey="schedule_sort" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3" />
+                <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Deposit</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted" />
               </tr>
             </thead>
             <tbody>
-              {displayRows.map((q, i) => (
-                <tr key={q.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
-                  <td className="px-4 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
-                  <td className="px-4 py-2.5"><StageBadge stage={stageOf(q)} /></td>
-                  <td className="px-4 py-2.5 text-primary font-medium">{q.recipe_name || "—"}</td>
-                  <td className="px-4 py-2.5 text-body">
-                    {q.contract_brewing_partners?.company_name ?? "—"}
+              {displayRows.map((q, i) => {
+                const stage = stageOf(q);
+                const partner = q.contract_brewing_partners?.company_name ?? "—";
+                return (
+                <tr key={q.id} className={`border-b border-line/60 align-top ${i % 2 !== 0 ? "bg-surface/30" : ""} ${stage === "cancelled" ? "opacity-60" : ""}`}>
+                  {/* Beer: name, plus the things that need a glance — stage when it
+                      isn't simply open, the Export Bay flag, and the note. */}
+                  <td className="px-3 py-2.5 min-w-[190px] max-w-[260px]">
+                    <div className="flex items-center gap-2">
+                      <span className="text-primary font-medium">{q.recipe_name || "—"}</span>
+                      {stage !== "open" && <StageBadge stage={stage} />}
+                    </div>
                     {q.review_needed_at && (
                       <div className="text-xs text-accent-soft whitespace-nowrap" title="Booked at the Export Bay as the beer shipped. Check the price and terms, then Confirm.">
                         Booked at the Export Bay
                       </div>
                     )}
+                    {q.notes && <div className="text-xs text-muted leading-snug">{q.notes}</div>}
                   </td>
-                  <td className="px-4 py-2.5 text-body tabular-nums">{Number(q.volume_bbl)}</td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-2.5 text-body">
+                    <div className="min-w-[120px] max-w-[190px] leading-snug">{partner}</div>
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
+                  <td className="px-3 py-2.5 text-body tabular-nums text-right whitespace-nowrap">{Number(q.volume_bbl)} <span className="text-faint text-xs">bbl</span></td>
+                  <td className="px-3 py-2.5">
                     <ProgressCell q={q} />
                     {uncoveredBbl(q) >= 0.1 && (
                       <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap">
@@ -543,12 +577,14 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-secondary text-xs whitespace-nowrap">{scheduleLabel(q)}</td>
-                  <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">
-                    {q.received_on ? fmtDateLong(q.received_on) : "—"}
-                    {q.locked_on && <span className="ml-1 text-faint" title={`Locked ${fmtDateLong(q.locked_on)} — deposit paid`}>· locked</span>}
+                  <td className="px-3 py-2.5 text-xs whitespace-nowrap">
+                    <div className="text-secondary">{scheduleLabel(q)}</div>
+                    <div className="text-muted">
+                      Received {q.received_on ? fmtDateLong(q.received_on) : "—"}
+                      {q.locked_on && <span className="text-faint" title={`Locked ${fmtDateLong(q.locked_on)} — deposit paid`}> · locked</span>}
+                    </div>
                   </td>
-                  <td className="px-4 py-2.5 min-w-[180px]">
+                  <td className="px-3 py-2.5 min-w-[150px]">
                     <InvoicingCell
                       commitment={q}
                       onPreview={invoice.openPreview}
@@ -558,11 +594,8 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                       onDelete={invoice.remove}
                     />
                   </td>
-                  <td className="px-4 py-2.5 text-muted text-xs">
-                    <div className="max-w-[160px] truncate" title={q.notes ?? undefined}>{q.notes ?? "—"}</div>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-1 whitespace-nowrap">
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                       {/* Every drop, invoice and share for this deal lives in the ledger — linked, not rebuilt here. */}
                       {q.partner_id && <Link href={`/production/export?commitment=${q.id}`} className="btn-secondary btn-xxs">History</Link>}
                       {q.review_needed_at && <button onClick={() => handleConfirm(q)} className="btn-primary btn-xxs">Confirm</button>}
@@ -571,7 +604,8 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

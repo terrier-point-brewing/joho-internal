@@ -53,20 +53,9 @@ function blockers(r: DepositBackfillResult): string[] {
 export default function ProductionBackfillPage() {
   return (
     <BackfillShell<DepositBackfillResult>
-      title="Deposit invoice breakdown backfill"
-      what={
-        <>
-          Reconstructs each contract-brewing deposit invoice&rsquo;s ingredient breakdown as it stood
-          on the invoice date, replaying the recipe and ingredient audit history, then freezes that
-          breakdown onto the invoice.
-        </>
-      }
-      impacts={
-        <>
-          Writes frozen breakdown lines for every existing <code>allocation_deposit</code> invoice.
-          Does not change any invoice total — only the stored per-ingredient split beneath it.
-        </>
-      }
+      title="Repair history: deposit invoice breakdowns"
+      what="Rebuilds each deposit invoice's ingredient breakdown as it stood on the invoice date. Invoice totals do not change."
+      changes={["Deposit invoice breakdown lines"]}
       preview={() => post(false)}
       apply={() => post(true)}
       blockers={blockers}
@@ -103,7 +92,9 @@ export default function ProductionBackfillPage() {
                   {row.status.startsWith("error:") ? (
                     <Badge tone="danger">{row.status}</Badge>
                   ) : row.status.startsWith("skipped:") ? (
-                    <Badge tone="neutral">{row.status}</Badge>
+                    <span title="Skipped: no linked recipe, no total, or no resolvable date — left alone.">
+                      <Badge tone="neutral">{row.status}</Badge>
+                    </span>
                   ) : (
                     <Badge tone="success">{row.status}</Badge>
                   )}
@@ -111,11 +102,6 @@ export default function ProductionBackfillPage() {
               </tr>
             ))}
           </LedgerTable>
-          <p className="text-xs text-muted mt-2">
-            Skipped rows are invoices with no linked recipe, no total, or no resolvable date — they
-            carry no breakdown and are left alone. Errored rows are worth investigating before
-            writing.
-          </p>
         </>
       )}
     </BackfillShell>

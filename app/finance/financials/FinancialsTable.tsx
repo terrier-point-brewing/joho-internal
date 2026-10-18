@@ -94,7 +94,7 @@ function StatedFigure({ children }: { children: React.ReactNode }) {
   return (
     <span
       className="underline decoration-dotted decoration-from-font underline-offset-4"
-      title="Balance entered by hand for this month, used instead of the figure this account's source reported."
+      title="Entered by hand — overrides the feed"
     >
       {children}
     </span>
