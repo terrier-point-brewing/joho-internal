@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchCatalogItems } from "@/lib/square/catalog";
-import { fetchCompletedOrders } from "@/lib/square/orders";
+import { fetchCompletedOrdersChunked } from "@/lib/square/orders";
 import { fetchRefunds } from "@/lib/square/refunds";
 import { buildTaproomModelReport } from "@/lib/reports/taproom-model";
 import { buildItemSalesData } from "@/lib/reports/itemSales";
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
 
     const [catalogItems, allOrders, refunds] = await Promise.all([
       fetchCatalogItems(),
-      fetchCompletedOrders(start, end),
+      fetchCompletedOrdersChunked(start, end),
       fetchRefunds(start, end),
     ]);
 

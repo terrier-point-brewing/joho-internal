@@ -2,7 +2,7 @@ import { unstable_cache } from "next/cache";
 import { squarePost, squarePostAll, squareLocationId, squareGet, isSquareNotFound } from "./client";
 import { isInvoiceOrder } from "./invoiceOrders";
 import type { Order, SquareInvoice } from "@/types/square";
-import { dayRangeUtc } from "@/lib/utils/datetime";
+import { dayRangeUtc, chunkDateRange } from "@/lib/utils/datetime";
 import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 
 function dateRange(startDate: string, endDate: string, tz: string) {
@@ -43,6 +43,20 @@ const fetchCompletedOrdersCached = unstable_cache(
 export async function fetchCompletedOrders(startDate: string, endDate: string): Promise<Order[]> {
   const tz = await getBreweryTimezone();
   return fetchCompletedOrdersCached(startDate, endDate, tz);
+}
+
+// A long window, fetched as week-sized slices through the cache above. The
+// cache refuses an entry over 2MB, and ninety days of orders is ~14MB — so a
+// quarter fetched in one call is never cached and, in dev, has been seen to
+// fail outright. Sliced, every week is cacheable and shared with any other
+// report that asks for the same week. Sequential on purpose: Square's API
+// stalls under bursts (see the sales-report routes' history).
+export async function fetchCompletedOrdersChunked(startDate: string, endDate: string): Promise<Order[]> {
+  const out: Order[] = [];
+  for (const [s, e] of chunkDateRange(startDate, endDate, 7)) {
+    out.push(...(await fetchCompletedOrders(s, e)));
+  }
+  return out;
 }
 
 // Canceled orders in a window — so the range sync/cron can withdraw an order

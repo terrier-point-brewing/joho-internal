@@ -7,6 +7,7 @@ import {
   localDateString,
   eachDateString,
   addDaysStr,
+  chunkDateRange,
   weekdayOf,
   mondayOf,
   todayLocalDate,
@@ -265,5 +266,15 @@ describe("todayLocalDate", () => {
   it("respects an explicit zone override", () => {
     // Same instant is already Jul 5 in Tokyo (UTC+9).
     expect(todayLocalDate("Asia/Tokyo", new Date("2026-07-05T03:30:00Z"))).toBe("2026-07-05");
+  });
+});
+
+describe("chunkDateRange", () => {
+  it("slices an inclusive window into consecutive inclusive pieces", () => {
+    expect(chunkDateRange("2026-10-01", "2026-10-17", 7)).toEqual([
+      ["2026-10-01", "2026-10-07"], ["2026-10-08", "2026-10-14"], ["2026-10-15", "2026-10-17"],
+    ]);
+    expect(chunkDateRange("2026-10-01", "2026-10-01", 7)).toEqual([["2026-10-01", "2026-10-01"]]);
+    expect(chunkDateRange("2026-10-02", "2026-10-01", 7)).toEqual([]);
   });
 });

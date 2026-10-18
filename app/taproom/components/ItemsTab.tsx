@@ -16,6 +16,8 @@ import { todayLocalDate } from "@/lib/utils/datetime";
 import TrendWindowPicker from "./TrendWindowPicker";
 import type { ItemSalesData, ItemSalesItem } from "@/lib/reports/itemSales";
 import type { TaproomLineContribution } from "@/types/reports";
+import { applyControls } from "@/lib/table/applyControls";
+import type { ControlsConfig } from "@/lib/table/types";
 import ButtonGroup from "@/app/components/ButtonGroup";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 import FilterBar from "@/app/components/ui/FilterBar";
@@ -57,6 +59,14 @@ const RANGES: { key: string; label: string }[] = [
 
 const SERIES_COLORS = ["#f59e0b", "#60a5fa", "#34d399", "#f87171", "#a78bfa", "#fb923c", "#38bdf8", "#e879f9"];
 const OTHER_COLOR = "#71717a";
+
+// Search and category filter run through the shared table engine (the
+// search/filter standard), held in local state rather than the URL because the
+// chart and table both read them and a bookmark of a chart isn't a thing yet.
+const ITEM_CONTROLS: ControlsConfig<ItemSalesItem> = {
+  search: [{ param: "q", accessor: (i) => [i.itemName, i.variationName] }],
+  filters: [{ param: "cat", accessor: (i) => i.categoryId }],
+};
 
 const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(TAPROOM_MODEL_CATEGORIES.map((c) => [c.id, c.label]));
 const CATEGORY_OPTIONS = TAPROOM_MODEL_CATEGORIES.map((c) => ({ value: c.id, label: c.label }));
@@ -182,12 +192,10 @@ export default function ItemsTab() {
   });
 
   // Items matching the category + search; the chart and table see only these.
-  const visibleItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (data?.items ?? []).filter((i) =>
-      (category.length === 0 || category.includes(i.categoryId)) &&
-      (!q || itemLabel(i).toLowerCase().includes(q)));
-  }, [data, category, search]);
+  const visibleItems = useMemo(
+    () => applyControls(data?.items ?? [], ITEM_CONTROLS, { search: { q: search }, filters: { cat: category }, sort: null }),
+    [data, category, search],
+  );
   const variationById = useMemo(() => new Map(visibleItems.map((i) => [i.id, i])), [visibleItems]);
 
   // The rows the chart and table show. Units and dollars are per variation;
