@@ -36,6 +36,11 @@ const PACKAGING_STAGES = new Set(["kegging", "canning"]);
 
 // The Up next strip shows this many rows before folding the rest behind "+N more".
 const UP_NEXT_VISIBLE = 5;
+// Collapsed desktop banner: this many chips before "+N more".
+const UP_NEXT_CHIPS = 3;
+// On a wide monitor the grid grows past its natural 1152px up to this factor, so
+// the right-hand third of a 1920px screen is not left empty.
+const GRID_MAX_SCALE = 1.5;
 
 // A brewed batch whose ingredients were not all drawn. Each turn's draw
 // happens when the turn starts (tank-assignments route), and `turns_completed`
@@ -48,6 +53,47 @@ function drawGap(b: BrewBatch | null | undefined): string | null {
   const turns = Number(b.turns ?? 1);
   if (drawn >= turns) return null;
   return `Ingredients drawn for ${drawn} of ${turns} turn${turns === 1 ? "" : "s"} — start the remaining turn(s) from the tank so the grain leaves the shelf`;
+}
+
+// A packaging variation is usually named "<Beer> - <package>" ("CBC Epic Hazy
+// IPA - 16oz Labeled Can 4-Pack"). Next to the beer's own column that prefix is
+// noise, so show just the package part when the name has one.
+function packageLabel(variation: string | null | undefined): string {
+  if (!variation) return "";
+  const i = variation.indexOf(" - ");
+  return i > 0 ? variation.slice(i + 3) : variation;
+}
+
+type LotRow = { key: string; title: string; subtitle?: string; pkg: string; qty: number | string | null; onClick?: () => void };
+
+// The dense three-column table used by the Cold Storage, Kegging and Canning
+// tiles: what | package | qty. Fixed column widths so the eye scans a column
+// instead of re-parsing every line; header only when there is room for it.
+function LotTable({ rows, empty, qtyLabel }: { rows: LotRow[]; empty: string; qtyLabel: string }) {
+  if (rows.length === 0) return <p className="text-disabled text-center mt-1" style={{ fontSize: 11 }}>{empty}</p>;
+  return (
+    <table className="w-full table-fixed border-collapse" style={{ fontSize: 11 }}>
+      <colgroup><col style={{ width: "48%" }} /><col style={{ width: "40%" }} /><col style={{ width: "12%" }} /></colgroup>
+      <thead className="sticky top-0 bg-surface">
+        <tr className="text-faint uppercase tracking-wide" style={{ fontSize: 11 }}>
+          <th className="text-left font-semibold py-px">Beer</th>
+          <th className="text-left font-semibold py-px">Package</th>
+          <th className="text-right font-semibold py-px">{qtyLabel}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key} className="border-t border-line/40 leading-tight">
+            <td className="py-px pr-1 truncate text-strong font-medium" title={r.subtitle ? `${r.title} · ${r.subtitle}` : r.title}>
+              {r.subtitle && <span className="text-muted font-mono font-normal">{r.subtitle} </span>}{r.title}
+            </td>
+            <td className="py-px pr-1 truncate text-muted" title={r.pkg}>{r.pkg}</td>
+            <td className="py-px text-right font-mono text-strong">{r.qty ?? ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 // Groups a date-sorted list into runs sharing the same calendar day, so the
@@ -338,7 +384,7 @@ export default function BrewStatusTab() {
       const naturalH = gridRows * cell;
       const availH = window.innerHeight - el.getBoundingClientRect().top - 24;
       const heightScale = availH > 0 ? Math.max(0.9, availH / naturalH) : 1;
-      setGridScale(Math.min(1, width / naturalW, heightScale));
+      setGridScale(Math.min(GRID_MAX_SCALE, width / naturalW, heightScale));
     });
     obs.observe(el);
     return () => obs.disconnect();
@@ -412,14 +458,53 @@ export default function BrewStatusTab() {
             };
           }),
         ];
-        const hidden = Math.max(0, rows.length - UP_NEXT_VISIBLE);
-        const visible = upNextExpanded ? rows : rows.slice(0, UP_NEXT_VISIBLE);
+        const overdueCount = rows.filter((r) => r.overdue).length;
+        // Collapsed: one line — count, overdue count, then the soonest few as
+        // clickable chips. Expanded: every row. Height is the scarce resource on a
+        // laptop (the grid alone is 768px), so the banner stays one line by default.
         return (
           <div className="mb-3 rounded-lg border border-line bg-surface/50 px-3 py-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-                Up next{rows.length > 0 && <span className="font-normal normal-case tracking-normal text-faint"> · {rows.length}</span>}
-              </p>
+            <div className="flex items-center justify-between gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setUpNextExpanded((v) => !v)}
+                  aria-expanded={upNextExpanded}
+                  className="shrink-0 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted hover:text-strong transition-colors"
+                >
+                  <span aria-hidden className="inline-block transition-transform" style={{ transform: upNextExpanded ? "rotate(90deg)" : "none" }}>▸</span>
+                  Up next
+                  {rows.length > 0 && <span className="font-normal normal-case tracking-normal text-faint">· {rows.length}</span>}
+                  {overdueCount > 0 && <span className="font-normal normal-case tracking-normal text-danger">· {overdueCount} overdue</span>}
+                </button>
+                {!upNextExpanded && rows.length > 0 && (
+                  <div className="hidden md:flex items-center gap-1.5 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+                    {rows.slice(0, UP_NEXT_CHIPS).map((r) => (
+                      <button
+                        key={r.key}
+                        onClick={r.onClick}
+                        title={`${r.stage} · ${r.where} · ${r.what} · ${r.when}`}
+                        className={`shrink-0 max-w-[220px] truncate text-xs px-2 py-px rounded border transition-colors ${
+                          r.overdue
+                            ? "border-danger-border/60 text-danger hover:bg-danger-surface/40"
+                            : "border-line-strong/60 text-body hover:bg-surface-mid/60"
+                        }`}
+                      >
+                        <span className={`font-semibold ${r.overdue ? "" : r.isConversion ? "text-accent" : "text-accent-emphasis"}`}>{r.stage}</span>
+                        <span className="text-muted"> {r.where.toLowerCase() === r.stage.toLowerCase() ? "" : `${r.where} · `}</span>{r.what}
+                        <span className="text-muted"> · {r.when.split(" · ")[0]}</span>
+                      </button>
+                    ))}
+                    </div>
+                    {rows.length > UP_NEXT_CHIPS && (
+                      <button onClick={() => setUpNextExpanded(true)} className="shrink-0 text-xs text-accent-emphasis hover:underline whitespace-nowrap">
+                        +{rows.length - UP_NEXT_CHIPS} more
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="hidden md:flex items-center gap-2 shrink-0">
                 {canOperate && <UndoTransferActions onUndone={onRefresh} />}
                 {canEditEquipment && (
@@ -435,8 +520,9 @@ export default function BrewStatusTab() {
             {rows.length === 0 ? (
               <p className="text-xs text-faint mt-1">Nothing scheduled.</p>
             ) : (
-              <ul className="mt-0.5 divide-y divide-line/60">
-                {visible.map((r) => (
+              /* Mobile has no chip row, so it always lists the first few; desktop lists only when expanded. */
+              <ul className={`mt-0.5 divide-y divide-line/60 ${upNextExpanded ? "" : "md:hidden"}`}>
+                {(upNextExpanded ? rows : rows.slice(0, UP_NEXT_VISIBLE)).map((r) => (
                   <li key={r.key}>
                     <button
                       onClick={r.onClick}
@@ -452,9 +538,9 @@ export default function BrewStatusTab() {
                 ))}
               </ul>
             )}
-            {hidden > 0 && (
-              <button onClick={() => setUpNextExpanded((v) => !v)} className="mt-0.5 text-xs text-accent-emphasis hover:underline">
-                {upNextExpanded ? "Show fewer" : `+${hidden} more`}
+            {upNextExpanded && (
+              <button onClick={() => setUpNextExpanded(false)} className="mt-0.5 text-xs text-accent-emphasis hover:underline">
+                Collapse
               </button>
             )}
           </div>
@@ -779,6 +865,7 @@ export default function BrewStatusTab() {
             const isTank      = TANK_TYPES.has(tank.type);
             const isColdStorage = tank.type === "cold_storage";
             const isBacklog   = tank.type === "backlog";
+            const isBrewhouse = tank.type === "brewhouse";
             const isUnconstrained = UNCONSTRAINED_EQUIPMENT_TYPES.includes(tank.type);
 
             const style = eqStyle(tank, cell);
@@ -861,32 +948,72 @@ export default function BrewStatusTab() {
                       </div>
                     )}
 
-                    {/* === Cold Storage === one line per lot: "Beer · Pkg  qty" */}
+                    {/* === Cold Storage === beer | package | on hand */}
                     {isColdStorage && (
                       <div className="flex-1 min-h-0 overflow-y-auto">
-                        {coldStorageLots.length === 0 ? (
-                          <p className="text-disabled text-center mt-1" style={{ fontSize: 11 }}>Empty</p>
-                        ) : (
-                          <div className="space-y-0.5">
-                            {coldStorageLots.map((lot) => {
-                              const label = `${lot.beer_name ?? "—"}${lot.variation_name ? ` · ${lot.variation_name}` : ""}`;
+                        <LotTable
+                          empty="Empty"
+                          qtyLabel="Qty"
+                          rows={coldStorageLots.map((lot) => ({
+                            key: lot.id,
+                            title: lot.beer_name ?? "—",
+                            pkg: packageLabel(lot.variation_name),
+                            qty: lot.quantity_on_hand,
+                          }))}
+                        />
+                      </div>
+                    )}
+
+                    {/* === Brewhouse === pass-through: beer is in it for a day at most, so the
+                        tile is about what is planned next and getting to Assign in one click. */}
+                    {isBrewhouse && (() => {
+                      const plans = (upcomingByEquipment.get(tank.id) ?? []).filter((e) => e.batch_id !== batch?.id).slice(0, 3);
+                      const openTransfer = (b: NonNullable<typeof batch>) => {
+                        setTransferTankId(tank.id); setTransferBatchId(b.id); setTransferFromVol(volumeInTank(b.id, Number(b.volume_bbl ?? 0), tank.id));
+                        setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined);
+                      };
+                      return (
+                        <div className="flex-1 min-h-0 flex flex-col gap-1">
+                          {!editMode && !batch && unassignedBatches.length > 0 && (
+                            <button onClick={() => assign.openAssign(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="btn-primary btn-xxs w-full shrink-0" style={{ fontSize: 11 }}>
+                              Assign a batch
+                            </button>
+                          )}
+                          {batch && (
+                            <div className="shrink-0 flex items-center gap-1 min-w-0 px-1 py-0.5 rounded bg-accent-muted/30 border border-accent-border/40">
+                              <span className="text-strong font-medium truncate flex-1 min-w-0" style={{ fontSize: 11 }} title={`#${batch.batch_number ?? "?"} ${batch.beer_name}`}>
+                                {batch.batch_number && <span className="text-muted font-mono">#{batch.batch_number} </span>}{batch.beer_name}
+                                {assignment && <span className="text-faint"> · {fmtDate(assignment.assigned_at)}</span>}
+                              </span>
+                              {!editMode && (
+                                <button onClick={() => openTransfer(batch)} onMouseDown={(e) => e.stopPropagation()} className="btn-primary btn-xxs shrink-0" style={{ fontSize: 11 }}>Transfer</button>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex-1 min-h-0 overflow-y-auto">
+                            <p className="text-faint uppercase tracking-wide font-semibold" style={{ fontSize: 11 }}>Next up</p>
+                            {plans.length === 0 ? (
+                              <p className="text-disabled" style={{ fontSize: 11 }}>Nothing planned</p>
+                            ) : plans.map((e) => {
+                              const b = e.brew_batches ?? batchById[e.batch_id];
+                              const overdue = e.planned_start.slice(0, 10) < new Date().toISOString().slice(0, 10);
                               return (
-                                <div key={lot.id} className="flex items-center gap-1.5 min-w-0 leading-tight">
-                                  <span className="text-body truncate flex-1 min-w-0" style={{ fontSize: 11 }} title={label}>
-                                    <span className="font-medium">{lot.beer_name ?? "—"}</span>
-                                    {lot.variation_name && <span className="text-muted"> · {lot.variation_name}</span>}
+                                <div key={e.id} className="flex items-center gap-1 min-w-0 leading-tight" style={{ fontSize: 11 }}>
+                                  <span className={`font-mono shrink-0 ${overdue ? "text-danger" : "text-muted"}`}>{fmtDate(e.planned_start)}</span>
+                                  <span className="text-body truncate flex-1 min-w-0" title={b ? `#${b.batch_number ?? "?"} ${b.beer_name}` : "—"}>
+                                    {b ? <>{b.batch_number && <span className="text-muted font-mono">#{b.batch_number} </span>}{b.beer_name}</> : "—"}
                                   </span>
-                                  <span className="text-strong font-mono shrink-0" style={{ fontSize: 11 }}>{lot.quantity_on_hand}</span>
+                                  {e.volume_bbl != null && <span className="text-faint font-mono shrink-0">{Number(e.volume_bbl).toFixed(0)}</span>}
                                 </div>
                               );
                             })}
                           </div>
-                        )}
-                      </div>
-                    )}
+                        </div>
+                      );
+                    })()}
 
-                    {/* === Regular tank (fermenter / brite / brewhouse) === */}
-                    {isTank && (() => {
+                    {/* === Regular tank (fermenter / brite) === */}
+                    {isTank && !isBrewhouse && (() => {
                       // Ledger volume in THIS specific tank, summed across every
                       // batch combined into it (may be a partial split per batch).
                       const volFor = (b: typeof batch) => volumeInTank(b?.id, Number(b?.volume_bbl ?? 0), tank.id);
@@ -942,7 +1069,7 @@ export default function BrewStatusTab() {
                                       <button
                                         onClick={() => openTransfer(otherBatch)}
                                         onMouseDown={(e) => e.stopPropagation()}
-                                        className="btn-primary btn-xxs shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
+                                        className="btn-primary btn-xxs shrink-0"
                                         style={{ fontSize: 11 }}
                                       >
                                         Transfer
@@ -953,14 +1080,14 @@ export default function BrewStatusTab() {
                               })}
                             </div>
 
-                            {/* Transfer — revealed on hover or keyboard focus so the resting
-                                tile is identity + volume only; still tabbable when hidden. */}
+                            {/* Transfer —
+                                always visible — brewers must see what they can do. */}
                             {!editMode && (
                               <div className="shrink-0">
                                 <button
                                   onClick={() => openTransfer(batch)}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="btn-primary btn-xxs w-full opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
+                                  className="btn-primary btn-xxs w-full"
                                   style={{ fontSize: 11 }}
                                 >
                                   Transfer
@@ -989,7 +1116,7 @@ export default function BrewStatusTab() {
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
                                   onMouseDown={(e) => e.stopPropagation()}
-                                  className="btn-primary btn-xxs w-full opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
+                                  className="btn-primary btn-xxs w-full"
                                   style={{ fontSize: 11 }}
                                 >
                                   Assign
@@ -1033,29 +1160,17 @@ export default function BrewStatusTab() {
                         // with no recorded packaging output gets one line on its own.
                         return (
                           <div className="flex-1 min-h-0 overflow-y-auto">
-                            {pkgBatches.length > 0 ? (
-                              <div className="space-y-0.5">
-                                {pkgBatches.flatMap((b) => {
-                                  const lots = (incomingByBatch.get(b.id) ?? []).filter((tr) => tr.variation_id && tr.packaging_variations);
-                                  const ident = `${b.batch_number ? `#${b.batch_number} ` : ""}${b.beer_name}`;
-                                  const line = (key: string, pkg: string | null, qty: number | null) => (
-                                    <div key={key} className="flex items-center gap-1.5 min-w-0 leading-tight">
-                                      <span className="text-body truncate flex-1 min-w-0" style={{ fontSize: 11 }} title={pkg ? `${ident} · ${pkg}` : ident}>
-                                        {b.batch_number && <span className="text-muted font-mono">#{b.batch_number} </span>}
-                                        <span className="font-medium text-strong">{b.beer_name}</span>
-                                        {pkg && <span className="text-muted"> · {pkg}</span>}
-                                      </span>
-                                      {qty != null && <span className="text-accent font-mono font-semibold shrink-0" style={{ fontSize: 11 }}>{qty}</span>}
-                                    </div>
-                                  );
-                                  return lots.length === 0
-                                    ? [line(b.id, null, null)]
-                                    : lots.map((tr) => line(tr.id, tr.packaging_variations!.name, tr.quantity));
-                                })}
-                              </div>
-                            ) : (
-                              <p className="text-disabled text-center" style={{ fontSize: 11 }}>Empty</p>
-                            )}
+                            <LotTable
+                              empty="Empty"
+                              qtyLabel="Run"
+                              rows={pkgBatches.flatMap((b): LotRow[] => {
+                                const lots = (incomingByBatch.get(b.id) ?? []).filter((tr) => tr.variation_id && tr.packaging_variations);
+                                const sub = b.batch_number ? `#${b.batch_number}` : undefined;
+                                return lots.length === 0
+                                  ? [{ key: b.id, title: b.beer_name, subtitle: sub, pkg: "", qty: null }]
+                                  : lots.map((tr) => ({ key: tr.id, title: b.beer_name, subtitle: sub, pkg: packageLabel(tr.packaging_variations!.name), qty: tr.quantity }));
+                              })}
+                            />
                           </div>
                         );
                       })()
