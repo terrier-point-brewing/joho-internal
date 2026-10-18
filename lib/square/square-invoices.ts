@@ -7,7 +7,7 @@
  */
 
 import crypto from "crypto";
-import { squarePost, squareGet, squareDelete, squareLocationId } from "./client";
+import { squarePost, squareGet, squareDelete, squareLocationId, isSquareNotFound } from "./client";
 import { dollarsToCents } from "@/lib/money";
 import { todayLocalDate } from "@/lib/utils/datetime";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
@@ -407,18 +407,61 @@ export async function createDepositInvoice(
 }
 
 /**
+ * Square statuses an invoice never leaves. A send against one of these is not
+ * "already published" — it is a dead invoice, and the only way forward is to
+ * delete the local pointer and generate a fresh one.
+ */
+const SQUARE_TERMINAL_STATUSES: ReadonlySet<string> = new Set(["CANCELED", "FAILED", "REFUNDED"]);
+
+export function isTerminalSquareInvoiceStatus(status: string | null | undefined): boolean {
+  return !!status && SQUARE_TERMINAL_STATUSES.has(status);
+}
+
+/**
+ * An invoice is in a state the requested transition is not allowed from.
+ * Carries the HTTP status a route should answer with, so the route can map it
+ * without string-matching the message.
+ */
+export class InvoiceStateError extends Error {
+  constructor(message: string, readonly status: number = 409) {
+    super(message);
+    this.name = "InvoiceStateError";
+  }
+}
+
+/**
  * Replaces an existing deposit invoice with a new one reflecting updated terms.
- * Cancel failures (already-cancelled or not-found invoice) are swallowed so
- * a stale ID in the DB doesn't block revision.
+ *
+ * Reads the old invoice's status first: a PAID invoice is refused outright
+ * (cancelling it would orphan the payment, and the route's own guard only sees
+ * the local `invoice_paid_at`, which lags Square). An invoice that is already
+ * gone, or already in a terminal state, is simply left behind — a stale id in
+ * the DB must not block revision. Anything else is cancelled, and a cancel
+ * that fails propagates: a live unpaid draft left standing next to the
+ * replacement would bill the partner twice.
  */
 export async function reviseDepositInvoice(
   oldInvoiceId: string,
   newParams: CreateDepositInvoiceParams
 ): Promise<DepositInvoiceResult> {
+  let oldStatus: string | null = null;
   try {
-    await cancelInvoice(oldInvoiceId);
-  } catch {
-    // Invoice already cancelled, doesn't exist, or in a non-cancellable state.
+    oldStatus = (await getInvoiceStatus(oldInvoiceId)).status;
+  } catch (err) {
+    if (!isSquareNotFound(err)) throw err;
+  }
+  if (oldStatus === "PAID") {
+    throw new InvoiceStateError(
+      "This deposit invoice is already paid in Square — sync to record the payment instead of regenerating it.",
+      409,
+    );
+  }
+  if (oldStatus !== null && !isTerminalSquareInvoiceStatus(oldStatus)) {
+    try {
+      await cancelInvoice(oldInvoiceId);
+    } catch (err) {
+      if (!isSquareNotFound(err)) throw err;
+    }
   }
   return createDepositInvoice(newParams);
 }

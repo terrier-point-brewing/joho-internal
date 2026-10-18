@@ -2,18 +2,12 @@ import crypto from "crypto";
 import { NextRequest, NextResponse, after } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createExportInvoice, publishInvoice, getInvoiceStatus } from "@/lib/square/square-invoices";
+import { createExportInvoice, publishInvoice, getInvoiceStatus, isTerminalSquareInvoiceStatus } from "@/lib/square/square-invoices";
 import { syncSquareInvoicesForYear } from "@/lib/finance/syncSquareInvoices";
 import { isIngredientDepositLine } from "@/lib/production/depositLine";
 import { reconcileInvoiceStatus, cascadeExportTransactionsStatus, settleBackchargedDeposits } from "@/lib/finance/reconcileInvoiceStatus";
-import { fetchOrdersByIds } from "@/lib/square/orders";
-import { fetchCatalogItems } from "@/lib/square/catalog";
-import {
-  buildLineItemIndexes,
-  buildInvoiceLineItemRows,
-  persistInvoiceLineItems,
-  invoiceHeaderTotalsFromOrder,
-} from "@/lib/finance/invoiceLineItems";
+import { persistSquareOrderLines } from "@/lib/finance/persistSquareOrderLines";
+import { upsertExportInvoiceRow, linkInvoiceBatches } from "@/lib/production/exportInvoiceLedger";
 import {
   computeMaterialBreakdownsForTransactions,
   type InvoiceLineItemDraft,
@@ -23,7 +17,6 @@ import {
   recordInvoiceSkuSubstitutions,
   restoreSubstitutedInventory,
 } from "@/lib/production/invoiceSkuSubstitutions";
-import type { CatalogItem } from "@/types/square";
 import { invoiceDraftDates } from "@/lib/production/invoiceTerms";
 import { exportInvoiceTitle } from "@/lib/production/invoiceCustomerText";
 import { summarizeLineEdits, type LineEdit } from "@/lib/production/invoiceLineEdits";
@@ -300,75 +293,48 @@ export async function POST(req: NextRequest) {
     const totalCents = lineItems.reduce((s, li) => s + li.quantity * li.unitPriceCents, 0);
 
     // Upsert a Draft invoices row immediately so invoice_id can be set on txns.
-    const { data: inv, error: invErr } = await supabase
-      .from("invoices")
-      .upsert(
-        {
-          source: "square",
-          external_id: result.invoiceId,
-          square_invoice_id: result.invoiceId,
-          invoice_number: result.invoiceNumber ?? null,
-          invoice_type: "export_invoice",
-          partner_id: customerId,
-          customer_name: partner.company_name,
-          invoice_date: draftDate,
-          due_date: dueDate,
-          customer_note: customerNote || null,
-          status: "draft",
-          subtotal_cents: totalCents,
-          tax_cents: 0,
-          total_cents: totalCents,
-          shipped_channel: shippedChannel,
-          billed_channel: billedChannel,
-          override_reason: overrideReason,
-          ...lineEditColumns,
-        },
-        { onConflict: "source,external_id", ignoreDuplicates: false }
-      )
-      .select("id")
-      .single();
-    if (invErr || !inv) {
+    const inv = await upsertExportInvoiceRow(supabase, {
+      source: "square",
+      external_id: result.invoiceId,
+      square_invoice_id: result.invoiceId,
+      invoice_number: result.invoiceNumber ?? null,
+      partner_id: customerId,
+      customer_name: partner.company_name,
+      invoice_date: draftDate,
+      due_date: dueDate,
+      customer_note: customerNote || null,
+      status: "draft",
+      subtotal_cents: totalCents,
+      total_cents: totalCents,
+      shipped_channel: shippedChannel,
+      billed_channel: billedChannel,
+      override_reason: overrideReason,
+      ...lineEditColumns,
+    });
+    if (!inv.id) {
       return NextResponse.json(
-        { error: `Square invoice ${result.invoiceId} created but local invoices row failed: ${invErr?.message}` },
+        { error: `Square invoice ${result.invoiceId} created but local invoices row failed: ${inv.error}` },
         { status: 500 }
       );
     }
 
-    // Persist canonical line items + authoritative header totals from Square's order.
-    let linesPersisted = false;
-    try {
-      const [orders, catalogItems] = await Promise.all([
-        fetchOrdersByIds([result.orderId]),
-        fetchCatalogItems(),
-      ]);
-      const order = orders[0];
-      if (!order) throw new Error(`order read-back returned no order for ${result.orderId}`);
-      const indexes = await buildLineItemIndexes(supabase, catalogItems as CatalogItem[]);
-      const rows = buildInvoiceLineItemRows(inv.id, order, indexes, new Map());
-      const { error: persistErr } = await persistInvoiceLineItems(supabase, inv.id, rows, order);
-      if (persistErr) throw new Error(persistErr);
-      linesPersisted = true;
-      const totals = invoiceHeaderTotalsFromOrder(order);
-      const { error: hdrErr } = await supabase.from("invoices").update(totals).eq("id", inv.id);
-      if (hdrErr) console.error("[export-invoice] header totals update failed:", hdrErr.message);
-    } catch (err) {
-      console.error("[export-invoice] generate read-back failed, falling back to draft values:", err);
-      // Fallback: persist gross draft values so the row is never empty; a later sync reconciles.
-      if (!linesPersisted && lineItems.length > 0) {
-        await supabase.from("invoice_line_items").upsert(
-          lineItems.map((li, i) => ({
-            // `li.description` is what we sent Square as the line's note, so it
-            // lands in `note`; the later sync fills in catalog identity.
-            invoice_id: inv.id, sort_order: i, note: li.description,
-            category: "other_services", quantity: li.quantity,
-            unit_price_cents: li.unitPriceCents, total_cents: li.quantity * li.unitPriceCents,
-            square_catalog_variation_id: li.squareCatalogVariationId ?? null,
-            square_catalog_discount_id: li.discountCatalogId ?? null,
-          })),
-          { onConflict: "invoice_id,sort_order", ignoreDuplicates: false },
-        );
-      }
-    }
+    // Persist canonical line items + authoritative header totals from Square's
+    // order; on a failed read-back, the gross draft values so the row is never
+    // empty (`li.description` is what we sent Square as the line's note).
+    await persistSquareOrderLines(
+      supabase,
+      inv.id,
+      result.orderId,
+      lineItems.map((li) => ({
+        note: li.description,
+        quantity: li.quantity,
+        unit_price_cents: li.unitPriceCents,
+        total_cents: li.quantity * li.unitPriceCents,
+        square_catalog_variation_id: li.squareCatalogVariationId ?? null,
+        square_catalog_discount_id: li.discountCatalogId ?? null,
+      })),
+      { logLabel: "[export-invoice] generate" },
+    );
 
     const { error: updateErr } = await supabase
       .from("export_transactions")
@@ -381,16 +347,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create invoice_batch_links for distinct batches covered by these transactions
-    const batchIds = [...new Set(
-      txs.map((t) => (t as typeof t & { batch_id: string | null }).batch_id).filter((id): id is string => !!id)
-    )];
-    if (batchIds.length > 0) {
-      await supabase.from("invoice_batch_links").upsert(
-        batchIds.map((batchId) => ({ invoice_id: inv.id, batch_id: batchId })),
-        { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
-      );
-    }
+    await linkInvoiceBatches(supabase, inv.id, txs.map((t) => t.batch_id));
 
     await snapshotMaterials(inv.id);
     await recordDepositBackcharge(inv.id, lineItems, body.depositLines);
@@ -449,6 +406,15 @@ export async function POST(req: NextRequest) {
     const currentStatus = await getInvoiceStatus(squareInvoiceId);
     if (currentStatus.status === "PAID") {
       return NextResponse.json({ error: "Invoice is already paid in Square — use sync to update status" }, { status: 422 });
+    }
+    // Cancelled in the Square dashboard (or failed / refunded): the invoice is
+    // dead. Marking its shipments unpaid against it would strand them on an
+    // invoice that will never collect. Nothing is written; sync voids it.
+    if (isTerminalSquareInvoiceStatus(currentStatus.status)) {
+      return NextResponse.json(
+        { error: `This invoice is ${currentStatus.status.toLowerCase()} in Square and cannot be sent — run sync, then generate a new one` },
+        { status: 409 },
+      );
     }
     if (currentStatus.status === "DRAFT") {
       await publishInvoice(squareInvoiceId);
@@ -564,37 +530,28 @@ export async function POST(req: NextRequest) {
 
     const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
     const dbSource = source as "quickbooks" | "other";
-    const { data: inv, error: invErr } = await supabase
-      .from("invoices")
-      .upsert(
-        {
-          source: dbSource,
-          external_id:    externalId,
-          invoice_number: externalRef ?? null,
-          invoice_type:   "export_invoice",
-          partner_id:     customerId,
-          customer_name:  txs[0].recipient_name ?? null,
-          invoice_date:   (invoiceDate ?? new Date().toISOString()).slice(0, 10),
-          status:         "open",
-          subtotal_cents: totalCents,
-          tax_cents:      0,
-          total_cents:    totalCents,
-          shipped_channel: shippedChannel,
-          billed_channel:  billedChannel,
-          override_reason: overrideReason,
-          ...lineEditColumns,
-          notes:          "Manually created export invoice",
-        },
-        { onConflict: "source,external_id", ignoreDuplicates: false }
-      )
-      .select("id")
-      .single();
+    const inv = await upsertExportInvoiceRow(supabase, {
+      source: dbSource,
+      external_id:    externalId,
+      invoice_number: externalRef ?? null,
+      partner_id:     customerId,
+      customer_name:  txs[0].recipient_name ?? null,
+      invoice_date:   (invoiceDate ?? new Date().toISOString()).slice(0, 10),
+      status:         "open",
+      subtotal_cents: totalCents,
+      total_cents:    totalCents,
+      shipped_channel: shippedChannel,
+      billed_channel:  billedChannel,
+      override_reason: overrideReason,
+      ...lineEditColumns,
+      notes:          "Manually created export invoice",
+    });
 
-    if (invErr || !inv) {
-      return NextResponse.json({ error: `Failed to create invoice record: ${invErr?.message}` }, { status: 500 });
+    if (!inv.id) {
+      return NextResponse.json({ error: `Failed to create invoice record: ${inv.error}` }, { status: 500 });
     }
 
-    if (inv?.id) {
+    if (inv.id) {
       if (lineItems?.length) {
         await supabase.from("invoice_line_items").insert(
           lineItems.map((li, i) => ({
@@ -614,16 +571,7 @@ export async function POST(req: NextRequest) {
         .update({ invoice_id: inv.id })
         .in("id", transactionIds);
 
-      // Create invoice_batch_links for distinct batches
-      const batchIds = [...new Set(
-        txs.map((t) => (t as typeof t & { batch_id: string | null }).batch_id).filter((id): id is string => !!id)
-      )];
-      if (batchIds.length > 0) {
-        await supabase.from("invoice_batch_links").upsert(
-          batchIds.map((batchId) => ({ invoice_id: inv.id, batch_id: batchId })),
-          { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
-        );
-      }
+      await linkInvoiceBatches(supabase, inv.id, txs.map((t) => t.batch_id));
 
       await snapshotMaterials(inv.id);
       await recordDepositBackcharge(inv.id, lineItems as InvoiceLineItemDraft[] | undefined, body.depositLines);
@@ -657,52 +605,34 @@ export async function POST(req: NextRequest) {
     const paidLineItems = body.lineItems as InvoiceLineItemDraft[] | undefined;
 
     const externalId = externalRef ?? `other:${crypto.randomUUID()}`;
-    const { data: inv, error: invErr } = await supabase
-      .from("invoices")
-      .upsert(
-        {
-          source:         source as "quickbooks" | "other",
-          external_id:    externalId,
-          invoice_number: externalRef ?? null,
-          invoice_type:   "export_invoice",
-          partner_id:     customerId,
-          customer_name:  txs[0].recipient_name ?? null,
-          invoice_date:   paidAt.slice(0, 10),
-          status:         "paid",
-          subtotal_cents: totalCents,
-          tax_cents:      0,
-          total_cents:    totalCents,
-          shipped_channel: shippedChannel,
-          billed_channel:  billedChannel,
-          override_reason: overrideReason,
-          ...lineEditColumns,
-          notes:          "QB backfill — export invoice",
-        },
-        { onConflict: "source,external_id", ignoreDuplicates: false }
-      )
-      .select("id")
-      .single();
+    const inv = await upsertExportInvoiceRow(supabase, {
+      source:         source as "quickbooks" | "other",
+      external_id:    externalId,
+      invoice_number: externalRef ?? null,
+      partner_id:     customerId,
+      customer_name:  txs[0].recipient_name ?? null,
+      invoice_date:   paidAt.slice(0, 10),
+      status:         "paid",
+      subtotal_cents: totalCents,
+      total_cents:    totalCents,
+      shipped_channel: shippedChannel,
+      billed_channel:  billedChannel,
+      override_reason: overrideReason,
+      ...lineEditColumns,
+      notes:          "QB backfill — export invoice",
+    });
 
-    if (invErr || !inv) {
-      return NextResponse.json({ error: `Failed to create invoice record: ${invErr?.message}` }, { status: 500 });
+    if (!inv.id) {
+      return NextResponse.json({ error: `Failed to create invoice record: ${inv.error}` }, { status: 500 });
     }
 
-    if (inv?.id) {
+    if (inv.id) {
       await supabase
         .from("export_transactions")
         .update({ invoice_id: inv.id })
         .in("id", transactionIds);
 
-      // Create invoice_batch_links for distinct batches
-      const batchIds = [...new Set(
-        txs.map((t) => (t as typeof t & { batch_id: string | null }).batch_id).filter((id): id is string => !!id)
-      )];
-      if (batchIds.length > 0) {
-        await supabase.from("invoice_batch_links").upsert(
-          batchIds.map((batchId) => ({ invoice_id: inv.id, batch_id: batchId })),
-          { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
-        );
-      }
+      await linkInvoiceBatches(supabase, inv.id, txs.map((t) => t.batch_id));
 
       await snapshotMaterials(inv.id);
       await recordDepositBackcharge(inv.id, paidLineItems, body.depositLines);

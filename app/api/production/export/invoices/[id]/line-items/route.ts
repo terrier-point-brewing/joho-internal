@@ -3,16 +3,7 @@ import type { LineEdit } from "@/lib/production/invoiceLineEdits";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { cancelInvoice, createExportInvoice } from "@/lib/square/square-invoices";
-import { fetchOrdersByIds } from "@/lib/square/orders";
-import { fetchCatalogItems } from "@/lib/square/catalog";
-import {
-  buildLineItemIndexes,
-  buildInvoiceLineItemRows,
-  persistInvoiceLineItems,
-  invoiceHeaderTotalsFromOrder,
-  type LineItemCoa,
-} from "@/lib/finance/invoiceLineItems";
-import type { CatalogItem } from "@/types/square";
+import { persistSquareOrderLines } from "@/lib/finance/persistSquareOrderLines";
 import { invoiceDraftDates } from "@/lib/production/invoiceTerms";
 import { exportInvoiceTitle } from "@/lib/production/invoiceCustomerText";
 
@@ -252,63 +243,29 @@ export async function PATCH(
   // mapper the sync and the generate read-back use. That's what splits the
   // catalog identity (`line_item_name`/`variation_name`) from the line's note
   // (`note`) and classifies `category` — a hand-rolled insert flattens both.
-  let linesPersisted = false;
-  try {
-    const [orders, catalogItems] = await Promise.all([
-      fetchOrdersByIds([newSquareResult.orderId]),
-      fetchCatalogItems(),
-    ]);
-    const order = orders[0];
-    if (!order) throw new Error(`order read-back returned no order for ${newSquareResult.orderId}`);
-    const indexes = await buildLineItemIndexes(supabase, catalogItems as CatalogItem[]);
-
-    // Carry existing CoA mappings across the rebuild. Keyed by variation rather
-    // than sort_order because add/remove shifts every position after it.
-    const coaByVariation = new Map<string, string>();
-    for (const item of currentItems ?? []) {
-      if (item.square_catalog_variation_id && item.chart_of_accounts_id) {
-        coaByVariation.set(item.square_catalog_variation_id, item.chart_of_accounts_id);
-      }
+  // Existing CoA mappings carry across the rebuild, keyed by variation.
+  const coaByVariation = new Map<string, string>();
+  for (const item of currentItems ?? []) {
+    if (item.square_catalog_variation_id && item.chart_of_accounts_id) {
+      coaByVariation.set(item.square_catalog_variation_id, item.chart_of_accounts_id);
     }
-    const existingCoaBySort = new Map<number, LineItemCoa>();
-    (order.line_items ?? []).forEach((li, i) => {
-      const coa = li.catalog_object_id ? coaByVariation.get(li.catalog_object_id) : undefined;
-      if (coa) existingCoaBySort.set(i, { chart_of_accounts_id: coa });
-    });
-
-    const rows = buildInvoiceLineItemRows(invoiceId, order, indexes, existingCoaBySort);
-    const { error: persistErr } = await persistInvoiceLineItems(supabase, invoiceId, rows, order);
-    if (persistErr) throw new Error(persistErr);
-    linesPersisted = true;
-
-    const totals = invoiceHeaderTotalsFromOrder(order);
-    const { error: hdrErr } = await supabase.from("invoices").update(totals).eq("id", invoiceId);
-    if (hdrErr) console.error("[line-items] header totals update failed:", hdrErr.message);
-  } catch (err) {
-    console.error("[line-items] read-back failed, falling back to draft values:", err);
   }
-
-  if (!linesPersisted) {
-    // Fallback: persist the draft values so the invoice is never left empty; a
-    // later sync reconciles catalog identity, notes, and categories.
-    const { error: deleteErr } = await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
-    if (deleteErr) return NextResponse.json({ error: deleteErr.message }, { status: 500 });
-    const { error: insertErr } = await supabase.from("invoice_line_items").insert(
-      updatedItems.map((item, i) => ({
-        invoice_id: invoiceId,
-        sort_order: i,
-        note: item.note,
-        category: "other_services",
-        quantity: item.quantity,
-        unit_price_cents: item.unit_price_cents,
-        total_cents: item.total_cents,
-        square_catalog_variation_id: item.square_catalog_variation_id,
-        square_catalog_discount_id: item.square_catalog_discount_id ?? null,
-        chart_of_accounts_id: item.chart_of_accounts_id ?? null,
-      }))
-    );
-    if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
-  }
+  const persisted = await persistSquareOrderLines(
+    supabase,
+    invoiceId,
+    newSquareResult.orderId,
+    updatedItems.map((item) => ({
+      note: item.note,
+      quantity: item.quantity,
+      unit_price_cents: item.unit_price_cents,
+      total_cents: item.total_cents,
+      square_catalog_variation_id: item.square_catalog_variation_id,
+      square_catalog_discount_id: item.square_catalog_discount_id ?? null,
+      chart_of_accounts_id: item.chart_of_accounts_id ?? null,
+    })),
+    { coaByVariation, logLabel: "[line-items]" },
+  );
+  if (persisted.error) return NextResponse.json({ error: persisted.error }, { status: 500 });
 
   return NextResponse.json({ ok: true });
 }

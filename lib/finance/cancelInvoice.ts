@@ -20,6 +20,12 @@
 //   4. Shipments      export_transactions back to invoice_required, invoice_id
 //                     cleared, via the shared cascade so a cancel done in the
 //                     Square dashboard lands identically.
+//   5. Allocation     DEPOSIT invoices only: the batch_allocations pointer
+//                     (square_deposit_invoice_id, order id, generated/sent
+//                     stamps) is cleared, exactly as the deposit route's own
+//                     delete does. Without this the allocation keeps naming a
+//                     dead invoice and the nightly reconcile reads CANCELED
+//                     against it forever.
 //
 // WHAT THIS DELIBERATELY DOES NOT DO
 //
@@ -64,6 +70,9 @@ import { cascadeExportTransactionsStatus, settleBackchargedDeposits } from "@/li
  * invoice would erase the revenue while leaving the payment sitting in Square.
  */
 const CANCELLABLE: readonly string[] = ["draft", "open", "partial"];
+
+/** `invoices.invoice_type` of an ingredient-deposit invoice (one per allocation). */
+const DEPOSIT_INVOICE_TYPE = "allocation_deposit";
 
 export class CancelInvoiceError extends Error {
   constructor(message: string, readonly status: number) {
@@ -137,7 +146,7 @@ export async function cancelExportInvoice(
 
   const { data: inv, error: invErr } = await supabase
     .from("invoices")
-    .select("id, status, square_invoice_id, invoice_number, invoice_type")
+    .select("id, status, square_invoice_id, invoice_number, invoice_type, allocation_id")
     .eq("id", invoiceId)
     .single();
   if (invErr || !inv) throw new CancelInvoiceError("Invoice not found.", 404);
@@ -261,6 +270,30 @@ export async function cancelExportInvoice(
     warnings.push(
       `The invoice is cancelled but its shipments could not be returned to the Invoice Required queue: ${message}. Run Sync from Square to retry.`,
     );
+  }
+
+  // ── 5. Deposit allocation ──────────────────────────────────────────────────
+  // A deposit invoice is the allocation's; its Square pointer goes with it so a
+  // new one can be generated. Same columns the deposit route's delete clears.
+  if (inv.invoice_type === DEPOSIT_INVOICE_TYPE) {
+    const allocationId = inv.allocation_id as string | null;
+    const clear = {
+      square_deposit_invoice_id: null,
+      square_deposit_order_id: null,
+      invoice_generated_at: null,
+      invoice_sent_at: null,
+    };
+    const query = supabase.from("batch_allocations").update(clear);
+    const { error: allocErr } = allocationId
+      ? await query.eq("id", allocationId)
+      : squareInvoiceId
+        ? await query.eq("square_deposit_invoice_id", squareInvoiceId)
+        : { error: null };
+    if (allocErr) {
+      warnings.push(
+        `The deposit invoice is cancelled but its allocation still points at it: ${allocErr.message}. Delete the invoice from the allocation to clear it.`,
+      );
+    }
   }
 
   return {
