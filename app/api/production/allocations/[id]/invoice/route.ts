@@ -9,19 +9,15 @@ import {
   publishInvoice,
   reviseDepositInvoice,
   getInvoiceStatus,
+  isTerminalSquareInvoiceStatus,
+  InvoiceStateError,
 } from "@/lib/square/square-invoices";
+import { isSquareNotFound } from "@/lib/square/client";
 import { reconcileInvoiceStatus } from "@/lib/finance/reconcileInvoiceStatus";
 import { stampCommitmentLockedOn } from "@/lib/production/commitmentFulfillment";
 import { snapshotDepositBreakdown, type BreakdownInput } from "@/lib/production/depositBreakdown";
-import { fetchOrdersByIds } from "@/lib/square/orders";
-import { fetchCatalogItems } from "@/lib/square/catalog";
-import {
-  buildLineItemIndexes,
-  buildInvoiceLineItemRows,
-  persistInvoiceLineItems,
-  invoiceHeaderTotalsFromOrder,
-} from "@/lib/finance/invoiceLineItems";
-import type { CatalogItem } from "@/types/square";
+import { persistSquareOrderLines } from "@/lib/finance/persistSquareOrderLines";
+import { linkInvoiceBatches } from "@/lib/production/exportInvoiceLedger";
 import { conversionDepositExclusions } from "@/lib/production/exportIngredientDeposit";
 import { invoiceDraftDates } from "@/lib/production/invoiceTerms";
 import { depositInvoiceDescription, depositInvoiceTitle } from "@/lib/production/invoiceCustomerText";
@@ -87,6 +83,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
     return await handleInvoiceAction(req, params);
   } catch (e: unknown) {
+    if (e instanceof InvoiceStateError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     console.error("[deposit-invoice] POST failed:", e);
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unexpected error" }, { status: 500 });
   }
@@ -231,46 +230,23 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     });
 
     if (ledgerInvoiceId) {
-      await adminSupabase
-        .from("invoice_batch_links")
-        .upsert(
-          { invoice_id: ledgerInvoiceId, batch_id: batch.id },
-          { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
-        );
-    }
+      await linkInvoiceBatches(adminSupabase, ledgerInvoiceId, [batch.id]);
 
-    // Persist canonical line items + authoritative header totals from Square's order.
-    if (ledgerInvoiceId) {
-      let linesPersisted = false;
-      try {
-        const [orders, catalogItems] = await Promise.all([
-          fetchOrdersByIds([result.orderId]),
-          fetchCatalogItems(),
-        ]);
-        const order = orders[0];
-        if (!order) throw new Error(`order read-back returned no order for ${result.orderId}`);
-        const indexes = await buildLineItemIndexes(adminSupabase, catalogItems as CatalogItem[]);
-        const rows = buildInvoiceLineItemRows(ledgerInvoiceId, order, indexes, new Map());
-        const { error: persistErr } = await persistInvoiceLineItems(adminSupabase, ledgerInvoiceId, rows, order);
-        if (persistErr) throw new Error(persistErr);
-        linesPersisted = true;
-        const totals = invoiceHeaderTotalsFromOrder(order);
-        const { error: hdrErr } = await adminSupabase.from("invoices").update(totals).eq("id", ledgerInvoiceId);
-        if (hdrErr) console.error("[deposit-invoice] header totals update failed:", hdrErr.message);
-      } catch (err) {
-        console.error("[deposit-invoice] generate read-back failed, using draft deposit line:", err);
-        if (!linesPersisted) {
-          await adminSupabase.from("invoice_line_items").upsert(
-            {
-              invoice_id: ledgerInvoiceId, sort_order: 0, note: "Ingredient Deposit",
-              category: "ingredient_deposit", quantity: 1,
-              unit_price_cents: calculation.deposit_cents, total_cents: calculation.deposit_cents,
-              square_catalog_variation_id: mapping.square_catalog_variation_id,
-            },
-            { onConflict: "invoice_id,sort_order" },
-          );
-        }
-      }
+      // Persist canonical line items + authoritative header totals from Square's order.
+      await persistSquareOrderLines(
+        adminSupabase,
+        ledgerInvoiceId,
+        result.orderId,
+        [{
+          note: "Ingredient Deposit",
+          category: "ingredient_deposit",
+          quantity: 1,
+          unit_price_cents: calculation.deposit_cents,
+          total_cents: calculation.deposit_cents,
+          square_catalog_variation_id: mapping.square_catalog_variation_id,
+        }],
+        { logLabel: "[deposit-invoice] generate" },
+      );
     }
 
     if (ledgerInvoiceId) {
@@ -310,6 +286,15 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     const currentSquareStatus = await getInvoiceStatus(allocation.square_deposit_invoice_id);
     if (currentSquareStatus.status === "PAID") {
       return NextResponse.json({ error: "Invoice is already paid in Square — use sync to update status" }, { status: 422 });
+    }
+    // A cancelled / failed / refunded invoice is dead, not "already published":
+    // stamping it sent and flipping the ledger row back to open would resurrect
+    // it locally while Square still says it is gone. Nothing is written.
+    if (isTerminalSquareInvoiceStatus(currentSquareStatus.status)) {
+      return NextResponse.json(
+        { error: `This invoice is ${currentSquareStatus.status.toLowerCase()} in Square and cannot be sent — delete it and generate a new one` },
+        { status: 409 },
+      );
     }
     if (currentSquareStatus.status === "DRAFT") {
       await publishInvoice(allocation.square_deposit_invoice_id);
@@ -409,6 +394,12 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     if (allocation.invoice_paid_at) {
       return NextResponse.json({ error: "Allocation is already marked as paid" }, { status: 422 });
     }
+    // The deposit is being collected as a line on an export invoice; recording
+    // an outside payment on top of that would count it twice when that invoice
+    // settles.
+    if (allocation.deposit_backcharged_invoice_id) {
+      return NextResponse.json({ error: "This deposit is already billed on an export invoice — it settles when that invoice is paid" }, { status: 409 });
+    }
 
     const paidAt      = body.paid_at      as string | undefined;
     const amountCents = body.amount_cents  as number | undefined;
@@ -423,9 +414,43 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
 
     const now = new Date().toISOString();
 
+    // A live Square invoice for the same deposit must not outlive the outside
+    // payment: paid later through Square, it would record the deposit a second
+    // time. Already paid there → this is the wrong action; already gone → fine.
+    if (allocation.square_deposit_invoice_id) {
+      let squareStatus: string | null = null;
+      try {
+        squareStatus = (await getInvoiceStatus(allocation.square_deposit_invoice_id)).status;
+      } catch (e) {
+        if (!isSquareNotFound(e)) throw e;
+      }
+      if (squareStatus === "PAID") {
+        return NextResponse.json({ error: "This deposit invoice is already paid in Square — use sync to record that payment" }, { status: 422 });
+      }
+      if (squareStatus !== null && !isTerminalSquareInvoiceStatus(squareStatus)) {
+        try {
+          await cancelInvoice(allocation.square_deposit_invoice_id);
+        } catch (e) {
+          if (!isSquareNotFound(e)) throw e;
+        }
+      }
+      // The Square-backed ledger row is superseded by the external one written below.
+      await adminSupabase
+        .from("invoices")
+        .update({ status: "voided" })
+        .eq("source", "square")
+        .eq("square_invoice_id", allocation.square_deposit_invoice_id);
+    }
+
     const { data: updated, error: updateErr } = await supabase
       .from("batch_allocations")
       .update({
+        // The Square pointer is dropped with the invoice it named: left in
+        // place, the nightly reconcile would read CANCELED and un-send this
+        // allocation underneath the payment just recorded.
+        ...(allocation.square_deposit_invoice_id
+          ? { square_deposit_invoice_id: null, square_deposit_order_id: null }
+          : {}),
         invoice_paid_at:           paidAt,
         deposit_amount_paid_cents: amountCents,
         invoice_generated_at:      allocation.invoice_generated_at ?? now,
@@ -465,15 +490,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
       .single();
 
     if (inv?.id) {
-      await adminSupabase
-        .from("invoice_batch_links")
-        .upsert(
-          { invoice_id: inv.id, batch_id: batch.id },
-          { onConflict: "invoice_id,batch_id", ignoreDuplicates: true }
-        );
-    }
-
-    if (inv?.id) {
+      await linkInvoiceBatches(adminSupabase, inv.id, [batch.id]);
       try {
         const excluded = await conversionDepositExclusions(supabase, batch.id, { partnerId: allocation.partner_id });
         const calc = await calculateIngredientDeposit(supabase, batch.id, Number(allocation.percentage), {
@@ -547,12 +564,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
         )
         .select("id")
         .single();
-      if (inv?.id) {
-        await adminSupabase.from("invoice_batch_links").upsert(
-          { invoice_id: inv.id, batch_id: batch.id },
-          { onConflict: "invoice_id,batch_id", ignoreDuplicates: true },
-        );
-      }
+      if (inv?.id) await linkInvoiceBatches(adminSupabase, inv.id, [batch.id]);
     }
     return NextResponse.json({ allocation: updated });
   }

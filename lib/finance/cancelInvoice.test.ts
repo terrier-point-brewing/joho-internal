@@ -42,6 +42,7 @@ interface InvoiceRow {
   square_invoice_id: string | null;
   invoice_number: string | null;
   invoice_type: string;
+  allocation_id?: string | null;
 }
 
 const invoice = (over: Partial<InvoiceRow> = {}): InvoiceRow => ({
@@ -252,5 +253,36 @@ describe("cancelExportInvoice — what it does", () => {
     expect(cancelSquareInvoice).not.toHaveBeenCalled();
     // Local void still happens — the ledger row is ours to correct.
     expect(updates.find((u) => u.table === "invoices")?.payload.status).toBe("voided");
+  });
+});
+
+describe("cancelExportInvoice — a DEPOSIT invoice", () => {
+  // The Finance cancel route reaches deposit invoices too. Before this, it
+  // voided the ledger row and killed the invoice in Square but left
+  // batch_allocations pointing at the dead id, so no new deposit could be
+  // generated and the nightly reconcile kept reading CANCELED against it.
+  it("clears the allocation's Square pointer, like the deposit route's delete", async () => {
+    const updates: Array<{ table: string; payload: Record<string, unknown> }> = [];
+    const result = await cancelExportInvoice(
+      stub({ invoiceRow: invoice({ invoice_type: "allocation_deposit", allocation_id: "alloc-1" }), updates }),
+      { invoiceId: "inv-1", reason: "wrong percentage" },
+    );
+    expect(updates.map((u) => u.table)).toEqual(["invoices", "batch_allocations"]);
+    expect(updates[1].payload).toEqual({
+      square_deposit_invoice_id: null,
+      square_deposit_order_id: null,
+      invoice_generated_at: null,
+      invoice_sent_at: null,
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("leaves batch_allocations alone for an export invoice", async () => {
+    const updates: Array<{ table: string; payload: Record<string, unknown> }> = [];
+    await cancelExportInvoice(stub({ invoiceRow: invoice({ allocation_id: null }), updates }), {
+      invoiceId: "inv-1",
+      reason: "wrong customer",
+    });
+    expect(updates.map((u) => u.table)).toEqual(["invoices"]);
   });
 });
