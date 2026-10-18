@@ -11,6 +11,7 @@ import { squarePost, squareGet, squareDelete, squareLocationId } from "./client"
 import { dollarsToCents } from "@/lib/money";
 import { todayLocalDate } from "@/lib/utils/datetime";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
+import { DEPOSIT_LINE_DESCRIPTION } from "@/lib/production/invoiceCustomerText";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -386,7 +387,7 @@ export async function createDepositInvoice(
 ): Promise<DepositInvoiceResult> {
   const lineItems: InvoiceLineItemDraft[] = [{
     id: "deposit",
-    description: "Ingredient Deposit",
+    description: DEPOSIT_LINE_DESCRIPTION,
     quantity: 1,
     unitPriceCents: params.depositCents,
     squareCatalogVariationId: params.depositVariationId ?? null,

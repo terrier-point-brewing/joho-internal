@@ -32,13 +32,6 @@ function stub(taxRows: TaxRow[], rates: RateRow[]): SupabaseClient {
   return client as unknown as SupabaseClient;
 }
 
-// Minimal ExportTxRow shape — only id + volume_bbl are read by buildExciseTaxLines.
-function rows(vols: Record<string, number>) {
-  return Object.entries(vols).map(([id, volume_bbl]) => ({
-    id,
-    volume_bbl,
-  })) as unknown as Parameters<typeof buildExciseTaxLines>[2];
-}
 
 describe("buildExciseTaxLines", () => {
   it("converts a single amount_usd to cents (round to nearest cent)", async () => {
@@ -48,8 +41,7 @@ describe("buildExciseTaxLines", () => {
         [{ export_transaction_id: "t1", amount_usd: 0.6171, excise_tax_rate_id: "fed" }],
         [{ id: "fed", receiving_party: "Federal", basis: "per_bbl", square_catalog_variation_id: "var-fed" }]
       ),
-      ["t1"],
-      rows({ t1: 5 })
+      ["t1"]
     );
     expect(lines).toHaveLength(1);
     expect(lines[0].unitPriceCents).toBe(62);
@@ -68,8 +60,7 @@ describe("buildExciseTaxLines", () => {
         ],
         [{ id: "fed", receiving_party: "Federal", basis: "per_bbl", square_catalog_variation_id: "var-fed" }]
       ),
-      ["t1", "t2"],
-      rows({ t1: 5, t2: 3 })
+      ["t1", "t2"]
     );
     expect(lines).toHaveLength(1);
     expect(lines[0].unitPriceCents).toBe(1296);
@@ -88,8 +79,7 @@ describe("buildExciseTaxLines", () => {
           { id: "nc", receiving_party: "NC", basis: "per_gallon", square_catalog_variation_id: "var-nc" },
         ]
       ),
-      ["t1"],
-      rows({ t1: 2 })
+      ["t1"]
     );
     const byParty = Object.fromEntries(
       lines.map((l) => [l.description.split(" — ")[1].split(" (")[0], l.unitPriceCents])
@@ -99,7 +89,7 @@ describe("buildExciseTaxLines", () => {
   });
 
   it("returns no lines when there are no tax rows", async () => {
-    const lines = await buildExciseTaxLines(stub([], []), ["t1"], rows({ t1: 1 }));
+    const lines = await buildExciseTaxLines(stub([], []), ["t1"]);
     expect(lines).toEqual([]);
   });
 });

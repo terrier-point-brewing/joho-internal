@@ -3,6 +3,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { issueDepositReduction, RefundError } from "@/lib/finance/issueRefund";
+import { loadBatchYields, shareBasisBbl } from "@/lib/production/batchYieldProjection.server";
 import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
 
 export const dynamic = "force-dynamic";
@@ -35,13 +36,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   const { data: allocation, error: fetchErr } = await supabase
     .from("batch_allocations")
-    .select("*")
+    .select("*, brew_batches(id, batch_number, beer_name, turns)")
     .eq("id", id)
     .single();
 
   if (fetchErr || !allocation) {
     return NextResponse.json({ error: "Allocation not found" }, { status: 404 });
   }
+  const batch = allocation.brew_batches as { id: string; batch_number: string | null; beer_name: string; turns: number | null } | null;
+  if (!batch) return NextResponse.json({ error: "Batch not found" }, { status: 404 });
 
   // 1. Must have a paid invoice — that's the only state this endpoint handles.
   if (!allocation.invoice_paid_at) {
@@ -74,6 +77,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   // `deposit_reduction`, instead of only in this allocation's three columns.
   const currentPercentage = Number(allocation.percentage);
   const paidCents = Number(allocation.deposit_amount_paid_cents);
+  // The refund reason quotes the new share's estimated yield off the same
+  // projection every share is measured against.
+  const yields = await loadBatchYields(supabase, [batch.id]);
 
   let refund;
   try {
@@ -84,6 +90,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       paidCents,
       squarePaymentId: allocation.square_payment_id,
       squareOrderId: allocation.square_deposit_order_id ?? null,
+      batch: {
+        batchNumber: batch.batch_number ?? batch.id,
+        turns: Number(batch.turns ?? 1),
+        beerName: batch.beer_name,
+        projectedYieldBbl: shareBasisBbl(yields, batch.id),
+      },
     });
   } catch (e: unknown) {
     // `moneyMoved` rides along so the modal can tell the operator whether they

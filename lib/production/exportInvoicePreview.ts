@@ -2,11 +2,17 @@ import crypto from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { buildStandalonePriceMap } from "@/lib/square/catalog";
-import { GALLONS_PER_BBL } from "@/lib/constants/production";
 import { resolveProductSku } from "@/lib/square/skuMappings";
 import { resolveShippedVariationId } from "@/lib/production/resolveShippedVariation";
 import { dollarsToCents } from "@/lib/money";
 import { loadOverDeliveryCoverage } from "./overDeliveryCoverage";
+import {
+  catalogProductLineDescription,
+  exciseTaxLineDescription,
+  packagingFeeLineDescription,
+  packagingMaterialsLineDescription,
+  unmappedProductLineDescription,
+} from "./invoiceCustomerText";
 import {
   computeMaterialBreakdown,
   type MaterialComponent,
@@ -227,17 +233,10 @@ export function resolveInvoiceChannel(
 
 /**
  * Packaging Fee line descriptions carry the recipe (beer) name so a single
- * invoice spanning multiple recipes shows which beer each fee belongs to
- * ("Packaging Fee — Fortnight" vs. a bare "Packaging Fee" that's ambiguous
- * once two recipes are on the same invoice). Falls back to the bare display
- * name when the transaction has no recipe. Exported for unit testing.
+ * invoice spanning multiple recipes shows which beer each fee belongs to.
+ * Wording lives in invoiceCustomerText.ts; re-exported for unit testing.
  */
-export function packagingFeeDescription(
-  displayName: string,
-  beerName: string | null | undefined
-): string {
-  return beerName ? `${displayName} — ${beerName}` : displayName;
-}
+export const packagingFeeDescription = packagingFeeLineDescription;
 
 /**
  * Keg-cleaning line quantity = the total number of kegs across every keg-type
@@ -317,8 +316,7 @@ export function groupPackagingFeeRows(
 // Exported for unit testing of the amount_usd → cents conversion seam.
 export async function buildExciseTaxLines(
   supabase: SupabaseClient,
-  transactionIds: string[],
-  rows: ExportTxRow[]
+  transactionIds: string[]
 ): Promise<InvoiceLineItemDraft[]> {
   const { data: taxRows } = await supabase
     .from("export_transaction_taxes")
@@ -333,26 +331,22 @@ export async function buildExciseTaxLines(
     .select("id, receiving_party, basis, square_catalog_variation_id")
     .in("id", rateIds);
   const rateById = new Map((rates ?? []).map((r) => [r.id, r]));
-  const volumeByTx = new Map(rows.map((r) => [r.id, r.volume_bbl]));
-
-  const byParty = new Map<string, { amountCents: number; units: number; unit: "bbl" | "gallon"; variationId: string | null }>();
+  // The taxed volume (rows[].volume_bbl) is deliberately not on the line: the
+  // customer sees the party and the amount; the tax record keeps the basis.
+  const byParty = new Map<string, { amountCents: number; variationId: string | null }>();
   for (const t of taxRows) {
     const rate = t.excise_tax_rate_id ? rateById.get(t.excise_tax_rate_id) : undefined;
     const party = rate?.receiving_party ?? "Unknown";
-    const volumeBbl = volumeByTx.get(t.export_transaction_id) ?? 0;
-    const unit = rate?.basis === "per_gallon" ? "gallon" : "bbl";
-    const units = unit === "bbl" ? volumeBbl : volumeBbl * GALLONS_PER_BBL;
-    const entry = byParty.get(party) ?? { amountCents: 0, units: 0, unit, variationId: rate?.square_catalog_variation_id ?? null };
+    const entry = byParty.get(party) ?? { amountCents: 0, variationId: rate?.square_catalog_variation_id ?? null };
     // UNIT CROSSING: export_transaction_taxes.amount_usd is decimal USD dollars;
     // invoice line item unit prices are integer cents. Round dollars → cents.
     entry.amountCents += dollarsToCents(t.amount_usd);
-    entry.units += units;
     byParty.set(party, entry);
   }
 
   return [...byParty.entries()].map(([party, entry]) => ({
     id: crypto.randomUUID(),
-    description: `Excise Tax — ${party} (${entry.units.toFixed(2)} ${entry.unit}${entry.units !== 1 ? "s" : ""})`,
+    description: exciseTaxLineDescription(party),
     quantity: 1,
     unitPriceCents: entry.amountCents,
     squareCatalogVariationId: entry.variationId,
@@ -475,7 +469,7 @@ export async function buildPackagingMaterialLines(
     const id = crypto.randomUUID();
     lines.push({
       id,
-      description: beerName ? `Packaging Materials — ${beerName}` : "Packaging Materials",
+      description: packagingMaterialsLineDescription(beerName),
       quantity: 1,
       unitPriceCents: breakdown.totalCents,
       squareCatalogVariationId: materialVariationId,
@@ -594,7 +588,7 @@ export async function buildProductLines(
       const beerName = recipeNameById.get(tx.recipe_id) ?? null;
       lineItems.push({
         id: crypto.randomUUID(),
-        description: `${beerName ? `${beerName} · ` : ""}${tx.variant_label}${tx.packaging_format ? ` (${tx.packaging_format})` : ""}`,
+        description: unmappedProductLineDescription(beerName, tx.variant_label, tx.packaging_format),
         quantity: tx.quantity,
         unitPriceCents: 0,
         squareCatalogVariationId: null,
@@ -607,9 +601,7 @@ export async function buildProductLines(
     }
     lineItems.push({
       id: crypto.randomUUID(),
-      description: sku.itemName
-        ? `${sku.itemName}${sku.variationName ? ` · ${sku.variationName}` : ""}${tx.packaging_format ? ` (${tx.packaging_format})` : ""}`
-        : sku.squareVariationId,
+      description: catalogProductLineDescription(sku.itemName, sku.variationName, tx.packaging_format, sku.squareVariationId),
       quantity: tx.quantity,
       unitPriceCents: priceByVariationId.get(sku.squareVariationId) ?? 0,
       squareCatalogVariationId: sku.squareVariationId,
@@ -772,7 +764,7 @@ export async function buildInvoicePreview(
     }
 
     // ── 5b. Excise Tax — one line per receiving_party, rolled up ─────────────
-    lineItems.push(...await buildExciseTaxLines(supabase, transactionIds, rows));
+    lineItems.push(...await buildExciseTaxLines(supabase, transactionIds));
 
     // ── 5c. Keg Cleaning — one line, qty = total kegs across keg-type txns ────
     if (kegCleaningQty > 0) {
@@ -837,7 +829,7 @@ export async function buildInvoicePreview(
 
     // ── Excise Tax (distribution only, no excise for wholesale) ──────────────
     if (channel === "distribution") {
-      lineItems.push(...await buildExciseTaxLines(supabase, transactionIds, rows));
+      lineItems.push(...await buildExciseTaxLines(supabase, transactionIds));
     }
 
   } else {

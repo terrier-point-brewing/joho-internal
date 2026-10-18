@@ -5,7 +5,7 @@ import { baseMapOf, isDerivedFrom, lineageAncestors } from "@/lib/production/rec
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { classifyBase, type CoverageAllocFields } from "@/lib/production/depositCoverage";
 import { coverageTransferred, loadCoverageTransfers } from "@/lib/production/coverageTransfers";
-import { INGREDIENT_COST_PREFIX } from "@/lib/production/depositLine";
+import { ingredientCostLineDescription } from "@/lib/production/invoiceCustomerText";
 import { loadOverDeliveryCoverage, type OverDeliveryTxRow } from "@/lib/production/overDeliveryCoverage";
 
 /**
@@ -518,20 +518,13 @@ export async function calculateShippedIngredientDeposits(
 }
 
 /**
- * The invoice line's description — customer-facing. It says what the partner
- * needs to recognise the charge: which beer, which batch, and how much of the
- * beer on this invoice it pays the ingredients for. On a combined invoice a
- * bare beer name left them guessing why one beer carried a deposit and the
- * next did not. The derivation (yield, percentage, exclusions, per-ingredient
- * shares) still lives in `ShippedDepositLine` and the breakdown modal, not on
- * the invoice. It reads "Ingredient Cost", not "Deposit": to the partner this
- * is the cost of ingredients in beer they have received. The prefix is
- * load-bearing — see isIngredientDepositLine.
+ * The invoice line's description — customer-facing. Beer, batch and the actual
+ * shipped volume; the derivation (yield, percentage, exclusions,
+ * per-ingredient shares) stays in `ShippedDepositLine` and the breakdown
+ * modal. Wording lives in invoiceCustomerText.ts.
  */
 export function shippedDepositDescription(line: ShippedDepositLine): string {
-  const batch = line.batchNumber ? `, batch ${line.batchNumber}` : "";
-  return `${INGREDIENT_COST_PREFIX} — ${line.beerName.trim()}${batch}: for the ` +
-    `${line.shippedBbl.toFixed(2)} bbl on this invoice`;
+  return ingredientCostLineDescription(line.beerName, line.batchNumber, line.shippedBbl);
 }
 
 function round4(n: number): number {

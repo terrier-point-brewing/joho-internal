@@ -21,6 +21,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createRefund, RefundDeclinedError } from "@/lib/square/refunds";
 import { getOrderPayment } from "@/lib/square/square-invoices";
+import { depositReductionRefundReason, type DepositShare } from "@/lib/production/invoiceCustomerText";
 import { resolveInvoiceLineVolumes } from "@/lib/production/invoiceLineVolumes";
 import { writeRefundReturn, type RefundReturnResult } from "@/lib/production/refundReturn";
 import {
@@ -482,6 +483,8 @@ export async function issueDepositReduction(
     paidCents: number;
     squarePaymentId: string;
     squareOrderId?: string | null;
+    /** What the customer reads on the Square refund — see depositReductionRefundReason. */
+    batch: Pick<DepositShare, "batchNumber" | "turns" | "beerName" | "projectedYieldBbl">;
   },
 ): Promise<{ refundId: string; squareRefundId: string; refundAmountCents: number }> {
   const { allocationId, currentPercentage, newPercentage, paidCents, squarePaymentId } = params;
@@ -497,8 +500,7 @@ export async function issueDepositReduction(
   }
 
   const refundAmountCents = Math.round(paidCents * (1 - newPercentage / currentPercentage));
-  const reason = `Allocation percentage reduced from ${currentPercentage}% to ${newPercentage}%`;
-
+  const reason = depositReductionRefundReason({ ...params.batch, sharePct: currentPercentage, newSharePct: newPercentage });
   const refund = await attemptRefund(squarePaymentId, refundAmountCents, reason);
 
   const { data: row, error } = await supabase
