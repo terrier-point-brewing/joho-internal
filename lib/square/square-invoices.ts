@@ -9,6 +9,7 @@
 import crypto from "crypto";
 import { squarePost, squareGet, squareDelete, squareLocationId } from "./client";
 import { dollarsToCents } from "@/lib/money";
+import { todayLocalDate } from "@/lib/utils/datetime";
 import type { InvoiceLineItemDraft } from "@/lib/production/exportInvoicePreview";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -84,6 +85,8 @@ export interface CreateExportInvoiceParams {
   title: string;
   lineItems: InvoiceLineItemDraft[];
   dueDate: string;
+  /** The draft date (YYYY-MM-DD); defaults to today, brewery-local. */
+  serviceDate?: string;
   /**
    * Customer-visible note, rendered by Square on the invoice itself and in the
    * email that carries it. Use it to say the thing the line items cannot — that
@@ -342,7 +345,9 @@ async function createInvoice(params: CreateInvoiceCoreParams): Promise<{ orderId
   });
   const orderId = orderResp.order.id;
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Brewery-local, same clock as draftDate/due_date — a UTC date here was a day
+  // ahead every evening.
+  const today = todayLocalDate();
 
   const invoiceResp = await squarePost<SquareInvoiceResponse>("/invoices", {
     idempotency_key: crypto.randomUUID(),
@@ -428,6 +433,7 @@ export async function createExportInvoice(
     description: params.description,
     lineItems: params.lineItems,
     dueDate: params.dueDate,
+    serviceDate: params.serviceDate,
     // ACH-only: TPB does not accept card payments on generated invoices.
     acceptedPaymentMethods: { card: false, bank_account: true, cash_app_pay: false, buy_now_pay_later: false },
     metadataType: "export-invoice",

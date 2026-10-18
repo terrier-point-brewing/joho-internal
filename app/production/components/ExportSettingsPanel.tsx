@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { isValidNetTermsDays, netTermsLabel, MAX_NET_TERMS_DAYS, MIN_NET_TERMS_DAYS } from "@/lib/production/invoiceTerms";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -612,7 +613,7 @@ function InvoiceTermsSection() {
 
   async function save() {
     const value = Number(draft || days);
-    if (!Number.isInteger(value) || value < 1 || value > 365) return;
+    if (!isValidNetTermsDays(value)) return;
     setSaving(true);
     await fetch("/api/production/export-settings/invoice-due-days", {
       method: "PUT",
@@ -632,13 +633,15 @@ function InvoiceTermsSection() {
           Due in
           <input
             type="number"
-            min={1}
-            max={365}
+            inputMode="numeric"
+            min={MIN_NET_TERMS_DAYS}
+            max={MAX_NET_TERMS_DAYS}
             value={draft !== "" ? draft : days}
             onChange={(e) => setDraft(e.target.value)}
             className="inp-sm w-20"
           />
           days after draft
+          <span className="text-faint">· {netTermsLabel(Number(draft !== "" ? draft : days))}</span>
         </label>
         <button onClick={save} disabled={saving} className="btn-primary">
           {saving ? "Saving…" : "Save"}
