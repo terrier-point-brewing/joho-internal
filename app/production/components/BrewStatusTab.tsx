@@ -394,8 +394,8 @@ export default function BrewStatusTab() {
   // distinct identities — otherwise the React Compiler taints every access on
   // the returned object as "accessing refs during render".
   const {
-    dragging, dropPreview, gridRef, draggingTank,
-    onDragStart, onGridDragOver, onGridDrop, onUnplacedDrop, removeFromGrid, clearDrag,
+    dragging, dropPreview, gridRef, draggingTank, ghost,
+    onPointerDown, removeFromGrid,
   } = useTankDragDrop(tanks, onRefresh, gridScale, gridCols, gridRows);
   const eqCrud = useEquipmentCrud(onRefresh);
   const assign = useBatchAssign(unassignedBatches, onRefresh);
@@ -769,11 +769,9 @@ export default function BrewStatusTab() {
           className={`mb-4 p-3 rounded-lg border border-dashed transition-colors ${
             dragging ? "border-line-subtle bg-surface/40" : "border-line-strong"
           }`}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={onUnplacedDrop}
         >
           <p className="text-xs text-muted font-medium uppercase tracking-wide mb-2">
-            Unplaced Equipment — drag onto the grid to position
+            Unplaced Equipment — drag onto the grid to place; drag a tile off the grid to unplace
           </p>
           <div className="flex flex-wrap gap-2">
             {unplaced.map((tank) => {
@@ -782,10 +780,8 @@ export default function BrewStatusTab() {
               return (
                 <div
                   key={tank.id}
-                  draggable
-                  onDragStart={(e) => onDragStart(e, tank)}
-                  onDragEnd={clearDrag}
-                  className={`rounded border px-3 py-2 bg-surface ${eq.border} cursor-grab active:cursor-grabbing ${
+                  onPointerDown={(e) => onPointerDown(e, tank, false)}
+                  className={`rounded border px-3 py-2 bg-surface ${eq.border} cursor-grab active:cursor-grabbing touch-none ${
                     dragging?.id === tank.id ? "opacity-40" : ""
                   }`}
                 >
@@ -849,9 +845,6 @@ export default function BrewStatusTab() {
               ].join(","),
               backgroundSize: `${cell}px ${cell}px`,
             }}
-            onDragOver={editMode && canEditEquipment ? onGridDragOver : undefined}
-            onDrop={editMode && canEditEquipment ? onGridDrop : undefined}
-            onDragLeave={() => clearDrag()}
           >
           {placed.map((tank) => {
             const eq          = EQ[tank.type];
@@ -876,13 +869,16 @@ export default function BrewStatusTab() {
             return (
               <div
                 key={tank.id}
-                draggable={editMode && canEditEquipment}
-                onDragStart={editMode && canEditEquipment ? (e) => onDragStart(e, tank) : undefined}
-                onDragEnd={clearDrag}
-                className={`group absolute flex flex-col rounded border transition-opacity select-none ${
-                  isDragging ? "opacity-30" : "opacity-100"
-                } ${editMode && canEditEquipment ? "cursor-grab active:cursor-grabbing" : ""} ${eq.border}`}
-                style={{ ...style, background: "color-mix(in srgb, var(--color-surface) 88%, transparent)" }}
+                onPointerDown={editMode && canEditEquipment ? (e) => onPointerDown(e, tank, true) : undefined}
+                className={`group absolute flex flex-col rounded border select-none ${
+                  isDragging ? "opacity-80 shadow-2xl z-30 pointer-events-none" : "opacity-100 transition-opacity"
+                } ${editMode && canEditEquipment ? "cursor-grab active:cursor-grabbing touch-none" : ""} ${eq.border}`}
+                style={{
+                  ...style,
+                  // In flight the tile follows the pointer; the dashed preview marks where it lands.
+                  ...(isDragging && ghost ? { left: ghost.x + GAP, top: ghost.y + GAP } : {}),
+                  background: "color-mix(in srgb, var(--color-surface) 88%, transparent)",
+                }}
               >
                 {/* Header: the name alone — the border colour already says the type,
                     and clicking the name opens this equipment's upcoming plans. */}
