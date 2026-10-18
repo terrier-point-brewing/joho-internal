@@ -7,10 +7,14 @@ import ChartSkeleton from "@/app/components/ChartSkeleton";
 import ButtonGroup from "@/app/components/ButtonGroup";
 import { fetchJson } from "../../production/hooks/queries";
 import {
-  buildTrend, combineOthers,
-  type TrendData, type TrendGrouping, type TrendMode, type TrendRow,
+  buildTrend, combineOthers, trendWindowQuery,
+  type TrendData, type TrendGrouping, type TrendMode, type TrendRow, type TrendWindow,
 } from "@/lib/reports/draftTrend";
+import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
+import { todayLocalDate } from "@/lib/utils/datetime";
 import type { TrendSeries } from "./DraftTrendChart";
+import TrendWindowPicker from "./TrendWindowPicker";
+import TrendLineDrill from "./TrendLineDrill";
 
 const DraftTrendChart = dynamic(() => import("./DraftTrendChart"), {
   ssr: false,
@@ -25,16 +29,18 @@ const SERIES_COLORS = [
 ];
 const OTHER_COLOR = "#71717a";
 
-export type TrendRange = "30" | "90" | "all";
+/** Preset keys; a custom `YYYY-MM-DD..YYYY-MM-DD` is also a valid window. */
+export type TrendRange = TrendWindow;
 
 const GROUPINGS: { key: TrendGrouping; label: string }[] = [
   { key: "day",   label: "Day"   },
   { key: "week",  label: "Week"  },
   { key: "month", label: "Month" },
 ];
-const RANGES: { key: TrendRange; label: string }[] = [
+const RANGES: { key: string; label: string }[] = [
   { key: "30",  label: "30 days"  },
   { key: "90",  label: "90 days"  },
+  { key: "365", label: "1 year"   },
   { key: "all", label: "All time" },
 ];
 
@@ -56,6 +62,16 @@ function bucketLabels(bucket: string, grouping: TrendGrouping): { top: string; m
 // Absent is "—"; a recorded zero (a keg with nothing unaccounted for) is a 0.
 const num = (v: number | null | undefined) => (v == null ? "—" : Math.round(v).toLocaleString());
 
+/** Where a row's individual records come from, for the transaction drill. */
+export interface TrendLinesSource {
+  /** Gets `?start&end&recipe=` appended; returns `{ lines: TrendLine[] }`. */
+  endpoint: string;
+  queryKey: (start: string, end: string, recipe: string) => readonly unknown[];
+  quantityLabel?: string;
+  valueLabel: string;
+  formatValue: (v: number) => string;
+}
+
 export interface TrendSummaryColumn {
   label: string;
   title?: string;
@@ -69,7 +85,7 @@ export interface TrendSummaryColumn {
  */
 export default function DraftTrendView({
   title, subtitle, endpoint, queryKey, mode, unit, chartTitle,
-  defaultGrouping, defaultRange, summaryColumns, overallLabel, emptyText,
+  defaultGrouping, defaultRange, summaryColumns, overallLabel, emptyText, lines,
 }: {
   title: string;
   subtitle: string;
@@ -84,14 +100,19 @@ export default function DraftTrendView({
   summaryColumns: TrendSummaryColumn[];
   overallLabel: string;
   emptyText: string;
+  /** When given, every row can open the records behind it. */
+  lines?: TrendLinesSource;
 }) {
+  const { timezone } = useBreweryTimezone();
+  const today = todayLocalDate(timezone);
   const [grouping, setGrouping] = useState<TrendGrouping>(defaultGrouping);
   const [range, setRange] = useState<TrendRange>(defaultRange);
   const [recipeFilter, setRecipeFilter] = useState("all");
+  const [drill, setDrill] = useState<string | null>(null);
 
   const { data, isPending, error } = useQuery({
     queryKey: queryKey(range),
-    queryFn:  () => fetchJson<TrendData>(`${endpoint}?range=${range}`),
+    queryFn:  () => fetchJson<TrendData>(`${endpoint}?${trendWindowQuery(range)}`),
     staleTime: 5 * 60_000,
   });
 
@@ -135,6 +156,7 @@ export default function DraftTrendView({
 
   // Table reads newest → oldest; the chart oldest → newest.
   const cols = [...buckets].reverse();
+  const drillRow = drill ? allRows.find((r) => r.recipe_id === drill) ?? null : null;
 
   return (
     <div>
@@ -156,7 +178,7 @@ export default function DraftTrendView({
             ))}
           </select>
           <ButtonGroup tabs={GROUPINGS} activeKey={grouping} onSelect={setGrouping} />
-          <ButtonGroup tabs={RANGES} activeKey={range} onSelect={setRange} />
+          <TrendWindowPicker presets={RANGES} value={range} onChange={setRange} today={today} />
         </div>
       </div>
 
@@ -183,6 +205,26 @@ export default function DraftTrendView({
             </div>
           </div>
 
+          {lines && drillRow && (
+            <TrendLineDrill
+              title={drillRow.beer_name}
+              start={data!.start}
+              end={data!.end}
+              url={`${lines.endpoint}?start=${data!.start}&end=${data!.end}&recipe=${encodeURIComponent(drillRow.recipe_id)}`}
+              queryKey={lines.queryKey(data!.start, data!.end, drillRow.recipe_id)}
+              quantityLabel={lines.quantityLabel}
+              valueLabel={lines.valueLabel}
+              formatValue={lines.formatValue}
+              onClose={() => setDrill(null)}
+            />
+          )}
+
+          {lines && (
+            <p className="text-2xs text-faint mb-2">
+              Click a row to chart just that beer. Double-click a row, or use Details, for the records behind it.
+            </p>
+          )}
+
           <div className="overflow-auto rounded-lg border border-line w-fit max-w-full">
             <table className="text-xs tabular-nums border-separate border-spacing-0">
               <thead>
@@ -195,12 +237,13 @@ export default function DraftTrendView({
                       key={c.label}
                       title={c.title}
                       className={`bg-surface px-3 py-2 text-right font-semibold text-secondary whitespace-nowrap border-b border-line ${
-                        i === summaryColumns.length - 1 ? "border-r" : ""
+                        i === summaryColumns.length - 1 && !lines ? "border-r" : ""
                       }`}
                     >
                       {c.label}
                     </th>
                   ))}
+                  {lines && <th className="bg-surface px-2 py-2 border-b border-line border-r" />}
                   {cols.map((b) => {
                     const h = bucketLabels(b, grouping);
                     return (
@@ -214,7 +257,12 @@ export default function DraftTrendView({
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.recipe_id}>
+                  <tr
+                    key={r.recipe_id}
+                    onClick={() => setRecipeFilter(selected ? "all" : r.recipe_id)}
+                    onDoubleClick={lines ? () => setDrill(r.recipe_id) : undefined}
+                    className="cursor-pointer select-none hover:bg-surface-mid/40"
+                  >
                     <td className="sticky left-0 z-10 bg-canvas px-3 py-2 font-medium text-strong whitespace-nowrap border-b border-line/40">
                       {r.beer_name}
                     </td>
@@ -223,11 +271,22 @@ export default function DraftTrendView({
                         key={c.label}
                         className={`px-3 py-2 text-right border-b border-line/40 ${
                           i === 0 ? "font-semibold text-strong" : "text-body"
-                        } ${i === summaryColumns.length - 1 ? "border-r" : ""}`}
+                        } ${i === summaryColumns.length - 1 && !lines ? "border-r" : ""}`}
                       >
                         {c.value(r)}
                       </td>
                     ))}
+                    {lines && (
+                      <td className="px-2 py-2 border-b border-line/40 border-r">
+                        <button
+                          type="button"
+                          className="text-2xs text-accent hover:underline whitespace-nowrap"
+                          onClick={(e) => { e.stopPropagation(); setDrill(r.recipe_id); }}
+                        >
+                          Details
+                        </button>
+                      </td>
+                    )}
                     {cols.map((b) => (
                       <td
                         key={b}
@@ -247,12 +306,13 @@ export default function DraftTrendView({
                       <td
                         key={c.label}
                         className={`bg-surface px-3 py-2 text-right font-semibold text-strong ${
-                          i === summaryColumns.length - 1 ? "border-r border-line/40" : ""
+                          i === summaryColumns.length - 1 && !lines ? "border-r border-line/40" : ""
                         }`}
                       >
                         {c.value(trend.overall)}
                       </td>
                     ))}
+                    {lines && <td className="bg-surface border-r border-line/40" />}
                     {cols.map((b) => (
                       <td key={b} className="bg-surface px-2.5 py-2 text-right font-semibold text-strong">
                         {num(trend.overall.by_bucket[b])}

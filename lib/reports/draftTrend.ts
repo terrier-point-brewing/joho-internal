@@ -145,3 +145,39 @@ export function parseTrendRange(raw: string | null, fallbackDays: number): numbe
   const n = parseInt(raw ?? "");
   return Number.isFinite(n) && n > 0 ? Math.min(n, 3650) : fallbackDays;
 }
+
+/**
+ * A trend window as the UI holds it: a preset day count, "all", or an explicit
+ * `YYYY-MM-DD..YYYY-MM-DD`. One string so it can key a query and ride a URL.
+ */
+export type TrendWindow = string;
+
+export const CUSTOM_WINDOW_RE = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/;
+
+export function isCustomWindow(w: TrendWindow): boolean {
+  return CUSTOM_WINDOW_RE.test(w);
+}
+
+/** Query string for a trend route: `range=<days|all>` or `start=&end=`. */
+export function trendWindowQuery(w: TrendWindow): string {
+  const m = CUSTOM_WINDOW_RE.exec(w);
+  return m ? `start=${m[1]}&end=${m[2]}` : `range=${w}`;
+}
+
+/**
+ * Resolve a route's window from its search params: explicit `start`/`end`
+ * (clamped to today, swapped if reversed) win over `range`. `start` is null
+ * for "all time".
+ */
+export function resolveTrendWindow(
+  params: URLSearchParams, fallbackDays: number, today: string,
+): { start: string | null; end: string } {
+  const s = params.get("start");
+  const e = params.get("end");
+  if (s && e && /^\d{4}-\d{2}-\d{2}$/.test(s) && /^\d{4}-\d{2}-\d{2}$/.test(e)) {
+    const [lo, hi] = s <= e ? [s, e] : [e, s];
+    return { start: lo, end: hi < today ? hi : today };
+  }
+  const range = parseTrendRange(params.get("range"), fallbackDays);
+  return { start: range === "all" ? null : addDaysStr(today, -(range - 1)), end: today };
+}
