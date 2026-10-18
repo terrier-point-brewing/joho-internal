@@ -37,7 +37,7 @@ export function DepositInvoiceModal({
   onClose,
 }: {
   allocation: DepositInvoiceAllocationLike;
-  preview: { calculation: DepositCalculation } | null;
+  preview: { calculation: DepositCalculation; description?: string | null } | null;
   loading: boolean;
   generating: boolean;
   onGenerate: () => void;
@@ -207,6 +207,13 @@ export function DepositInvoiceModal({
 
             {loading && (
               <p className="text-xs text-muted text-center py-4">Calculating deposit…</p>
+            )}
+
+            {preview?.description && !loading && (
+              <div className="rounded-lg border border-line bg-surface px-3 py-2">
+                <p className="text-[10px] font-semibold text-secondary uppercase tracking-wide">Note on the invoice</p>
+                <p className="text-xs text-body mt-1">{preview.description}</p>
+              </div>
             )}
 
             {calc && !loading && (
