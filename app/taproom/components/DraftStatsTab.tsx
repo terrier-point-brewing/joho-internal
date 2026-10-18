@@ -514,8 +514,12 @@ export default function DraftStatsTab() {
 
   return (
     <div>
-      {/* ── Header ── */}
-      <div className="flex flex-wrap items-start justify-end gap-3 mb-5">
+      {/* ── Toolbar: view switcher left, page actions right ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        {/* Hidden mid-edit: switching views would strand a half-edited tap list. */}
+        {editingTaps ? <div /> : (
+          <ButtonGroup tabs={DRAFT_VIEWS} activeKey={view} onSelect={setView} />
+        )}
         <div className="flex gap-2">
           <button onClick={() => setShowHelp(true)} className="btn-secondary">
             How to use
@@ -535,11 +539,6 @@ export default function DraftStatsTab() {
           )}
         </div>
       </div>
-
-      {/* Hidden mid-edit: switching views would strand a half-edited tap list. */}
-      {!editingTaps && (
-        <ButtonGroup tabs={DRAFT_VIEWS} activeKey={view} onSelect={setView} className="mb-5" />
-      )}
 
       {err && <p className="text-sm text-danger mb-3">{err}</p>}
 
