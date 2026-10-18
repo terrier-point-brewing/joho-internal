@@ -23,8 +23,8 @@ import {
 } from "@/lib/finance/invoiceLineItems";
 import type { CatalogItem } from "@/types/square";
 import { conversionDepositExclusions } from "@/lib/production/exportIngredientDeposit";
-import { getNetTermsDays } from "@/lib/production/invoiceTerms";
-import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
+import { invoiceDraftDates } from "@/lib/production/invoiceTerms";
+import { depositInvoiceDescription, depositInvoiceTitle } from "@/lib/production/invoiceCustomerText";
 
 export const dynamic = "force-dynamic";
 
@@ -162,18 +162,10 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
       return NextResponse.json({ error: "Ingredient Deposit is not configured in Deposit Settings — set the Square item mapping before generating this invoice" }, { status: 422 });
     }
 
-    // Due date = the date this invoice is drafted (today) + the single configured
-    // net-terms value. Service date is the same draft date, so both flows behave
-    // identically and the ledger stays consistent (due_date = invoice_date + terms).
-    const netTerms = await getNetTermsDays(supabase, "deposit");
-    const draftDate = todayLocalDate();
+    const { draftDate, dueDate } = await invoiceDraftDates(supabase, "deposit");
     const serviceDate = draftDate;
-    const dueDate = addDaysStr(draftDate, netTerms);
-    // Customer-facing: name the beer and nothing else. The derivation (share,
-    // batch volume, conversion exclusions) stays in the ledger and the breakdown
-    // modal — same convention as shippedDepositDescription.
-    const title = `Ingredient Deposit — ${batch.beer_name}`;
-    const description = `Ingredient deposit for your ${batch.beer_name} batch.`;
+    const title = depositInvoiceTitle(batch.beer_name);
+    const description = depositInvoiceDescription(batch.beer_name);
 
     const invoiceParams = {
       squareCustomerId: partner.square_customer_id,

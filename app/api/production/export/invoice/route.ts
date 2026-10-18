@@ -24,10 +24,10 @@ import {
   restoreSubstitutedInventory,
 } from "@/lib/production/invoiceSkuSubstitutions";
 import type { CatalogItem } from "@/types/square";
-import { getNetTermsDays } from "@/lib/production/invoiceTerms";
+import { invoiceDraftDates } from "@/lib/production/invoiceTerms";
+import { exportInvoiceTitle } from "@/lib/production/invoiceCustomerText";
 import { summarizeLineEdits, type LineEdit } from "@/lib/production/invoiceLineEdits";
 import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
-import { addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -280,17 +280,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const netTerms = await getNetTermsDays(supabase, "export");
-    const draftDate = todayLocalDate();
-    const dueDate = addDaysStr(draftDate, netTerms);
+    const { draftDate, dueDate } = await invoiceDraftDates(supabase, "export");
 
     let result;
     try {
       result = await createExportInvoice({
         squareCustomerId: partner.square_customer_id,
-        title: `Export Invoice — ${partner.company_name}`,
+        title: exportInvoiceTitle(partner.company_name),
         lineItems,
         dueDate,
+        serviceDate: draftDate,
         description: customerNote || undefined,
       });
     } catch (err) {
@@ -314,6 +313,7 @@ export async function POST(req: NextRequest) {
           customer_name: partner.company_name,
           invoice_date: draftDate,
           due_date: dueDate,
+          customer_note: customerNote || null,
           status: "draft",
           subtotal_cents: totalCents,
           tax_cents: 0,
@@ -363,6 +363,7 @@ export async function POST(req: NextRequest) {
             category: "other_services", quantity: li.quantity,
             unit_price_cents: li.unitPriceCents, total_cents: li.quantity * li.unitPriceCents,
             square_catalog_variation_id: li.squareCatalogVariationId ?? null,
+            square_catalog_discount_id: li.discountCatalogId ?? null,
           })),
           { onConflict: "invoice_id,sort_order", ignoreDuplicates: false },
         );

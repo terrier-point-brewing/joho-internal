@@ -64,6 +64,11 @@ export interface CanonicalLineItemRow {
    * agreement between two files.
    */
   square_line_item_uid: string | null;
+  /**
+   * Catalog id of the LINE_ITEM-scope discount applied to this line (the
+   * distribution bulk discount), so a redraft can re-apply it. Null when none.
+   */
+  square_catalog_discount_id: string | null;
   chart_of_accounts_id: string | null;
 }
 
@@ -139,6 +144,13 @@ export function buildInvoiceLineItemRows(
     (li.applied_discounts ?? [])
       .filter((ad) => lineScopedDiscountUids.has(ad.discount_uid))
       .reduce((sum, ad) => sum + (ad.applied_money?.amount ?? 0), 0);
+  const discountCatalogIdByUid = new Map(
+    (order.discounts ?? [])
+      .filter((d) => lineScopedDiscountUids.has(d.uid) && d.catalog_object_id)
+      .map((d) => [d.uid, d.catalog_object_id as string]),
+  );
+  const lineScopedDiscountCatalogId = (li: { applied_discounts?: { discount_uid: string }[] }) =>
+    (li.applied_discounts ?? []).map((ad) => discountCatalogIdByUid.get(ad.discount_uid)).find(Boolean) ?? null;
 
   // Same filter `invoiceHeaderTotalsFromOrder` uses for `discount_cents`, so the
   // discount line below always equals the header's discount figure.
@@ -199,6 +211,7 @@ export function buildInvoiceLineItemRows(
       total_cents: net,
       square_catalog_variation_id: varId || null,
       square_line_item_uid: li.uid ?? null,
+      square_catalog_discount_id: lineScopedDiscountCatalogId(li),
       chart_of_accounts_id: coa.chart_of_accounts_id,
     });
     sortOrder++;
@@ -236,6 +249,7 @@ export function buildInvoiceLineItemRows(
       square_catalog_variation_id: null,
       // Not a Square line item — it has no uid to key taxes off.
       square_line_item_uid: null,
+      square_catalog_discount_id: null,
       chart_of_accounts_id: coa.chart_of_accounts_id,
     });
   }

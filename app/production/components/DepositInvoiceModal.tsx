@@ -240,7 +240,7 @@ export function DepositInvoiceModal({
                       <span className="text-body">Ingredient Deposit</span>
                       <span className="text-accent tabular-nums">{fmtUsd(calc.deposit_usd)}</span>
                     </div>
-                    <p className="text-[10px] text-faint mt-1">No sales tax charged · payment by card or bank transfer</p>
+                    <p className="text-[10px] text-faint mt-1">No sales tax charged · payment by bank transfer (ACH) only</p>
                   </div>
                 </div>
 

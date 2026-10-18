@@ -2,27 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getNetTermsDays, isValidNetTermsDays, MAX_NET_TERMS_DAYS, MIN_NET_TERMS_DAYS } from "@/lib/production/invoiceTerms";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("system_settings")
-    .select("value")
-    .eq("key", "deposit_invoice_due_days")
-    .single();
-
-  if (error) return NextResponse.json({ days: 30 });
-  return NextResponse.json({ days: (data.value as number) ?? 30 });
+  return NextResponse.json({ days: await getNetTermsDays(supabase, "deposit") });
 }
 
 export async function PUT(req: NextRequest) {
   try { await requirePermission(CAP.productionSettingsManage); } catch (res) { return res as Response; }
 
   const { days } = await req.json() as { days: number };
-  if (!Number.isInteger(days) || days < 1 || days > 365) {
-    return NextResponse.json({ error: "days must be an integer between 1 and 365" }, { status: 400 });
+  if (!isValidNetTermsDays(days)) {
+    return NextResponse.json({ error: `days must be an integer between ${MIN_NET_TERMS_DAYS} (due on receipt) and ${MAX_NET_TERMS_DAYS}` }, { status: 400 });
   }
 
   const supabase = createSupabaseAdminClient();
