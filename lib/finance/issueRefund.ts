@@ -21,6 +21,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createRefund, RefundDeclinedError } from "@/lib/square/refunds";
 import { getOrderPayment } from "@/lib/square/square-invoices";
+import { DEPOSIT_REDUCED_REFUND_REASON } from "@/lib/production/invoiceCustomerText";
 import { resolveInvoiceLineVolumes } from "@/lib/production/invoiceLineVolumes";
 import { writeRefundReturn, type RefundReturnResult } from "@/lib/production/refundReturn";
 import {
@@ -497,8 +498,7 @@ export async function issueDepositReduction(
   }
 
   const refundAmountCents = Math.round(paidCents * (1 - newPercentage / currentPercentage));
-  const reason = `Allocation percentage reduced from ${currentPercentage}% to ${newPercentage}%`;
-
+  const reason = DEPOSIT_REDUCED_REFUND_REASON;
   const refund = await attemptRefund(squarePaymentId, refundAmountCents, reason);
 
   const { data: row, error } = await supabase
