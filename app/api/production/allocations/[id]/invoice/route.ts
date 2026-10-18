@@ -25,6 +25,7 @@ import type { CatalogItem } from "@/types/square";
 import { conversionDepositExclusions } from "@/lib/production/exportIngredientDeposit";
 import { invoiceDraftDates } from "@/lib/production/invoiceTerms";
 import { depositInvoiceDescription, depositInvoiceTitle } from "@/lib/production/invoiceCustomerText";
+import { loadBatchYields, shareBasisBbl } from "@/lib/production/batchYieldProjection.server";
 
 export const dynamic = "force-dynamic";
 
@@ -105,7 +106,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
   // Fetch allocation with all needed joined data
   const { data: allocation, error: fetchErr } = await supabase
     .from("batch_allocations")
-    .select("*, brew_batches(id, beer_name, volume_bbl, turns, recipe_id, expected_delivery_date), contract_brewing_partners(id, company_name, square_customer_id), commitments!contract_request_id(volume_bbl)")
+    .select("*, brew_batches(id, batch_number, beer_name, volume_bbl, turns, recipe_id, expected_delivery_date), contract_brewing_partners(id, company_name, square_customer_id), commitments!contract_request_id(volume_bbl)")
     .eq("id", id)
     .single();
 
@@ -122,7 +123,7 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     return NextResponse.json({ error: "Partner has no linked Square customer ID — add it in the Partners tab" }, { status: 400 });
   }
 
-  const batch = allocation.brew_batches as { id: string; beer_name: string; volume_bbl: number; turns: number; recipe_id: string; expected_delivery_date: string | null } | null;
+  const batch = allocation.brew_batches as { id: string; batch_number: string | null; beer_name: string; volume_bbl: number; turns: number; recipe_id: string; expected_delivery_date: string | null } | null;
   if (!batch) return NextResponse.json({ error: "Batch not found" }, { status: 404 });
 
   // ── generate ──────────────────────────────────────────────────────────────
@@ -165,7 +166,16 @@ async function handleInvoiceAction(req: NextRequest, params: RouteParams["params
     const { draftDate, dueDate } = await invoiceDraftDates(supabase, "deposit");
     const serviceDate = draftDate;
     const title = depositInvoiceTitle(batch.beer_name);
-    const description = depositInvoiceDescription(batch.beer_name);
+    // The note's estimated yield is the partner's share of the same projection
+    // every share is measured against, so the note and the dollars agree.
+    const yields = await loadBatchYields(supabase, [batch.id]);
+    const description = depositInvoiceDescription({
+      sharePct: Number(allocation.percentage),
+      batchNumber: batch.batch_number ?? batch.id,
+      turns: Number(batch.turns ?? 1),
+      beerName: batch.beer_name,
+      projectedYieldBbl: shareBasisBbl(yields, batch.id),
+    });
 
     const invoiceParams = {
       squareCustomerId: partner.square_customer_id,

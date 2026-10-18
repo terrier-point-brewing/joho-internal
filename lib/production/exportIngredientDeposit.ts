@@ -518,14 +518,13 @@ export async function calculateShippedIngredientDeposits(
 }
 
 /**
- * The invoice line's description — customer-facing. Beer and batch, enough for
- * the partner to recognise the charge on a combined invoice; the derivation
- * (volume, yield, percentage, exclusions, per-ingredient shares) stays in
- * `ShippedDepositLine` and the breakdown modal. Wording lives in
- * invoiceCustomerText.ts.
+ * The invoice line's description — customer-facing. Beer, batch and the actual
+ * shipped volume; the derivation (yield, percentage, exclusions,
+ * per-ingredient shares) stays in `ShippedDepositLine` and the breakdown
+ * modal. Wording lives in invoiceCustomerText.ts.
  */
 export function shippedDepositDescription(line: ShippedDepositLine): string {
-  return ingredientCostLineDescription(line.beerName, line.batchNumber);
+  return ingredientCostLineDescription(line.beerName, line.batchNumber, line.shippedBbl);
 }
 
 function round4(n: number): number {

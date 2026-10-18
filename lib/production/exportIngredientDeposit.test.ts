@@ -386,9 +386,9 @@ describe("calculateShippedIngredientDeposits", () => {
     expect(warnings.some((w) => w.includes("not converted from Epic Hazy IPA"))).toBe(true);
   });
 
-  it("names the beer and batch in the description, never the volume — it is customer-facing", () => {
-    // Enough for the partner to recognise the charge; the derivation (volume,
-    // yield, share, exclusions) stays in the breakdown modal and the ledger. The
+  it("names the beer, batch and shipped volume in the description — it is customer-facing", () => {
+    // The shipped volume is actual, so it may appear; the derivation (yield,
+    // share, exclusions) stays in the breakdown modal and the ledger. The
     // "Ingredient Cost" prefix is how the export invoice route detects the line.
     const text = shippedDepositDescription({
       batchId: "b2", batchNumber: "B-051", beerName: "Transfusion Pilsner",
@@ -402,7 +402,7 @@ describe("calculateShippedIngredientDeposits", () => {
       ],
       breakdown: [],
     });
-    expect(text).toBe("Ingredient Cost — Transfusion Pilsner (batch B-051)");
+    expect(text).toBe("Ingredient Cost — Ingredients used to produce the 4 bbl of Transfusion Pilsner shipped from #B-051");
   });
 });
 

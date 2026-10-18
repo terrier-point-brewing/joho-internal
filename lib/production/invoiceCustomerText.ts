@@ -21,8 +21,58 @@ export function depositInvoiceTitle(beerName: string): string {
   return `Ingredient Deposit — ${beerName}`;
 }
 
-export function depositInvoiceDescription(beerName: string): string {
-  return `Ingredient deposit for your ${beerName} batch.`;
+/** What the partner is buying a share of. `projectedYieldBbl` is the WHOLE batch's projected yield. */
+export interface DepositShare {
+  sharePct: number;
+  batchNumber: string;
+  turns: number;
+  beerName: string;
+  /** The share basis (lib/production/batchYieldProjection.server shareBasisBbl) — never a second source. */
+  projectedYieldBbl: number;
+}
+
+/**
+ * "Ingredient deposit for 25% of #B-063, a 2-turn batch of Epic Hazy IPA.
+ *  Estimated yield is 8 bbls, final volume is confirmed at packaging."
+ * The yield is the partner's share, to the nearest half barrel, and says
+ * "estimated" because shrinkage lands at packaging.
+ */
+export function depositInvoiceDescription(share: DepositShare): string {
+  return `Ingredient deposit for ${formatSharePct(share.sharePct)} of ${batchLabel(share.batchNumber)}, ` +
+    `${turnsPhrase(share.turns)} of ${share.beerName.trim()}. ${estimatedYieldSentence(share)}`;
+}
+
+/** Whole percent; under one percent reads "<1%" rather than "0%". */
+export function formatSharePct(pct: number): string {
+  if (pct > 0 && pct < 1) return "<1%";
+  return `${Math.round(pct)}%`;
+}
+
+/** Nearest half barrel, "8 bbls" / "3.5 bbls" / "1 bbl". */
+export function formatHalfBbl(bbl: number): string {
+  const half = Math.round(bbl * 2) / 2;
+  const n = Number.isInteger(half) ? String(half) : half.toFixed(1);
+  return `${n} ${half === 1 ? "bbl" : "bbls"}`;
+}
+
+/** Actual shipped volume to one decimal, "7 bbl" / "4.7 bbl". */
+export function formatShippedBbl(bbl: number): string {
+  const n = (Math.round(bbl * 10) / 10).toFixed(1).replace(/\.0$/, "");
+  return `${n} bbl`;
+}
+
+function batchLabel(batchNumber: string): string {
+  const n = batchNumber.trim();
+  return n.startsWith("#") ? n : `#${n}`;
+}
+
+function turnsPhrase(turns: number): string {
+  return `a ${Math.max(1, Math.round(turns))}-turn batch`;
+}
+
+function estimatedYieldSentence(share: DepositShare): string {
+  const shareBbl = share.projectedYieldBbl * (share.sharePct / 100);
+  return `Estimated yield is ${formatHalfBbl(shareBbl)}, final volume is confirmed at packaging.`;
 }
 
 // ── Line items ───────────────────────────────────────────────────────────────
@@ -31,14 +81,15 @@ export function depositInvoiceDescription(beerName: string): string {
 export const DEPOSIT_LINE_DESCRIPTION = "Ingredient Deposit";
 
 /**
- * The ingredient-share line on an export invoice. "Ingredient Cost", not
- * "Deposit": to the partner it is the cost of ingredients in beer they have
- * received. The prefix is load-bearing — isIngredientDepositLine matches it.
- * The shipped volume is deliberately absent; it lives in the breakdown modal.
+ * The ingredient-share line on an export invoice:
+ * "Ingredient Cost — Ingredients used to produce the 7 bbl of Epic Hazy IPA shipped from #B-063".
+ * The shipped volume is actual, not an estimate, so a figure is allowed (one
+ * decimal). The "Ingredient Cost" prefix is load-bearing — isIngredientDepositLine
+ * matches it. Packaging has its own lines, so this names ingredients only.
  */
-export function ingredientCostLineDescription(beerName: string, batchNumber: string | null | undefined): string {
-  const batch = batchNumber ? ` (batch ${batchNumber})` : "";
-  return `${INGREDIENT_COST_PREFIX} — ${beerName.trim()}${batch}`;
+export function ingredientCostLineDescription(beerName: string, batchNumber: string | null | undefined, shippedBbl: number): string {
+  const from = batchNumber ? ` from ${batchLabel(batchNumber)}` : "";
+  return `${INGREDIENT_COST_PREFIX} — Ingredients used to produce the ${formatShippedBbl(shippedBbl)} of ${beerName.trim()} shipped${from}`;
 }
 
 /** Packaging Fee lines carry the beer so a multi-recipe invoice is unambiguous. */
@@ -81,5 +132,16 @@ export function unmappedProductLineDescription(
 
 // ── Refunds ──────────────────────────────────────────────────────────────────
 
-/** Reason text Square shows the customer when a paid deposit is partly refunded. */
-export const DEPOSIT_REDUCED_REFUND_REASON = "Deposit adjusted — allocation reduced";
+/**
+ * Reason text Square shows the customer when a paid deposit is partly refunded:
+ * "Partial adjustment of previous deposit for 25% of #B-063, a 2-turn batch of
+ *  Epic Hazy IPA. Refund drops allocation from 25% to 10%. Estimated yield is
+ *  3.5 bbls, final volume is confirmed at packaging."
+ * The yield is the NEW share's.
+ */
+export function depositReductionRefundReason(share: DepositShare & { newSharePct: number }): string {
+  return `Partial adjustment of previous deposit for ${formatSharePct(share.sharePct)} of ${batchLabel(share.batchNumber)}, ` +
+    `${turnsPhrase(share.turns)} of ${share.beerName.trim()}. ` +
+    `Refund drops allocation from ${formatSharePct(share.sharePct)} to ${formatSharePct(share.newSharePct)}. ` +
+    estimatedYieldSentence({ ...share, sharePct: share.newSharePct });
+}
