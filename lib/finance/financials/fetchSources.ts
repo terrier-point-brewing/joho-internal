@@ -177,32 +177,22 @@ export async function fetchCoa(supabase: SupabaseClient): Promise<CoaRecord[]> {
 }
 
 /**
- * The first day the invoice-backed rule below applies, as the UTC date prefix
- * aggregateRows buckets months by.
- *
- * It is the first day of the first month that was still OPEN when the rule was
- * written. Exactly one order in the books before it is affected -- invoice
- * 000049, August 2026, $2,685.37 -- and that double count was already reversed
- * by four manual entries dated 2026-10-01, because August was closed. Applying
- * the rule to history would restate a closed month AND leave those entries
- * reversing something no longer there. Do not move this date earlier without
- * deleting them.
- */
-export const INVOICE_BACKED_POS_RULE_FROM = "2026-10-01";
-
-/**
  * Whether a POS line's revenue is already carried by an invoice.
  *
  * An order linked to an invoice is recognised from its `invoice_line_items`,
  * always. The sync normally writes such an order ONLY there, but an order that
  * was synced as a plain sale before its invoice was linked keeps its
  * `pos_line_items`, and the P&L then counted the same sale from both tables.
- * This is a rule, not a heuristic: there is no case where both are revenue.
+ * This is a rule, not a heuristic: there is no case where both are revenue,
+ * and it has no start date: a sale is counted once in the month it happened,
+ * never corrected in a later one. (Invoice 000049, August 2026, was once
+ * spared by a cutoff and reversed by manual entries dated 2026-10-01 instead;
+ * those entries are now redundant and must go.)
  *
  * Pure, and exported for its test.
  */
 export function isInvoiceBackedPosLine(order: { transaction_date: string; invoice_id: string | null }): boolean {
-  return order.invoice_id !== null && order.transaction_date >= INVOICE_BACKED_POS_RULE_FROM;
+  return order.invoice_id !== null;
 }
 
 /**
@@ -272,10 +262,9 @@ export async function fetchPos(
   }
 
   // Post-migration (20260625) pos_line_items excludes invoice-backed rows, and
-  // isInvoiceBackedPosLine drops any that slip through from its cutoff on, so
-  // invoiceId is non-null only for the one pre-cutoff order (see
-  // INVOICE_BACKED_POS_RULE_FROM), resolved the same way invoice lines resolve
-  // theirs.
+  // isInvoiceBackedPosLine drops any that slip through, so invoiceId is always
+  // null here; the lookup is kept so a surviving row would still resolve its
+  // channel the same way invoice lines resolve theirs.
   const invoiceIds = [...new Set(rows.map((r) => r.square_orders.invoice_id).filter((v): v is string => !!v))];
   const exportChannelByInvoice: Record<string, string | null> = {};
   if (invoiceIds.length > 0) {
