@@ -64,7 +64,8 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
           <ul className="mt-2 ml-5 list-disc space-y-1.5 leading-relaxed marker:text-faint">
             <li>Any Square item whose name contains <span className="font-medium">Event Pour</span> counts. Each of its variations becomes a row in the event&rsquo;s table.</li>
             <li>A sale counts when the order was <span className="font-medium">closed</span> between the event&rsquo;s start and end. The time the ticket is paid is what matters, not when it was opened.</li>
-            <li>Tips are taken from the whole order when it has at least one Event Pour on it, split into card and cash by how the customer paid.</li>
+            <li>Tips are worked out for you: every ticket with at least one Event Pour on it contributes its whole tip, split into card and cash by how the customer paid. That is the event&rsquo;s card tips, with nothing to add up by hand.</li>
+            <li>Cash tips are usually not rung at events, so the Cash Tips tile is normally zero. Count the jar separately if cash tips need to reach the pool.</li>
             <li>Invoiced sales never count, even inside the window.</li>
             <li>Event Pour sales show up in Finance under Events, not Taproom.</li>
           </ul>
@@ -73,16 +74,17 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
         <section className="rounded-lg border border-dashed border-line-strong p-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <Btn>Square</Btn>
-            <p className="text-sm font-medium text-strong">One-time setup in Square</p>
+            <p className="text-sm font-medium text-strong">Set up the pours in Square</p>
           </div>
           <ol className="mt-3 ml-5 list-decimal space-y-1.5 text-sm text-body leading-relaxed marker:text-faint">
-            <li>In Square Items, create an item named <span className="font-medium">Event Pour</span>. The name has to include those two words; anything else in the name is fine.</li>
-            <li>Add one variation per thing you sell at events, for example <span className="font-medium">Pint</span>, <span className="font-medium">Half Pint</span>, <span className="font-medium">Flight</span>. The variation name is what the table shows, so name it the way you want to read it.</li>
-            <li>Set each variation&rsquo;s price and sales tax the same way as the regular draft items.</li>
-            <li>Put the item on the register&rsquo;s home screen so staff can find it during the rush.</li>
+            <li>In Square Items, open the existing <span className="font-medium">Event Pour</span> item. It is already there; you almost never need to make a new one.</li>
+            <li><span className="font-medium">Rename its variations</span> to this event&rsquo;s pours, for example the beers being poured or <span className="font-medium">Pint</span> and <span className="font-medium">Half Pint</span>. The variation name is what the event&rsquo;s table shows, so name it the way you want to read it.</li>
+            <li>Check each variation&rsquo;s price and sales tax for this event.</li>
+            <li>Only add a variation when the event sells more kinds of pour than the item already has.</li>
           </ol>
           <p className="mt-3 text-xs text-muted leading-relaxed">
-            Do this once. Later events reuse the same item. Add a variation when a new pour size or special is needed, and it appears in the next event&rsquo;s table on its own.
+            Past events show a variation&rsquo;s current name, so after a rename an older event&rsquo;s table reads with the new labels. The quantities and money don&rsquo;t change.
+            If the item is ever missing, create one whose name contains <span className="font-medium">Event Pour</span>; anything else in the name is fine.
           </p>
         </section>
 
@@ -105,7 +107,7 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
             "Apply any event discount on the line like normal. It shows in the Discounts column.",
             "Close each ticket before the event's end time. A tab left open past the end falls out of the event.",
           ]}
-          note="Tips on a ticket count toward the event when any Event Pour is on it, so keep event pours and regular pours on separate tickets where you can."
+          note="Card tips are picked up automatically from every ticket that has an Event Pour on it, so keep event pours and regular pours on separate tickets where you can. Cash tips usually aren't rung at events, so expect the Cash Tips tile to read zero."
         />
 
         <Action
