@@ -27,6 +27,7 @@ import { STAGE_LABELS } from "./EquipmentSchedule/constants";
 import { isInPlaceConditioning } from "@/lib/production/inPlaceConditioning";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import ScheduleBatchModal from "./intake/ScheduleBatchModal";
+import ReceiveBeerModal from "./ReceiveBeerModal";
 
 
 const TANK_TYPES = new Set(["fermenter", "brite", "brewhouse"]);
@@ -133,6 +134,9 @@ export default function BrewStatusTab() {
   const { data: scheduleEntries = [] } = useBatchScheduleQuery();
   const { data: allBatchConversions = [] } = useBatchConversionsQuery();
   const pendingConversions = allBatchConversions.filter(c => !c.converted_at);
+
+  // "Receive beer" on the cold-storage tile: guest beer booked as on hand.
+  const [showReceiveBeer, setShowReceiveBeer] = useState(false);
 
   // Deviation toast state
   const [deviationToast, setDeviationToast] = useState<{ message: string; equipment_name?: string } | null>(null);
@@ -946,17 +950,30 @@ export default function BrewStatusTab() {
 
                     {/* === Cold Storage === beer | package | on hand */}
                     {isColdStorage && (
-                      <div className="flex-1 min-h-0 overflow-y-auto">
-                        <LotTable
-                          empty="Empty"
-                          qtyLabel="Qty"
-                          rows={coldStorageLots.map((lot) => ({
-                            key: lot.id,
-                            title: lot.beer_name ?? "—",
-                            pkg: packageLabel(lot.variation_name),
-                            qty: lot.quantity_on_hand,
-                          }))}
-                        />
+                      <div className="flex-1 min-h-0 flex flex-col gap-1">
+                        <div className="flex-1 min-h-0 overflow-y-auto">
+                          <LotTable
+                            empty="Empty"
+                            qtyLabel="Qty"
+                            rows={coldStorageLots.map((lot) => ({
+                              key: lot.id,
+                              title: lot.beer_name ?? "—",
+                              subtitle: lot.is_purchased ? "guest" : undefined,
+                              pkg: packageLabel(lot.variation_name),
+                              qty: lot.quantity_on_hand,
+                            }))}
+                          />
+                        </div>
+                        {!editMode && canOperate && (
+                          <button
+                            onClick={() => setShowReceiveBeer(true)}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="btn-secondary btn-xxs w-full shrink-0"
+                            title="Book beer bought from another brewery as on hand — never a brew, never on the excise record"
+                          >
+                            Receive purchased beer
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -1206,6 +1223,16 @@ export default function BrewStatusTab() {
 
 
       {/* Add/edit equipment modal */}
+      {showReceiveBeer && (
+        <ReceiveBeerModal
+          onClose={() => setShowReceiveBeer(false)}
+          onDone={() => {
+            qc.invalidateQueries({ queryKey: productionKeys.coldStorage });
+            setShowReceiveBeer(false);
+          }}
+        />
+      )}
+
       {eqCrud.showEqModal && (
         <Modal title={eqCrud.editingId ? "Edit Equipment" : "Add Equipment"} onClose={() => eqCrud.setShowEqModal(false)}>
           <form onSubmit={eqCrud.handleEqSubmit} className="space-y-4">

@@ -106,6 +106,8 @@ export async function fetchExciseData(sb: SupabaseClient, period: TaxPeriod): Pr
       .select(
         "id, channel, volume_bbl, shipment_id, invoice_id, created_at, recipient_name, export_transaction_taxes ( tax_name, amount_usd ), invoices ( invoice_number, invoice_date, customer_name ), contract_brewing_partners ( company_name, address )",
       )
+      // Purchased (guest) beer is tax-paid by its producer; not our removal.
+      .eq("is_tax_paid_purchase", false)
       .gte("created_at", startTs)
       .lt("created_at", endExclusiveTs)
       .order("id", { ascending: true }),

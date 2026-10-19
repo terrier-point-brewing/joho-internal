@@ -16,6 +16,10 @@ function stubClient(rows: { channel: string; volume_bbl: number; created_at: str
   const calls: Record<string, string> = {};
   const builder = {
     select: () => builder,
+    eq: (col: string, value: unknown) => {
+      calls[`eq:${col}`] = String(value);
+      return builder;
+    },
     gte: (_col: string, value: string) => {
       calls.gte = value;
       return builder;
@@ -49,6 +53,8 @@ describe("fetchRemovalData", () => {
     const { sb, calls } = stubClient([]);
     await fetchRemovalData(sb, Q3_2026);
     expect(calls.gte).toBe("2026-01-01T00:00:00Z");
+    // Purchased (guest) beer is tax-paid by its producer and never a removal here.
+    expect(calls["eq:is_tax_paid_purchase"]).toBe("false");
     // Exclusive upper bound at the start of the next day, so the whole of
     // September 30 counts.
     expect(calls.lt).toBe("2026-10-01T00:00:00Z");

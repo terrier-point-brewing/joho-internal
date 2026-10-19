@@ -253,6 +253,8 @@ export interface ColdStorageLot {
   quantity_on_hand: number;
   beer_name: string | null;
   batch_number: number | null;
+  /** Guest beer bought from another brewery — on hand, never a brew. */
+  is_purchased: boolean;
   variation_name: string | null;
   container_type: string | null;
 }

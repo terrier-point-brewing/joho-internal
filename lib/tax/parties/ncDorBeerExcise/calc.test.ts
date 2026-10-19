@@ -75,6 +75,11 @@ function stubSb(rows: ExportRow[], error?: string): SupabaseClient {
     if (table !== "export_transactions") throw new Error(`unexpected table: ${table}`);
     const b: Record<string, unknown> = {};
     b.select = () => b;
+    b.eq = (col: string, value: unknown) => {
+      // The read must exclude purchased (guest) beer — tax-paid by its producer.
+      if (col === "is_tax_paid_purchase" && value !== false) throw new Error("expected is_tax_paid_purchase = false");
+      return b;
+    };
     b.gte = () => b;
     b.lt = () => b;
     // Paginated read: the error now surfaces from the page fetch, not from lt.
@@ -252,6 +257,7 @@ function stubWorksheetSb(rate: unknown = null): SupabaseClient {
     if (table === "export_transactions") {
       const b: Record<string, unknown> = {};
       b.select = () => b;
+      b.eq = () => b;
       b.gte = () => b;
       b.lt = () => b;
       b.order = () => b;

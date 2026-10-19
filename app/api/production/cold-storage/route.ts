@@ -16,14 +16,14 @@ export async function GET() {
     .from("cold_storage_inventory")
     .select(
       "id, batch_id, recipe_id, variation_id, quantity_on_hand, " +
-      "brew_batches(beer_name, batch_number), " +
+      "brew_batches(beer_name, batch_number, source), " +
       "packaging_variations(name, container:packaging_items!packaging_variations_container_id_fkey(type))",
     )
     .gt("quantity_on_hand", 0);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  type BatchRow = { beer_name: string | null; batch_number: number | null } | null;
+  type BatchRow = { beer_name: string | null; batch_number: number | null; source: string | null } | null;
   type PVRow = { name: string | null; container?: { type: string } | null } | null;
 
   const lots = ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => {
@@ -37,6 +37,8 @@ export async function GET() {
       quantity_on_hand: Number(row.quantity_on_hand),
       beer_name: batch?.beer_name ?? null,
       batch_number: batch?.batch_number ?? null,
+      // Guest beer: bought in, not brewed — see brew_batches.source.
+      is_purchased: batch?.source === "purchased",
       variation_name: pv?.name ?? null,
       container_type: pv?.container?.type ?? null,
     };

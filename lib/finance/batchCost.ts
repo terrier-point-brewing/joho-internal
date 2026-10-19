@@ -196,6 +196,9 @@ export async function loadBatchCosts(supabase: SupabaseClient): Promise<Map<stri
       supabase
         .from("brew_batches")
         .select("id, recipe_id, turns, volume_bbl, status, converted_from_batch_id")
+        // Purchased (guest) beer has no recipe cost and no turns; its cost is
+        // the supplier's invoice (beer_receipts.cost_cents), not a brew.
+        .neq("source", "purchased")
         .order("id", { ascending: true }),
     ),
     fetchAllRows<CostLedgerTransfer>(() =>

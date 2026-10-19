@@ -17,6 +17,7 @@ import Card from "@/app/components/ui/Card";
 import { Modal } from "@/app/components/ui/Modal";
 import ColdStorageTransformModal from "./ColdStorageTransformModal";
 import ColdStorageConvertModal from "./ColdStorageConvertModal";
+import ReceiveBeerModal from "./ReceiveBeerModal";
 import DepositCoverageLine from "./DepositCoverageLine";
 import HomeSourcePicker from "./HomeSourcePicker";
 
@@ -497,6 +498,7 @@ export default function ExportBayTab() {
   const [showSync,          setShowSync]          = useState(false);
   const [showTransform,     setShowTransform]     = useState(false);
   const [showConvert,       setShowConvert]       = useState(false);
+  const [showReceive,       setShowReceive]       = useState(false);
   const [writeOffAlloc,     setWriteOffAlloc]     = useState<BatchAllocation | null>(null);
   const [expandedFulfilled, setExpandedFulfilled] = useState<Set<string>>(new Set());
 
@@ -736,6 +738,13 @@ export default function ExportBayTab() {
             className="btn-secondary"
           >
             ⚗ Convert Recipe
+          </button>
+          <button
+            onClick={() => setShowReceive(true)}
+            title="Book beer bought from another brewery as on hand — never a brew, never on the excise record"
+            className="btn-secondary"
+          >
+            ⬇ Receive Beer
           </button>
           <button
             onClick={() => setShowAdHoc(true)}
@@ -1069,6 +1078,19 @@ export default function ExportBayTab() {
             qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() });
             qc.invalidateQueries({ queryKey: ["production"] });
             setShowConvert(false);
+          }}
+        />
+      )}
+
+      {showReceive && (
+        <ReceiveBeerModal
+          onClose={() => setShowReceive(false)}
+          onDone={() => {
+            // New stock on hand: the per-batch lots and the recipe-level
+            // availability this tab ships against both change.
+            qc.invalidateQueries({ queryKey: queryKeys.production.coldStorage() });
+            qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() });
+            setShowReceive(false);
           }}
         />
       )}

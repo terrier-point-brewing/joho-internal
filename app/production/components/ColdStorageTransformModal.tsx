@@ -149,7 +149,7 @@ export default function ColdStorageTransformModal({
             <option value="">{lotsLoading ? "Loading…" : "Select a lot…"}</option>
             {eligibleLots.map((l) => (
               <option key={l.id} value={l.id}>
-                {l.beer_name ?? "Unknown"} · {l.batch_number ?? "—"} · {l.variation_name ?? "—"} ({l.quantity_on_hand} on hand)
+                {l.beer_name ?? "Unknown"} · {l.is_purchased ? "guest" : (l.batch_number ?? "—")} · {l.variation_name ?? "—"} ({l.quantity_on_hand} on hand)
               </option>
             ))}
           </select>

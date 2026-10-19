@@ -48,7 +48,8 @@ const FEDERAL: RateRow = {
  * Records every insert payload so tests can assert on exactly what was
  * persisted, not just that some mock fired.
  */
-function stubSupabase(rates: RateRow[]) {
+function stubSupabase(rates: RateRow[], opts: { purchasedBatchIds?: string[] } = {}) {
+  const purchased = new Set(opts.purchasedBatchIds ?? []);
   const inserted: {
     export_transactions: Record<string, unknown>[];
     export_transaction_taxes: Record<string, unknown>[];
@@ -66,6 +67,19 @@ function stubSupabase(rates: RateRow[]) {
       result.select = () => result;
       result.eq = () => result;
       return result;
+    }
+    if (table === "brew_batches") {
+      let askedId: string | null = null;
+      const b = {
+        select: () => b,
+        eq: (_col: string, id: string) => { askedId = id; return b; },
+        maybeSingle: () =>
+          Promise.resolve({
+            data: askedId ? { source: purchased.has(askedId) ? "purchased" : "brewed" } : null,
+            error: null,
+          }),
+      };
+      return b;
     }
     if (table === "export_transactions") {
       return {
@@ -198,5 +212,22 @@ describe("writeExportTransaction", () => {
       volumeBbl: 0.123456789,
     });
     expect(inserted.export_transactions[0].volume_bbl).toBe(0.1235);
+  });
+});
+
+describe("writeExportTransaction on a purchased (guest beer) batch", () => {
+  it("writes the row but computes no excise and no tax children", async () => {
+    const { client, inserted } = stubSupabase([FEDERAL], { purchasedBatchIds: ["guest-1"] });
+    await writeExportTransaction(client, { ...BASE_PARAMS, batchId: "guest-1", channel: "taproom" });
+    expect(inserted.export_transactions).toHaveLength(1);
+    expect(inserted.export_transactions[0].total_excise_tax_usd).toBe(0);
+    expect(inserted.export_transaction_taxes).toHaveLength(0);
+  });
+
+  it("still taxes a brewed batch with the same stub", async () => {
+    const { client, inserted } = stubSupabase([FEDERAL], { purchasedBatchIds: ["guest-1"] });
+    await writeExportTransaction(client, { ...BASE_PARAMS, batchId: "batch-1" });
+    expect(inserted.export_transactions[0].total_excise_tax_usd).toBe(35);
+    expect(inserted.export_transaction_taxes).toHaveLength(1);
   });
 });

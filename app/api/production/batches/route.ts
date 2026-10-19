@@ -19,6 +19,10 @@ export async function GET() {
   const { data, error } = await supabase
     .from("brew_batches")
     .select("*, beer_name, recipes(beer_name, expected_yield_bbl, partner:contract_brewing_partners(company_name)), batch_status_history(*), batch_brew_activity_log:brew_activities(*), converted_from_batch:converted_from_batch_id(id, beer_name, batch_number)")
+    // A purchased placeholder (guest beer) is not a brew. It exists only so
+    // cold_storage_inventory has a batch to hang the lot on; the Batch Log,
+    // floorplan and Gantt must never list it. See lib/production/receivePurchasedBeer.ts.
+    .neq("source", "purchased")
     .order("planned_brew_date", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
