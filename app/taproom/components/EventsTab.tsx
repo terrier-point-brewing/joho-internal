@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import Badge from "@/app/components/ui/Badge";
+import EventsHelp from "./EventsHelp";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -225,6 +226,7 @@ export default function EventsTab() {
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [formError,   setFormError]   = useState<string | null>(null);
+  const [showHelp,    setShowHelp]    = useState(false);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.taproom.events() });
 
@@ -280,16 +282,21 @@ export default function EventsTab() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        <button onClick={() => setShowHelp(true)} className="btn-secondary">
+          How to use
+        </button>
         {!creating && (
           <button
             onClick={() => { setCreating(true); setEditingId(null); setFormError(null); }}
-            className="btn-primary shrink-0 ml-4"
+            className="btn-primary shrink-0"
           >
             + New Event
           </button>
         )}
       </div>
+
+      {showHelp && <EventsHelp onClose={() => setShowHelp(false)} />}
 
       {error && <p className="text-xs text-danger">{error instanceof Error ? error.message : "Failed to load events"}</p>}
 
