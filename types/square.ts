@@ -216,6 +216,9 @@ export interface OrderTender {
   type?: string;
   payment_id?: string;
   amount_money?: Money;
+  /** The tip paid with THIS tender. An order's `total_tip_money` is the sum
+   *  across tenders, so a card-vs-cash tip split has to be read from here. */
+  tip_money?: Money;
   /** When the customer paid. Unlike the invoice's `updated_at`, it never moves. */
   created_at?: string;
 }
