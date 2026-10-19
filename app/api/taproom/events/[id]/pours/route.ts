@@ -50,6 +50,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const eventStart = new Date(event.event_start).getTime();
   const eventEnd   = new Date(event.event_end).getTime();
   let totalTipsCents = 0;
+  let cardTipsCents  = 0;
+  let cashTipsCents  = 0;
 
   for (const order of orders) {
     const closedAt = order.closed_at ? new Date(order.closed_at).getTime() : null;
@@ -89,6 +91,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     if (orderHasEventPour) {
       totalTipsCents += order.total_tip_money?.amount ?? 0;
+      // Square books the tip on the tender it was paid with, so the card/cash
+      // split lives on `tenders[].tip_money`, not on the order total. Anything
+      // that isn't physical cash (CARD, SQUARE_GIFT_CARD, WALLET, …) settles
+      // through Square and is "card" for tip-pool purposes.
+      for (const t of order.tenders ?? []) {
+        const tip = t.tip_money?.amount ?? 0;
+        if (t.type === "CASH") cashTipsCents += tip;
+        else cardTipsCents += tip;
+      }
     }
   }
 
@@ -101,8 +112,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       discount_cents: acc.discount_cents + r.discount_cents,
       tax_cents:      acc.tax_cents      + r.tax_cents,
       tip_cents:      acc.tip_cents,
+      card_tip_cents: acc.card_tip_cents,
+      cash_tip_cents: acc.cash_tip_cents,
     }),
-    { quantity: 0, gross_cents: 0, discount_cents: 0, tax_cents: 0, tip_cents: totalTipsCents }
+    {
+      quantity: 0, gross_cents: 0, discount_cents: 0, tax_cents: 0,
+      tip_cents: totalTipsCents, card_tip_cents: cardTipsCents, cash_tip_cents: cashTipsCents,
+    }
   );
 
   return NextResponse.json({ event, rows, totals });

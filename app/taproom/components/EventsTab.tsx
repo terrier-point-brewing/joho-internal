@@ -31,7 +31,7 @@ interface PourRow {
 interface PourData {
   event:  TaproomEvent;
   rows:   PourRow[];
-  totals: { quantity: number; gross_cents: number; discount_cents: number; tax_cents: number; tip_cents: number };
+  totals: { quantity: number; gross_cents: number; discount_cents: number; tax_cents: number; tip_cents: number; card_tip_cents: number; cash_tip_cents: number };
 }
 
 interface EventFormState {
@@ -146,7 +146,7 @@ function PourTable({ eventId }: { eventId: string }) {
   return (
     <div className="space-y-3">
       {/* Summary stat strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         <div className="rounded-md bg-surface border border-line px-3 py-2.5">
           <p className="text-xs text-muted uppercase tracking-wide mb-0.5">Net Sales</p>
           <p className="text-sm font-semibold text-accent">{fmtUsd(netSales)}</p>
@@ -156,8 +156,12 @@ function PourTable({ eventId }: { eventId: string }) {
           <p className="text-sm font-semibold text-strong">{fmtUsd(totals.tax_cents)}</p>
         </div>
         <div className="rounded-md bg-surface border border-line px-3 py-2.5">
-          <p className="text-xs text-muted uppercase tracking-wide mb-0.5">Tips</p>
-          <p className="text-sm font-semibold text-strong">{fmtUsd(totals.tip_cents)}</p>
+          <p className="text-xs text-muted uppercase tracking-wide mb-0.5">Card Tips</p>
+          <p className="text-sm font-semibold text-strong">{fmtUsd(totals.card_tip_cents)}</p>
+        </div>
+        <div className="rounded-md bg-surface border border-line px-3 py-2.5">
+          <p className="text-xs text-muted uppercase tracking-wide mb-0.5">Cash Tips</p>
+          <p className="text-sm font-semibold text-strong">{fmtUsd(totals.cash_tip_cents)}</p>
         </div>
         <div className="rounded-md bg-surface border border-line px-3 py-2.5">
           <p className="text-xs text-muted uppercase tracking-wide mb-0.5">Total Collected</p>
