@@ -96,12 +96,15 @@ function CardLine({
       type="button"
       disabled={!editable}
       onClick={onFocus}
-      className={`text-left leading-none font-mono text-xs ${
+      title={overridden ? `Source: ${source}` : undefined}
+      className={`block w-full text-left leading-none font-mono text-xs whitespace-nowrap ${
         overridden ? "text-accent" : className
       } ${editable ? "cursor-text" : "cursor-default"}`}
     >
       {value}
-      {overridden && <span className="ml-1 text-faint line-through">{source}</span>}
+      {overridden && (
+        <span className="block mt-0.5 text-[10px] leading-none text-faint line-through">{source}</span>
+      )}
     </button>
   );
 }
@@ -203,7 +206,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
   const multiWeek = weeks.length > 1;
 
   // Card height depends on how many tip rows are shown
-  const cardH = hasCashTipRows ? "h-20" : hasTippedRows ? "h-16" : "h-10";
+  const cardH = hasCashTipRows ? "min-h-20" : hasTippedRows ? "min-h-16" : "min-h-10";
 
   return (
     <div className="overflow-x-auto">
