@@ -19,6 +19,7 @@ import ColdStorageTransformModal from "./ColdStorageTransformModal";
 import ColdStorageConvertModal from "./ColdStorageConvertModal";
 import DepositCoverageLine from "./DepositCoverageLine";
 import HomeSourcePicker from "./HomeSourcePicker";
+import { SearchCombobox, type SearchComboboxItem } from "@/components/ui/SearchCombobox";
 
 function formatShipmentWarning(w: ShipmentWarning): string {
   switch (w.type) {
@@ -1672,6 +1673,21 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
   const { data: partners = [] } = useContractPartnersQuery();
 
   const recipeIds = [...inventoryByRecipe.keys()];
+  // Alphabetical so the opened list reads like a menu; the hint is total units on hand.
+  const recipeItems = useMemo<SearchComboboxItem[]>(() =>
+    [...inventoryByRecipe.keys()]
+      .map((id) => {
+        const lines = inventoryByRecipe.get(id) ?? [];
+        const onHand = lines.reduce((s, l) => s + l.quantity_on_hand, 0);
+        return { id, label: recipeNameById.get(id) ?? "Unknown recipe", hint: `${onHand} on hand` };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  [inventoryByRecipe, recipeNameById]);
+  const partnerItems = useMemo<SearchComboboxItem[]>(() =>
+    [...partners]
+      .sort((a, b) => a.company_name.localeCompare(b.company_name))
+      .map((p) => ({ id: p.id, label: p.company_name })),
+  [partners]);
   // Taproom pulls ship here; a partner hands off to the same Ship flow an
   // allocation card opens, which books a commitment when there is none.
   const [channel,       setChannel]       = useState<"taproom" | "partner">("taproom");
@@ -1748,12 +1764,14 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
           {channel === "partner" && (
             <div>
               <label className="text-xs text-secondary block mb-1">Partner</label>
-              <select className="inp w-full" required value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
-                <option value="" disabled>Select a partner…</option>
-                {partners.map((p) => (
-                  <option key={p.id} value={p.id}>{p.company_name}</option>
-                ))}
-              </select>
+              <SearchCombobox
+                value={partnerId}
+                onChange={setPartnerId}
+                items={partnerItems}
+                placeholder="Search partners…"
+                emptyLabel="No partners match"
+                required
+              />
             </div>
           )}
           {channel === "taproom" && (
@@ -1764,11 +1782,15 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
           )}
           <div>
             <label className="text-xs text-secondary block mb-1">Recipe</label>
-            <select className="inp w-full" value={recipeId} onChange={(e) => handleSelectRecipe(e.target.value)}>
-              {recipeIds.map((id) => (
-                <option key={id} value={id}>{recipeNameById.get(id) ?? "Unknown recipe"}</option>
-              ))}
-            </select>
+            <SearchCombobox
+              value={recipeId}
+              onChange={handleSelectRecipe}
+              items={recipeItems}
+              placeholder="Search recipes…"
+              emptyLabel="No recipes in stock match"
+              clearable={false}
+              required
+            />
           </div>
           {channel === "taproom" && (<>
           <div>

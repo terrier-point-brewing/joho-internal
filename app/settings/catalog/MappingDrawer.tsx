@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
+import { SearchCombobox } from "@/components/ui/SearchCombobox";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { useSquareMappingGridQuery, invalidateSquareMappings, patchSquareMappingCell, fetchJson } from "@/app/production/hooks/queries";
 import type { MappingCellVariation } from "@/app/production/types";
-import { applyControls } from "@/lib/table/applyControls";
-import type { ControlsConfig } from "@/lib/table/types";
 
 interface SquareVariation {
   variation_id: string;
@@ -33,107 +32,6 @@ function squareNameOf(squareVariationId: string, variations: SquareVariation[]):
   const sv = variations.find((v) => v.variation_id === squareVariationId);
   if (!sv) return "That Square item";
   return `${sv.item_name}${sv.variation_name ? ` \u00b7 ${sv.variation_name}` : ""}`;
-}
-
-const COMBOBOX_CONTROLS: ControlsConfig<SquareVariation> = {
-  search: [{ param: "q", accessor: (v) => [v.item_name, v.variation_name] }],
-};
-
-function VariationCombobox({
-  value,
-  onChange,
-  variations,
-}: {
-  value: string;
-  onChange: (id: string) => void;
-  variations: SquareVariation[];
-}) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  const selected = variations.find((v) => v.variation_id === value);
-  const displayName = selected
-    ? `${selected.item_name}${selected.variation_name ? ` · ${selected.variation_name}` : ""}`
-    : "";
-
-  const filtered = applyControls(variations, COMBOBOX_CONTROLS, { search: { q: query }, filters: {}, sort: null });
-
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  return (
-    <div ref={wrapRef} className="relative">
-      <div className="relative">
-        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none text-xs">⌕</span>
-        <input
-          className="inp w-full pl-6"
-          value={open ? query : displayName}
-          placeholder="Search Square variations…"
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-          onFocus={() => { setOpen(true); setQuery(""); }}
-          onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQuery(""); } }}
-        />
-        {value && (
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-faint hover:text-secondary text-xs"
-            onMouseDown={(e) => { e.preventDefault(); onChange(""); }}
-          >
-            ×
-          </button>
-        )}
-      </div>
-      {open && (
-        <div className="absolute z-50 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-line-strong bg-surface shadow-xl">
-          {filtered.length === 0 ? (
-            <div className="px-3 py-3 text-xs text-faint italic text-center">
-              No matches{query ? ` for "${query}"` : ""}
-            </div>
-          ) : (
-            filtered.map((v) => (
-              <button
-                key={v.variation_id}
-                type="button"
-                className={`w-full text-left px-3 py-2.5 text-xs border-b border-line/40 last:border-0 transition-colors ${
-                  v.variation_id === value
-                    ? "bg-accent-muted/30 text-accent-soft"
-                    : "text-body hover:bg-surface-mid"
-                }`}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onChange(v.variation_id);
-                  setOpen(false);
-                  setQuery("");
-                }}
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span>
-                    <span className="font-medium">{v.item_name}</span>
-                    {v.variation_name && (
-                      <span className="text-muted ml-1.5">· {v.variation_name}</span>
-                    )}
-                  </span>
-                  {v.category_name && (
-                    <span className="text-[10px] text-faint shrink-0">{v.category_name}</span>
-                  )}
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 interface Props {
@@ -397,8 +295,9 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                           </button>
                         </div>
                       )}
-                    <VariationCombobox
+                    <SearchCombobox
                       value={pendingId}
+                      placeholder="Search Square variations…"
                       onChange={(id) => {
                         setPendingSelections((p) => ({ ...p, [v.variationId]: id }));
                         // A new pick is a new question — drop the answer pending
@@ -409,7 +308,12 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                           return n;
                         });
                       }}
-                      variations={filteredVars}
+                      items={filteredVars.map((sv) => ({
+                        id: sv.variation_id,
+                        label: sv.item_name,
+                        sub: sv.variation_name,
+                        hint: sv.category_name,
+                      }))}
                     />
                     {conflict ? (
                       <div className="rounded-lg border border-accent-border/40 bg-accent-muted/20 px-3 py-2 space-y-2">
