@@ -141,12 +141,15 @@ export const queryKeys = {
     // Line-level detail behind the category breakdown. Keyed on the same range
     // the table is showing, so the drill always matches the totals above it.
     salesPulseLines: (start: string, end: string) => ["taproom", "sales-pulse-lines", start, end] as const,
+    // Per-item weekly sell-through (Items tab). Keyed on the window.
+    itemSales:     (range: string) => ["taproom", "item-sales", range] as const,
+    itemSalesLines: (start: string, end: string, item: string) => ["taproom", "item-sales-lines", start, end, item] as const,
     targets:       () => ["taproom", "targets"] as const,
     tapConfig:     () => ["taproom", "tap-config"] as const,
     tapSwaps:      () => ["taproom", "tap-swaps"] as const,
     draftStats:    () => ["taproom", "draft-stats"] as const,
-    draftPours:    (range: string) => ["taproom", "draft-pours", range] as const,
     draftShrinkage: (range: string) => ["taproom", "draft-shrinkage", range] as const,
+    draftShrinkageLines: (start: string, end: string, recipe: string) => ["taproom", "draft-shrinkage-lines", start, end, recipe] as const,
     inventory:     () => ["taproom", "inventory"] as const,
     events:        () => ["taproom", "events"] as const,
     eventPours:    (id: string) => ["taproom", "event-pours", id] as const,

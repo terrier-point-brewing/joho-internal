@@ -103,23 +103,18 @@ interface SwapKegOption {
   quantity_on_hand: number | null;
 }
 
-type DraftView = "taps" | "sell-through" | "shrinkage";
+type DraftView = "taps" | "shrinkage";
 
 // "Loss" on screen, "shrinkage" in the data — the key and endpoint are unchanged.
 const DRAFT_VIEWS: { key: DraftView; label: string }[] = [
   { key: "taps",      label: "Taps" },
-  { key: "sell-through", label: "Sell-through" },
+  // Sell-through moved to Performance → Items (the "Fl oz" metric), which
+  // adds the per-pour transactions and a custom range; Loss stays here because
+  // it is about kegs coming off, not sales.
   { key: "shrinkage", label: "Loss" },
 ];
 
 const oz = (v: number) => Math.round(v).toLocaleString();
-
-const SELL_THROUGH_COLUMNS: TrendSummaryColumn[] = [
-  { label: "Total (fl oz)", value: (r) => oz(r.sum) },
-  // One event per beer per day, so the mean is over the days it actually
-  // poured — a beer tapped four days ago isn't made to look slow.
-  { label: "Avg / day (fl oz)", title: "Average over the days this beer poured", value: (r) => oz(r.mean) },
-];
 
 const SHRINKAGE_COLUMNS: TrendSummaryColumn[] = [
   { label: "Avg (fl oz)", title: "Average fl oz unaccounted for per keg", value: (r) => oz(r.mean) },
@@ -542,23 +537,6 @@ export default function DraftStatsTab() {
 
       {err && <p className="text-sm text-danger mb-3">{err}</p>}
 
-      {view === "sell-through" && (
-        <DraftTrendView
-          title="Sell-through"
-          subtitle="From Square pour sales"
-          endpoint="/api/taproom/draft-pours"
-          queryKey={queryKeys.taproom.draftPours}
-          mode="sum"
-          unit="fl oz"
-          chartTitle={(g) => `Pours per ${g} (fl oz)`}
-          defaultGrouping="day"
-          defaultRange="30"
-          summaryColumns={SELL_THROUGH_COLUMNS}
-          overallLabel="All draft"
-          emptyText="No draft pours recorded in this range."
-        />
-      )}
-
       {view === "shrinkage" && (
         <DraftTrendView
           title="Draft loss"
@@ -573,6 +551,12 @@ export default function DraftStatsTab() {
           summaryColumns={SHRINKAGE_COLUMNS}
           overallLabel="All beers"
           emptyText="No keg replacements recorded in this range."
+          lines={{
+            endpoint: "/api/taproom/draft-shrinkage/lines",
+            queryKey: queryKeys.taproom.draftShrinkageLines,
+            valueLabel: "Lost (fl oz)",
+            formatValue: (v) => `${Math.round(v).toLocaleString()} oz`,
+          }}
         />
       )}
 

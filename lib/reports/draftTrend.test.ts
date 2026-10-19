@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   bucketOf, bucketsBetween, buildTrend, combineOthers, parseTrendRange, type TrendData,
+  resolveTrendWindow, trendWindowQuery, isCustomWindow,
 } from "./draftTrend";
 
 const data: TrendData = {
@@ -80,5 +81,29 @@ describe("parseTrendRange", () => {
     expect(parseTrendRange("90", 30)).toBe(90);
     expect(parseTrendRange(null, 30)).toBe(30);
     expect(parseTrendRange("-4", 30)).toBe(30);
+  });
+});
+
+describe("resolveTrendWindow", () => {
+  const today = "2026-10-18";
+  const p = (q: string) => new URLSearchParams(q);
+  it("uses range when no explicit dates", () => {
+    expect(resolveTrendWindow(p("range=30"), 90, today)).toEqual({ start: "2026-09-19", end: today });
+    expect(resolveTrendWindow(p("range=all"), 90, today)).toEqual({ start: null, end: today });
+    expect(resolveTrendWindow(p(""), 7, today)).toEqual({ start: "2026-10-12", end: today });
+  });
+  it("prefers explicit start/end, swaps a reversed pair and clamps the end to today", () => {
+    expect(resolveTrendWindow(p("start=2026-08-01&end=2026-08-31&range=30"), 90, today))
+      .toEqual({ start: "2026-08-01", end: "2026-08-31" });
+    expect(resolveTrendWindow(p("start=2026-08-31&end=2026-08-01"), 90, today))
+      .toEqual({ start: "2026-08-01", end: "2026-08-31" });
+    expect(resolveTrendWindow(p("start=2026-10-01&end=2027-01-01"), 90, today))
+      .toEqual({ start: "2026-10-01", end: today });
+  });
+  it("round-trips a custom window through the query helper", () => {
+    expect(trendWindowQuery("2026-08-01..2026-08-31")).toBe("start=2026-08-01&end=2026-08-31");
+    expect(trendWindowQuery("90")).toBe("range=90");
+    expect(isCustomWindow("2026-08-01..2026-08-31")).toBe(true);
+    expect(isCustomWindow("all")).toBe(false);
   });
 });

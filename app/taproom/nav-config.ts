@@ -15,6 +15,7 @@ export const TAPROOM_NAV: NavEntry[] = [
 export const PERFORMANCE_NAV: NavEntry[] = [
   { href: "/taproom/performance/sales-pulse", label: "Sales Pulse" },
   { href: "/taproom/performance/draft-stats", label: "Draft Stats" },
+  { href: "/taproom/performance/items",       label: "Items"       },
   { href: "/taproom/performance/inventory",   label: "Inventory"   },
   { href: "/taproom/performance/events",      label: "Events"      },
 ];

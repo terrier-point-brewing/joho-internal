@@ -100,6 +100,18 @@ export function addDaysStr(dateStr: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Split an inclusive date window into consecutive inclusive slices of at most
+// `days` days, in order, with no overlap and no gap.
+export function chunkDateRange(startDate: string, endDate: string, days: number): [string, string][] {
+  const out: [string, string][] = [];
+  if (startDate > endDate || days < 1) return out;
+  for (let s = startDate; s <= endDate; s = addDaysStr(s, days)) {
+    const e = addDaysStr(s, days - 1);
+    out.push([s, e < endDate ? e : endDate]);
+  }
+  return out;
+}
+
 // Day of week (0=Sun .. 6=Sat) for a YYYY-MM-DD calendar date, evaluated at UTC
 // noon so the runtime's local zone can never shift it to an adjacent day.
 export function weekdayOf(dateStr: string): number {

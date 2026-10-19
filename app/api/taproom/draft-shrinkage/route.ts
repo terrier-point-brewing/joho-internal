@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
-import { parseTrendRange, type TrendData } from "@/lib/reports/draftTrend";
+import { resolveTrendWindow, type TrendData } from "@/lib/reports/draftTrend";
 import { localDateString, addDaysStr, todayLocalDate } from "@/lib/utils/datetime";
 import { apiError } from "@/lib/utils/api";
 
 export const dynamic = "force-dynamic";
 
 // Draft shrinkage events: one per keg that came off a tap, valued at the fl oz
-// that left it with no transaction behind it. `range` is a day count or "all".
+// that left it with no transaction behind it. `range` is a day count or "all",
+// or `start`/`end` name the window outright.
 //
 // Beer-change rows are dropped: that keg came off deliberately part-full, so its
 // balance is mostly beer dumped on purpose — a decision, not a loss the taproom
@@ -16,9 +17,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const supabase = await createSupabaseServerClient();
   try {
-    const range = parseTrendRange(new URL(req.url).searchParams.get("range"), 90);
-    const end = todayLocalDate();
-    const windowStart = range === "all" ? null : addDaysStr(end, -(range - 1));
+    const { start: windowStart, end } = resolveTrendWindow(new URL(req.url).searchParams, 90, todayLocalDate());
 
     const rows = await fetchAllRows<{
       recipe_id: string; occurred_at: string;
@@ -29,6 +28,7 @@ export async function GET(req: NextRequest) {
         .select("recipe_id, occurred_at, unaccounted_fl_oz, full_fl_oz, cause");
       // A day early: occurred_at is an instant, the window is brewery-local dates.
       if (windowStart) q = q.gte("occurred_at", `${addDaysStr(windowStart, -1)}T00:00:00Z`);
+      q = q.lte("occurred_at", `${addDaysStr(end, 1)}T23:59:59Z`);
       return q.order("occurred_at").order("source_ref");
     });
 
