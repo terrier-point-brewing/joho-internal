@@ -3,7 +3,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { buildPayrollPreview } from "@/lib/payroll/previewService";
-import type { DayOverride } from "@/lib/payroll/dailyGrid";
+import type { DayOverride, TipDayExclusion } from "@/lib/payroll/dailyGrid";
 import type { PayPeriod, PayrollConfig, Employee, PayrollEntry } from "@/lib/payroll/types";
 
 export const dynamic = "force-dynamic";
@@ -42,15 +42,22 @@ export async function GET(
     if (periodConfig) activeConfig = periodConfig as PayrollConfig;
   }
 
-  const [{ data: storedEntries }, { data: dayOverrides, error: ovErr }] = await Promise.all([
+  const [
+    { data: storedEntries }, { data: dayOverrides, error: ovErr }, { data: exclusionRows, error: xErr },
+  ] = await Promise.all([
     supabase.from("payroll_entries").select("*").eq("pay_period_id", id),
     supabase
       .from("payroll_shift_overrides")
       .select("employee_id, work_date, adj_hours, adj_paycheck_tips_cents, adj_cash_tips_cents, note")
       .eq("pay_period_id", id),
+    supabase
+      .from("payroll_tip_day_exclusions")
+      .select("work_date, amount_cents, reason")
+      .eq("pay_period_id", id),
   ]);
 
   if (ovErr) return apiError(ovErr.message);
+  if (xErr) return apiError(xErr.message);
 
   let preview;
   try {
@@ -59,7 +66,8 @@ export async function GET(
       employees as Employee[],
       activeConfig,
       (storedEntries ?? []) as PayrollEntry[],
-      (dayOverrides ?? []) as DayOverride[]
+      (dayOverrides ?? []) as DayOverride[],
+      (exclusionRows ?? []) as TipDayExclusion[],
     );
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));

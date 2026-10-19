@@ -76,7 +76,10 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
   if (error) return <p className="text-danger text-sm p-6">{(error as Error).message}</p>;
   if (!preview) return null;
 
-  const { period, config, entries: rawEntries, employees, salaried_employees, tip_buckets, total_pooled_tips_cents } = preview;
+  const {
+    period, config, entries: rawEntries, employees, salaried_employees, tip_buckets,
+    total_pooled_tips_cents, total_excluded_tips_cents,
+  } = preview;
   const empById = new Map(employees.map((e) => [e.id, e]));
   const entries = [...rawEntries].sort((a, b) => {
     const aName = empById.get(a.employee_id)?.last_name ?? "";
@@ -266,6 +269,12 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
               )}
               {tip_buckets.length > 4 && (
                 <span className="text-faint">({tip_buckets.length} days — see Shifts tab)</span>
+              )}
+              {total_excluded_tips_cents > 0 && (
+                <span className="text-secondary" title="Card tips taken on days nobody tip-eligible worked; kept out of payroll on the record and left in GL 2310 Undistributed Tips for finance to reclass. Details on the Shifts tab.">
+                  <span className="text-faint">Excluded from payroll:</span>{" "}
+                  <span className="font-mono">{fmtCents(total_excluded_tips_cents)}</span>
+                </span>
               )}
             </div>
           )}

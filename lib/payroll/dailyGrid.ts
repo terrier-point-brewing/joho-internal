@@ -11,12 +11,37 @@ export interface DayOverride {
   note: string | null;
 }
 
+/**
+ * A day whose card-tip pool is deliberately kept out of payroll
+ * (payroll_tip_day_exclusions). `snapshotCents` is the pool as recorded when
+ * the exclusion was saved; `liveCents` is the pool now. They disagree when a
+ * refund or re-sync moved the day after the fact — surfaced, never absorbed.
+ */
+export interface TipDayExclusion {
+  work_date: string;
+  amount_cents: number;
+  reason: string;
+}
+
+export interface BucketExclusion {
+  date: string;
+  reason: string;
+  snapshotCents: number;
+  liveCents: number;
+}
+
 export interface TipBucket {
   label: string;
   days: string[];
+  /** The pool that must land on employees — excluded days contribute 0 here. */
   pool_cents: number;
   pinned_cents: number;
   attributed_cents: number;
+  /** Σ live pool of excluded days in this bucket; stays in GL 2310. */
+  excluded_cents: number;
+  exclusions: BucketExclusion[];
+  /** Pins stored on an excluded day — a contradiction the write path rejects. */
+  pinned_on_excluded_cents: number;
 }
 
 export interface CellHours { employeeId: string; date: string; hours: number }
@@ -31,7 +56,7 @@ export interface BucketAttribution {
 
 export interface BucketViolation {
   label: string;
-  kind: "pins_exceed_pool" | "no_absorber";
+  kind: "pins_exceed_pool" | "no_absorber" | "pin_on_excluded_day";
   poolCents: number;
   pinnedCents: number;
 }
@@ -181,6 +206,31 @@ export interface UnattributedBucket {
   shortfallCents: number;
 }
 
+export interface ExclusionDrift {
+  label: string;
+  date: string;
+  snapshotCents: number;
+  liveCents: number;
+}
+
+/**
+ * Excluded days whose live pool no longer matches the amount the exclusion
+ * was saved with. A lock-time gate alongside unattributedBuckets: the
+ * exclusion is an audited statement about a specific amount, so a changed pool
+ * needs a human to re-save it, not a silent carry-forward of the new figure.
+ */
+export function exclusionDrift(buckets: TipBucket[]): ExclusionDrift[] {
+  const out: ExclusionDrift[] = [];
+  for (const b of buckets) {
+    for (const x of b.exclusions) {
+      if (x.liveCents !== x.snapshotCents) {
+        out.push({ label: b.label, date: x.date, snapshotCents: x.snapshotCents, liveCents: x.liveCents });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Buckets whose pool was collected but never landed on an employee — the day
  * took card tips and no tipped employee had hours, so `attributeBucket` had no
@@ -227,7 +277,9 @@ export function snapshotPoolVariance(
 export function bucketViolations(buckets: TipBucket[]): BucketViolation[] {
   const out: BucketViolation[] = [];
   for (const b of buckets) {
-    if (b.pinned_cents > b.pool_cents) {
+    if (b.pinned_on_excluded_cents > 0) {
+      out.push({ label: b.label, kind: "pin_on_excluded_day", poolCents: b.pool_cents, pinnedCents: b.pinned_on_excluded_cents });
+    } else if (b.pinned_cents > b.pool_cents) {
       out.push({ label: b.label, kind: "pins_exceed_pool", poolCents: b.pool_cents, pinnedCents: b.pinned_cents });
     } else if (b.pinned_cents > 0 && b.attributed_cents < b.pool_cents) {
       out.push({ label: b.label, kind: "no_absorber", poolCents: b.pool_cents, pinnedCents: b.pinned_cents });
@@ -243,7 +295,10 @@ export interface DailyGrid {
   cashByDate: Map<string, Map<string, number>>;
   cardTipsByDate: Map<string, Map<string, number>>;
   buckets: TipBucket[];
+  /** Σ pool_cents — what payroll attributes. Excluded days are not in here. */
   totalPooledTipsCents: number;
+  /** Σ excluded_cents — pooled by Square, kept out of payroll, still in GL 2310. */
+  totalExcludedTipsCents: number;
 }
 
 function setCell(m: Map<string, Map<string, number>>, date: string, sqId: string, v: number) {
@@ -291,6 +346,7 @@ export function computeDailyGrid(
   employees: Employee[],
   tipPoolFrequency: TipPoolFrequency,
   overrides: DayOverride[],
+  exclusions: TipDayExclusion[] = [],
 ): DailyGrid {
   const days = getDays(period.start_date, period.end_date);
 
@@ -324,29 +380,51 @@ export function computeDailyGrid(
   }
 
   const poolByDay = new Map(dailyTips.map(t => [t.date, t.tipsPooledCents]));
+  const exclusionByDay = new Map(exclusions.map(x => [x.work_date, x]));
   const groups = dayGroups(days, tipPoolFrequency);
   const labels = bucketLabels(tipPoolFrequency, period.start_date, period.end_date);
 
   const cardTipsByDate = new Map<string, Map<string, number>>();
   const buckets: TipBucket[] = [];
   let totalPooledTipsCents = 0;
+  let totalExcludedTipsCents = 0;
 
   for (let gi = 0; gi < groups.length; gi++) {
     const group = groups[gi];
     let poolCents = 0;
+    let excludedCents = 0;
+    let pinnedOnExcludedCents = 0;
+    const bucketExclusions: BucketExclusion[] = [];
     const cells: CellHours[] = [];
     const pins: CellPin[] = [];
 
     for (const day of group) {
-      poolCents += poolByDay.get(day) ?? 0;
+      const dayPool = poolByDay.get(day) ?? 0;
+      const excluded = exclusionByDay.get(day);
+      if (excluded) {
+        // The day's pool is kept out of payroll on the record: nothing to
+        // attribute, but the amount stays visible (and in GL 2310).
+        excludedCents += dayPool;
+        bucketExclusions.push({
+          date: day, reason: excluded.reason, snapshotCents: excluded.amount_cents, liveCents: dayPool,
+        });
+      } else {
+        poolCents += dayPool;
+      }
       for (const [sqId, hours] of hoursByDate.get(day) ?? []) {
         if (tippedSqIds.has(sqId)) cells.push({ employeeId: sqId, date: day, hours });
       }
       for (const [sqId, cents] of pinsByDate.get(day) ?? []) {
-        if (tippedSqIds.has(sqId)) pins.push({ employeeId: sqId, date: day, cents });
+        if (!tippedSqIds.has(sqId)) continue;
+        // A pin on an excluded day would pay out a pool that was declared
+        // unpayable. Keep it out of attribution and let bucketViolations
+        // refuse the write.
+        if (excluded) pinnedOnExcludedCents += cents;
+        else pins.push({ employeeId: sqId, date: day, cents });
       }
     }
     totalPooledTipsCents += poolCents;
+    totalExcludedTipsCents += excludedCents;
 
     const { tips, attributedCents, pinnedCents } = attributeBucket(poolCents, cells, pins);
     for (const [key, cents] of tips) {
@@ -360,10 +438,16 @@ export function computeDailyGrid(
       pool_cents: poolCents,
       pinned_cents: pinnedCents,
       attributed_cents: attributedCents,
+      excluded_cents: excludedCents,
+      exclusions: bucketExclusions,
+      pinned_on_excluded_cents: pinnedOnExcludedCents,
     });
   }
 
-  return { days, hoursByDate, cashByDate, cardTipsByDate, buckets, totalPooledTipsCents };
+  return {
+    days, hoursByDate, cashByDate, cardTipsByDate, buckets,
+    totalPooledTipsCents, totalExcludedTipsCents,
+  };
 }
 
 /**
@@ -377,7 +461,8 @@ export async function buildDailyGrid(
   employees: Employee[],
   tipPoolFrequency: TipPoolFrequency,
   overrides: DayOverride[],
+  exclusions: TipDayExclusion[] = [],
 ): Promise<DailyGrid> {
   const inputs = await fetchDayGridInputs(period);
-  return computeDailyGrid(inputs, period, employees, tipPoolFrequency, overrides);
+  return computeDailyGrid(inputs, period, employees, tipPoolFrequency, overrides, exclusions);
 }

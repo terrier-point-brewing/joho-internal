@@ -4,7 +4,7 @@ import type {
   TipBucketSummary,
 } from "./types";
 import { buildDailyGrid, dayGroups } from "./dailyGrid";
-import type { DayOverride } from "./dailyGrid";
+import type { DayOverride, TipDayExclusion } from "./dailyGrid";
 
 /**
  * Two-step attribution:
@@ -18,9 +18,13 @@ async function buildGuaranteeBuckets(
   employees: Employee[],
   config: PayrollConfig,
   overrides: DayOverride[],
-): Promise<{ buckets: GuaranteeBucket[]; tip_buckets: TipBucketSummary[]; totalPooledTipsCents: number }> {
+  exclusions: TipDayExclusion[],
+): Promise<{
+  buckets: GuaranteeBucket[]; tip_buckets: TipBucketSummary[];
+  totalPooledTipsCents: number; totalExcludedTipsCents: number;
+}> {
   const grid = await buildDailyGrid(
-    period, employees, config.tip_pool_frequency ?? "biweekly", overrides
+    period, employees, config.tip_pool_frequency ?? "biweekly", overrides, exclusions
   );
 
   // Guarantee bucketing is independent of tip-pool bucketing: re-aggregate the
@@ -53,8 +57,11 @@ async function buildGuaranteeBuckets(
       days: b.days,
       tipsPooledCents: b.pool_cents,
       tipsAttributedCents: b.attributed_cents,
+      tipsExcludedCents: b.excluded_cents,
+      exclusions: b.exclusions,
     })),
     totalPooledTipsCents: grid.totalPooledTipsCents,
+    totalExcludedTipsCents: grid.totalExcludedTipsCents,
   };
 }
 
@@ -63,7 +70,8 @@ export async function buildPayrollPreview(
   allEmployees: Employee[],
   config: PayrollConfig,
   storedEntries: PayrollEntry[],
-  overrides: DayOverride[] = []
+  overrides: DayOverride[] = [],
+  exclusions: TipDayExclusion[] = [],
 ): Promise<PayrollPreview> {
   const hourlyTipped = allEmployees.filter(
     (e) => e.employment_type === "hourly" && e.receives_tips && e.active
@@ -72,8 +80,8 @@ export async function buildPayrollPreview(
     (e) => e.employment_type !== "hourly" && e.active
   );
 
-  const { buckets, tip_buckets, totalPooledTipsCents } =
-    await buildGuaranteeBuckets(period, allEmployees, config, overrides);
+  const { buckets, tip_buckets, totalPooledTipsCents, totalExcludedTipsCents } =
+    await buildGuaranteeBuckets(period, allEmployees, config, overrides, exclusions);
 
   const computed = computePayrollEntries(hourlyTipped, buckets, config);
 
@@ -104,6 +112,7 @@ export async function buildPayrollPreview(
     employees,
     salaried_employees: salariedEmployees,
     total_pooled_tips_cents: totalPooledTipsCents,
+    total_excluded_tips_cents: totalExcludedTipsCents,
     tip_buckets,
   };
 }

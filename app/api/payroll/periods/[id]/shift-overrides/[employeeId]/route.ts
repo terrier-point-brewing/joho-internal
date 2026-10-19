@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
-import { fetchDayGridInputs, computeDailyGrid, bucketViolations, type DayOverride } from "@/lib/payroll/dailyGrid";
+import { fetchDayGridInputs, computeDailyGrid, bucketViolations, type DayOverride, type TipDayExclusion } from "@/lib/payroll/dailyGrid";
 import type { Employee, PayPeriod, TipPoolFrequency } from "@/lib/payroll/types";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +61,9 @@ export async function PUT(
 
   // Validate by running the real computation with the proposed override set,
   // so a write can never persist a state the read path would have to degrade.
-  const [{ data: employees }, { data: config }, { data: otherRows }, { data: existingRows }] = await Promise.all([
+  const [
+    { data: employees }, { data: config }, { data: otherRows }, { data: existingRows }, { data: exclusionRows },
+  ] = await Promise.all([
     supabase.from("employees")
       .select("id, first_name, last_name, square_team_member_id, receives_tips, employment_type, active")
       .not("square_team_member_id", "is", null),
@@ -73,6 +75,9 @@ export async function PUT(
     supabase.from("payroll_shift_overrides")
       .select("work_date, created_by, created_at")
       .eq("pay_period_id", id).eq("employee_id", employeeId),
+    supabase.from("payroll_tip_day_exclusions")
+      .select("work_date, amount_cents, reason")
+      .eq("pay_period_id", id),
   ]);
 
   const frequency = ((config as { tip_pool_frequency?: string } | null)?.tip_pool_frequency
@@ -93,7 +98,10 @@ export async function PUT(
   let grid;
   try {
     const inputs = await fetchDayGridInputs(period as PayPeriod);
-    grid = computeDailyGrid(inputs, period as PayPeriod, (employees ?? []) as Employee[], frequency, proposed);
+    grid = computeDailyGrid(
+      inputs, period as PayPeriod, (employees ?? []) as Employee[], frequency, proposed,
+      (exclusionRows ?? []) as TipDayExclusion[],
+    );
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));
   }
@@ -102,7 +110,9 @@ export async function PUT(
   if (violations.length > 0) {
     const v = violations[0];
     const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
-    const message = v.kind === "pins_exceed_pool"
+    const message = v.kind === "pin_on_excluded_day"
+      ? `${v.label} has its card tips excluded from payroll; remove the exclusion before pinning ${usd(v.pinnedCents)} there.`
+      : v.kind === "pins_exceed_pool"
       ? `Pinned card tips for ${v.label} total ${usd(v.pinnedCents)}, which exceeds the ${usd(v.poolCents)} pool.`
       : `No unpinned cell can absorb the remainder for ${v.label}; pins must total exactly ${usd(v.poolCents)}.`;
     return NextResponse.json({ error: message, violations }, { status: 422 });

@@ -44,6 +44,10 @@ export interface PayPeriod {
   status: PayPeriodStatus;
   locked_at: string | null;
   locked_by: string | null;
+  /** Σ excluded card tips frozen at lock (payroll_tip_day_exclusions); null while
+   *  open. Pooled by Square but deliberately never paid through payroll — it
+   *  stays in GL 2310 Undistributed Tips until finance reclasses it. */
+  excluded_tips_cents?: number | null;
   created_at: string;
 }
 
@@ -205,6 +209,9 @@ export interface TipBucketSummary {
   /** What actually landed on employees. Below tipsPooledCents means the day
    *  took tips with nobody eligible on shift; the lock route gates on it. */
   tipsAttributedCents: number;
+  /** Pool of days excluded from payroll on the record — not in tipsPooledCents. */
+  tipsExcludedCents: number;
+  exclusions: Array<{ date: string; reason: string; snapshotCents: number; liveCents: number }>;
 }
 
 /** Full preview response from /api/payroll/periods/[id]/preview */
@@ -216,6 +223,8 @@ export interface PayrollPreview {
   employees: Employee[];
   salaried_employees: Employee[];
   total_pooled_tips_cents: number;
+  /** Card tips Square pooled that payroll deliberately leaves in GL 2310. */
+  total_excluded_tips_cents: number;
   /** Per-bucket tip totals (1 for biweekly, 2 for weekly, N for daily). */
   tip_buckets: TipBucketSummary[];
 }
