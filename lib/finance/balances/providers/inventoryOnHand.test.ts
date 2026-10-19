@@ -117,6 +117,8 @@ function fakeTables(tables: Record<string, Record<string, unknown>[]>) {
         select: () => chain,
         order: () => chain,
         is: () => chain,
+        // loadBatchCosts excludes purchased (guest) placeholders.
+        neq: () => chain,
         // loadPackagingYieldPct reads one system_settings row; absent → default.
         eq: () => chain,
         maybeSingle: () => Promise.resolve({ data: null, error: null }),
