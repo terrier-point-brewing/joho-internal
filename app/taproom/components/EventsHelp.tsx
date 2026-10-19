@@ -51,23 +51,23 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
     <Modal title="How to use Events" onClose={onClose} wide>
       <div className="space-y-3">
         <Banner tone="info">
-          <p className="font-semibold">An event only sees pours rung as a Square &ldquo;Event Pour&rdquo; item inside its time window.</p>
+          <p className="font-semibold">An event only counts pours that were rung on the Square &ldquo;Event Pour&rdquo; item and closed inside its time window.</p>
           <p className="mt-1">
-            Ring a pour on the regular draft item, or outside the event&rsquo;s start and end, and it lands in the
-            everyday taproom numbers instead. Nothing here moves sales between the two afterwards.
+            A pour rung on the regular draft item, or outside the event&rsquo;s start and end times, is counted in the
+            everyday taproom numbers instead. Nothing on this tab can move a sale between the two afterwards.
           </p>
         </Banner>
 
         {/* The mechanism, in one place — the tab itself only shows the result. */}
         <details className="rounded-lg border border-line bg-surface/40 px-4 py-3 text-sm text-body">
-          <summary className="cursor-pointer font-medium text-strong select-none">How a pour gets counted</summary>
+          <summary className="cursor-pointer font-medium text-strong select-none">How a pour is counted</summary>
           <ul className="mt-2 ml-5 list-disc space-y-1.5 leading-relaxed marker:text-faint">
-            <li>Any Square item whose name contains <span className="font-medium">Event Pour</span> counts. Each of its variations becomes a row in the event&rsquo;s table.</li>
-            <li>A sale counts when the order was <span className="font-medium">closed</span> between the event&rsquo;s start and end. The time the ticket is paid is what matters, not when it was opened.</li>
-            <li>Tips are worked out for you: every ticket with at least one Event Pour on it contributes its whole tip, split into card and cash by how the customer paid. That is the event&rsquo;s card tips, with nothing to add up by hand.</li>
-            <li>Cash tips are usually not rung at events, so the Cash Tips tile is normally zero. Count the jar separately if cash tips need to reach the pool.</li>
-            <li>Invoiced sales never count, even inside the window.</li>
-            <li>Event Pour sales show up in Finance under Events, not Taproom.</li>
+            <li>Any Square item whose name contains <span className="font-medium">Event Pour</span> is treated as an event pour. Each of its variations becomes a row in the event&rsquo;s table.</li>
+            <li>A sale is counted when its order was <span className="font-medium">closed</span> between the event&rsquo;s start and end times. The time the ticket was paid is what matters, not the time it was opened.</li>
+            <li>Tips are calculated automatically. Every ticket that includes at least one Event Pour contributes its whole tip, split into card and cash according to how the customer paid. This gives you the event&rsquo;s card tips without any adding up by hand.</li>
+            <li>Cash tips are usually not recorded at events, so the Cash Tips tile normally shows zero. If cash tips need to reach the tip pool, count the jar separately.</li>
+            <li>Invoiced sales are never counted, even when they fall inside the window.</li>
+            <li>Event Pour sales appear in Finance under Events rather than Taproom.</li>
           </ul>
         </details>
 
@@ -77,14 +77,14 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
             <p className="text-sm font-medium text-strong">Set up the pours in Square</p>
           </div>
           <ol className="mt-3 ml-5 list-decimal space-y-1.5 text-sm text-body leading-relaxed marker:text-faint">
-            <li>In Square Items, open the existing <span className="font-medium">Event Pour</span> item. It is already there; you almost never need to make a new one.</li>
-            <li><span className="font-medium">Rename its variations</span> to this event&rsquo;s pours, for example the beers being poured or <span className="font-medium">Pint</span> and <span className="font-medium">Half Pint</span>. The variation name is what the event&rsquo;s table shows, so name it the way you want to read it.</li>
-            <li>Check each variation&rsquo;s price and sales tax for this event.</li>
-            <li>Only add a variation when the event sells more kinds of pour than the item already has.</li>
+            <li>In Square Items, open the existing <span className="font-medium">Event Pour</span> item. It is already set up, so you will almost never need to create a new one.</li>
+            <li><span className="font-medium">Rename its variations</span> to match this event&rsquo;s pours, for example the beers being poured, or <span className="font-medium">Pint</span> and <span className="font-medium">Half Pint</span>. The variation name is what appears in the event&rsquo;s table, so name it the way you want to read it.</li>
+            <li>Check that each variation&rsquo;s price and sales tax are correct for this event.</li>
+            <li>Add a new variation only when the event sells more kinds of pour than the item already has.</li>
           </ol>
           <p className="mt-3 text-xs text-muted leading-relaxed">
-            Past events show a variation&rsquo;s current name, so after a rename an older event&rsquo;s table reads with the new labels. The quantities and money don&rsquo;t change.
-            If the item is ever missing, create one whose name contains <span className="font-medium">Event Pour</span>; anything else in the name is fine.
+            Past events display each variation&rsquo;s current name, so after a rename an older event&rsquo;s table will show the new labels. The quantities and amounts do not change.
+            If the item is ever missing, create one whose name contains <span className="font-medium">Event Pour</span>. Anything else in the name is fine.
           </p>
         </section>
 
@@ -92,41 +92,41 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
           button="+ New Event"
           when="Before the event starts"
           steps={[
-            <>Press <Btn>+ New Event</Btn> and give it a name and a host.</>,
-            <>Set <span className="font-medium">Start</span> and <span className="font-medium">End</span> to the real pouring window. Leave a little room at the end so the last tabs closed after last call still count.</>,
-            <>Press <Btn>Save Event</Btn>. The event can be made before or after the day; only the window matters.</>,
+            <>Press <Btn>+ New Event</Btn>, then enter a name and a host.</>,
+            <>Set <span className="font-medium">Start</span> and <span className="font-medium">End</span> to the actual pouring window. Leave a little room at the end so that tabs closed after last call are still counted.</>,
+            <>Press <Btn>Save Event</Btn>. The event can be created before or after the day itself. Only the time window matters.</>,
           ]}
-          note="Two events that overlap in time both see the same pours. Keep windows apart."
+          note="Two events whose windows overlap will both count the same pours, so keep their windows apart."
         />
 
         <Action
           button="Event Pour"
           when="Ringing pours during the event"
           steps={[
-            <>Ring every event pour on the <span className="font-medium">Event Pour</span> item, picking the right variation. Never on the regular tap item.</>,
-            "Apply any event discount on the line like normal. It shows in the Discounts column.",
-            "Close each ticket before the event's end time. A tab left open past the end falls out of the event.",
+            <>Ring every event pour on the <span className="font-medium">Event Pour</span> item and pick the correct variation. Never ring an event pour on the regular tap item.</>,
+            "Apply any event discount to the line as you normally would. It appears in the Discounts column.",
+            "Close each ticket before the event's end time. A tab left open past the end time is not counted toward the event.",
           ]}
-          note="Card tips are picked up automatically from every ticket that has an Event Pour on it, so keep event pours and regular pours on separate tickets where you can. Cash tips usually aren't rung at events, so expect the Cash Tips tile to read zero."
+          note="Card tips are collected automatically from every ticket that includes an Event Pour, so keep event pours and regular pours on separate tickets whenever you can. Cash tips are usually not recorded at events, so expect the Cash Tips tile to show zero."
         />
 
         <Action
           button="Edit"
-          when="The window was wrong, or pours are missing"
+          when="The window was wrong or pours are missing"
           steps={[
-            <>Press <Btn>Edit</Btn> on the event and widen <span className="font-medium">Start</span> or <span className="font-medium">End</span>.</>,
-            <>Press <Btn>Save Event</Btn>, then open the event again to see the refreshed table.</>,
+            <>Press <Btn>Edit</Btn> on the event and adjust <span className="font-medium">Start</span> or <span className="font-medium">End</span>.</>,
+            <>Press <Btn>Save Event</Btn>, then open the event again to see the updated table.</>,
           ]}
-          note="Pours rung on the regular draft item can't be recovered by editing the window. They stay in the everyday taproom numbers."
+          note="Pours rung on the regular draft item cannot be recovered by editing the window. They remain in the everyday taproom numbers."
         />
 
         <Action
           button="Delete"
-          when="The event didn't happen or was made twice"
+          when="The event did not happen or was created twice"
           steps={[
             <>Press <Btn>Delete</Btn>, then <Btn>Confirm</Btn>.</>,
           ]}
-          note="Only the event record goes. The Square sales are untouched; make a new event with the right window and they show there."
+          note="Only the event record is removed. The Square sales are untouched, so if you create a new event with the correct window, they will appear there."
         />
 
         <div className="flex justify-end pt-1">
