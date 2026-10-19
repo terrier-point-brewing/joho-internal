@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   distributeByWeight, attributeBucket, bucketViolations, cellKey,
   getDays, dayGroups, bucketLabels, buildDailyGrid,
-  unattributedBuckets, snapshotPoolVariance,
+  unattributedBuckets, snapshotPoolVariance, exclusionDrift,
   fetchDayGridInputs, computeDailyGrid,
 } from "./dailyGrid";
 import type { DailyShift } from "@/lib/square/labor";
@@ -17,6 +17,8 @@ vi.mock("@/lib/square/payroll", () => ({ fetchTipsAndCashTakeByDay: (s: string, 
 const cell = (sq: string, date: string, hours: number) => ({ employeeId: sq, date, hours });
 const pin  = (sq: string, date: string, cents: number) => ({ employeeId: sq, date, cents });
 const sum  = (m: Map<string, number>) => [...m.values()].reduce((s, v) => s + v, 0);
+/** A bucket with nothing excluded — the pre-exclusion shape every older test assumed. */
+const noX  = { excluded_cents: 0, exclusions: [], pinned_on_excluded_cents: 0 };
 
 describe("distributeByWeight", () => {
   it("splits proportionally", () => {
@@ -106,7 +108,7 @@ describe("attributeBucket", () => {
     expect(r.attributedCents).toBe(8000);
     expect(
       bucketViolations([{
-        label: "7/1", days: ["2026-07-01"],
+        label: "7/1", days: ["2026-07-01"], ...noX,
         pool_cents: 8000, pinned_cents: r.pinnedCents, attributed_cents: r.attributedCents,
       }])
     ).toEqual([]);
@@ -117,22 +119,22 @@ describe("bucketViolations", () => {
   const base = { label: "7/1", days: ["2026-07-01"] };
 
   it("reports nothing when the bucket balances", () => {
-    expect(bucketViolations([{ ...base, pool_cents: 8000, pinned_cents: 5000, attributed_cents: 8000 }])).toEqual([]);
+    expect(bucketViolations([{ ...base, ...noX, pool_cents: 8000, pinned_cents: 5000, attributed_cents: 8000 }])).toEqual([]);
   });
 
   it("reports pins_exceed_pool", () => {
-    const v = bucketViolations([{ ...base, pool_cents: 1000, pinned_cents: 5000, attributed_cents: 5000 }]);
+    const v = bucketViolations([{ ...base, ...noX, pool_cents: 1000, pinned_cents: 5000, attributed_cents: 5000 }]);
     expect(v).toHaveLength(1);
     expect(v[0].kind).toBe("pins_exceed_pool");
   });
 
   it("reports no_absorber when pins exist and the pool is under-attributed", () => {
-    const v = bucketViolations([{ ...base, pool_cents: 8000, pinned_cents: 5000, attributed_cents: 5000 }]);
+    const v = bucketViolations([{ ...base, ...noX, pool_cents: 8000, pinned_cents: 5000, attributed_cents: 5000 }]);
     expect(v[0].kind).toBe("no_absorber");
   });
 
   it("does not report an unattributable pool when nothing is pinned", () => {
-    expect(bucketViolations([{ ...base, pool_cents: 8000, pinned_cents: 0, attributed_cents: 0 }])).toEqual([]);
+    expect(bucketViolations([{ ...base, ...noX, pool_cents: 8000, pinned_cents: 0, attributed_cents: 0 }])).toEqual([]);
   });
 });
 
@@ -140,7 +142,7 @@ describe("unattributedBuckets", () => {
   const base = { label: "7/1", days: ["2026-07-01"] };
 
   it("reports a pool that landed on nobody — the case bucketViolations lets through", () => {
-    const v = unattributedBuckets([{ ...base, pool_cents: 8000, pinned_cents: 0, attributed_cents: 0 }]);
+    const v = unattributedBuckets([{ ...base, ...noX, pool_cents: 8000, pinned_cents: 0, attributed_cents: 0 }]);
     expect(v).toEqual([{
       label: "7/1", days: ["2026-07-01"],
       poolCents: 8000, attributedCents: 0, shortfallCents: 8000,
@@ -148,22 +150,22 @@ describe("unattributedBuckets", () => {
   });
 
   it("reports a partial shortfall", () => {
-    const v = unattributedBuckets([{ ...base, pool_cents: 8000, pinned_cents: 0, attributed_cents: 7500 }]);
+    const v = unattributedBuckets([{ ...base, ...noX, pool_cents: 8000, pinned_cents: 0, attributed_cents: 7500 }]);
     expect(v[0].shortfallCents).toBe(500);
   });
 
   it("stays silent when the bucket balances", () => {
-    expect(unattributedBuckets([{ ...base, pool_cents: 8000, pinned_cents: 0, attributed_cents: 8000 }])).toEqual([]);
+    expect(unattributedBuckets([{ ...base, ...noX, pool_cents: 8000, pinned_cents: 0, attributed_cents: 8000 }])).toEqual([]);
   });
 
   it("stays silent when pins overshoot — that is bucketViolations' job", () => {
-    expect(unattributedBuckets([{ ...base, pool_cents: 1000, pinned_cents: 5000, attributed_cents: 5000 }])).toEqual([]);
+    expect(unattributedBuckets([{ ...base, ...noX, pool_cents: 1000, pinned_cents: 5000, attributed_cents: 5000 }])).toEqual([]);
   });
 
   it("names only the offending buckets in a multi-bucket period", () => {
     const v = unattributedBuckets([
-      { label: "7/1", days: ["2026-07-01"], pool_cents: 500, pinned_cents: 0, attributed_cents: 0 },
-      { label: "7/2", days: ["2026-07-02"], pool_cents: 900, pinned_cents: 0, attributed_cents: 900 },
+      { label: "7/1", days: ["2026-07-01"], ...noX, pool_cents: 500, pinned_cents: 0, attributed_cents: 0 },
+      { label: "7/2", days: ["2026-07-02"], ...noX, pool_cents: 900, pinned_cents: 0, attributed_cents: 900 },
     ]);
     expect(v.map(b => b.label)).toEqual(["7/1"]);
   });
@@ -518,5 +520,94 @@ describe("fetchDayGridInputs / computeDailyGrid split", () => {
       { ...noOv, employee_id: "e1", work_date: "2026-07-02", adj_hours: 9 },
     ]);
     expect(JSON.stringify(inputs)).toBe(before);
+  });
+});
+
+describe("tip day exclusions", () => {
+  // 7/1: bartenders worked, $80 pool. 7/2: a salaried worker rang a sale that
+  // took an $11.50 tip; no tip-eligible hours. The owner's rule: salaried staff
+  // never receive tips, so 7/2's pool is paid to no one.
+  beforeEach(() => {
+    mockShifts.mockResolvedValue([
+      { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 1000 },
+      { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 500 },
+    ]);
+    mockTips.mockResolvedValue([
+      { date: "2026-07-01", tipsPooledCents: 8000 },
+      { date: "2026-07-02", tipsPooledCents: 1150 },
+    ]);
+  });
+  const excl = { work_date: "2026-07-02", amount_cents: 1150, reason: "CO2 refill sale by salaried staff" };
+
+  it("without an exclusion, the salaried-rung day is unattributed and blocks the lock", async () => {
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", []);
+    expect(unattributedBuckets(g.buckets).map(b => b.days)).toEqual([["2026-07-02"]]);
+    expect(g.totalExcludedTipsCents).toBe(0);
+  });
+
+  it("an excluded day contributes 0 to the pool to attribute and is no longer unattributed", async () => {
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", [], [excl]);
+    const b = g.buckets.find(x => x.days.includes("2026-07-02"))!;
+    expect(b.pool_cents).toBe(0);
+    expect(b.attributed_cents).toBe(0);
+    expect(b.excluded_cents).toBe(1150);
+    expect(b.exclusions).toEqual([
+      { date: "2026-07-02", reason: excl.reason, snapshotCents: 1150, liveCents: 1150 },
+    ]);
+    expect(unattributedBuckets(g.buckets)).toEqual([]);
+    expect(exclusionDrift(g.buckets)).toEqual([]);
+    expect(g.totalPooledTipsCents).toBe(8000);
+    expect(g.totalExcludedTipsCents).toBe(1150);
+  });
+
+  it("leaves non-excluded days exactly as before", async () => {
+    const plain = await buildDailyGrid(PERIOD, EMPS, "daily", []);
+    const withX = await buildDailyGrid(PERIOD, EMPS, "daily", [], [excl]);
+    expect(withX.buckets[0]).toEqual(plain.buckets[0]);
+    expect([...withX.cardTipsByDate.get("2026-07-01")!]).toEqual([...plain.cardTipsByDate.get("2026-07-01")!]);
+    expect(withX.cardTipsByDate.get("2026-07-02")).toBeUndefined();
+  });
+
+  it("removes only the excluded day from a multi-day (biweekly) bucket", async () => {
+    const g = await buildDailyGrid(PERIOD, EMPS, "biweekly", [], [excl]);
+    expect(g.buckets).toHaveLength(1);
+    expect(g.buckets[0].pool_cents).toBe(8000);
+    expect(g.buckets[0].excluded_cents).toBe(1150);
+    expect(g.buckets[0].attributed_cents).toBe(8000);
+  });
+
+  it("rejects a pin on an excluded day via bucketViolations instead of paying it", async () => {
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
+      { ...noOv, employee_id: "e1", work_date: "2026-07-02", adj_paycheck_tips_cents: 1150 },
+    ], [excl]);
+    const b = g.buckets.find(x => x.days.includes("2026-07-02"))!;
+    expect(b.pinned_cents).toBe(0);
+    expect(b.pinned_on_excluded_cents).toBe(1150);
+    expect(g.cardTipsByDate.get("2026-07-02")).toBeUndefined();
+    const v = bucketViolations(g.buckets);
+    expect(v).toHaveLength(1);
+    expect(v[0].kind).toBe("pin_on_excluded_day");
+  });
+
+  it("surfaces drift when the live pool no longer matches the excluded amount", async () => {
+    mockTips.mockResolvedValue([
+      { date: "2026-07-01", tipsPooledCents: 8000 },
+      { date: "2026-07-02", tipsPooledCents: 900 },
+    ]);
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", [], [excl]);
+    const b = g.buckets.find(x => x.days.includes("2026-07-02"))!;
+    expect(b.excluded_cents).toBe(900);
+    expect(unattributedBuckets(g.buckets)).toEqual([]);
+    expect(exclusionDrift(g.buckets)).toEqual([
+      { label: "7/2", date: "2026-07-02", snapshotCents: 1150, liveCents: 900 },
+    ]);
+  });
+
+  it("ignores an exclusion for a day outside the period", async () => {
+    const g = await buildDailyGrid(PERIOD, EMPS, "daily", [], [
+      { work_date: "2026-07-09", amount_cents: 500, reason: "n/a" },
+    ]);
+    expect(g.totalExcludedTipsCents).toBe(0);
+    expect(g.buckets.every(b => b.exclusions.length === 0)).toBe(true);
   });
 });
