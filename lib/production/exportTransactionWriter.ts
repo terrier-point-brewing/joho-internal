@@ -15,6 +15,18 @@ export function initialExportStatus(channel: string): ExportTransactionStatus {
   return channel === "taproom" ? "paid" : "invoice_required";
 }
 
+/** Whether `batchId` is a purchased (guest beer) placeholder — see brew_batches.source. */
+export async function isPurchasedBatch(supabase: SupabaseClient, batchId: string | null): Promise<boolean> {
+  if (!batchId) return false;
+  const { data, error } = await supabase
+    .from("brew_batches")
+    .select("source")
+    .eq("id", batchId)
+    .maybeSingle();
+  if (error) throw new Error(`Could not read the batch's source: ${error.message}`);
+  return data?.source === "purchased";
+}
+
 /**
  * Inserts an export_transactions row plus its export_transaction_taxes children.
  *
@@ -72,7 +84,14 @@ export async function writeExportTransaction(
     shippedBeforeDeposit?: boolean;
   }
 ): Promise<string> {
-  const taxBreakdown = await computeExciseTaxBreakdown(supabase, params.volumeBbl);
+  // Purchased (guest) beer was tax-paid by the brewery that made it. Draining
+  // it is a sale, not a removal from our bond, so no excise is computed or
+  // billed on the row. The row itself is still written: it is what depletes
+  // cold storage and what Square sold. The DB trigger stamps
+  // `is_tax_paid_purchase` independently of this check, so the TTB / NC reads
+  // exclude the row even if this lookup were ever skipped.
+  const purchased = await isPurchasedBatch(supabase, params.batchId);
+  const taxBreakdown = purchased ? [] : await computeExciseTaxBreakdown(supabase, params.volumeBbl);
   const totalExciseTaxUsd = Math.round(taxBreakdown.reduce((s, t) => s + t.amountUsd, 0) * 100) / 100;
 
   const { data: exportTx, error: exTxErr } = await supabase

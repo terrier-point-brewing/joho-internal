@@ -73,6 +73,10 @@ export async function fetchRemovalData(sb: SupabaseClient, period: TaxPeriod): P
     sb
       .from("export_transactions")
       .select("channel, volume_bbl, created_at")
+      // Purchased (guest) beer was tax-paid by the brewery that made it.
+      // Draining it from our cold room is not a removal from our bond — see
+      // brew_batches.source and the stamping trigger on export_transactions.
+      .eq("is_tax_paid_purchase", false)
       .gte("created_at", yearStartTs)
       .lt("created_at", endExclusiveTs)
       .order("id", { ascending: true }),

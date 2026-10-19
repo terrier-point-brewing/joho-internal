@@ -21,6 +21,8 @@ export async function GET(req: NextRequest) {
       volume_bbl, total_excise_tax_usd,
       created_at
     `)
+    // Purchased (guest) beer carries no excise of ours — see brew_batches.source.
+    .eq("is_tax_paid_purchase", false)
     .order("created_at", { ascending: false });
 
   if (from) query = query.gte("created_at", from);

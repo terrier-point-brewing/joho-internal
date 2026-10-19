@@ -215,6 +215,7 @@ export const allocationPlans: AlertSource = {
       .from("brew_batches")
       .select("id, batch_number, beer_name, volume_bbl, status")
       .in("status", ACTIVE_BATCH_STATUSES)
+      .neq("source", "purchased")
       .gt("volume_bbl", 0);
     if (error) throw new Error(error.message);
     type Batch = { id: string; batch_number: string | null; beer_name: string | null; volume_bbl: number | string; status: string };

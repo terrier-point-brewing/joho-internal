@@ -575,6 +575,8 @@ export interface BrewBatch {
   /** Dissolved oxygen in parts per billion (ppb). */
   dissolved_oxygen_ppb: number | null;
   square_invoice_id: string | null;
+  /** brewed = made here. purchased = guest-beer placeholder (never listed by the batches API). */
+  source: "brewed" | "purchased";
   recipe_id: string | null;
   recipes: { beer_name: string; expected_yield_bbl: number | null; partner: { company_name: string } | null } | null;
   batch_status_history: BatchStatusHistory[];

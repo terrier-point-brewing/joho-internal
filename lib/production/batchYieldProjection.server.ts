@@ -39,7 +39,7 @@ export async function loadBatchYields(
   if (ids.length === 0) return out;
 
   const [{ data: batches }, { data: transfers }, { data: equipment }, packagingYieldPct] = await Promise.all([
-    supabase.from("brew_batches").select("id, status, volume_bbl").in("id", ids),
+    supabase.from("brew_batches").select("id, status, volume_bbl").in("id", ids).neq("source", "purchased"),
     // Both sides of every transfer: a conversion child's liquid arrives as a
     // to_batch_id row, and the location breakdown needs to see it land.
     supabase.from("batch_transfers")

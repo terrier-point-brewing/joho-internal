@@ -107,7 +107,8 @@ export async function loadIntakeDemand(supabase: DbClient, today = new Date()): 
       .eq("status", "open"),
     supabase.from("brew_batches")
       .select("id, batch_number, recipe_id, turns, volume_bbl, expected_delivery_date, converted_from_batch_id")
-      .in("status", ACTIVE_BATCH_STATUSES),
+      .in("status", ACTIVE_BATCH_STATUSES)
+      .neq("source", "purchased"),
     supabase.from("taproom_recipe_settings").select("recipe_id").eq("is_retired", true),
   ]);
   const retired = new Set(must<{ recipe_id: string }>("taproom settings", retiredRes).map((r) => r.recipe_id));
