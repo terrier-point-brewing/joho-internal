@@ -165,7 +165,8 @@ begin
     'payroll_gl_reports',
     'payroll_gl_report_employees',
     'payroll_gl_report_totals',
-    'payroll_shift_overrides'
+    'payroll_shift_overrides',
+    'payroll_tip_day_exclusions'
   ]
   loop
     perform public.apply_grant_policies(t, 'payroll');

@@ -99,6 +99,13 @@ Both legs resolve to `payroll_gl_settings.tips_chart_of_accounts_id`, an
 only `revenue`/`cogs`/`expenses`/`other_*` for P&L KPIs, so tips are excluded
 **structurally** — not by a filter that can be forgotten.
 
+> **Excluded days (2026-10-19).** A day's card tips can be excluded from payroll
+> on the record (`payroll_tip_day_exclusions`, Shifts tab override mode) when
+> nobody tip-eligible worked. Nothing is paid out, so no `expense_gl_splits`
+> credit ever arrives: the amount stays in GL 2310 Undistributed Tips until
+> finance reclasses it by hand. `pay_periods.excluded_tips_cents` freezes the
+> total at lock so readers can tell "pooled, never paid" from "paid".
+
 ## Data model
 
 Two migrations, with **distinct numeric prefixes** — the CLI keys on the digits

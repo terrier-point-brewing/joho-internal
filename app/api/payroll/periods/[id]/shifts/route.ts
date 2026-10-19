@@ -3,7 +3,8 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import {
-  fetchDayGridInputs, computeDailyGrid, snapshotPoolVariance, type DayOverride,
+  fetchDayGridInputs, computeDailyGrid, snapshotPoolVariance, exclusionDrift,
+  type DayOverride, type TipDayExclusion,
 } from "@/lib/payroll/dailyGrid";
 import type { Employee, PayPeriod, TipPoolFrequency } from "@/lib/payroll/types";
 
@@ -33,22 +34,31 @@ export async function GET(
 
   if (pErr || !period) return apiError("Period not found", 404);
 
-  const { data: overrideRows, error: ovErr } = await supabase
-    .from("payroll_shift_overrides")
-    .select("employee_id, work_date, adj_hours, adj_paycheck_tips_cents, adj_cash_tips_cents, note")
-    .eq("pay_period_id", id);
+  const [{ data: overrideRows, error: ovErr }, { data: exclusionRows, error: xErr }] = await Promise.all([
+    supabase
+      .from("payroll_shift_overrides")
+      .select("employee_id, work_date, adj_hours, adj_paycheck_tips_cents, adj_cash_tips_cents, note")
+      .eq("pay_period_id", id),
+    supabase
+      .from("payroll_tip_day_exclusions")
+      .select("work_date, amount_cents, reason, created_at")
+      .eq("pay_period_id", id),
+  ]);
 
   // Surface rather than degrade: silently falling back to [] would render the
   // grid as if a manager's corrections had never been saved, inviting them to
   // enter the same override twice.
   if (ovErr) return apiError(ovErr.message);
+  if (xErr) return apiError(xErr.message);
 
   const overrides = (overrideRows ?? []) as DayOverride[];
+  const exclusions = (exclusionRows ?? []) as Array<TipDayExclusion & { created_at: string }>;
   const emps = (employees ?? []) as Employee[];
   const frequency = ((config as { tip_pool_frequency?: string } | null)?.tip_pool_frequency
     ?? "biweekly") as TipPoolFrequency;
 
   let grid, baseline;
+  let dayPools: Record<string, number> = {};
   try {
     // Fetch the Square data ONCE, then compute both grids from it. `baseline`
     // (no overrides) gives the struck-through original — card tips rebalance,
@@ -57,8 +67,12 @@ export async function GET(
     // free; calling buildDailyGrid twice would re-run all three paginated
     // Square endpoint sequences.
     const inputs = await fetchDayGridInputs(period as PayPeriod);
-    grid     = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, overrides);
-    baseline = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, []);
+    grid     = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, overrides, exclusions);
+    baseline = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, [], exclusions);
+    // Gross per-day pools, so override mode can offer to exclude a day that
+    // took tips with nobody tip-eligible on shift — regardless of pooling
+    // frequency, which is what grid.buckets is keyed on.
+    dayPools = Object.fromEntries(inputs.dailyTips.map(t => [t.date, t.tipsPooledCents]));
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));
   }
@@ -145,6 +159,8 @@ export async function GET(
       const snapshotTips = snapshotRows.reduce(
         (s, r) => s + ((r as { paycheck_tips_cents: number | null }).paycheck_tips_cents ?? 0), 0
       );
+      // totalPooledTipsCents already leaves excluded days out, so an excluded
+      // day never reads as "the pool grew after the lock".
       snapshot_variance = snapshotPoolVariance(grid.totalPooledTipsCents, snapshotTips);
     }
   }
@@ -154,6 +170,13 @@ export async function GET(
     snapshot_variance,
     tip_pool_frequency: frequency,
     tip_buckets: grid.buckets,
+    day_pools: dayPools,
+    exclusions: Object.fromEntries(exclusions.map(x => [x.work_date, {
+      amount_cents: x.amount_cents, reason: x.reason, created_at: x.created_at,
+      live_cents: dayPools[x.work_date] ?? 0,
+    }])),
+    exclusion_drift: exclusionDrift(grid.buckets),
+    total_excluded_tips_cents: grid.totalExcludedTipsCents,
     pool_variance: grid.buckets
       .filter(b => b.attributed_cents !== b.pool_cents)
       .map(b => ({ label: b.label, pool_cents: b.pool_cents, attributed_cents: b.attributed_cents })),

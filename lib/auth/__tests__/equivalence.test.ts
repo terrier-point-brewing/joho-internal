@@ -21,23 +21,26 @@ describe("legacy role <-> scoped permission equivalence", () => {
   // change and gained `manager: false`. The tips-passthrough row added by #284
   // is NOT among them: raising POST payroll/gl-reports/backfill from
   // payrollOperate to payrollManage put it back on the legacy default, so its
-  // intentionalChange was dropped rather than inverted.
+  // intentionalChange was dropped rather than inverted. The two
+  // tip-exclusions rows (PUT/DELETE, 2026-10-19) carry the same change as the
+  // shift-overrides row they sit beside: manager gains a new payrollDayOverride
+  // route.
   //
   // This count is the whole point of the fixture: a bundle edit that moves any
   // (route, role) answer WITHOUT a recorded reason fails here rather than
   // shipping as silent drift.
-  it("fixture has exactly 214 rows, 57 with an intentional change, every reason non-empty", () => {
-    expect(LEGACY_MATRIX).toHaveLength(214);
+  it("fixture has exactly 216 rows, 59 with an intentional change, every reason non-empty", () => {
+    expect(LEGACY_MATRIX).toHaveLength(216);
 
     const changed = LEGACY_MATRIX.filter((row) => row.intentionalChange);
-    expect(changed).toHaveLength(57);
+    expect(changed).toHaveLength(59);
 
     for (const row of changed) {
       expect(row.intentionalChange!.reason.trim().length).toBeGreaterThan(0);
     }
   });
 
-  it("every (route, role) pair matches legacy behaviour, except the 57 documented changes", () => {
+  it("every (route, role) pair matches legacy behaviour, except the 59 documented changes", () => {
     let assertions = 0;
 
     for (const row of LEGACY_MATRIX) {
@@ -54,6 +57,6 @@ describe("legacy role <-> scoped permission equivalence", () => {
       }
     }
 
-    expect(assertions).toBe(856);
+    expect(assertions).toBe(864);
   });
 });

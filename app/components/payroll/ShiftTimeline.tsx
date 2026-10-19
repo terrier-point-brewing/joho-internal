@@ -6,6 +6,7 @@ import { queryKeys } from "@/lib/query-keys";
 import type { TipPoolFrequency } from "@/lib/payroll/types";
 import { fmtCents } from "@/lib/utils/formatting";
 import Banner from "@/app/components/ui/Banner";
+import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 
 interface DayOverrideCell {
   adj_hours: number | null;
@@ -33,12 +34,26 @@ interface ShiftRow {
 interface TipBucket {
   label: string; days: string[];
   pool_cents: number; pinned_cents: number; attributed_cents: number;
+  excluded_cents: number;
+}
+
+interface DayExclusion {
+  amount_cents: number;
+  reason: string;
+  created_at: string;
+  live_cents: number;
 }
 
 interface ShiftData {
   days: string[];
   tip_pool_frequency: TipPoolFrequency;
   tip_buckets: TipBucket[];
+  /** Gross card-tip pool per day, before any exclusion. */
+  day_pools: Record<string, number>;
+  /** Days whose card tips are kept out of payroll on the record (GL 2310). */
+  exclusions: Record<string, DayExclusion>;
+  exclusion_drift: Array<{ label: string; date: string; snapshotCents: number; liveCents: number }>;
+  total_excluded_tips_cents: number;
   pool_variance: Array<{ label: string; pool_cents: number; attributed_cents: number }>;
   snapshot_variance: {
     livePoolCents: number;
@@ -116,6 +131,10 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [savingRow, setSavingRow] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [excludeDay, setExcludeDay] = useState<string | null>(null);
+  const [excludeReason, setExcludeReason] = useState("");
+  const [excluding, setExcluding] = useState(false);
+  const [excludeError, setExcludeError] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<ShiftData>({
     queryKey: queryKeys.payroll.shifts(periodId, overrideMode),
@@ -200,6 +219,58 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
     }
   }
 
+  async function refetchAfterTipChange() {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: queryKeys.payroll.shiftsAll(periodId) }),
+      qc.invalidateQueries({ queryKey: queryKeys.payroll.preview(periodId) }),
+    ]);
+  }
+
+  async function submitExclusion(e: React.FormEvent) {
+    e.preventDefault();
+    if (!excludeDay) return;
+    setExcluding(true);
+    setExcludeError(null);
+    try {
+      const res = await fetch(`/api/payroll/periods/${periodId}/tip-exclusions/${excludeDay}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: excludeReason }),
+      });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: "Exclude failed" }));
+        setExcludeError(error ?? "Exclude failed");
+        return;
+      }
+      await refetchAfterTipChange();
+      setExcludeDay(null);
+      setExcludeReason("");
+    } catch (err) {
+      setExcludeError(err instanceof Error ? err.message : "Exclude failed");
+    } finally {
+      setExcluding(false);
+    }
+  }
+
+  async function removeExclusion(day: string) {
+    setSaveError(null);
+    const res = await fetch(`/api/payroll/periods/${periodId}/tip-exclusions/${day}`, { method: "DELETE" });
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Remove failed" }));
+      setSaveError(error ?? "Remove failed");
+      return;
+    }
+    await refetchAfterTipChange();
+  }
+
+  // A day whose pool nobody tip-eligible can receive: card tips were taken but
+  // every tipped row shows zero hours. That is the only day an exclusion is
+  // offered — the gate's own definition of "unattributable".
+  const tippedHoursOn = (d: string) =>
+    rows.filter(r => r.daily_tips_cents !== null).reduce((s, r) => s + (r.daily_hours[d] ?? 0), 0);
+  const canExclude = (d: string) =>
+    overrideMode && !data!.exclusions[d] && (data!.day_pools[d] ?? 0) > 0 && tippedHoursOn(d) === 0;
+
   // Chunk days into 7-day weeks
   const weeks: string[][] = [];
   for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
@@ -223,6 +294,27 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
           {v.attributed_cents > v.pool_cents
             ? `Pinned card tips for ${v.label} exceed the pool by ${fmtCents(v.attributed_cents - v.pool_cents)} — revise them.`
             : `${fmtCents(v.pool_cents - v.attributed_cents)} of the ${v.label} pool is unattributed (no eligible hours).`}
+        </Banner>
+      ))}
+      {Object.entries(data.exclusions).map(([d, x]) => (
+        <Banner key={d} tone="neutral" className="mb-3">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>
+              {dayLabel(d)}: {fmtCents(x.amount_cents)} of card tips excluded from payroll — {x.reason}.
+              {" "}Stays in GL 2310 Undistributed Tips for finance to reclass.
+            </span>
+            {overrideMode && (
+              <button type="button" onClick={() => removeExclusion(d)} className="btn-secondary">
+                Remove exclusion
+              </button>
+            )}
+          </span>
+        </Banner>
+      ))}
+      {data.exclusion_drift.map(d => (
+        <Banner key={`drift-${d.date}`} tone="danger" className="mb-3">
+          {dayLabel(d.date)} was excluded at {fmtCents(d.snapshotCents)} but its card-tip pool is now {fmtCents(d.liveCents)}.
+          Remove the exclusion and re-exclude the day; the period cannot lock until they agree.
         </Banner>
       ))}
       {data.snapshot_variance && (
@@ -420,9 +512,26 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
                     const dayHours    = rows.reduce((s, r) => s + (r.daily_hours[d] ?? 0), 0);
                     const dayTips     = hasTippedRows  ? rows.reduce((s, r) => s + (r.daily_tips_cents?.[d] ?? 0), 0) : null;
                     const dayCashTips = hasCashTipRows ? rows.reduce((s, r) => s + (r.daily_cash_tips_cents?.[d] ?? 0), 0) : null;
+                    const excluded = data.exclusions[d];
                     return (
                       <td key={d} className="px-1 py-2 align-middle text-center">
-                        {dayHours > 0 ? (
+                        {excluded ? (
+                          <div className="flex flex-col items-center gap-0.5" title={excluded.reason}>
+                            <span className="font-mono text-faint line-through text-xs">{fmtCents(excluded.amount_cents)}</span>
+                            <span className="text-[10px] leading-none text-muted">excluded</span>
+                          </div>
+                        ) : canExclude(d) ? (
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="font-mono text-danger text-xs">{fmtCents(data.day_pools[d])}</span>
+                            <button
+                              type="button"
+                              onClick={() => { setExcludeDay(d); setExcludeReason(""); setExcludeError(null); }}
+                              className="btn-secondary btn-xxs"
+                            >
+                              Exclude tips
+                            </button>
+                          </div>
+                        ) : dayHours > 0 ? (
                           <div className="flex flex-col items-center gap-0.5">
                             <span className="font-mono text-secondary">{dayHours.toFixed(1)}h</span>
                             {dayTips != null && dayTips > 0 && (
@@ -477,6 +586,34 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
           </tr>
         </tfoot>
       </table>
+
+      {excludeDay && (
+        <Modal title={`Exclude ${dayLabel(excludeDay)} card tips from payroll?`} onClose={() => setExcludeDay(null)}>
+          <form onSubmit={submitExclusion} className="space-y-4">
+            <p className="text-sm text-secondary">
+              {fmtCents(data.day_pools[excludeDay] ?? 0)} of card tips was taken on {dayLabel(excludeDay)} with
+              nobody tip-eligible on shift. Excluding it pays it to no one through payroll; it stays in
+              GL 2310 Undistributed Tips for finance to reclass. The lock gate will stop reporting this day.
+            </p>
+            <Field label="Reason" required>
+              <textarea
+                value={excludeReason}
+                onChange={e => setExcludeReason(e.target.value)}
+                rows={2}
+                className="inp w-full"
+                placeholder="e.g. CO2 refill sale by salaried staff, no bartender on shift"
+              />
+            </Field>
+            {excludeError && <Banner tone="danger">{excludeError}</Banner>}
+            <ModalActions
+              submitting={excluding}
+              onCancel={() => setExcludeDay(null)}
+              label="Exclude from payroll"
+              disabled={excludeReason.trim().length === 0}
+            />
+          </form>
+        </Modal>
+      )}
 
       <div className="flex items-center gap-4 mt-4 text-disabled text-xs">
         <span>Hours per shift start date (local time)</span>
