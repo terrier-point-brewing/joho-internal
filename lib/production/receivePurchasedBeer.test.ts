@@ -21,6 +21,10 @@ function fakeClient(opts: {
   existingLot?: { id: string; quantity_on_hand: number } | null;
   coldStorageError?: string;
   receiptError?: string;
+  /** recipe_packaging_variations has a row for this recipe + variation. Default true. */
+  linked?: boolean;
+  /** The packaging_variations row returned when there is no link. */
+  variation?: { is_active: boolean; partner_id: string | null; container: { type: string } | null } | null;
 }) {
   const captured: Captured = { batchInserts: [], coldStorageInserts: [], coldStorageUpdates: [], receiptInserts: [], order: [] };
 
@@ -58,6 +62,23 @@ function fakeClient(opts: {
         return { error: opts.coldStorageError ? { message: opts.coldStorageError } : null };
       };
       return c;
+    }
+    if (table === "recipe_packaging_variations") {
+      const l: Record<string, unknown> = {};
+      l.select = () => l;
+      l.eq = () => l;
+      l.maybeSingle = async () => ({ data: opts.linked === false ? null : { id: "link-1" }, error: null });
+      return l;
+    }
+    if (table === "packaging_variations") {
+      const v: Record<string, unknown> = {};
+      v.select = () => v;
+      v.eq = () => v;
+      v.maybeSingle = async () => ({
+        data: opts.variation === undefined ? { id: "var-1", is_active: true, partner_id: null, container: { type: "keg" } } : opts.variation,
+        error: null,
+      });
+      return v;
     }
     if (table === "beer_receipts") {
       return {
@@ -173,5 +194,21 @@ describe("receivePurchasedBeer", () => {
     const { client } = fakeClient({ existingBatchId: "guest-okt" });
     await expect(receivePurchasedBeer(client, { ...DELIVERY, costCents: 12.5 })).rejects.toThrow(/cents/);
     await expect(receivePurchasedBeer(client, { ...DELIVERY, costCents: -1 })).rejects.toThrow(/cents/);
+  });
+
+  it("accepts a generic keg the recipe never declared", async () => {
+    const { client, captured } = fakeClient({ existingBatchId: "guest-okt", linked: false });
+    await receivePurchasedBeer(client, DELIVERY);
+    expect(captured.coldStorageInserts).toHaveLength(1);
+  });
+
+  it("refuses a can, or a partner's keg, the recipe never declared — before any write", async () => {
+    const can = fakeClient({ existingBatchId: "guest-okt", linked: false, variation: { is_active: true, partner_id: null, container: { type: "can" } } });
+    await expect(receivePurchasedBeer(can.client, DELIVERY)).rejects.toThrow(/not declared for this beer/);
+    expect(can.captured.order).toEqual([]);
+
+    const partnerKeg = fakeClient({ existingBatchId: "guest-okt", linked: false, variation: { is_active: true, partner_id: "p-1", container: { type: "keg" } } });
+    await expect(receivePurchasedBeer(partnerKeg.client, DELIVERY)).rejects.toThrow(/not declared for this beer/);
+    expect(partnerKeg.captured.order).toEqual([]);
   });
 });

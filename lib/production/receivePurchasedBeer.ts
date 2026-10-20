@@ -86,6 +86,44 @@ export async function findOrCreatePurchasedBatch(
   return { id: created.id, created: true };
 }
 
+/**
+ * The same rule TransferModal applies at packaging time: a variation is valid
+ * for a recipe if it is declared in recipe_packaging_variations, or if it is a
+ * generic (no partner) keg. Cans have no generic fallback — a can SKU is a
+ * specific label on a specific beer. The modal filters its list the same way;
+ * this is the server's copy so a hand-built request can't put Hop Roar into a
+ * Vienna Lager can.
+ */
+export async function assertVariationAllowedForRecipe(
+  supabase: SupabaseClient,
+  recipeId: string,
+  variationId: string,
+): Promise<void> {
+  const { data: link, error: linkErr } = await supabase
+    .from("recipe_packaging_variations")
+    .select("id")
+    .eq("recipe_id", recipeId)
+    .eq("variation_id", variationId)
+    .maybeSingle();
+  if (linkErr) throw new Error(`Could not check the recipe's packaging: ${linkErr.message}`);
+  if (link) return;
+
+  const { data: variation, error: varErr } = await supabase
+    .from("packaging_variations")
+    .select("id, is_active, partner_id, container:packaging_items!packaging_variations_container_id_fkey(type)")
+    .eq("id", variationId)
+    .maybeSingle();
+  if (varErr) throw new Error(`Could not read the packaging variation: ${varErr.message}`);
+  if (!variation) throw new Error("That packaging variation does not exist");
+
+  const container = variation.container as unknown as { type: string } | { type: string }[] | null;
+  const containerType = Array.isArray(container) ? container[0]?.type : container?.type;
+  const genericKeg = variation.is_active && variation.partner_id == null && containerType === "keg";
+  if (!genericKeg) {
+    throw new Error("That packaging is not declared for this beer. Add it under the recipe's packaging first.");
+  }
+}
+
 export async function receivePurchasedBeer(
   supabase: SupabaseClient,
   args: ReceivePurchasedBeerArgs,
@@ -97,6 +135,8 @@ export async function receivePurchasedBeer(
   if (args.costCents != null && (!Number.isInteger(args.costCents) || args.costCents < 0)) {
     throw new Error("costCents must be a whole, non-negative number of cents");
   }
+
+  await assertVariationAllowedForRecipe(supabase, recipeId, variationId);
 
   const batch = await findOrCreatePurchasedBatch(supabase, recipeId, args.receivedOn);
 

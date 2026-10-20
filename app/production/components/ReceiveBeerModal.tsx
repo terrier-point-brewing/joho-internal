@@ -3,7 +3,9 @@
 import { useMemo, useState } from "react";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import Banner from "@/app/components/ui/Banner";
-import { usePackagingVariationsQuery, useRecipesQuery } from "../hooks/queries";
+import { SearchCombobox, type SearchComboboxItem } from "@/components/ui/SearchCombobox";
+import { usePackagingVariationsQuery, useRecipePackagingVariationsQuery, useRecipesQuery } from "../hooks/queries";
+import type { PackagingVariation } from "../types";
 
 // Record beer bought from another brewery (guest beer) as on hand in cold
 // storage. It is NOT a brew: the units land on a purchased placeholder batch
@@ -26,6 +28,7 @@ export default function ReceiveBeerModal({
 }) {
   const { data: recipes = [], isPending: recipesLoading } = useRecipesQuery();
   const { data: variations = [] } = usePackagingVariationsQuery();
+  const { data: recipeVariations = [] } = useRecipePackagingVariationsQuery();
 
   const [recipeId, setRecipeId] = useState("");
   const [variationId, setVariationId] = useState("");
@@ -37,20 +40,37 @@ export default function ReceiveBeerModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sortedRecipes = useMemo(
-    () => [...recipes].sort((a, b) => a.beer_name.localeCompare(b.beer_name)),
+  const recipeItems = useMemo<SearchComboboxItem[]>(
+    () =>
+      [...recipes]
+        .sort((a, b) => a.beer_name.localeCompare(b.beer_name))
+        .map((r) => ({ id: r.id, label: r.beer_name, sub: r.style ?? null })),
     [recipes],
   );
 
-  // Finished-goods packaging only: a keg or a can SKU. Anything else is not a
-  // thing the cold room holds.
-  const targets = useMemo(
-    () =>
-      variations
-        .filter((v) => v.is_active && (v.container?.type === "keg" || v.container?.type === "can"))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [variations],
-  );
+  // The packaging this beer is declared in, plus any generic (house) keg — the
+  // same rule TransferModal applies at kegging/canning time, and the same one
+  // the server enforces. A can SKU is a specific label on a specific beer, so
+  // cans have no generic fallback.
+  const targets = useMemo(() => {
+    if (!recipeId) return [] as PackagingVariation[];
+    const linked = recipeVariations
+      .filter((rv) => rv.recipe_id === recipeId)
+      .map((rv) => rv.packaging_variations)
+      .filter((v): v is PackagingVariation => v != null && v.is_active);
+    const genericKegs = variations.filter(
+      (v) => v.is_active && v.partner_id == null && v.container?.type === "keg" && !linked.some((l) => l.id === v.id),
+    );
+    return [...linked, ...genericKegs]
+      .filter((v) => v.container?.type === "keg" || v.container?.type === "can")
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [recipeId, recipeVariations, variations]);
+
+  function selectRecipe(id: string) {
+    setRecipeId(id);
+    // A different beer declares a different set of packaging.
+    setVariationId("");
+  }
 
   const qtyNum = Number(quantity);
   const qtyOk = Number.isFinite(qtyNum) && qtyNum > 0;
@@ -96,17 +116,26 @@ export default function ReceiveBeerModal({
         </p>
 
         <Field label="Beer" required>
-          <select className="inp w-full" value={recipeId} onChange={(e) => setRecipeId(e.target.value)}>
-            <option value="">{recipesLoading ? "Loading…" : "Select a beer…"}</option>
-            {sortedRecipes.map((r) => (
-              <option key={r.id} value={r.id}>{r.beer_name}</option>
-            ))}
-          </select>
+          <SearchCombobox
+            value={recipeId}
+            onChange={selectRecipe}
+            items={recipeItems}
+            placeholder={recipesLoading ? "Loading…" : "Search beers…"}
+            emptyLabel="No beers match"
+            required
+          />
         </Field>
 
-        <Field label="Packaging" required>
-          <select className="inp w-full" value={variationId} onChange={(e) => setVariationId(e.target.value)}>
-            <option value="">Select packaging…</option>
+        <Field label="Packaging" required hint={recipeId ? undefined : "pick the beer first"}>
+          <select
+            className="inp w-full"
+            value={variationId}
+            onChange={(e) => setVariationId(e.target.value)}
+            disabled={!recipeId || targets.length === 0}
+          >
+            <option value="">
+              {!recipeId ? "Select a beer first…" : targets.length === 0 ? "No packaging declared for this beer" : "Select packaging…"}
+            </option>
             {targets.map((v) => (
               <option key={v.id} value={v.id}>{v.name}</option>
             ))}
