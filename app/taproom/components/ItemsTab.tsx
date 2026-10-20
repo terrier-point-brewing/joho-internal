@@ -215,10 +215,12 @@ export default function ItemsTab() {
     return [...groups.values()];
   }, [visibleItems, metric]);
   const itemById = useMemo(() => new Map(rowItems.map((i) => [i.id, i])), [rowItems]);
+  // Null = not a row: outside the category/search filter, or (fl oz) unsized.
   const rowIdFor = (variationId: string) => {
-    if (metric !== "floz") return variationId;
     const v = variationById.get(variationId);
-    return v && v.flOzPerUnit != null ? `${v.categoryId}|${v.itemName}|*` : null;
+    if (!v) return null;
+    if (metric !== "floz") return variationId;
+    return v.flOzPerUnit != null ? `${v.categoryId}|${v.itemName}|*` : null;
   };
   const unsizedCount = metric === "floz" ? visibleItems.filter((i) => i.flOzPerUnit == null).length : 0;
 
