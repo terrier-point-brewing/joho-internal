@@ -13,6 +13,25 @@ describe("aggregateDailyTips", () => {
     expect(rows.find(r => r.date === "2026-07-16")?.tipsPooledCents).toBe(400);
   });
 
+  it("keys a card tip to the day the tab was opened, not the day it was paid (Fri 10/23 close-out)", () => {
+    // Tab opened Fri 7:54pm EDT, card run Sat 12:00am EDT. The tip is Friday's.
+    const rows = aggregateDailyTips(
+      [{ id: "pay", status: "COMPLETED", created_at: "2026-10-24T04:00:26Z", order_id: "ord", tip_money: { amount: 1200 } }],
+      [],
+      [{ id: "ord", state: "COMPLETED", created_at: "2026-10-23T23:54:28Z" }],
+    );
+    expect(rows).toEqual([{ date: "2026-10-23", tipsPooledCents: 1200 }]);
+  });
+
+  it("falls back to the payment's own time when its order isn't in the window", () => {
+    const rows = aggregateDailyTips(
+      [{ id: "pay", status: "COMPLETED", created_at: "2026-10-24T04:00:26Z", order_id: "missing", tip_money: { amount: 1200 } }],
+      [],
+      [],
+    );
+    expect(rows).toEqual([{ date: "2026-10-24", tipsPooledCents: 1200 }]);
+  });
+
   it("ignores non-COMPLETED payments", () => {
     const rows = aggregateDailyTips(
       [{ id: "p1", status: "FAILED", created_at: "2026-07-16T15:39:04Z", tip_money: { amount: 300 } }],
