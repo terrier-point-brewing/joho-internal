@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { defaultYearRange } from "@/lib/finance/dateRange";
+import { dayRangeUtc } from "@/lib/utils/datetime";
+import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 import { extractVoidedLineItems, type VoidedLineItem } from "@/lib/finance/voidedLineItems";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +29,14 @@ export async function GET(req: NextRequest) {
 
   const from      = (page - 1) * pageSize;
   const to        = from + pageSize - 1;
+
+  // `transaction_date` is a timestamptz (the order's closed_at). Comparing it to
+  // a bare YYYY-MM-DD compares against 00:00 UTC, which is 8pm the previous
+  // evening in Raleigh — so a range ending on day D silently dropped every order
+  // D closed after midnight UTC, and Friday-night tabs settled after 8pm local
+  // vanished from a Friday view. Bound the range by brewery-local day edges.
+  const tz = await getBreweryTimezone();
+  const { startUtc, endUtc } = dayRangeUtc(startDate, endDate, tz);
 
   const supabase = createSupabaseAdminClient();
 
@@ -64,8 +74,8 @@ export async function GET(req: NextRequest) {
       )
     `, { count: "exact" })
     .is("invoice_id", null)
-    .gte("transaction_date", startDate)
-    .lte("transaction_date", endDate)
+    .gte("transaction_date", startUtc)
+    .lte("transaction_date", endUtc)
     .order("transaction_date", { ascending: false })
     .range(from, to);
 

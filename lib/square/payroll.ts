@@ -3,12 +3,14 @@ import { squareGetAll, squareLocationId } from "./client";
 import { fetchRefunds } from "./refunds";
 import { fetchCompletedOrders } from "./orders";
 import type { Order } from "@/types/square";
+import { dayStartUtc, dayEndUtc, addDaysStr } from "@/lib/utils/datetime";
 
 interface SquarePayment {
   id: string;
   status: string;
   source_type: string;
   created_at: string; // RFC 3339 UTC
+  order_id?: string;
   amount_money: { amount: number; currency: string };
   tip_money?: { amount: number; currency: string };
   total_money: { amount: number; currency: string };
@@ -18,6 +20,7 @@ interface PaymentInput {
   id: string;
   status: string;
   created_at: string;
+  order_id?: string;
   tip_money?: { amount: number };
 }
 
@@ -39,11 +42,19 @@ export function autoGratuityCents(order: Pick<Order, "service_charges">): number
     .reduce((sum, sc) => sum + (sc.applied_money?.amount ?? 0), 0);
 }
 
+// Tabs opened on the last day of the range are often paid after local
+// midnight (the close-out). Those payments carry the range's tips, so the
+// window runs to brewery-local day end plus a 12h tail, not UTC midnight —
+// which in Raleigh is 8pm the evening before, and used to drop every late
+// payment on a period's last day outright.
+const CLOSE_OUT_TAIL_MS = 12 * 60 * 60 * 1000;
+
 function fetchPaymentsUncached(startDate: string, endDate: string) {
+  const endUtc = new Date(new Date(dayEndUtc(endDate)).getTime() + CLOSE_OUT_TAIL_MS).toISOString();
   return squareGetAll<SquarePayment>("/payments", "payments", {
     location_id: squareLocationId(),
-    begin_time: `${startDate}T00:00:00Z`,
-    end_time:   `${endDate}T23:59:59Z`,
+    begin_time: dayStartUtc(startDate),
+    end_time:   endUtc,
     sort_order: "ASC",
   });
 }
@@ -87,6 +98,14 @@ export interface DailyTips {
  * (not the refund's own date). Netting order: the refund comes out of the tip
  * first, then any remainder out of that order's auto gratuity, then it's the
  * sale's problem — a payment's net can never go below zero.
+ *
+ * A tip belongs to the day the tab was OPENED (the order's created_at), not the
+ * day the card was run. A Friday tab settled at 12:01am Saturday was earned by
+ * Friday's crew; keyed by payment time it fell into Saturday's pool, where the
+ * hours that earned it don't exist. Auto gratuity always used the order's open
+ * time; card tips now match. Payment time is only the fallback for a payment
+ * whose order isn't in the window (a payment with no order, or an order still
+ * open when the range was fetched).
  * Extracted for unit testing; fetchTipsAndCashTakeByDay wraps the Square calls.
  */
 export function aggregateDailyTips(
@@ -103,13 +122,17 @@ export function aggregateDailyTips(
   const acc = new Map<string, number>();
   const add = (date: string, cents: number) => acc.set(date, (acc.get(date) ?? 0) + cents);
 
+  const orderOpenedAt = new Map<string, string>();
+  for (const o of orders) if (o.created_at) orderOpenedAt.set(o.id, o.created_at);
+
   // Refund left over after the tip absorbed its share, keyed by payment.
   const refundLeftover = new Map<string, number>();
   for (const p of payments) {
     if (p.status !== "COMPLETED") continue;
     const tip = p.tip_money?.amount ?? 0;
     const refunded = refundedByPayment.get(p.id) ?? 0;
-    add(toEasternDate(p.created_at), Math.max(0, tip - refunded));
+    const openedAt = (p.order_id && orderOpenedAt.get(p.order_id)) || p.created_at;
+    add(toEasternDate(openedAt), Math.max(0, tip - refunded));
     if (refunded > tip) refundLeftover.set(p.id, refunded - tip);
   }
 
@@ -139,11 +162,18 @@ export async function fetchTipsAndCashTakeByDay(
   startDate: string,
   endDate: string
 ): Promise<DailyTips[]> {
-  const [payments, refunds, orders] = await Promise.all([
+  // Orders are fetched one day past the range so a payment in the 12h tail
+  // resolves to its tab's open day. The extra day is its own small fetch so the
+  // main range stays on the cache entry every other payroll query shares.
+  const [payments, refunds, orders, nextDayOrders] = await Promise.all([
     fetchPayments(startDate, endDate),
     fetchRefunds(startDate, endDate),
     fetchCompletedOrders(startDate, endDate),
+    fetchCompletedOrders(addDaysStr(endDate, 1), addDaysStr(endDate, 1)),
   ]);
 
-  return aggregateDailyTips(payments, refunds, orders);
+  // Only the range's own days: a tab opened after midnight on the day past the
+  // range belongs to the next period, which fetches it as its own first day.
+  return aggregateDailyTips(payments, refunds, [...orders, ...nextDayOrders])
+    .filter((r) => r.date >= startDate && r.date <= endDate);
 }
