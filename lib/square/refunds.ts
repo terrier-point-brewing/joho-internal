@@ -74,6 +74,22 @@ export class RefundDeclinedError extends Error {
  * caller's next move is to write a credit to the books: a `FAILED` refund handed
  * back as a normal return reads as success and records money that never moved.
  */
+/** Square rejects a refund whose `reason` is longer than this. */
+export const SQUARE_REFUND_REASON_MAX_LENGTH = 192;
+
+/**
+ * Fit a reason into Square's limit. Cuts at the last word boundary that fits
+ * and marks the cut with an ellipsis, so the customer reads a truncated
+ * sentence rather than a word chopped mid-letter.
+ */
+export function fitRefundReason(reason: string): string {
+  const trimmed = reason.trim();
+  if (trimmed.length <= SQUARE_REFUND_REASON_MAX_LENGTH) return trimmed;
+  const head = trimmed.slice(0, SQUARE_REFUND_REASON_MAX_LENGTH - 1);
+  const lastSpace = head.lastIndexOf(" ");
+  return `${(lastSpace > 0 ? head.slice(0, lastSpace) : head).replace(/[\s,;—-]+$/, "")}…`;
+}
+
 export async function createRefund(
   paymentId: string,
   amountCents: number,
@@ -85,7 +101,7 @@ export async function createRefund(
       idempotency_key: crypto.randomUUID(),
       payment_id: paymentId,
       amount_money: { amount: amountCents, currency: "USD" },
-      reason,
+      reason: fitRefundReason(reason),
     }));
   } catch (e) {
     // A rejected request never moved money. Anything else — a dropped
