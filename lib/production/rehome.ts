@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { recheckCommitmentFulfillment } from "./commitmentFulfillment";
 import { loadBatchYields, shareBasisBbl } from "./batchYieldProjection.server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { issueDepositReduction, RefundError } from "@/lib/finance/issueRefund";
+import { bblToPct, depositRefundCents } from "./rehomeMath";
+
+export { bblToPct, depositRefundCents, refundCentsForDraw } from "./rehomeMath";
 
 /**
  * Giving beer a home.
@@ -10,8 +15,11 @@ import { loadBatchYields, shareBasisBbl } from "./batchYieldProjection.server";
  * that leaves beyond the partner's booking therefore has to TAKE its share
  * of the batch from somewhere before it ships — the batch's unallocated
  * remainder, the taproom or safety-stock plan, or another partner's
- * allocation whose deposit has not locked it. A paid allocation can only
- * give up share through the refund flow, so it is listed but refused here.
+ * allocation whose deposit has not locked it. A paid allocation gives up
+ * share only against a refund of the matching slice of its deposit: the
+ * caller must acknowledge that exact amount (`refund.acknowledgedCents`),
+ * the refund is issued first, and only then does the share move. Without the
+ * acknowledgement the source is listed but refused.
  *
  * Moving `bbl` from a source to the target means:
  *   Δpct     = bbl ÷ basis × 100      basis = what the batch makes: packaged
@@ -43,11 +51,20 @@ export interface HomeSource {
   freeBbl: number;
   /** What it takes to draw on this source. */
   requires: HomeRequires;
+  /**
+   * For a paid source: what was paid, and whether the app can refund it
+   * itself (a Square payment id is on file). Paid before refund tracking
+   * shipped means the refund happens in the Square Dashboard, then Batch Log.
+   */
+  deposit?: { paidCents: number; refundable: boolean } | null;
 }
+
 
 export interface HomesForBatch {
   batchId: string;
   batchNumber: string | null;
+  beerName: string | null;
+  turns: number | null;
   producedBbl: number;
   /**
    * The yield every share here is a percentage of: produced once the batch is
@@ -79,17 +96,13 @@ export function pendingConversionBbl(conversions: Array<{ volume_bbl: number | s
   return conversions.filter((c) => !c.converted_at).reduce((s, c) => s + Number(c.volume_bbl ?? 0), 0);
 }
 
-/** bbl ⇄ percentage of a batch. Exported for tests. */
-export function bblToPct(bbl: number, basisBbl: number): number {
-  if (basisBbl <= EPS) return 0;
-  return Math.round((bbl / basisBbl) * 100 * 100) / 100;
-}
-
 export interface RehomePlan {
   deltaPct: number;
   basisBbl: number;
   sourceNewPct: number | null;
   targetNewPct: number;
+  /** Cents refunded to the source partner for this draw; 0 unless the source's deposit is paid. */
+  refundCents: number;
 }
 
 /** Pure: validate and size the move. Throws with the reason a human can act on. */
@@ -100,19 +113,27 @@ export function planRehome(input: {
   plannedBbl: number;
   targetPct: number;
   source: HomeSource;
+  /** The cents the operator agreed to refund the source partner; required to draw on a paid share. */
+  refund?: { acknowledgedCents: number } | null;
 }): RehomePlan {
   const bbl = Number(input.bbl);
   if (!(bbl > EPS)) throw new Error("Nothing to move.");
   const basisBbl = input.yieldBbl > EPS ? input.yieldBbl : input.plannedBbl;
   if (basisBbl <= EPS) throw new Error("This batch has no volume to share out yet.");
+  const who = input.source.partnerName ?? "That partner";
   if (input.source.requires === "refund") {
-    throw new Error(`${input.source.partnerName ?? "That partner"}'s deposit is paid, so their share is locked — refund part of it from Batch Log first, then re-home.`);
+    if (!input.source.deposit?.refundable) {
+      throw new Error(`${who}'s deposit was paid before refund tracking — refund it in the Square Dashboard, then reduce their share in Batch Log.`);
+    }
+    if (!input.refund) {
+      throw new Error(`${who}'s deposit is paid, so their share is locked — confirm the refund of that slice of it to draw on it.`);
+    }
   }
   if (input.source.freeBbl + EPS < bbl) {
     throw new Error(`${sourceLabel(input.source)} can only give up ${round2(input.source.freeBbl)} bbl, not ${round2(bbl)}.`);
   }
   if (input.source.kind === "self") {
-    return { deltaPct: 0, basisBbl, sourceNewPct: null, targetNewPct: input.targetPct };
+    return { deltaPct: 0, basisBbl, sourceNewPct: null, targetNewPct: input.targetPct, refundCents: 0 };
   }
   const deltaPct = bblToPct(bbl, basisBbl);
   if (deltaPct <= 0) throw new Error("The move rounds to zero percent of the batch.");
@@ -122,7 +143,16 @@ export function planRehome(input: {
     ? Math.round((input.source.percentage - deltaPct) * 100) / 100
     : null;
   if (sourceNewPct != null && sourceNewPct < -EPS) throw new Error(`${sourceLabel(input.source)} does not hold ${deltaPct}% of the batch.`);
-  return { deltaPct, basisBbl, sourceNewPct, targetNewPct };
+  // A paid partner's share is never emptied: that would strand their deal.
+  if (input.source.requires === "refund" && (sourceNewPct ?? 0) <= EPS) {
+    throw new Error(`That would take all of ${who}'s share. Pick another source, or change their commitment on Intake first.`);
+  }
+  const refundCents = input.source.requires === "refund" ? depositRefundCents(input.source, deltaPct) : 0;
+  // The money is real: what the operator saw and agreed to must be what moves.
+  if (refundCents > 0 && input.refund && input.refund.acknowledgedCents !== refundCents) {
+    throw new Error(`The refund to ${who} is now $${(refundCents / 100).toFixed(2)}, not $${(input.refund.acknowledgedCents / 100).toFixed(2)} — the batch changed under you. Re-open the shipment and confirm again.`);
+  }
+  return { deltaPct, basisBbl, sourceNewPct, targetNewPct, refundCents };
 }
 
 export interface AutoHomeDraw {
@@ -199,6 +229,8 @@ interface AllocRow {
   invoice_generated_at: string | null;
   invoice_sent_at: string | null;
   written_off_at: string | null;
+  square_payment_id: string | null;
+  deposit_amount_paid_cents: number | string | null;
   contract_brewing_partners: { company_name: string } | { company_name: string }[] | null;
 }
 
@@ -208,9 +240,9 @@ export async function listHomes(
   { batchId, targetAllocationId }: { batchId: string; targetAllocationId: string | null },
 ): Promise<HomesForBatch> {
   const [{ data: batch }, { data: allocs }, yields, { data: exports_ }, { data: conversions }] = await Promise.all([
-    supabase.from("brew_batches").select("id, batch_number, volume_bbl").eq("id", batchId).maybeSingle(),
+    supabase.from("brew_batches").select("id, batch_number, beer_name, turns, volume_bbl").eq("id", batchId).maybeSingle(),
     supabase.from("batch_allocations")
-      .select("id, batch_id, channel, partner_id, contract_request_id, percentage, invoice_paid_at, invoice_generated_at, invoice_sent_at, written_off_at, contract_brewing_partners(company_name)")
+      .select("id, batch_id, channel, partner_id, contract_request_id, percentage, invoice_paid_at, invoice_generated_at, invoice_sent_at, written_off_at, square_payment_id, deposit_amount_paid_cents, contract_brewing_partners(company_name)")
       .eq("batch_id", batchId),
     loadBatchYields(supabase, [batchId]),
     supabase.from("export_transactions").select("allocation_id, volume_bbl").eq("batch_id", batchId).not("allocation_id", "is", null),
@@ -268,6 +300,9 @@ export async function listHomes(
       percentage: Number(a.percentage),
       freeBbl,
       requires,
+      deposit: requires === "refund"
+        ? { paidCents: Number(a.deposit_amount_paid_cents ?? 0), refundable: !!a.square_payment_id && a.deposit_amount_paid_cents != null }
+        : null,
     });
   }
   // Free-est first; locked ones last.
@@ -279,6 +314,8 @@ export async function listHomes(
   return {
     batchId,
     batchNumber: (batch as { batch_number?: string | null } | null)?.batch_number ?? null,
+    beerName: (batch as { beer_name?: string | null } | null)?.beer_name ?? null,
+    turns: (batch as { turns?: number | null } | null)?.turns ?? null,
     producedBbl: round2(producedBbl),
     yieldBbl: round2(yieldBbl),
     plannedBbl: round2(plannedBbl),
@@ -301,6 +338,8 @@ export interface RehomeArgs {
    * that have shipped, short for beer that has not left yet.
    */
   beyondBooking?: boolean;
+  /** Required to draw on a paid partner's share: the refund the operator confirmed, to the cent. */
+  refund?: { acknowledgedCents: number } | null;
   /**
    * How much of `bbl` raises the booking, when not all of it. The rest only
    * restores share the target has already shipped against (targetShortBbl).
@@ -317,6 +356,82 @@ export interface RehomeResult {
 }
 
 /** Execute a move. Throws with a human-readable reason on any refusal. */
+/**
+ * Takes the plan's share off an allocation source. A paid source is refunded
+ * FIRST — the slice of its deposit that leaves with the share — and the
+ * reduction is written through the admin client the moment the money has
+ * moved, exactly as Batch Log's "Refund part of deposit…" does; a failure
+ * after that point leaves the (now honest) reduced share standing and says
+ * so. Only an internal plan (taproom, safety stock) may be emptied.
+ */
+async function reduceSource(
+  supabase: SupabaseClient,
+  homes: HomesForBatch,
+  source: HomeSource,
+  plan: RehomePlan,
+): Promise<{ emptied: boolean }> {
+  if (source.kind !== "allocation" || !source.allocationId) return { emptied: false };
+  const emptied = (plan.sourceNewPct ?? 0) <= EPS;
+  if (emptied && source.channel !== "taproom" && source.channel !== "safety_stock") {
+    throw new Error(`That would take all of ${sourceLabel(source)}'s share. Pick another source, or change their commitment on Intake first.`);
+  }
+  if (emptied) {
+    const { error } = await supabase.from("batch_allocations").delete().eq("id", source.allocationId);
+    if (error) throw new Error(error.message);
+    return { emptied: true };
+  }
+  const patch: Record<string, unknown> = { percentage: plan.sourceNewPct };
+  // A drafted (unpaid) deposit on the source is now for the wrong share.
+  if (source.requires === "regenerate_deposit") { patch.invoice_generated_at = null; patch.invoice_sent_at = null; }
+  if (source.requires === "refund" && plan.refundCents > 0) {
+    const { data: a, error: aErr } = await supabase
+      .from("batch_allocations")
+      .select("square_payment_id, square_deposit_order_id, deposit_amount_paid_cents, percentage")
+      .eq("id", source.allocationId)
+      .maybeSingle();
+    if (aErr || !a?.square_payment_id || a.deposit_amount_paid_cents == null) {
+      throw new Error(`${sourceLabel(source)} has no Square payment on file to refund against — refund it in the Square Dashboard, then reduce their share in Batch Log.`);
+    }
+    // `square_refunds` and the post-refund write go through the admin client: the
+    // operator entitled to ship must not be able to move the money and then be
+    // refused the row that records it (see the allocation adjust route).
+    const admin = createSupabaseAdminClient();
+    let refund;
+    try {
+      refund = await issueDepositReduction(admin, {
+        allocationId: source.allocationId,
+        currentPercentage: Number(a.percentage),
+        newPercentage: plan.sourceNewPct ?? 0,
+        paidCents: Number(a.deposit_amount_paid_cents),
+        squarePaymentId: a.square_payment_id,
+        squareOrderId: a.square_deposit_order_id ?? null,
+        batch: {
+          batchNumber: homes.batchNumber ?? homes.batchId,
+          turns: Number(homes.turns ?? 1),
+          beerName: homes.beerName ?? "",
+          projectedYieldBbl: homes.yieldBbl,
+        },
+      });
+    } catch (e) {
+      if (e instanceof RefundError) throw new Error(e.message);
+      throw new Error(`Square refund to ${sourceLabel(source)} failed: ${e instanceof Error ? e.message : "unknown error"}. Nothing shipped.`);
+    }
+    const { error } = await admin.from("batch_allocations").update({
+      ...patch,
+      square_refund_id: refund.squareRefundId,
+      refund_amount_cents: refund.refundAmountCents,
+      refunded_at: new Date().toISOString(),
+    }).eq("id", source.allocationId);
+    if (error) {
+      throw new Error(`Refund of $${(refund.refundAmountCents / 100).toFixed(2)} to ${sourceLabel(source)} succeeded (id: ${refund.squareRefundId}) but saving their new ${plan.sourceNewPct}% failed: ${error.message}. Do NOT retry — set it by hand in Batch Log.`);
+    }
+    return { emptied: false };
+  }
+  const { error } = await supabase.from("batch_allocations").update(patch).eq("id", source.allocationId);
+  if (error) throw new Error(error.message);
+  return { emptied: false };
+}
+
 export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs): Promise<RehomeResult> {
   const { data: target } = await supabase
     .from("batch_allocations")
@@ -335,25 +450,12 @@ export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs):
 
   const plan = planRehome({
     bbl: args.bbl, yieldBbl: homes.yieldBbl, plannedBbl: homes.plannedBbl,
-    targetPct: Number(target.percentage), source,
+    targetPct: Number(target.percentage), source, refund: args.refund ?? null,
   });
 
-  if (source.kind === "allocation" && source.allocationId) {
-    const patch: Record<string, unknown> = { percentage: plan.sourceNewPct };
-    // A drafted (unpaid) deposit on the source is now for the wrong share.
-    if (source.requires === "regenerate_deposit") { patch.invoice_generated_at = null; patch.invoice_sent_at = null; }
-    // A source given up entirely leaves the batch: the CHECK forbids a 0% row.
-    // Only an internal plan may be emptied; a partner's would strand their deal.
-    const emptied = (plan.sourceNewPct ?? 0) <= EPS;
-    if (emptied && source.channel !== "taproom" && source.channel !== "safety_stock") {
-      throw new Error(`That would take all of ${sourceLabel(source)}'s share. Pick another source, or change their commitment on Intake first.`);
-    }
-    const { error } = emptied
-      ? await supabase.from("batch_allocations").delete().eq("id", source.allocationId)
-      : await supabase.from("batch_allocations").update(patch).eq("id", source.allocationId);
-    if (error) throw new Error(error.message);
-    if (emptied) source.allocationId = null;
-  }
+  // A source given up entirely leaves the batch: the CHECK forbids a 0% row.
+  const { emptied } = await reduceSource(supabase, homes, source, plan);
+  if (emptied) source.allocationId = null;
   if (plan.deltaPct > 0) {
     const { error: tErr } = await supabase.from("batch_allocations").update({ percentage: plan.targetNewPct }).eq("id", target.id);
     if (tErr) throw new Error(tErr.message);
@@ -402,16 +504,54 @@ export async function executeRehome(supabase: SupabaseClient, args: RehomeArgs):
   return { deltaPct: plan.deltaPct, targetNewPct: plan.targetNewPct, sourceNewPct: plan.sourceNewPct, bookedBbl, rehomedRows };
 }
 
+export interface SourceDraw {
+  source: { kind: "unallocated" } | { kind: "allocation"; allocationId: string };
+  bbl: number;
+  /** Required to draw on a paid partner's share: the refund the operator confirmed, to the cent. */
+  refund?: { acknowledgedCents: number } | null;
+}
+
 export interface BookForShipmentArgs {
   partnerId: string;
   recipeId: string;
   batchId: string;
   /** The commitment's channel — contract (deposit-backed) or distribution. */
   channel: "contract_brewing" | "distribution";
-  source: { kind: "unallocated" } | { kind: "allocation"; allocationId: string };
-  bbl: number;
+  /** Where the share comes from, split across sources as the operator chose; sums to the booking. */
+  draws: SourceDraw[];
   notes?: string | null;
 }
+
+/** Normalise a request body's `source`+`bbl`(+`refund_cents`) or `draws` list into SourceDraws. Throws on a malformed body. */
+export function drawsFromBody(body: {
+  source?: { kind?: string; allocation_id?: string } | null;
+  bbl?: unknown;
+  refund_cents?: unknown;
+  draws?: unknown;
+}, fallbackBbl?: number): SourceDraw[] {
+  const one = (d: { source?: { kind?: string; allocation_id?: string } | null; bbl?: unknown; refund_cents?: unknown }, bbl: number): SourceDraw => {
+    if (!d.source?.kind) throw new Error("Each draw needs a source.");
+    if (d.source.kind !== "unallocated" && !d.source.allocation_id) throw new Error("source.allocation_id is required for an allocation source");
+    if (!(bbl > 0)) throw new Error("Each draw needs a positive bbl.");
+    const cents = Number(d.refund_cents);
+    return {
+      source: d.source.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocationId: d.source.allocation_id as string },
+      bbl,
+      refund: Number.isFinite(cents) && cents > 0 ? { acknowledgedCents: Math.round(cents) } : null,
+    };
+  };
+  if (Array.isArray(body.draws)) {
+    const draws = (body.draws as Array<{ source?: { kind?: string; allocation_id?: string } | null; bbl?: unknown; refund_cents?: unknown }>)
+      .map((d) => one(d, Number(d.bbl)));
+    const keys = draws.map((d) => (d.source.kind === "unallocated" ? "unallocated" : d.source.allocationId));
+    if (new Set(keys).size !== keys.length) throw new Error("The same source is listed twice.");
+    if (draws.length === 0) throw new Error("Choose where the share comes from.");
+    return draws;
+  }
+  return [one(body, Number(body.bbl ?? fallbackBbl))];
+}
+
+const drawTotal = (draws: SourceDraw[]) => round2(draws.reduce((s, d) => s + Number(d.bbl), 0));
 
 /**
  * A partner shipment with no commitment behind it books one on the spot: a
@@ -427,20 +567,32 @@ export async function bookCommitmentForShipment(
   supabase: SupabaseClient,
   args: BookForShipmentArgs,
 ): Promise<{ commitmentId: string; allocationId: string; deltaPct: number }> {
-  const bbl = round2(Number(args.bbl));
+  const bbl = drawTotal(args.draws);
   const homes = await listHomes(supabase, { batchId: args.batchId, targetAllocationId: null });
-  const wantedId = args.source.kind === "allocation" ? args.source.allocationId : null;
-  const source = wantedId == null
-    ? homes.sources.find((s) => s.kind === "unallocated")
-    : homes.sources.find((s) => s.allocationId === wantedId);
-  if (!source) throw new Error(args.source.kind === "unallocated" ? "This batch has no unallocated share." : "That source allocation is not on this batch.");
-  const plan = planRehome({ bbl: args.bbl, yieldBbl: homes.yieldBbl, plannedBbl: homes.plannedBbl, targetPct: 0, source });
-  // Emptying an internal plan (taproom, safety stock) removes it; emptying a
-  // partner's allocation would strand their commitment, so that is refused.
-  const emptiesSource = source.kind === "allocation" && (plan.sourceNewPct ?? 0) <= EPS;
-  if (emptiesSource && source.channel !== "taproom" && source.channel !== "safety_stock") {
-    throw new Error(`That would take all of ${sourceLabel(source)}'s share. Pick another source, or change their commitment on Intake first.`);
+  // Every draw is planned before anything is written: the new allocation's
+  // percentage accumulates across them, and one bad draw refuses the lot.
+  const steps: Array<{ source: HomeSource; plan: RehomePlan; empties: boolean }> = [];
+  let targetPct = 0;
+  for (const d of args.draws) {
+    const wantedId = d.source.kind === "allocation" ? d.source.allocationId : null;
+    const source = wantedId == null
+      ? homes.sources.find((s) => s.kind === "unallocated")
+      : homes.sources.find((s) => s.allocationId === wantedId);
+    if (!source) throw new Error(d.source.kind === "unallocated" ? "This batch has no unallocated share." : "That source allocation is not on this batch.");
+    const plan = planRehome({ bbl: d.bbl, yieldBbl: homes.yieldBbl, plannedBbl: homes.plannedBbl, targetPct, source, refund: d.refund ?? null });
+    // Emptying an internal plan (taproom, safety stock) removes it; emptying a
+    // partner's allocation would strand their commitment, so that is refused.
+    const empties = source.kind === "allocation" && (plan.sourceNewPct ?? 0) <= EPS;
+    if (empties && source.channel !== "taproom" && source.channel !== "safety_stock") {
+      throw new Error(`That would take all of ${sourceLabel(source)}'s share. Pick another source, or change their commitment on Intake first.`);
+    }
+    steps.push({ source, plan, empties });
+    targetPct = plan.targetNewPct;
   }
+  // A paid source is refunded and reduced BEFORE the deal is booked: once the
+  // money has moved the reduction must stand whatever happens next, and a
+  // refused booking then leaves the freed share honestly unallocated.
+  for (const st of steps) if (st.source.requires === "refund") await reduceSource(supabase, homes, st.source, st.plan);
 
   const { data: commitment, error: cErr } = await supabase
     .from("commitments")
@@ -465,7 +617,7 @@ export async function bookCommitmentForShipment(
     .insert({
       batch_id: args.batchId,
       channel: args.channel,
-      percentage: plan.targetNewPct,
+      percentage: targetPct,
       partner_id: args.partnerId,
       contract_request_id: commitment.id,
     })
@@ -473,20 +625,19 @@ export async function bookCommitmentForShipment(
     .single();
   if (aErr || !alloc) { await undo(); throw new Error(aErr?.message ?? "Could not allocate the batch."); }
 
-  if (source.kind === "allocation" && source.allocationId) {
-    const patch: Record<string, unknown> = { percentage: plan.sourceNewPct };
-    if (source.requires === "regenerate_deposit") { patch.invoice_generated_at = null; patch.invoice_sent_at = null; }
-    // A source given up entirely leaves the batch: the CHECK forbids a 0% row.
-    const { error } = emptiesSource
-      ? await supabase.from("batch_allocations").delete().eq("id", source.allocationId)
-      : await supabase.from("batch_allocations").update(patch).eq("id", source.allocationId);
-    if (error) {
-      await supabase.from("batch_allocations").delete().eq("id", alloc.id);
-      await undo();
-      throw new Error(error.message);
+  for (const { source, plan, empties } of steps) {
+    if (source.kind !== "allocation" || !source.allocationId) continue;
+    if (source.requires !== "refund") {
+      try {
+        await reduceSource(supabase, homes, source, plan);
+      } catch (e) {
+        await supabase.from("batch_allocations").delete().eq("id", alloc.id);
+        await undo();
+        throw e;
+      }
     }
-    if (!emptiesSource) await recheckCommitmentFulfillment(supabase, source.allocationId);
+    if (!empties) await recheckCommitmentFulfillment(supabase, source.allocationId);
   }
 
-  return { commitmentId: commitment.id, allocationId: alloc.id, deltaPct: plan.deltaPct };
+  return { commitmentId: commitment.id, allocationId: alloc.id, deltaPct: targetPct };
 }

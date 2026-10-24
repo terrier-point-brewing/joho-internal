@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { executeRehome, listHomes } from "@/lib/production/rehome";
+import { executeRehome, listHomes, drawsFromBody } from "@/lib/production/rehome";
 
 export const dynamic = "force-dynamic";
 
@@ -17,32 +17,35 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/production/allocations/rehome
-// { target_allocation_id, source: { kind: "unallocated" } | { kind: "allocation", allocation_id },
-//   bbl, transaction_ids? }
-// Moves `bbl` of the batch's share into the target allocation (raising its
-// booking) and, when given, credits already-shipped over-delivery / ad-hoc
-// rows to it. Refuses when the source's deposit is paid — that is the
-// refund flow's job.
+// { target_allocation_id, transaction_ids?,
+//   draws: [{ source: { kind: "unallocated" } | { kind: "allocation", allocation_id }, bbl, refund_cents? }] }
+//   — or the older single source + bbl (+ refund_cents).
+// Moves the drawn share into the target allocation (raising its booking) and,
+// when given, credits already-shipped over-delivery / ad-hoc rows to it. A
+// source whose deposit is paid is refunded the matching slice first;
+// `refund_cents` is the amount the operator confirmed, to the cent, and
+// without it such a source is refused.
 export async function POST(req: NextRequest) {
   try { await requirePermission(CAP.exportOperate); } catch (res) { return res as Response; }
   const supabase = await createSupabaseServerClient();
   const body = await req.json().catch(() => ({}));
   const targetAllocationId = body.target_allocation_id as string | undefined;
-  const bbl = Number(body.bbl);
-  const src = body.source as { kind?: string; allocation_id?: string } | undefined;
-  if (!targetAllocationId || !(bbl > 0) || !src?.kind) {
-    return NextResponse.json({ error: "target_allocation_id, source and a positive bbl are required" }, { status: 400 });
+  if (!targetAllocationId) return NextResponse.json({ error: "target_allocation_id is required" }, { status: 400 });
+  let draws;
+  try { draws = drawsFromBody(body); } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "source and a positive bbl are required" }, { status: 400 });
   }
-  const source = src.kind === "unallocated"
-    ? { kind: "unallocated" as const }
-    : src.allocation_id ? { kind: "allocation" as const, allocationId: src.allocation_id } : null;
-  if (!source) return NextResponse.json({ error: "source.allocation_id is required for an allocation source" }, { status: 400 });
+  const transactionIds = Array.isArray(body.transaction_ids) ? body.transaction_ids.filter((x: unknown) => typeof x === "string") : undefined;
 
   try {
-    const result = await executeRehome(supabase, {
-      targetAllocationId, source, bbl,
-      transactionIds: Array.isArray(body.transaction_ids) ? body.transaction_ids.filter((x: unknown) => typeof x === "string") : undefined,
-    });
+    // The shipped rows are credited with the first draw; later draws only move share.
+    let result = null;
+    for (const [i, d] of draws.entries()) {
+      result = await executeRehome(supabase, {
+        targetAllocationId, source: d.source, bbl: d.bbl, refund: d.refund ?? null,
+        transactionIds: i === 0 ? transactionIds : undefined,
+      });
+    }
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Re-home failed" }, { status: 422 });

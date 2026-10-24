@@ -7,7 +7,7 @@ import type { ShipmentWarning } from "@/lib/production/allocationReserve";
 import { normalizeShipLines, dedupeWarnings, type ShipLinesInput } from "@/lib/production/shipLines";
 import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 import { unpaidDepositBatches, simulateShipment, type SimulatedShipment } from "@/lib/production/shipReserveContext";
-import { executeRehome, bookCommitmentForShipment } from "@/lib/production/rehome";
+import { executeRehome, bookCommitmentForShipment, drawsFromBody } from "@/lib/production/rehome";
 
 export const dynamic = "force-dynamic";
 
@@ -29,14 +29,31 @@ interface ShipRequest extends ShipLinesInput {
    * plan would over-deliver; the move happens before the shipment is written,
    * so the credit lands inside the commitment instead of as over-delivery.
    */
-  home?: { target_allocation_id: string; source: { kind: "unallocated" } | { kind: "allocation"; allocation_id: string }; bbl: number };
+  /**
+   * Where share beyond the booking comes from: a list of draws split across
+   * sources as the operator chose (`draws`), or the older single `source`+`bbl`.
+   * `refund_cents` on a draw is the refund the operator confirmed when that
+   * source's deposit is paid (lib/production/rehome).
+   */
+  home?: {
+    target_allocation_id: string;
+    source?: { kind: "unallocated" } | { kind: "allocation"; allocation_id: string };
+    bbl?: number;
+    refund_cents?: number;
+    draws?: Array<{ source: { kind: "unallocated" } | { kind: "allocation"; allocation_id: string }; bbl: number; refund_cents?: number }>;
+  };
   /**
    * The partner has no commitment for this beer: book one for exactly this
    * shipment, on the batch it is drawn from, taking the share from `source`
    * (the preview's `book.homes`). Created before the shipment is written and
    * flagged for someone on Intake to confirm price and terms.
    */
-  book?: { channel: "contract_brewing" | "distribution"; source: { kind: "unallocated" } | { kind: "allocation"; allocation_id: string } };
+  book?: {
+    channel: "contract_brewing" | "distribution";
+    source?: { kind: "unallocated" } | { kind: "allocation"; allocation_id: string };
+    refund_cents?: number;
+    draws?: Array<{ source: { kind: "unallocated" } | { kind: "allocation"; allocation_id: string }; bbl: number; refund_cents?: number }>;
+  };
 }
 
 // POST /api/production/export-bay/ship
@@ -97,7 +114,7 @@ export async function POST(req: NextRequest) {
     if (!sim.book.homes) {
       return NextResponse.json({ error: sim.book.refusal ?? "Nothing to ship." }, { status: 409 });
     }
-    if (!book || !["contract_brewing", "distribution"].includes(book.channel) || !book.source?.kind) {
+    if (!book || !["contract_brewing", "distribution"].includes(book.channel) || !(book.source?.kind || Array.isArray(book.draws))) {
       const why = sim.book.reason === "off_batch"
         ? `${sim.book.bbl.toFixed(2)} bbl of this shipment is beyond the booking and this partner has no share of the batch it is drawn from.`
         : "This partner has no commitment for this beer.";
@@ -115,13 +132,19 @@ export async function POST(req: NextRequest) {
       );
     }
     try {
+      // The draws must add up to the booking: short-changing it would book a
+      // deal the batch cannot honour, over-drawing would strand share.
+      const draws = drawsFromBody(book, sim.book.bbl);
+      const total = draws.reduce((s, d) => s + d.bbl, 0);
+      if (Math.abs(total - sim.book.bbl) > 0.01) {
+        return NextResponse.json({ error: `The share drawn (${total.toFixed(2)} bbl) must equal the booking (${sim.book.bbl.toFixed(2)} bbl).`, book: sim.book }, { status: 409 });
+      }
       await bookCommitmentForShipment(supabase, {
         partnerId: partner_id,
         recipeId: recipe_id,
         batchId: sim.book.homes.batchId,
         channel: book.channel,
-        source: book.source.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocationId: book.source.allocation_id },
-        bbl: sim.book.bbl,
+        draws,
       });
       sim = await simulateShipment(supabase, { recipeId: recipe_id, partnerId: partner_id, lines });
     } catch (e) {
@@ -144,23 +167,38 @@ export async function POST(req: NextRequest) {
     }
   } else if (sim.overBbl > 1e-4) {
     const home = body.home;
-    if (!home || !home.target_allocation_id || !home.source || !(Number(home.bbl) >= sim.overBbl - 0.01)) {
-      return NextResponse.json(
-        {
-          error: `${sim.overBbl.toFixed(2)} bbl of this shipment is beyond the partner's booking. Choose where that share comes from before shipping.`,
-          over: sim.over,
-        },
-        { status: 409 },
-      );
-    }
+    const shortBbl = sim.over?.shortBbl ?? 0;
+    const refuse = () => NextResponse.json(
+      {
+        error: `${sim.overBbl.toFixed(2)} bbl of this shipment is beyond the partner's booking. Choose where that share comes from before shipping.`,
+        over: sim.over,
+      },
+      { status: 409 },
+    );
+    if (!home || !home.target_allocation_id) return refuse();
+    // The older single-source body named the over-bbl alone and the route added
+    // the short restoration; a `draws` list names the whole amount, short included.
+    let draws;
     try {
-      await executeRehome(supabase, {
-        targetAllocationId: home.target_allocation_id,
-        source: home.source.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocationId: home.source.allocation_id },
-        bbl: Number(home.bbl) + (sim.over?.shortBbl ?? 0),
-        bookBbl: Number(home.bbl),
-        beyondBooking: true,
-      });
+      draws = drawsFromBody(home);
+      if (!Array.isArray(home.draws)) draws[0] = { ...draws[0], bbl: draws[0].bbl + shortBbl };
+    } catch { return refuse(); }
+    const total = draws.reduce((s, d) => s + d.bbl, 0);
+    if (total < sim.overBbl + shortBbl - 0.01) return refuse();
+    try {
+      // Restore lost share first, booking only what is beyond it (as planAutoHome does).
+      let shortLeft = shortBbl;
+      for (const d of draws) {
+        await executeRehome(supabase, {
+          targetAllocationId: home.target_allocation_id,
+          source: d.source,
+          bbl: d.bbl,
+          bookBbl: Math.round(Math.max(0, d.bbl - shortLeft) * 10000) / 10000,
+          beyondBooking: true,
+          refund: d.refund ?? null,
+        });
+        shortLeft = Math.max(0, shortLeft - d.bbl);
+      }
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "Could not re-home the extra beer" }, { status: 422 });
     }

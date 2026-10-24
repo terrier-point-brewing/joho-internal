@@ -34,7 +34,7 @@ import { attentionRank, commitmentAttention, type Attention } from "@/lib/produc
 import { useQueryClient } from "@tanstack/react-query";
 import InvoicePreviewModal from "./InvoicePreviewModal";
 import type { HomesForBatch } from "@/lib/production/rehome";
-import HomeSourcePicker from "./HomeSourcePicker";
+import HomeSourcePicker, { EMPTY_DRAWS, planPickerDraws, type PickerDraws } from "./HomeSourcePicker";
 import { Modal } from "./shared";
 
 /**
@@ -48,7 +48,7 @@ function RehomeModal({ partner, shipment, onClose, onDone }: {
   const targets = shipment.batch_id ? (partner.allocations_by_batch[shipment.batch_id] ?? []) : [];
   const [targetId, setTargetId] = useState<string>(targets[0]?.allocation_id ?? "");
   const [homes, setHomes] = useState<HomesForBatch | null>(null);
-  const [source, setSource] = useState<string>("");
+  const [draws, setDraws] = useState<PickerDraws>(EMPTY_DRAWS);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const bblNeeded = shipment.volume_bbl;
@@ -62,19 +62,19 @@ function RehomeModal({ partner, shipment, onClose, onDone }: {
     return () => { live = false; };
   }, [shipment.batch_id, targetId]);
 
-  const chosen = homes?.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === source) ?? null;
-  const ok = !!chosen && chosen.requires !== "refund" && chosen.freeBbl + 0.0001 >= bblNeeded && !!targetId;
+  const basisBbl = homes ? (homes.yieldBbl > 0.0001 ? homes.yieldBbl : homes.plannedBbl) : 0;
+  const plan = homes ? planPickerDraws(homes.sources, draws, bblNeeded, basisBbl) : null;
+  const ok = !!plan && plan.ok && !!targetId;
 
   async function save() {
-    if (!chosen) return;
+    if (!plan?.ok) return;
     setBusy(true); setErr(null);
     try {
       const res = await fetch("/api/production/allocations/rehome", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           target_allocation_id: targetId,
-          source: chosen.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocation_id: chosen.allocationId },
-          bbl: bblNeeded,
+          draws: plan.payload,
           transaction_ids: shipment.transaction_ids,
         }),
       });
@@ -93,7 +93,7 @@ function RehomeModal({ partner, shipment, onClose, onDone }: {
           <p className="text-xs text-danger">{partner.company_name} has no share of this batch. Add one in Batch Log first, then come back.</p>
         ) : (
           <label className="block text-xs text-secondary">Deal
-            <select className="inp w-full mt-1" value={targetId} onChange={(e) => { setTargetId(e.target.value); setHomes(null); setSource(""); }}>
+            <select className="inp w-full mt-1" value={targetId} onChange={(e) => { setTargetId(e.target.value); setHomes(null); setDraws(EMPTY_DRAWS); }}>
               {targets.map((t) => <option key={t.allocation_id} value={t.allocation_id}>{t.recipe_name ?? "—"} · #{t.batch_number ?? "?"}</option>)}
             </select>
           </label>
@@ -101,7 +101,7 @@ function RehomeModal({ partner, shipment, onClose, onDone }: {
         {homes && (
           <div className="space-y-1">
             <div className="text-xs text-secondary">Its share comes from</div>
-            <HomeSourcePicker name="rehome-source" sources={homes.sources} bblNeeded={bblNeeded} value={source} onChange={setSource} />
+            <HomeSourcePicker sources={homes.sources} bblNeeded={bblNeeded} basisBbl={basisBbl} draws={draws} onChange={setDraws} batchNumber={homes.batchNumber} />
           </div>
         )}
         {err && <p className="text-xs text-danger">{err}</p>}
