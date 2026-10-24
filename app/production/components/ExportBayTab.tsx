@@ -1411,7 +1411,7 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
 // ── ShipModal ──────────────────────────────────────────────────────────────────
 
 function ShipModal({ group, inventoryLines, onClose, onDone }: {
-  group: Pick<CustomerRecipeGroup, "partnerId" | "partnerName" | "recipeId" | "recipeName">;
+  group: Pick<CustomerRecipeGroup, "partnerId" | "partnerName" | "recipeId" | "recipeName"> & { allocations?: BatchAllocation[] };
   inventoryLines: AvailableInventoryLine[];
   onClose: () => void;
   onDone: () => void;
@@ -1433,14 +1433,20 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
     unpaidDepositBatches?: { batchId: string; batchNumber: string | null; allocationId: string }[];
     noCommitment?: boolean;
     over?: { bbl: number; shortBbl?: number; targetAllocationId: string | null; homes: HomesForBatch; auto?: { label: string; bbl: number }[] | null } | null;
-    book?: { bbl: number; homes: HomesForBatch | null; refusal: string | null } | null;
+    book?: { bbl: number; reason?: "no_commitment" | "off_batch"; homes: HomesForBatch | null; refusal: string | null } | null;
   } | null>(null);
   // Beer beyond the booking has to take its share from somewhere on the
   // batch before it ships; the operator picks the source here.
   const [homeSource, setHomeSource] = useState<string>(""); // "unallocated" | allocation id
-  // No commitment at all: the shipment books one on the spot (see bookCommitmentForShipment).
-  const book = preview?.noCommitment ? (preview.book ?? null) : null;
-  const [bookChannel, setBookChannel] = useState<"contract_brewing" | "distribution">("contract_brewing");
+  // Booked on the spot (see bookCommitmentForShipment): the whole shipment
+  // when there is no commitment, or just the extra when the partner has no
+  // share of the batch the kegs are drawn from.
+  const book = preview?.book ?? null;
+  // A partner who already deals in this beer keeps their channel; only a
+  // brand-new deal defaults to contract brewing.
+  const [bookChannel, setBookChannel] = useState<"contract_brewing" | "distribution">(
+    (group.allocations ?? []).some((a) => a.channel === "distribution") && !(group.allocations ?? []).some((a) => a.channel === "contract_brewing") ? "distribution" : "contract_brewing",
+  );
   const [bookSource,  setBookSource]  = useState<string>("");
   const chosenBookSource = book?.homes?.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === bookSource) ?? null;
   const bookOk = !book || (!!book.homes && !!chosenBookSource && chosenBookSource.requires !== "refund" && chosenBookSource.freeBbl + 0.0001 >= book.bbl);
@@ -1604,7 +1610,9 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           {book && (
             <div className="rounded border border-accent-border bg-accent-muted/30 px-3 py-2 space-y-1.5">
               <p className="text-xs font-medium text-accent-soft">
-                No commitment for this beer — this shipment books one for {book.bbl.toFixed(2)} bbl
+                {book.reason === "off_batch"
+                  ? `${book.bbl.toFixed(2)} bbl of this shipment is beyond the booking — it is booked on #${book.homes?.batchNumber ?? "?"}, the batch it comes from`
+                  : `No commitment for this beer — this shipment books one for ${book.bbl.toFixed(2)} bbl`}
               </p>
               {book.refusal ? (
                 <p className="text-xs text-danger">{book.refusal}</p>
@@ -1671,7 +1679,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
             <button
               type="submit"
-              disabled={submitting || inventoryLines.length === 0 || filledLines.length === 0 || preview?.insufficientStock || ((unpaidDeposit.length > 0 || bookNeedsDepositAck) && !ackUnpaidDeposit) || (preview?.noCommitment && !book?.homes) || !bookOk || !homeOk}
+              disabled={submitting || inventoryLines.length === 0 || filledLines.length === 0 || preview?.insufficientStock || ((unpaidDeposit.length > 0 || bookNeedsDepositAck) && !ackUnpaidDeposit) || (!!book && !book.homes) || !bookOk || !homeOk}
               className="btn-primary"
             >
               {submitting ? "Shipping…" : book ? "Book and ship" : overNeedsHome ? `Re-home ${over!.bbl.toFixed(2)} bbl and ship` : unpaidDeposit.length > 0 ? "Ship before deposit" : "Ship"}

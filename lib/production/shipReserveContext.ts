@@ -6,7 +6,7 @@ import {
   type ShipmentCandidate,
 } from "./allocationReserve";
 import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
-import { planShipment, type ShipmentPlan } from "./allocationReserve";
+import { planShipment, pickOverTarget, type ShipmentPlan } from "./allocationReserve";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
 import { listHomes, planAutoHome, type AutoHomeDraw, type HomesForBatch } from "./rehome";
 import { loadBatchYields, shareBasisBbl } from "./batchYieldProjection.server";
@@ -228,11 +228,14 @@ export interface SimulatedShipment {
     auto: AutoHomeDraw[] | null;
   } | null;
   /**
-   * No commitment yet: the whole shipment is booked on the spot, on the one
-   * batch it is drawn from, taking its share from one of `homes.sources`.
-   * `refusal` says why it cannot be (a draw spanning several batches).
+   * Booked on the spot, on the one batch the beer is drawn from, taking its
+   * share from one of `homes.sources`: the whole shipment when the partner
+   * has no commitment for this beer (`no_commitment`), or only the beer
+   * beyond the booking when they have one but no share of this batch
+   * (`off_batch`). `refusal` says why it cannot be (a draw spanning several
+   * batches).
    */
-  book: { bbl: number; homes: HomesForBatch | null; refusal: string | null } | null;
+  book: { bbl: number; reason: "no_commitment" | "off_batch"; homes: HomesForBatch | null; refusal: string | null } | null;
 }
 
 /**
@@ -284,52 +287,54 @@ export async function simulateShipment(
     .eq("brew_batches.recipe_id", recipeId);
   const noCommitment = (count ?? 0) === 0;
 
-  let over: SimulatedShipment["over"] = null;
-  if (overBbl > 1e-4 && !noCommitment) {
-    // Grow the allocation on the batch the beer actually comes from when the
-    // partner has one there; a home on another batch moves the wrong picture.
-    const onDrawn = (c: ShipmentCandidate) => perBatchDrawBbl.some((d) => d.batchId === c.batchId && d.drawBbl > 1e-4);
-    const target = candidates.find((c) => c.channel === "contract_brewing" && onDrawn(c))
-      ?? candidates.find(onDrawn)
-      ?? candidates.find((c) => c.channel === "contract_brewing")
-      ?? candidates[0] ?? null;
-    let targetAllocationId: string | null = target?.allocationId ?? null;
-    let batchId: string | null = target?.batchId ?? perBatchDrawBbl[0]?.batchId ?? null;
-    if (!target) {
-      // Every allocation is fully credited; pick the partner's allocation on the drawn batch.
-      const { data: onBatch } = await supabase
-        .from("batch_allocations")
-        .select("id, batch_id")
-        .eq("partner_id", partnerId)
-        .in("channel", ["contract_brewing", "distribution", "wholesale"])
-        .in("batch_id", perBatchDrawBbl.map((d) => d.batchId))
-        .limit(1);
-      const row = (onBatch ?? [])[0] as { id: string; batch_id: string } | undefined;
-      if (row) { targetAllocationId = row.id; batchId = row.batch_id; }
+  // Booking on the spot, on the one batch the beer is drawn from: the whole
+  // shipment when the partner has no commitment for this beer, or just the
+  // beer beyond the booking when they have one but no share of THIS batch.
+  // One booking lives on one batch, so a draw spanning two lots is refused.
+  const bookOnDrawn = async (bbl: number, reason: "no_commitment" | "off_batch"): Promise<SimulatedShipment["book"]> => {
+    const drawn = perBatchDrawBbl.filter((d) => d.drawBbl > 1e-4);
+    const rounded = Math.round(bbl * 100) / 100;
+    if (drawn.length === 1) {
+      return { bbl: rounded, reason, homes: await listHomes(supabase, { batchId: drawn[0].batchId, targetAllocationId: null }), refusal: null };
     }
-    if (batchId) {
-      const homes = await listHomes(supabase, { batchId, targetAllocationId });
-      const creditedToTarget = plan.credits.find((c) => c.allocationId != null && c.allocationId === targetAllocationId)?.bbl ?? 0;
+    if (drawn.length > 1) {
+      const { data: rows } = await supabase.from("brew_batches").select("batch_number").in("id", drawn.map((d) => d.batchId));
+      const nums = ((rows ?? []) as Array<{ batch_number: string | null }>).map((r) => `#${r.batch_number ?? "?"}`).join(" and ");
+      return { bbl: rounded, reason, homes: null, refusal: `This quantity draws from ${nums}. Ship what the oldest lot holds first, then the rest as a second shipment.` };
+    }
+    return null;
+  };
+
+  let over: SimulatedShipment["over"] = null;
+  let book: SimulatedShipment["book"] = null;
+  if (overBbl > 1e-4 && !noCommitment) {
+    // Grow the allocation on the batch the beer actually comes from. The
+    // partner's allocations on an older batch are never a home: that batch
+    // did not supply this beer, and its shares may already be spent.
+    const { data: onBatch } = await supabase
+      .from("batch_allocations")
+      .select("id, batch_id")
+      .eq("partner_id", partnerId)
+      .in("channel", ["contract_brewing", "distribution", "wholesale"])
+      .in("batch_id", perBatchDrawBbl.map((d) => d.batchId));
+    const onDrawn = ((onBatch ?? []) as Array<{ id: string; batch_id: string }>).map((r) => ({ allocationId: r.id, batchId: r.batch_id }));
+    const target = pickOverTarget(candidates, perBatchDrawBbl, onDrawn);
+    if (target) {
+      const homes = await listHomes(supabase, { batchId: target.batchId, targetAllocationId: target.allocationId });
+      const creditedToTarget = plan.credits.find((c) => c.allocationId != null && c.allocationId === target.allocationId)?.bbl ?? 0;
       // The plan above capped the credit at the share as it stands, so a
       // target already short has had none of this shipment credited to it:
       // the home must restore that share too or the credit still falls short.
-      const shortBbl = targetAllocationId ? homes.targetShortBbl : 0;
-      over = { bbl: overBbl, targetAllocationId, homes, shortBbl, auto: targetAllocationId ? planAutoHome(homes.sources, overBbl, creditedToTarget, shortBbl) : null };
+      const shortBbl = homes.targetShortBbl;
+      over = { bbl: overBbl, targetAllocationId: target.allocationId, homes, shortBbl, auto: planAutoHome(homes.sources, overBbl, creditedToTarget, shortBbl) };
+    } else {
+      // No share of the drawn batch at all: book the extra there.
+      book = await bookOnDrawn(overBbl, "off_batch");
     }
   }
 
-  let book: SimulatedShipment["book"] = null;
   if (noCommitment && requestedBbl > 1e-4) {
-    const drawn = perBatchDrawBbl.filter((d) => d.drawBbl > 1e-4);
-    if (drawn.length === 1) {
-      book = { bbl: Math.round(requestedBbl * 100) / 100, homes: await listHomes(supabase, { batchId: drawn[0].batchId, targetAllocationId: null }), refusal: null };
-    } else if (drawn.length > 1) {
-      // One booking lives on one batch. A drop that spans two lots is two
-      // bookings; shipping it as one would put half of it outside the deal.
-      const { data: rows } = await supabase.from("brew_batches").select("batch_number").in("id", drawn.map((d) => d.batchId));
-      const nums = ((rows ?? []) as Array<{ batch_number: string | null }>).map((r) => `#${r.batch_number ?? "?"}`).join(" and ");
-      book = { bbl: Math.round(requestedBbl * 100) / 100, homes: null, refusal: `This quantity draws from ${nums}. Ship what the oldest lot holds first, then the rest as a second shipment.` };
-    }
+    book = await bookOnDrawn(requestedBbl, "no_commitment");
   }
 
   return { plan, candidates, batches, perBatchDrawBbl, requestedBbl, lines: lineAvailability, overBbl, noCommitment, over, book };

@@ -232,6 +232,28 @@ export interface ShipmentPlan {
  * share). Pure — no I/O; the caller supplies produced/exported figures and the
  * simulated FIFO draw.
  */
+/**
+ * Which allocation an over-shipment grows. Always one of the partner's on a
+ * batch the beer is physically drawn from — a contract one first, then any
+ * with credit left, then any at all (fully credited). Never an allocation on
+ * another batch: Fortnight's Epic Hazy kegs were all B-062, yet the modal
+ * asked B-029 (a batch already credited 11 bbl past what it packaged) to
+ * cover the extra, and found nothing. Null means the partner has no share of
+ * the drawn batch, and the extra is booked there instead.
+ */
+export function pickOverTarget(
+  candidates: Pick<ShipmentCandidate, "allocationId" | "batchId" | "channel">[],
+  perBatchDrawBbl: { batchId: string; drawBbl: number }[],
+  partnerAllocationsOnDrawn: { allocationId: string; batchId: string }[],
+): { allocationId: string; batchId: string } | null {
+  const drawn = new Set(perBatchDrawBbl.filter((d) => d.drawBbl > EPS).map((d) => d.batchId));
+  const onDrawn = candidates.filter((c) => drawn.has(c.batchId));
+  const pick = onDrawn.find((c) => c.channel === "contract_brewing") ?? onDrawn[0] ?? null;
+  if (pick) return { allocationId: pick.allocationId, batchId: pick.batchId };
+  const any = partnerAllocationsOnDrawn.find((a) => drawn.has(a.batchId)) ?? null;
+  return any ? { allocationId: any.allocationId, batchId: any.batchId } : null;
+}
+
 export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
   const credits: ShipmentCredit[] = [];
   const warnings: ShipmentWarning[] = [];
