@@ -3,6 +3,7 @@ import {
   allocationView,
   batchReserve,
   planShipment,
+  pickOverTarget,
   planCreditedWrites,
   completionReconciliation,
   assessWriteOff,
@@ -599,5 +600,38 @@ describe("planShipment — back-to-back batches of one recipe", () => {
       batches: [],
     });
     expect(plan.credits).toEqual([{ allocationId: "C", bbl: 2, overAllocation: false }]);
+  });
+});
+
+describe("pickOverTarget", () => {
+  const draw = [{ batchId: "B-062", drawBbl: 7.33 }];
+  it("grows the partner's contract allocation on the drawn batch first", () => {
+    const t = pickOverTarget(
+      [
+        { allocationId: "dist-062", batchId: "B-062", channel: "distribution" },
+        { allocationId: "ctr-062", batchId: "B-062", channel: "contract_brewing" },
+      ],
+      draw,
+      [],
+    );
+    expect(t).toEqual({ allocationId: "ctr-062", batchId: "B-062" });
+  });
+  it("never homes the extra on an allocation of another batch", () => {
+    // Fortnight's Epic Hazy kegs were all B-062; its only allocations with
+    // credit left sat on B-029, a batch already credited past what it packaged.
+    const t = pickOverTarget(
+      [{ allocationId: "dist-029", batchId: "B-029", channel: "distribution" }],
+      draw,
+      [],
+    );
+    expect(t).toBeNull();
+  });
+  it("falls back to a fully credited allocation on the drawn batch", () => {
+    const t = pickOverTarget(
+      [{ allocationId: "dist-029", batchId: "B-029", channel: "distribution" }],
+      draw,
+      [{ allocationId: "spent-062", batchId: "B-062" }, { allocationId: "ctr-029", batchId: "B-029" }],
+    );
+    expect(t).toEqual({ allocationId: "spent-062", batchId: "B-062" });
   });
 });

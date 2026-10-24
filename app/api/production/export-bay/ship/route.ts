@@ -106,14 +106,20 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Could not plan the shipment" }, { status: 422 });
   }
-  if (sim.noCommitment) {
+  // Booked on the spot: the whole shipment (no commitment for this beer) or
+  // only the beer beyond the booking (a commitment, but no share of the batch
+  // the kegs are drawn from — the extra lives on that batch, never an older one).
+  if (sim.book) {
     const book = body.book;
-    if (!sim.book || !sim.book.homes) {
-      return NextResponse.json({ error: sim.book?.refusal ?? "Nothing to ship." }, { status: 409 });
+    if (!sim.book.homes) {
+      return NextResponse.json({ error: sim.book.refusal ?? "Nothing to ship." }, { status: 409 });
     }
     if (!book || !["contract_brewing", "distribution"].includes(book.channel) || !(book.source?.kind || Array.isArray(book.draws))) {
+      const why = sim.book.reason === "off_batch"
+        ? `${sim.book.bbl.toFixed(2)} bbl of this shipment is beyond the booking and this partner has no share of the batch it is drawn from.`
+        : "This partner has no commitment for this beer.";
       return NextResponse.json(
-        { error: "This partner has no commitment for this beer. Choose the channel and where its share of the batch comes from, and it is booked as it ships.", book: sim.book },
+        { error: `${why} Choose the channel and where its share of the batch comes from, and it is booked as it ships.`, book: sim.book },
         { status: 409 },
       );
     }
