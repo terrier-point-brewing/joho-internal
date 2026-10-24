@@ -19,7 +19,7 @@ import ColdStorageTransformModal from "./ColdStorageTransformModal";
 import ColdStorageConvertModal from "./ColdStorageConvertModal";
 import ReceiveBeerModal from "./ReceiveBeerModal";
 import DepositCoverageLine from "./DepositCoverageLine";
-import HomeSourcePicker from "./HomeSourcePicker";
+import HomeSourcePicker, { EMPTY_DRAWS, planPickerDraws, type PickerDraws } from "./HomeSourcePicker";
 import { SearchCombobox, type SearchComboboxItem } from "@/components/ui/SearchCombobox";
 
 function formatShipmentWarning(w: ShipmentWarning): string {
@@ -1437,13 +1437,17 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   } | null>(null);
   // Beer beyond the booking has to take its share from somewhere on the
   // batch before it ships; the operator picks the source here.
-  const [homeSource, setHomeSource] = useState<string>(""); // "unallocated" | allocation id
+  // The operator's split of the extra share across the batch's sources.
+  const [homeDraws, setHomeDraws] = useState<PickerDraws>(EMPTY_DRAWS);
   // No commitment at all: the shipment books one on the spot (see bookCommitmentForShipment).
   const book = preview?.noCommitment ? (preview.book ?? null) : null;
   const [bookChannel, setBookChannel] = useState<"contract_brewing" | "distribution">("contract_brewing");
-  const [bookSource,  setBookSource]  = useState<string>("");
-  const chosenBookSource = book?.homes?.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === bookSource) ?? null;
-  const bookOk = !book || (!!book.homes && !!chosenBookSource && chosenBookSource.requires !== "refund" && chosenBookSource.freeBbl + 0.0001 >= book.bbl);
+  const [bookDraws, setBookDraws] = useState<PickerDraws>(EMPTY_DRAWS);
+  // Drawing on a paid partner's share refunds them the matching slice of their
+  // deposit; the operator ticks that amount and it travels with the request.
+  const basisOf = (h: { yieldBbl: number; plannedBbl: number } | null | undefined) => (h ? (h.yieldBbl > 0.0001 ? h.yieldBbl : h.plannedBbl) : 0);
+  const bookPlan = book?.homes ? planPickerDraws(book.homes.sources, bookDraws, book.bbl, basisOf(book.homes)) : null;
+  const bookOk = !book || (!!bookPlan && bookPlan.ok);
   const over = preview?.over ?? null;
   // Share that is ours to give (own, unallocated, taproom) moves by itself as
   // the beer ships; the operator is only asked when another partner's would.
@@ -1451,8 +1455,8 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   const overNeedsHome = !!over && over.bbl > 0.0001 && !overAuto;
   // Share this deal already shipped against and lost when the batch finished short.
   const overShort = over?.shortBbl ?? 0;
-  const chosenHome = over?.homes.sources.find((h) => (h.kind === "unallocated" ? "unallocated" : h.allocationId) === homeSource) ?? null;
-  const homeOk = !overNeedsHome || (!!chosenHome && chosenHome.requires !== "refund" && chosenHome.freeBbl + 0.0001 >= (over?.bbl ?? 0) + overShort && !!over?.targetAllocationId);
+  const homePlan = over ? planPickerDraws(over.homes.sources, homeDraws, over.bbl + overShort, basisOf(over.homes)) : null;
+  const homeOk = !overNeedsHome || (!!homePlan && homePlan.ok && !!over?.targetAllocationId);
   // Shipping before the deposit is paid is allowed, but it is a decision the
   // operator makes on purpose: the route refuses without this, and the row
   // records that the beer left on credit.
@@ -1502,18 +1506,11 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
           lines:      filledLines,
           notes:      notes || null,
           acknowledge_unpaid_deposit: unpaidDeposit.length > 0 || bookNeedsDepositAck ? ackUnpaidDeposit : undefined,
-          book: book && chosenBookSource
-            ? {
-                channel: bookChannel,
-                source: chosenBookSource.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocation_id: chosenBookSource.allocationId },
-              }
+          book: book && bookPlan?.ok
+            ? { channel: bookChannel, draws: bookPlan.payload }
             : undefined,
-          home: overNeedsHome && chosenHome && over?.targetAllocationId
-            ? {
-                target_allocation_id: over.targetAllocationId,
-                source: chosenHome.kind === "unallocated" ? { kind: "unallocated" } : { kind: "allocation", allocation_id: chosenHome.allocationId },
-                bbl: over.bbl,
-              }
+          home: overNeedsHome && homePlan?.ok && over?.targetAllocationId
+            ? { target_allocation_id: over.targetAllocationId, draws: homePlan.payload }
             : undefined,
         }),
       });
@@ -1618,7 +1615,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                     </select>
                   </div>
                   <p className="text-xs text-secondary">Its share of #{book.homes.batchNumber ?? "?"} comes from</p>
-                  <HomeSourcePicker name="book-home" sources={book.homes.sources} bblNeeded={book.bbl} value={bookSource} onChange={setBookSource} />
+                  <HomeSourcePicker sources={book.homes.sources} bblNeeded={book.bbl} basisBbl={basisOf(book.homes)} draws={bookDraws} onChange={setBookDraws} batchNumber={book.homes.batchNumber} />
                   <p className="text-xs text-faint">A deal is created and flagged for review on Intake.</p>
                 </>
               )}
@@ -1642,7 +1639,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
               {!over.targetAllocationId && (
                 <p className="text-xs text-danger">This partner has no share of the drawn batch to grow — add one in Batch Log first.</p>
               )}
-              <HomeSourcePicker name="home" sources={over.homes.sources} bblNeeded={over.bbl + overShort} value={homeSource} onChange={setHomeSource} />
+              <HomeSourcePicker sources={over.homes.sources} bblNeeded={over.bbl + overShort} basisBbl={basisOf(over.homes)} draws={homeDraws} onChange={setHomeDraws} batchNumber={over.homes.batchNumber} />
             </div>
           )}
           {(unpaidDeposit.length > 0 || bookNeedsDepositAck) && (
