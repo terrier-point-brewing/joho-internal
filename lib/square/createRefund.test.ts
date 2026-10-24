@@ -15,7 +15,7 @@ vi.mock("./client", async (importActual) => ({
   squarePost: (...args: unknown[]) => squarePost(...args),
 }));
 
-import { createRefund, RefundDeclinedError } from "./refunds";
+import { createRefund, fitRefundReason, RefundDeclinedError, SQUARE_REFUND_REASON_MAX_LENGTH } from "./refunds";
 import { SquareApiError } from "./client";
 
 // Braces, not a concise body: mockReset() RETURNS the mock, and vitest treats a
@@ -73,5 +73,20 @@ describe("createRefund", () => {
     const err = await createRefund("pay_1", 1000, "why").catch((e) => e);
     expect(err).toBe(boom);
     expect(err).not.toBeInstanceOf(RefundDeclinedError);
+  });
+});
+
+describe("fitRefundReason", () => {
+  it("leaves a short reason alone", () => {
+    expect(fitRefundReason("  Goods returned — invoice 12  ")).toBe("Goods returned — invoice 12");
+  });
+
+  it("cuts a long reason at a word boundary under Square's 192-char limit", () => {
+    const long = Array.from({ length: 60 }, (_, i) => `word${i}`).join(" ");
+    const fitted = fitRefundReason(long);
+    expect(fitted.length).toBeLessThanOrEqual(SQUARE_REFUND_REASON_MAX_LENGTH);
+    expect(fitted.endsWith("…")).toBe(true);
+    expect(long.startsWith(fitted.slice(0, -1))).toBe(true);
+    expect(fitted.slice(0, -1).endsWith(" ")).toBe(false);
   });
 });
