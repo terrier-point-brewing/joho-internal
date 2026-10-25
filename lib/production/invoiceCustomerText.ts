@@ -10,6 +10,7 @@
  */
 
 import { INGREDIENT_COST_PREFIX } from "@/lib/production/depositLine";
+import { GALLONS_PER_BBL } from "@/lib/constants/production";
 
 // ── Invoice titles / descriptions ────────────────────────────────────────────
 
@@ -101,14 +102,29 @@ export function packagingMaterialsLineDescription(beerName: string | null | unde
   return beerName ? `Packaging Materials — ${beerName}` : "Packaging Materials";
 }
 
+/** Taxed volume in the unit the rate is charged on: "4.7 bbl" or "751.1 gal". */
+export function formatTaxedVolume(bbl: number, basis: "per_bbl" | "per_gallon"): string {
+  if (basis === "per_gallon") {
+    const gal = (Math.round(bbl * GALLONS_PER_BBL * 10) / 10).toFixed(1).replace(/\.0$/, "");
+    return `${gal} gal`;
+  }
+  return formatShippedBbl(bbl);
+}
+
 /**
  * Excise is a statutory pass-through, one line per receiving party (Federal,
  * NC) because each bills against its own Square item. The line names the
- * barrelage the tax was charged on, to one decimal, so the partner can tie
- * the amount to a volume: "Excise Tax — Federal (7.5 bbl taxed)".
+ * volume the tax was charged on, to one decimal, in the unit of the rate's
+ * basis so the partner can tie amount to rate: "Excise Tax — TTB (7.5 bbl
+ * taxed)" for a per-bbl rate, "Excise Tax — NC DOR (232.5 gal taxed)" for a
+ * per-gallon one.
  */
-export function exciseTaxLineDescription(receivingParty: string, taxedBbl: number): string {
-  return `Excise Tax — ${receivingParty} (${formatShippedBbl(taxedBbl)} taxed)`;
+export function exciseTaxLineDescription(
+  receivingParty: string,
+  taxedBbl: number,
+  basis: "per_bbl" | "per_gallon" = "per_bbl",
+): string {
+  return `Excise Tax — ${receivingParty} (${formatTaxedVolume(taxedBbl, basis)} taxed)`;
 }
 
 /** A shipped product the catalog already knows: Square's own item + variation names. */

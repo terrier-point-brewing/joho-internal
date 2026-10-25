@@ -332,14 +332,19 @@ export async function buildExciseTaxLines(
     .select("id, receiving_party, basis, square_catalog_variation_id")
     .in("id", rateIds);
   const rateById = new Map((rates ?? []).map((r) => [r.id, r]));
-  // The taxed volume is the shipment's volume_bbl, summed per party, and is
-  // always shown in bbl (never gallons) regardless of the rate's basis.
+  // The taxed volume is the shipment's volume_bbl, summed per party, shown in
+  // the unit of the rate's basis (bbl or gallons).
   const volumeByTx = new Map(rows.map((r) => [r.id, Number(r.volume_bbl ?? 0)]));
-  const byParty = new Map<string, { amountCents: number; taxedBbl: number; variationId: string | null }>();
+  const byParty = new Map<string, { amountCents: number; taxedBbl: number; basis: "per_bbl" | "per_gallon"; variationId: string | null }>();
   for (const t of taxRows) {
     const rate = t.excise_tax_rate_id ? rateById.get(t.excise_tax_rate_id) : undefined;
     const party = rate?.receiving_party ?? "Unknown";
-    const entry = byParty.get(party) ?? { amountCents: 0, taxedBbl: 0, variationId: rate?.square_catalog_variation_id ?? null };
+    const entry = byParty.get(party) ?? {
+      amountCents: 0,
+      taxedBbl: 0,
+      basis: rate?.basis === "per_gallon" ? "per_gallon" : "per_bbl",
+      variationId: rate?.square_catalog_variation_id ?? null,
+    };
     entry.taxedBbl += volumeByTx.get(t.export_transaction_id) ?? 0;
     // UNIT CROSSING: export_transaction_taxes.amount_usd is decimal USD dollars;
     // invoice line item unit prices are integer cents. Round dollars → cents.
@@ -349,7 +354,7 @@ export async function buildExciseTaxLines(
 
   return [...byParty.entries()].map(([party, entry]) => ({
     id: crypto.randomUUID(),
-    description: exciseTaxLineDescription(party, entry.taxedBbl),
+    description: exciseTaxLineDescription(party, entry.taxedBbl, entry.basis),
     quantity: 1,
     unitPriceCents: entry.amountCents,
     squareCatalogVariationId: entry.variationId,

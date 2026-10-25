@@ -39,7 +39,7 @@ const SAMPLES: Record<string, string> = {
   materials: packagingMaterialsLineDescription("Fortnight"),
   materialsBare: packagingMaterialsLineDescription(null),
   exciseFederal: exciseTaxLineDescription("Federal", 7.5),
-  exciseNc: exciseTaxLineDescription("NC", 4.666),
+  exciseNc: exciseTaxLineDescription("NC", 4.666, "per_gallon"),
   catalogProduct: catalogProductLineDescription("Vienna Lager (Keg)", "1/6 Keg", "sixtel", "VAR-1"),
   catalogFallback: catalogProductLineDescription(null, null, null, "VAR-1"),
   unmappedProduct: unmappedProductLineDescription("Hop Roar IPA", "16oz Can", "case"),
@@ -54,17 +54,16 @@ describe("invoiceCustomerText — house rules", () => {
 
   it.each(Object.entries(SAMPLES))("%s prints no volume beyond one decimal", (_name, text) => {
     expect(text).not.toMatch(/\d+\.\d{2,}\s*(bbls?|barrels?|gal|gallons?)\b/i);
-    expect(text).not.toMatch(/\d+(\.\d+)?\s*(gal|gallons?)\b/i);
   });
 
   it.each(Object.entries(SAMPLES))("%s prints no toFixed(2)-style number", (_name, text) => {
     expect(text).not.toMatch(/\d+\.\d{2}\b/);
   });
 
-  it.each(Object.entries(SAMPLES).filter(([, t]) => /\bbbls?\b/.test(t)))(
+  it.each(Object.entries(SAMPLES).filter(([, t]) => /\b(bbls?|gal)\b/.test(t)))(
     "%s labels any volume as shipped, taxed or estimated",
     (_name, text) => {
-      expect(text).toMatch(/Estimated yield is \d+(\.5)? bbls?|\d+(\.\d)? bbl of .* shipped|\d+(\.\d)? bbl taxed/);
+      expect(text).toMatch(/Estimated yield is \d+(\.5)? bbls?|\d+(\.\d)? bbl of .* shipped|\d+(\.\d)? (bbl|gal) taxed/);
     },
   );
 });
@@ -73,6 +72,8 @@ describe("invoiceCustomerText — excise line", () => {
   it("names the taxed barrelage to one decimal", () => {
     expect(exciseTaxLineDescription("Federal", 7.5)).toBe("Excise Tax — Federal (7.5 bbl taxed)");
     expect(exciseTaxLineDescription("NC", 4.666)).toBe("Excise Tax — NC (4.7 bbl taxed)");
+    expect(exciseTaxLineDescription("NC", 4.666, "per_gallon")).toBe("Excise Tax — NC (144.6 gal taxed)");
+    expect(exciseTaxLineDescription("NC", 24.23, "per_gallon")).toBe("Excise Tax — NC (751.1 gal taxed)");
     expect(exciseTaxLineDescription("Federal", 8)).toBe("Excise Tax — Federal (8 bbl taxed)");
   });
 });
