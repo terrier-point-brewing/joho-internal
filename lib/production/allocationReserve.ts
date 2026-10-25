@@ -264,8 +264,16 @@ export function planShipment(input: ShipmentPlanInput): ShipmentPlan {
   // B-034's kegs, so B-034's commitments could never close. Contract still
   // outranks soft; the incoming order breaks ties.
   const drawn = new Set(input.perBatchDrawBbl.filter((d) => d.drawBbl > EPS).map((d) => d.batchId));
+  // Only an allocation on a batch the beer is physically drawn from can be
+  // credited. Argus's Oct 24 Hop Roar kegs were all B-059, yet once B-059's
+  // share was spent the planner spilled 2.03 bbl onto their allocation on
+  // B-075 — a batch still fermenting — and dust onto sold-out B-032. Beer
+  // beyond the drawn batches' shares is over-delivery that needs a home on
+  // the drawn batch (pickOverTarget), not a credit against beer that does not
+  // exist yet. Without draw information (a bare re-plan) every candidate stays.
   const rank = (c: ShipmentCandidate) => (isDepositBacked(c.channel) ? 0 : 2) + (drawn.has(c.batchId) ? 0 : 1);
   const ordered = input.candidates
+    .filter((c) => drawn.size === 0 || drawn.has(c.batchId))
     .map((c, i) => ({ c, i }))
     .sort((x, y) => rank(x.c) - rank(y.c) || x.i - y.i)
     .map(({ c }) => c);
