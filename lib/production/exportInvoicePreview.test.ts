@@ -85,7 +85,10 @@ describe("buildExciseTaxLines", () => {
       ["t1"],
       [{ id: "t1", volume_bbl: 1.5 }]
     );
-    expect(lines.every((l) => l.description.endsWith("(1.5 bbl taxed)"))).toBe(true);
+    expect(lines.map((l) => l.description).sort()).toEqual([
+      "Excise Tax — Federal (1.5 bbl taxed)",
+      "Excise Tax — NC (46.5 gal taxed)",
+    ]);
     const byParty = Object.fromEntries(
       lines.map((l) => [l.description.split(" — ")[1].split(" (")[0], l.unitPriceCents])
     );
