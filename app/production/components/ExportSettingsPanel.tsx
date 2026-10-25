@@ -220,8 +220,15 @@ function getMappingLabel(
   return null;
 }
 
+/** A per-partner on/off switch shown above the Square picker (e.g. keg cleaning). */
+interface ChargeSwitch {
+  label: string;
+  charged: boolean;
+  onChange: (charged: boolean) => Promise<void>;
+}
+
 function ServiceMappingDrawer({
-  rowLabel, drawerKind, partnerName, mapping, items, discounts, onClose, onSave,
+  rowLabel, drawerKind, partnerName, mapping, items, discounts, chargeSwitch, onClose, onSave,
 }: {
   rowLabel: string;
   drawerKind: "catalog" | "discount";
@@ -229,6 +236,7 @@ function ServiceMappingDrawer({
   mapping: ExportServiceMapping | null;
   items: SquareCatalogOptions["items"];
   discounts: SquareCatalogOptions["discounts"];
+  chargeSwitch?: ChargeSwitch;
   onClose: () => void;
   onSave: (patch: Record<string, unknown>) => Promise<void>;
 }) {
@@ -238,6 +246,20 @@ function ServiceMappingDrawer({
   const [pickerKey, setPickerKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [toggling, setToggling] = useState(false);
+
+  async function handleToggle(charged: boolean) {
+    if (!chargeSwitch) return;
+    setToggling(true);
+    setError(null);
+    try {
+      await chargeSwitch.onChange(charged);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setToggling(false);
+    }
+  }
 
   const hasPending = drawerKind === "catalog"
     ? (pendingItemId !== null && pendingVariationId !== null)
@@ -291,6 +313,26 @@ function ServiceMappingDrawer({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {chargeSwitch && (
+            <label className="flex items-start gap-2 rounded-lg border border-line px-3 py-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={chargeSwitch.charged}
+                disabled={toggling}
+                onChange={(e) => handleToggle(e.target.checked)}
+              />
+              <span className="text-xs text-strong">
+                {chargeSwitch.label}
+                <span className="block text-faint mt-0.5">
+                  {chargeSwitch.charged
+                    ? "Billed on every export invoice that ships kegs."
+                    : "Export invoices for this partner omit the line."}
+                </span>
+              </span>
+            </label>
+          )}
+          {chargeSwitch && !chargeSwitch.charged ? null : (<>
           {currentLabel && (
             <div className="rounded-lg border border-success-border/40 bg-success-surface/20 px-3 py-2">
               <span className="text-xs text-success">✓ {currentLabel}</span>
@@ -326,6 +368,7 @@ function ServiceMappingDrawer({
               </button>
             )}
           </div>
+          </>)}
           {error && <p className="text-xs text-danger">{error}</p>}
         </div>
       </div>
@@ -425,6 +468,25 @@ function ServiceMappingGrid() {
     await qc.invalidateQueries({ queryKey: queryKeys.production.exportServiceMappings() });
   }
 
+  /** Whether a partner is billed for keg cleaning (column default: yes). */
+  function partnerChargesKegCleaning(partnerId: string | null): boolean {
+    if (!partnerId) return true;
+    return partners.find((p) => p.id === partnerId)?.charges_keg_cleaning !== false;
+  }
+
+  async function saveKegCleaningCharge(partnerId: string, charged: boolean) {
+    const res = await fetch("/api/production/export-settings/partner-charges", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ partner_id: partnerId, charges_keg_cleaning: charged }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? `Save failed (${res.status})`);
+    }
+    await qc.invalidateQueries({ queryKey: queryKeys.partners.contractBrewing() });
+  }
+
   const columns: { partnerId: string | null; label: string }[] = [
     { partnerId: null, label: "All partners (unprinted)" },
     ...partners.map((p) => ({ partnerId: p.id, label: p.company_name })),
@@ -433,7 +495,7 @@ function ServiceMappingGrid() {
   // Group header rows + data rows as a flat array for tbody
   type TbodyEntry =
     | { type: "header"; key: string; label: string }
-    | { type: "row"; key: string; rowLabel: string; getCell: (partnerId: string | null) => { label: string | null; mixed?: boolean; onClick: () => void } };
+    | { type: "row"; key: string; rowLabel: string; getCell: (partnerId: string | null) => { label: string | null; mixed?: boolean; off?: boolean; onClick: () => void } };
 
   const entries: TbodyEntry[] = [
     { type: "header", key: "h-pf", label: "Packaging Fees" },
@@ -453,6 +515,7 @@ function ServiceMappingGrid() {
       rowLabel: r.label,
       getCell: (partnerId) => ({
         label: getMappingLabel(r, getServiceMapping(r.serviceType, partnerId), items, discounts),
+        off: r.serviceType === "keg_cleaning" && !partnerChargesKegCleaning(partnerId),
         onClick: () => setSelected({ kind: "service", serviceType: r.serviceType, mappingKind: "catalog", rowLabel: r.label, partnerId }),
       }),
     })),
@@ -477,6 +540,7 @@ function ServiceMappingGrid() {
   let drawerKind: "catalog" | "discount" = "catalog";
   let drawerMapping: ExportServiceMapping | null = null;
   let drawerOnSave: ((patch: Record<string, unknown>) => Promise<void>) | null = null;
+  let drawerChargeSwitch: ChargeSwitch | undefined;
 
   if (selected?.kind === "packaging_fee") {
     const target = cellTarget(selected.vc, selected.partnerId);
@@ -494,6 +558,14 @@ function ServiceMappingGrid() {
     drawerKind = selected.mappingKind;
     drawerMapping = getServiceMapping(selected.serviceType, selected.partnerId);
     drawerOnSave = (patch) => saveService(selected.serviceType, selected.partnerId, drawerMapping, selected.rowLabel, patch);
+    if (selected.serviceType === "keg_cleaning" && selected.partnerId) {
+      const partnerId = selected.partnerId;
+      drawerChargeSwitch = {
+        label: `Charge keg cleaning to ${selectedPartnerName}`,
+        charged: partnerChargesKegCleaning(partnerId),
+        onChange: (charged) => saveKegCleaningCharge(partnerId, charged),
+      };
+    }
   }
 
   return (
@@ -558,7 +630,14 @@ function ServiceMappingGrid() {
                         className="px-3 py-2.5 cursor-pointer align-middle"
                         onClick={cell.onClick}
                       >
-                        {cell.label ? (
+                        {cell.off ? (
+                          <span
+                            className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-line text-muted leading-4"
+                            title="This partner is not billed for this service — the export invoice omits the line"
+                          >
+                            Not charged
+                          </span>
+                        ) : cell.label ? (
                           <span
                             className="block w-fit max-w-full px-1.5 py-0.5 rounded text-[10px] bg-success-surface/30 border border-success-border/50 text-success leading-4 truncate"
                             title={cell.label}
@@ -595,6 +674,7 @@ function ServiceMappingGrid() {
           mapping={drawerMapping}
           items={items}
           discounts={discounts}
+          chargeSwitch={drawerChargeSwitch}
           onClose={() => setSelected(null)}
           onSave={drawerOnSave}
         />

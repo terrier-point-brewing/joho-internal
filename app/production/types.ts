@@ -596,6 +596,8 @@ export interface ContractBrewingPartner {
   square_customer_id: string | null;
   /** Their beer is never offered to other partners in the partner portal. */
   recipes_exclusive?: boolean;
+  /** When false, export invoices for this partner omit the Keg Cleaning line. */
+  charges_keg_cleaning?: boolean;
   created_at: string;
 }
 

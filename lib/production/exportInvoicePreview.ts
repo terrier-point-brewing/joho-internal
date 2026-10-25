@@ -651,10 +651,13 @@ export async function buildInvoicePreview(
   // ── 2. Load the customer (square_customer_id, net terms) ─────────────────
   const { data: partner, error: partnerErr } = await supabase
     .from("contract_brewing_partners")
-    .select("id, company_name, square_customer_id")
+    .select("id, company_name, square_customer_id, charges_keg_cleaning")
     .eq("id", customerId)
     .single();
   if (partnerErr || !partner) throw new Error("Customer not found");
+  // A partner who cleans their own kegs is configured out of the line entirely
+  // (Export Settings → Keg Cleaning → that partner's column).
+  const chargesKegCleaning = (partner as { charges_keg_cleaning?: boolean | null }).charges_keg_cleaning !== false;
 
   // ── 3. Load packaging items (for type='keg' detection + error messages) ───
   const { pkgTypeById, pkgNameById } = await loadPackagingMaps(supabase, rows);
@@ -767,7 +770,7 @@ export async function buildInvoicePreview(
     lineItems.push(...await buildExciseTaxLines(supabase, transactionIds));
 
     // ── 5c. Keg Cleaning — one line, qty = total kegs across keg-type txns ────
-    if (kegCleaningQty > 0) {
+    if (chargesKegCleaning && kegCleaningQty > 0) {
       const mapping = findMapping("keg_cleaning", null);
       if (mapping?.square_catalog_variation_id) {
         lineItems.push({
