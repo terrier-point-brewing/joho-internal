@@ -316,7 +316,8 @@ export function groupPackagingFeeRows(
 // Exported for unit testing of the amount_usd → cents conversion seam.
 export async function buildExciseTaxLines(
   supabase: SupabaseClient,
-  transactionIds: string[]
+  transactionIds: string[],
+  rows: Pick<ExportTxRow, "id" | "volume_bbl">[]
 ): Promise<InvoiceLineItemDraft[]> {
   const { data: taxRows } = await supabase
     .from("export_transaction_taxes")
@@ -331,13 +332,15 @@ export async function buildExciseTaxLines(
     .select("id, receiving_party, basis, square_catalog_variation_id")
     .in("id", rateIds);
   const rateById = new Map((rates ?? []).map((r) => [r.id, r]));
-  // The taxed volume (rows[].volume_bbl) is deliberately not on the line: the
-  // customer sees the party and the amount; the tax record keeps the basis.
-  const byParty = new Map<string, { amountCents: number; variationId: string | null }>();
+  // The taxed volume is the shipment's volume_bbl, summed per party, and is
+  // always shown in bbl (never gallons) regardless of the rate's basis.
+  const volumeByTx = new Map(rows.map((r) => [r.id, Number(r.volume_bbl ?? 0)]));
+  const byParty = new Map<string, { amountCents: number; taxedBbl: number; variationId: string | null }>();
   for (const t of taxRows) {
     const rate = t.excise_tax_rate_id ? rateById.get(t.excise_tax_rate_id) : undefined;
     const party = rate?.receiving_party ?? "Unknown";
-    const entry = byParty.get(party) ?? { amountCents: 0, variationId: rate?.square_catalog_variation_id ?? null };
+    const entry = byParty.get(party) ?? { amountCents: 0, taxedBbl: 0, variationId: rate?.square_catalog_variation_id ?? null };
+    entry.taxedBbl += volumeByTx.get(t.export_transaction_id) ?? 0;
     // UNIT CROSSING: export_transaction_taxes.amount_usd is decimal USD dollars;
     // invoice line item unit prices are integer cents. Round dollars → cents.
     entry.amountCents += dollarsToCents(t.amount_usd);
@@ -346,7 +349,7 @@ export async function buildExciseTaxLines(
 
   return [...byParty.entries()].map(([party, entry]) => ({
     id: crypto.randomUUID(),
-    description: exciseTaxLineDescription(party),
+    description: exciseTaxLineDescription(party, entry.taxedBbl),
     quantity: 1,
     unitPriceCents: entry.amountCents,
     squareCatalogVariationId: entry.variationId,
@@ -767,7 +770,7 @@ export async function buildInvoicePreview(
     }
 
     // ── 5b. Excise Tax — one line per receiving_party, rolled up ─────────────
-    lineItems.push(...await buildExciseTaxLines(supabase, transactionIds));
+    lineItems.push(...await buildExciseTaxLines(supabase, transactionIds, rows));
 
     // ── 5c. Keg Cleaning — one line, qty = total kegs across keg-type txns ────
     if (chargesKegCleaning && kegCleaningQty > 0) {
@@ -832,7 +835,7 @@ export async function buildInvoicePreview(
 
     // ── Excise Tax (distribution only, no excise for wholesale) ──────────────
     if (channel === "distribution") {
-      lineItems.push(...await buildExciseTaxLines(supabase, transactionIds));
+      lineItems.push(...await buildExciseTaxLines(supabase, transactionIds, rows));
     }
 
   } else {

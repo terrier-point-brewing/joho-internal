@@ -41,10 +41,12 @@ describe("buildExciseTaxLines", () => {
         [{ export_transaction_id: "t1", amount_usd: 0.6171, excise_tax_rate_id: "fed" }],
         [{ id: "fed", receiving_party: "Federal", basis: "per_bbl", square_catalog_variation_id: "var-fed" }]
       ),
-      ["t1"]
+      ["t1"],
+      [{ id: "t1", volume_bbl: 2.5 }]
     );
     expect(lines).toHaveLength(1);
     expect(lines[0].unitPriceCents).toBe(62);
+    expect(lines[0].description).toBe("Excise Tax — Federal (2.5 bbl taxed)");
     expect(Number.isInteger(lines[0].unitPriceCents)).toBe(true);
     expect(lines[0].quantity).toBe(1);
     expect(lines[0].squareCatalogVariationId).toBe("var-fed");
@@ -60,11 +62,12 @@ describe("buildExciseTaxLines", () => {
         ],
         [{ id: "fed", receiving_party: "Federal", basis: "per_bbl", square_catalog_variation_id: "var-fed" }]
       ),
-      ["t1", "t2"]
+      ["t1", "t2"],
+      [{ id: "t1", volume_bbl: 2.5 }, { id: "t2", volume_bbl: 0.333 }]
     );
     expect(lines).toHaveLength(1);
     expect(lines[0].unitPriceCents).toBe(1296);
-    expect(lines[0].description).toContain("Federal");
+    expect(lines[0].description).toBe("Excise Tax — Federal (2.8 bbl taxed)");
   });
 
   it("emits one line per distinct receiving_party", async () => {
@@ -79,8 +82,10 @@ describe("buildExciseTaxLines", () => {
           { id: "nc", receiving_party: "NC", basis: "per_gallon", square_catalog_variation_id: "var-nc" },
         ]
       ),
-      ["t1"]
+      ["t1"],
+      [{ id: "t1", volume_bbl: 1.5 }]
     );
+    expect(lines.every((l) => l.description.endsWith("(1.5 bbl taxed)"))).toBe(true);
     const byParty = Object.fromEntries(
       lines.map((l) => [l.description.split(" — ")[1].split(" (")[0], l.unitPriceCents])
     );
@@ -89,7 +94,7 @@ describe("buildExciseTaxLines", () => {
   });
 
   it("returns no lines when there are no tax rows", async () => {
-    const lines = await buildExciseTaxLines(stub([], []), ["t1"]);
+    const lines = await buildExciseTaxLines(stub([], []), ["t1"], []);
     expect(lines).toEqual([]);
   });
 });
