@@ -1,68 +1,77 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo } from "react";
+import { SearchCombobox, type SearchComboboxItem } from "@/components/ui/SearchCombobox";
 import type { SquareCatalogOptions } from "@/app/production/types";
 
+const SEP = "::";
+
+function fmtPrice(cents: number | null | undefined): string | null {
+  if (cents == null) return null;
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * One searchable picker over every Square item + variation pair.
+ *
+ * Typing matches any word of the item name or the variation name, so
+ * "hazy sixtel" finds the right row in one step instead of two cascading
+ * dropdowns. The backend requires item + variation together, so a pick is
+ * always a complete pair.
+ */
 export function SquareCatalogSelect({
   items,
   itemId,
   variationId,
   onChange,
+  className,
 }: {
   items: SquareCatalogOptions["items"];
   itemId: string | null;
   variationId: string | null;
   onChange: (itemId: string | null, variationId: string | null) => void;
+  className?: string;
 }) {
-  // The backend requires item + variation together, so a freshly picked item
-  // with no variation yet can't be persisted — track it locally until a
-  // variation is chosen (or auto-resolve it when there's only one).
-  const [pendingItemId, setPendingItemId] = useState<string | null>(null);
-  const effectiveItemId = pendingItemId ?? itemId;
-  const selectedItem = items.find((i) => i.itemId === effectiveItemId) ?? null;
+  const options = useMemo<SearchComboboxItem[]>(
+    () =>
+      items.flatMap((i) =>
+        i.variations.map((v) => ({
+          id: `${i.itemId}${SEP}${v.variationId}`,
+          label: i.itemName,
+          // A lone "Regular" variation carries no information; hide it.
+          sub: i.variations.length === 1 && /^regular$/i.test(v.variationName) ? null : v.variationName,
+          hint: fmtPrice(v.priceCents),
+        })),
+      ),
+    [items],
+  );
+
+  // Resolve the selected pair by variation alone when the item id is unknown
+  // (the invoice preview only tracks the variation).
+  const value = useMemo(() => {
+    if (!variationId) return "";
+    const item = items.find((i) =>
+      itemId ? i.itemId === itemId : i.variations.some((v) => v.variationId === variationId),
+    );
+    return item ? `${item.itemId}${SEP}${variationId}` : "";
+  }, [items, itemId, variationId]);
 
   return (
-    <div className="flex items-center gap-1.5">
-      <select
-        value={effectiveItemId ?? ""}
-        onChange={(e) => {
-          const newItemId = e.target.value || null;
-          if (!newItemId) {
-            setPendingItemId(null);
-            onChange(null, null);
-            return;
-          }
-          const item = items.find((i) => i.itemId === newItemId) ?? null;
-          if (item && item.variations.length === 1) {
-            setPendingItemId(null);
-            onChange(newItemId, item.variations[0].variationId);
-          } else {
-            setPendingItemId(newItemId);
-          }
-        }}
-        className="inp-sm"
-      >
-        <option value="">— select item —</option>
-        {items.map((i) => (
-          <option key={i.itemId} value={i.itemId}>{i.itemName}</option>
-        ))}
-      </select>
-      <select
-        value={pendingItemId ? "" : (variationId ?? "")}
-        disabled={!selectedItem}
-        onChange={(e) => {
-          const newVariationId = e.target.value || null;
-          setPendingItemId(null);
-          onChange(effectiveItemId, newVariationId);
-        }}
-        className="inp-sm disabled:opacity-40"
-      >
-        <option value="">— select variation —</option>
-        {(selectedItem?.variations ?? []).map((v) => (
-          <option key={v.variationId} value={v.variationId}>{v.variationName}</option>
-        ))}
-      </select>
-    </div>
+    <SearchCombobox
+      value={value}
+      items={options}
+      placeholder="Search Square items…"
+      emptyLabel="No Square items match"
+      className={className ?? "min-w-[16rem]"}
+      onChange={(id) => {
+        if (!id) {
+          onChange(null, null);
+          return;
+        }
+        const [nextItemId, nextVariationId] = id.split(SEP);
+        onChange(nextItemId ?? null, nextVariationId ?? null);
+      }}
+    />
   );
 }
 
