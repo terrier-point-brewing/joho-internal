@@ -103,11 +103,12 @@ export function packagingMaterialsLineDescription(beerName: string | null | unde
 
 /**
  * Excise is a statutory pass-through, one line per receiving party (Federal,
- * NC) because each bills against its own Square item. The taxed volume stays
- * on the tax record and the ledger, not on the customer's line.
+ * NC) because each bills against its own Square item. The line names the
+ * barrelage the tax was charged on, to one decimal, so the partner can tie
+ * the amount to a volume: "Excise Tax — Federal (7.5 bbl taxed)".
  */
-export function exciseTaxLineDescription(receivingParty: string): string {
-  return `Excise Tax — ${receivingParty}`;
+export function exciseTaxLineDescription(receivingParty: string, taxedBbl: number): string {
+  return `Excise Tax — ${receivingParty} (${formatShippedBbl(taxedBbl)} taxed)`;
 }
 
 /** A shipped product the catalog already knows: Square's own item + variation names. */

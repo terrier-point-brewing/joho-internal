@@ -38,8 +38,8 @@ const SAMPLES: Record<string, string> = {
   packagingFeeBare: packagingFeeLineDescription("Packaging Fee", null),
   materials: packagingMaterialsLineDescription("Fortnight"),
   materialsBare: packagingMaterialsLineDescription(null),
-  exciseFederal: exciseTaxLineDescription("Federal"),
-  exciseNc: exciseTaxLineDescription("NC"),
+  exciseFederal: exciseTaxLineDescription("Federal", 7.5),
+  exciseNc: exciseTaxLineDescription("NC", 4.666),
   catalogProduct: catalogProductLineDescription("Vienna Lager (Keg)", "1/6 Keg", "sixtel", "VAR-1"),
   catalogFallback: catalogProductLineDescription(null, null, null, "VAR-1"),
   unmappedProduct: unmappedProductLineDescription("Hop Roar IPA", "16oz Can", "case"),
@@ -62,11 +62,19 @@ describe("invoiceCustomerText — house rules", () => {
   });
 
   it.each(Object.entries(SAMPLES).filter(([, t]) => /\bbbls?\b/.test(t)))(
-    "%s labels any volume as shipped or estimated",
+    "%s labels any volume as shipped, taxed or estimated",
     (_name, text) => {
-      expect(text).toMatch(/Estimated yield is \d+(\.5)? bbls?|\d+(\.\d)? bbl of .* shipped/);
+      expect(text).toMatch(/Estimated yield is \d+(\.5)? bbls?|\d+(\.\d)? bbl of .* shipped|\d+(\.\d)? bbl taxed/);
     },
   );
+});
+
+describe("invoiceCustomerText — excise line", () => {
+  it("names the taxed barrelage to one decimal", () => {
+    expect(exciseTaxLineDescription("Federal", 7.5)).toBe("Excise Tax — Federal (7.5 bbl taxed)");
+    expect(exciseTaxLineDescription("NC", 4.666)).toBe("Excise Tax — NC (4.7 bbl taxed)");
+    expect(exciseTaxLineDescription("Federal", 8)).toBe("Excise Tax — Federal (8 bbl taxed)");
+  });
 });
 
 describe("invoiceCustomerText — formatting", () => {
@@ -112,11 +120,6 @@ describe("invoiceCustomerText — exact wording", () => {
     expect(SAMPLES.ingredientCostFraction).toBe("Ingredient Cost — Ingredients used to produce the 4.7 bbl of Transfusion Pilsner shipped from #B-051");
     expect(SAMPLES.ingredientCostNoBatch).toBe("Ingredient Cost — Ingredients used to produce the 4 bbl of Transfusion Pilsner shipped");
     expect(isIngredientDepositLine({ description: SAMPLES.ingredientCost, squareCatalogVariationId: "v" })).toBe(true);
-  });
-
-  it("excise line names the receiving party only", () => {
-    expect(SAMPLES.exciseFederal).toBe("Excise Tax — Federal");
-    expect(SAMPLES.exciseNc).toBe("Excise Tax — NC");
   });
 
   it("fee and materials lines carry the beer when there is one", () => {
