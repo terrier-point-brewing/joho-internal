@@ -571,12 +571,13 @@ describe("planShipment — back-to-back batches of one recipe", () => {
       perBatchDrawBbl: [{ batchId: "b34", drawBbl: 7.33 }],
       batches: [],
     });
+    // The older batch was not drawn, so its leftover share cannot absorb
+    // any of this beer either: everything past the drawn share needs a home.
     expect(plan.credits).toEqual([
       { allocationId: "new", bbl: 3.26, overAllocation: false },
-      { allocationId: "old", bbl: 1, overAllocation: false },
-      { allocationId: null, bbl: 3.07, overAllocation: true },
+      { allocationId: null, bbl: 4.07, overAllocation: true },
     ]);
-    expect(plan.warnings.find((x) => x.type === "over_booked")).toMatchObject({ overBbl: 3.07 });
+    expect(plan.warnings.find((x) => x.type === "over_booked")).toMatchObject({ overBbl: 4.07 });
   });
 
   it("a filled older soft allocation no longer absorbs the shipment", () => {
@@ -589,7 +590,7 @@ describe("planShipment — back-to-back batches of one recipe", () => {
     expect(plan.credits).toEqual([{ allocationId: "new", bbl: 2, overAllocation: false }]);
   });
 
-  it("contract still outranks soft even when only the soft batch is drawn", () => {
+  it("a contract allocation on a batch that was not drawn is never credited", () => {
     const plan = planShipment({
       requestedBbl: 2,
       candidates: [
@@ -599,7 +600,37 @@ describe("planShipment — back-to-back batches of one recipe", () => {
       perBatchDrawBbl: [{ batchId: "b34", drawBbl: 2 }],
       batches: [],
     });
+    expect(plan.credits).toEqual([{ allocationId: "new", bbl: 2, overAllocation: false }]);
+  });
+
+  it("contract still outranks soft when both sit on the drawn batch", () => {
+    const plan = planShipment({
+      requestedBbl: 2,
+      candidates: [
+        newer,
+        { allocationId: "C", batchId: "b34", channel: "contract_brewing", bookedRemainingBbl: 5, realizableRemainingBbl: 5 },
+      ],
+      perBatchDrawBbl: [{ batchId: "b34", drawBbl: 2 }],
+      batches: [],
+    });
     expect(plan.credits).toEqual([{ allocationId: "C", bbl: 2, overAllocation: false }]);
+  });
+
+  it("Argus B-059 kegs (Oct 24): the spent drawn share does not spill onto a fermenting batch", () => {
+    const plan = planShipment({
+      requestedBbl: 5.9979,
+      candidates: [
+        { allocationId: "b032", batchId: "b32", channel: "contract_brewing", bookedRemainingBbl: 6.0025, realizableRemainingBbl: 0.0007 },
+        { allocationId: "b059", batchId: "b59", channel: "contract_brewing", bookedRemainingBbl: 6.8026, realizableRemainingBbl: 3.9715 },
+        { allocationId: "b075", batchId: "b75", channel: "contract_brewing", bookedRemainingBbl: 20, realizableRemainingBbl: 20 },
+      ],
+      perBatchDrawBbl: [{ batchId: "b59", drawBbl: 5.9979 }],
+      batches: [],
+    });
+    expect(plan.credits).toEqual([
+      { allocationId: "b059", bbl: 3.9715, overAllocation: false },
+      { allocationId: null, bbl: 2.0264, overAllocation: true },
+    ]);
   });
 });
 
