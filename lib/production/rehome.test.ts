@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { netOfCredited, depositRemainingCents, bblToPct, drawsFromBody, pendingConversionBbl, planAutoHome, planRehome, refundCentsForDraw, type HomeSource } from "./rehome";
+import { netOfCredited, depositRemainingCents, splitAutoHome, bblToPct, drawsFromBody, pendingConversionBbl, planAutoHome, planRehome, refundCentsForDraw, type HomeSource } from "./rehome";
 
 const taproom: HomeSource = { kind: "allocation", allocationId: "t", channel: "taproom", partnerName: null, percentage: 15, freeBbl: 4.88, requires: "none" };
 const unallocated: HomeSource = { kind: "unallocated", allocationId: null, channel: null, partnerName: null, percentage: 20, freeBbl: 6.5, requires: "none" };
@@ -154,5 +154,31 @@ describe("depositRemainingCents", () => {
   it("prices a second reduction off what the deposit still holds (Argus on B-067: $482.18 paid, $344.41 refunded → $137.77)", () => {
     expect(depositRemainingCents({ deposit_amount_paid_cents: 48218, refund_amount_cents: 34441 })).toBe(13777);
     expect(depositRemainingCents({ deposit_amount_paid_cents: "48218", refund_amount_cents: null })).toBe(48218);
+  });
+});
+
+describe("splitAutoHome", () => {
+  const self: HomeSource = { kind: "self", allocationId: "me", channel: "distribution", partnerName: "Fortnight Brewing", percentage: 78, freeBbl: 0.96, requires: "none" };
+  const taproom: HomeSource = { kind: "allocation", allocationId: "t", channel: "taproom", partnerName: null, percentage: 2, freeBbl: 0.33, requires: "none" };
+  const paid: HomeSource = { kind: "allocation", allocationId: "p", channel: "contract_brewing", partnerName: "Argus", percentage: 20, freeBbl: 1.35, requires: "refund", deposit: { paidCents: 13777, refundable: true } };
+  it("takes ours as far as it goes and asks only for the remainder, from other partners (B-067: 1.48 over)", () => {
+    const split = splitAutoHome([self, taproom, paid], 1.48);
+    expect(split.auto).toEqual([
+      { source: { kind: "allocation", allocationId: "me" }, label: "their own unshipped share", bbl: 0.96, bookBbl: 0.96 },
+      { source: { kind: "allocation", allocationId: "t" }, label: "the taproom", bbl: 0.33, bookBbl: 0.33 },
+    ]);
+    expect(split.askBbl).toBe(0.19);
+    expect(split.askSources).toEqual([paid]);
+  });
+  it("asks nothing when ours covers it", () => {
+    const split = splitAutoHome([self, taproom, paid], 1);
+    expect(split.askBbl).toBe(0);
+    expect(split.auto.map((d) => d.bbl)).toEqual([0.96, 0.04]);
+  });
+  it("restores short share through the auto draws before the operator's book", () => {
+    const split = splitAutoHome([taproom, paid], 1, 0.5);
+    expect(split.auto).toEqual([{ source: { kind: "allocation", allocationId: "t" }, label: "the taproom", bbl: 0.33, bookBbl: 0 }]);
+    expect(split.shortLeft).toBe(0.17);
+    expect(split.askBbl).toBe(1);
   });
 });

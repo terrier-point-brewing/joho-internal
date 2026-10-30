@@ -157,9 +157,12 @@ export async function POST(req: NextRequest) {
   // Our own to give — the deal's unshipped share, the unallocated remainder,
   // the taproom — is taken without asking. Only another partner's share is a
   // decision, and that is the one case the operator still has to make.
-  if (sim.overBbl > 1e-4 && !body.home && sim.over?.auto && sim.over.targetAllocationId) {
+  // Ours goes first, as far as it reaches; the operator's draws cover only
+  // what is left (sim.over.askBbl), from other partners' shares.
+  const askBbl = sim.over?.askBbl ?? 0;
+  if (sim.overBbl > 1e-4 && sim.over?.targetAllocationId && askBbl <= 1e-4) {
     try {
-      for (const draw of sim.over.auto) {
+      for (const draw of sim.over.auto ?? []) {
         await executeRehome(supabase, { targetAllocationId: sim.over.targetAllocationId, source: draw.source, bbl: draw.bbl, bookBbl: draw.bookBbl, beyondBooking: true });
       }
     } catch (e) {
@@ -167,10 +170,10 @@ export async function POST(req: NextRequest) {
     }
   } else if (sim.overBbl > 1e-4) {
     const home = body.home;
-    const shortBbl = sim.over?.shortBbl ?? 0;
+    const shortBbl = sim.over?.askShortBbl ?? 0;
     const refuse = () => NextResponse.json(
       {
-        error: `${sim.overBbl.toFixed(2)} bbl of this shipment is beyond the partner's booking. Choose where that share comes from before shipping.`,
+        error: `${askBbl.toFixed(2)} bbl of this shipment is beyond the partner's booking and what is ours to give. Choose where that share comes from before shipping.`,
         over: sim.over,
       },
       { status: 409 },
@@ -184,7 +187,7 @@ export async function POST(req: NextRequest) {
       if (!Array.isArray(home.draws)) draws[0] = { ...draws[0], bbl: draws[0].bbl + shortBbl };
     } catch { return refuse(); }
     const total = draws.reduce((s, d) => s + d.bbl, 0);
-    if (total < sim.overBbl + shortBbl - 0.01) return refuse();
+    if (total < askBbl + shortBbl - 0.01) return refuse();
     // Each draw is held to what the preview listed as free — the deal's own
     // share net of this shipment's credit — since executeRehome re-reads the
     // batch and would see the gross figure.
@@ -196,7 +199,10 @@ export async function POST(req: NextRequest) {
       }
     }
     try {
-      // Restore lost share first, booking only what is beyond it (as planAutoHome does).
+      for (const draw of sim.over?.auto ?? []) {
+        await executeRehome(supabase, { targetAllocationId: home.target_allocation_id, source: draw.source, bbl: draw.bbl, bookBbl: draw.bookBbl, beyondBooking: true });
+      }
+      // Restore lost share first, booking only what is beyond it (as splitAutoHome does).
       let shortLeft = shortBbl;
       for (const d of draws) {
         await executeRehome(supabase, {
