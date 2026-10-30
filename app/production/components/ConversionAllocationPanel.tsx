@@ -51,7 +51,9 @@ function toInput(a: BatchAllocation): SourceAllocationInput {
     invoice_generated_at: a.invoice_generated_at,
     invoice_sent_at: a.invoice_sent_at,
     invoice_paid_at: a.invoice_paid_at,
-    deposit_amount_paid_cents: a.deposit_amount_paid_cents,
+    // What the deposit still holds, net of earlier reductions — the adjust
+    // route prices the real refund the same way, so the preview matches it.
+    deposit_amount_paid_cents: a.deposit_amount_paid_cents == null ? null : Math.max(0, Number(a.deposit_amount_paid_cents) - Number(a.refund_amount_cents ?? 0)),
     square_payment_id: a.square_payment_id,
     written_off_at: (a as unknown as { written_off_at?: string | null }).written_off_at ?? null,
   };

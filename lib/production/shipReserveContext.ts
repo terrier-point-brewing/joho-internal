@@ -8,7 +8,7 @@ import {
 import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
 import { planShipment, pickOverTarget, type ShipmentPlan } from "./allocationReserve";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
-import { listHomes, planAutoHome, type AutoHomeDraw, type HomesForBatch } from "./rehome";
+import { listHomes, netOfCredited, planAutoHome, type AutoHomeDraw, type HomesForBatch } from "./rehome";
 import { loadBatchYields, shareBasisBbl } from "./batchYieldProjection.server";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
@@ -320,13 +320,16 @@ export async function simulateShipment(
     const onDrawn = ((onBatch ?? []) as Array<{ id: string; batch_id: string }>).map((r) => ({ allocationId: r.id, batchId: r.batch_id }));
     const target = pickOverTarget(candidates, perBatchDrawBbl, onDrawn);
     if (target) {
-      const homes = await listHomes(supabase, { batchId: target.batchId, targetAllocationId: target.allocationId });
+      const raw = await listHomes(supabase, { batchId: target.batchId, targetAllocationId: target.allocationId });
       const creditedToTarget = plan.credits.find((c) => c.allocationId != null && c.allocationId === target.allocationId)?.bbl ?? 0;
+      // The deal's own free share is listed net of what this shipment already
+      // credits to it — otherwise the picker offers the same beer twice.
+      const homes: HomesForBatch = { ...raw, sources: netOfCredited(raw.sources, creditedToTarget) };
       // The plan above capped the credit at the share as it stands, so a
       // target already short has had none of this shipment credited to it:
       // the home must restore that share too or the credit still falls short.
       const shortBbl = homes.targetShortBbl;
-      over = { bbl: overBbl, targetAllocationId: target.allocationId, homes, shortBbl, auto: planAutoHome(homes.sources, overBbl, creditedToTarget, shortBbl) };
+      over = { bbl: overBbl, targetAllocationId: target.allocationId, homes, shortBbl, auto: planAutoHome(homes.sources, overBbl, 0, shortBbl) };
     } else {
       // No share of the drawn batch at all: book the extra there.
       book = await bookOnDrawn(overBbl, "off_batch");

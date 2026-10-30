@@ -3,6 +3,7 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { issueDepositReduction, RefundError } from "@/lib/finance/issueRefund";
+import { depositRemainingCents } from "@/lib/production/rehome";
 import { loadBatchYields, shareBasisBbl } from "@/lib/production/batchYieldProjection.server";
 import { recheckCommitmentFulfillment } from "@/lib/production/commitmentFulfillment";
 
@@ -76,7 +77,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   // recorded in `square_refunds` alongside every other kind, tagged
   // `deposit_reduction`, instead of only in this allocation's three columns.
   const currentPercentage = Number(allocation.percentage);
-  const paidCents = Number(allocation.deposit_amount_paid_cents);
+  // Priced against what the deposit still holds — paid less earlier refunds —
+  // so a second reduction never asks Square for more than is left on the payment.
+  const paidCents = depositRemainingCents(allocation);
   // The refund reason quotes the new share's estimated yield off the same
   // projection every share is measured against.
   const yields = await loadBatchYields(supabase, [batch.id]);
@@ -119,7 +122,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     .update({
       percentage: newPercentage,
       square_refund_id: refund.squareRefundId,
-      refund_amount_cents: refundAmountCents,
+      refund_amount_cents: Number(allocation.refund_amount_cents ?? 0) + refundAmountCents,
       refunded_at: new Date().toISOString(),
     })
     .eq("id", id)

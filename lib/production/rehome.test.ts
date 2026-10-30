@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bblToPct, drawsFromBody, pendingConversionBbl, planAutoHome, planRehome, refundCentsForDraw, type HomeSource } from "./rehome";
+import { netOfCredited, depositRemainingCents, bblToPct, drawsFromBody, pendingConversionBbl, planAutoHome, planRehome, refundCentsForDraw, type HomeSource } from "./rehome";
 
 const taproom: HomeSource = { kind: "allocation", allocationId: "t", channel: "taproom", partnerName: null, percentage: 15, freeBbl: 4.88, requires: "none" };
 const unallocated: HomeSource = { kind: "unallocated", allocationId: null, channel: null, partnerName: null, percentage: 20, freeBbl: 6.5, requires: "none" };
@@ -136,5 +136,23 @@ describe("drawsFromBody — a split across sources", () => {
     expect(() => drawsFromBody({ draws: [{ source: { kind: "unallocated" }, bbl: 1 }, { source: { kind: "unallocated" }, bbl: 1 }] })).toThrow(/listed twice/);
     expect(() => drawsFromBody({ draws: [{ source: { kind: "allocation" }, bbl: 1 }] })).toThrow(/allocation_id/);
     expect(() => drawsFromBody({ draws: [{ source: { kind: "unallocated" }, bbl: 0 }] })).toThrow(/positive bbl/);
+  });
+});
+
+describe("netOfCredited", () => {
+  const self: HomeSource = { kind: "self", allocationId: "me", channel: "distribution", partnerName: "Fortnight Brewing", percentage: 78, freeBbl: 6.82, requires: "none" };
+  const taproom: HomeSource = { kind: "allocation", allocationId: "t", channel: "taproom", partnerName: null, percentage: 2, freeBbl: 0.33, requires: "none" };
+  it("lists the deal's own share net of what the shipment already credits to it (B-067: 6.82 free, 5.86 credited → 0.96)", () => {
+    expect(netOfCredited([self, taproom], 5.86)).toEqual([{ ...self, freeBbl: 0.96 }, taproom]);
+  });
+  it("drops the deal's own share when the credit uses all of it", () => {
+    expect(netOfCredited([self, taproom], 6.82)).toEqual([taproom]);
+  });
+});
+
+describe("depositRemainingCents", () => {
+  it("prices a second reduction off what the deposit still holds (Argus on B-067: $482.18 paid, $344.41 refunded → $137.77)", () => {
+    expect(depositRemainingCents({ deposit_amount_paid_cents: 48218, refund_amount_cents: 34441 })).toBe(13777);
+    expect(depositRemainingCents({ deposit_amount_paid_cents: "48218", refund_amount_cents: null })).toBe(48218);
   });
 });
