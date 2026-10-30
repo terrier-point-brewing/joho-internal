@@ -221,14 +221,13 @@ export interface SimulatedShipment {
     /** Share the target is already short of; a home has to cover it on top of `bbl`. */
     shortBbl: number;
     /**
-     * The share that is ours to give (the deal's own unshipped share, the
-     * unallocated remainder, the taproom), taken without asking — as far as
-     * it goes. Null when ours holds nothing at all.
+     * The partner's own unshipped share on the batch, taken without asking —
+     * as far as it goes. Null when they hold none.
      */
     auto: AutoHomeDraw[] | null;
     /**
-     * What ours could not cover: the operator picks it from `homes.sources`,
-     * which then lists only other partners' shares. 0 when nothing is asked.
+     * What that could not cover: the operator picks it from `homes.sources`
+     * (unallocated, taproom, other partners). 0 when nothing is asked.
      */
     askBbl: number;
     /** Short share still to restore after `auto`; the operator's draws restore it before booking. */
@@ -336,8 +335,8 @@ export async function simulateShipment(
       // target already short has had none of this shipment credited to it:
       // the home must restore that share too or the credit still falls short.
       const shortBbl = raw.targetShortBbl;
-      // Ours is taken as far as it goes; only the remainder is a question, and
-      // the picker then lists only what is still open: other partners' shares.
+      // The partner's own share is taken as far as it goes; the remainder is
+      // the operator's choice between unallocated, taproom and other partners.
       const split = splitAutoHome(netSources, overBbl, shortBbl);
       const homes: HomesForBatch = { ...raw, sources: split.askBbl > 1e-4 ? split.askSources : netSources };
       over = {

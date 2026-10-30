@@ -161,23 +161,23 @@ describe("splitAutoHome", () => {
   const self: HomeSource = { kind: "self", allocationId: "me", channel: "distribution", partnerName: "Fortnight Brewing", percentage: 78, freeBbl: 0.96, requires: "none" };
   const taproom: HomeSource = { kind: "allocation", allocationId: "t", channel: "taproom", partnerName: null, percentage: 2, freeBbl: 0.33, requires: "none" };
   const paid: HomeSource = { kind: "allocation", allocationId: "p", channel: "contract_brewing", partnerName: "Argus", percentage: 20, freeBbl: 1.35, requires: "refund", deposit: { paidCents: 13777, refundable: true } };
-  it("takes ours as far as it goes and asks only for the remainder, from other partners (B-067: 1.48 over)", () => {
+  it("takes only the partner's own share and asks for the rest, taproom and other partners alike (B-067: 1.48 over)", () => {
     const split = splitAutoHome([self, taproom, paid], 1.48);
     expect(split.auto).toEqual([
       { source: { kind: "allocation", allocationId: "me" }, label: "their own unshipped share", bbl: 0.96, bookBbl: 0.96 },
-      { source: { kind: "allocation", allocationId: "t" }, label: "the taproom", bbl: 0.33, bookBbl: 0.33 },
     ]);
-    expect(split.askBbl).toBe(0.19);
-    expect(split.askSources).toEqual([paid]);
+    expect(split.askBbl).toBe(0.52);
+    expect(split.askSources).toEqual([taproom, paid]);
   });
-  it("asks nothing when ours covers it", () => {
-    const split = splitAutoHome([self, taproom, paid], 1);
+  it("asks nothing when their own share covers it", () => {
+    const split = splitAutoHome([self, taproom, paid], 0.9);
     expect(split.askBbl).toBe(0);
-    expect(split.auto.map((d) => d.bbl)).toEqual([0.96, 0.04]);
+    expect(split.auto.map((d) => d.bbl)).toEqual([0.9]);
   });
-  it("restores short share through the auto draws before the operator's book", () => {
-    const split = splitAutoHome([taproom, paid], 1, 0.5);
-    expect(split.auto).toEqual([{ source: { kind: "allocation", allocationId: "t" }, label: "the taproom", bbl: 0.33, bookBbl: 0 }]);
+  it("never takes the taproom by itself; restores short share through the own-share draw before booking", () => {
+    expect(splitAutoHome([taproom, paid], 1).auto).toEqual([]);
+    const split = splitAutoHome([{ ...self, freeBbl: 0.33 }, paid], 1, 0.5);
+    expect(split.auto).toEqual([{ source: { kind: "allocation", allocationId: "me" }, label: "their own unshipped share", bbl: 0.33, bookBbl: 0 }]);
     expect(split.shortLeft).toBe(0.17);
     expect(split.askBbl).toBe(1);
   });
