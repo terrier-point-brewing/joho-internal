@@ -154,11 +154,10 @@ export async function POST(req: NextRequest) {
   // Beer beyond the booking must be given a home first: take its share from
   // somewhere on the batch and raise the booking, so the credit is inside the
   // commitment and the deposit / ledger / warnings all see it.
-  // Our own to give — the deal's unshipped share, the unallocated remainder,
-  // the taproom — is taken without asking. Only another partner's share is a
-  // decision, and that is the one case the operator still has to make.
-  // Ours goes first, as far as it reaches; the operator's draws cover only
-  // what is left (sim.over.askBbl), from other partners' shares.
+  // The partner's own unshipped share is taken without asking; where the rest
+  // comes from (unallocated, taproom, another partner) is the operator's call.
+  // The partner's own share goes first, as far as it reaches; the operator's
+  // draws cover only what is left (sim.over.askBbl).
   const askBbl = sim.over?.askBbl ?? 0;
   if (sim.overBbl > 1e-4 && sim.over?.targetAllocationId && askBbl <= 1e-4) {
     try {

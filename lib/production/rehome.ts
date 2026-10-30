@@ -231,28 +231,26 @@ export function depositRemainingCents(a: { deposit_amount_paid_cents: number | s
 }
 
 export interface AutoHomeSplit {
-  /** Taken without asking: the deal's own unshipped share, the unallocated remainder, the taproom. */
+  /** Taken without asking: the partner's own unshipped share on the batch. */
   auto: AutoHomeDraw[];
-  /** What those could not cover; a person picks it from `askSources`. 0 when nothing is left to ask. */
+  /** What that could not cover; a person picks it from `askSources`. 0 when nothing is left to ask. */
   askBbl: number;
-  /** The sources still open to the operator: other partners' shares (ours are already spent above). */
+  /** The sources open to the operator: unallocated, taproom, other partners. */
   askSources: HomeSource[];
   /** Short share still to restore after the auto draws; the operator's draws restore it before booking. */
   shortLeft: number;
 }
 
 /**
- * planAutoHome, but partial: ours is taken as far as it goes and only the
- * remainder is a question. Asking about share that is already the deal's own
- * made the picker look like it offered the same beer twice.
+ * The partner's own unshipped share on the batch is taken as far as it goes
+ * (nothing moves; the booking catches up with beer that is already theirs).
+ * Everything else — the unallocated remainder, the taproom, another partner —
+ * is a choice the operator makes, so only the remainder is asked about and
+ * the picker lists every other source.
  */
 export function splitAutoHome(sources: HomeSource[], bbl: number, shortBbl = 0): AutoHomeSplit {
-  const isOurs = (s: HomeSource) => s.kind === "self" || s.kind === "unallocated" || (s.kind === "allocation" && s.channel === "taproom");
-  const ours = [
-    ...sources.filter((s) => s.kind === "self"),
-    ...sources.filter((s) => s.kind === "unallocated"),
-    ...sources.filter((s) => s.kind === "allocation" && s.channel === "taproom"),
-  ];
+  const isOurs = (s: HomeSource) => s.kind === "self";
+  const ours = sources.filter(isOurs);
   const auto: AutoHomeDraw[] = [];
   let left = bbl + shortBbl;
   let shortLeft = shortBbl;
