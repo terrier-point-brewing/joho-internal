@@ -185,6 +185,16 @@ export async function POST(req: NextRequest) {
     } catch { return refuse(); }
     const total = draws.reduce((s, d) => s + d.bbl, 0);
     if (total < sim.overBbl + shortBbl - 0.01) return refuse();
+    // Each draw is held to what the preview listed as free — the deal's own
+    // share net of this shipment's credit — since executeRehome re-reads the
+    // batch and would see the gross figure.
+    for (const d of draws) {
+      const src = sim.over?.homes.sources.find((s) => d.source.kind === "unallocated" ? s.kind === "unallocated" : s.allocationId === d.source.allocationId);
+      if (!src) return refuse();
+      if (d.bbl > src.freeBbl + 0.01) {
+        return NextResponse.json({ error: `${src.kind === "self" ? "This deal's own unshipped share" : src.partnerName ?? "That source"} has only ${src.freeBbl.toFixed(2)} bbl free after this shipment's own credit, not ${d.bbl.toFixed(2)}.`, over: sim.over }, { status: 409 });
+      }
+    }
     try {
       // Restore lost share first, booking only what is beyond it (as planAutoHome does).
       let shortLeft = shortBbl;

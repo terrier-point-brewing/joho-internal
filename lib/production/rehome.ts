@@ -211,6 +211,25 @@ export function planAutoHome(
   return draws.length > 0 ? draws : null;
 }
 
+/**
+ * The deal's own share as it stands AFTER this shipment credits `creditedBbl`
+ * to it: that much of its free share is spoken for, so neither the picker nor
+ * the ship route may let the extra beer take it a second time.
+ */
+export function netOfCredited(sources: HomeSource[], creditedBbl: number): HomeSource[] {
+  if (creditedBbl <= EPS) return sources;
+  return sources.flatMap((s) => {
+    if (s.kind !== "self") return [s];
+    const freeBbl = round2(Math.max(0, s.freeBbl - creditedBbl));
+    return freeBbl > EPS ? [{ ...s, freeBbl }] : [];
+  });
+}
+
+/** What a paid deposit still holds: paid less every slice already refunded (`refund_amount_cents` is cumulative). */
+export function depositRemainingCents(a: { deposit_amount_paid_cents: number | string | null; refund_amount_cents: number | string | null }): number {
+  return Math.max(0, Number(a.deposit_amount_paid_cents ?? 0) - Number(a.refund_amount_cents ?? 0));
+}
+
 export function sourceLabel(s: HomeSource): string {
   if (s.kind === "unallocated") return "The unallocated share";
   if (s.kind === "self") return "This commitment's own share";
@@ -231,6 +250,7 @@ interface AllocRow {
   written_off_at: string | null;
   square_payment_id: string | null;
   deposit_amount_paid_cents: number | string | null;
+  refund_amount_cents: number | string | null;
   contract_brewing_partners: { company_name: string } | { company_name: string }[] | null;
 }
 
@@ -242,7 +262,7 @@ export async function listHomes(
   const [{ data: batch }, { data: allocs }, yields, { data: exports_ }, { data: conversions }] = await Promise.all([
     supabase.from("brew_batches").select("id, batch_number, beer_name, turns, volume_bbl").eq("id", batchId).maybeSingle(),
     supabase.from("batch_allocations")
-      .select("id, batch_id, channel, partner_id, contract_request_id, percentage, invoice_paid_at, invoice_generated_at, invoice_sent_at, written_off_at, square_payment_id, deposit_amount_paid_cents, contract_brewing_partners(company_name)")
+      .select("id, batch_id, channel, partner_id, contract_request_id, percentage, invoice_paid_at, invoice_generated_at, invoice_sent_at, written_off_at, square_payment_id, deposit_amount_paid_cents, refund_amount_cents, contract_brewing_partners(company_name)")
       .eq("batch_id", batchId),
     loadBatchYields(supabase, [batchId]),
     supabase.from("export_transactions").select("allocation_id, volume_bbl").eq("batch_id", batchId).not("allocation_id", "is", null),
@@ -300,8 +320,11 @@ export async function listHomes(
       percentage: Number(a.percentage),
       freeBbl,
       requires,
+      // What the deposit still holds: paid less what earlier reductions already
+      // refunded. A second slice priced off the gross would over-refund, and
+      // Square refuses a refund beyond what is left on the payment.
       deposit: requires === "refund"
-        ? { paidCents: Number(a.deposit_amount_paid_cents ?? 0), refundable: !!a.square_payment_id && a.deposit_amount_paid_cents != null }
+        ? { paidCents: depositRemainingCents(a), refundable: !!a.square_payment_id && a.deposit_amount_paid_cents != null }
         : null,
     });
   }
@@ -386,7 +409,7 @@ async function reduceSource(
   if (source.requires === "refund" && plan.refundCents > 0) {
     const { data: a, error: aErr } = await supabase
       .from("batch_allocations")
-      .select("square_payment_id, square_deposit_order_id, deposit_amount_paid_cents, percentage")
+      .select("square_payment_id, square_deposit_order_id, deposit_amount_paid_cents, refund_amount_cents, percentage")
       .eq("id", source.allocationId)
       .maybeSingle();
     if (aErr || !a?.square_payment_id || a.deposit_amount_paid_cents == null) {
@@ -402,7 +425,7 @@ async function reduceSource(
         allocationId: source.allocationId,
         currentPercentage: Number(a.percentage),
         newPercentage: plan.sourceNewPct ?? 0,
-        paidCents: Number(a.deposit_amount_paid_cents),
+        paidCents: depositRemainingCents(a),
         squarePaymentId: a.square_payment_id,
         squareOrderId: a.square_deposit_order_id ?? null,
         batch: {
@@ -419,7 +442,8 @@ async function reduceSource(
     const { error } = await admin.from("batch_allocations").update({
       ...patch,
       square_refund_id: refund.squareRefundId,
-      refund_amount_cents: refund.refundAmountCents,
+      // Cumulative: every slice refunded off this deposit so far.
+      refund_amount_cents: Number(a.refund_amount_cents ?? 0) + refund.refundAmountCents,
       refunded_at: new Date().toISOString(),
     }).eq("id", source.allocationId);
     if (error) {
