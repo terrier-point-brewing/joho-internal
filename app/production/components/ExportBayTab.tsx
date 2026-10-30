@@ -1432,7 +1432,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
     lines?: { variation_id: string; requested: number; available: number; insufficient: boolean }[];
     unpaidDepositBatches?: { batchId: string; batchNumber: string | null; allocationId: string }[];
     noCommitment?: boolean;
-    over?: { bbl: number; shortBbl?: number; targetAllocationId: string | null; homes: HomesForBatch; auto?: { label: string; bbl: number }[] | null } | null;
+    over?: { bbl: number; shortBbl?: number; askBbl?: number; askShortBbl?: number; targetAllocationId: string | null; homes: HomesForBatch; auto?: { label: string; bbl: number }[] | null } | null;
     book?: { bbl: number; reason?: "no_commitment" | "off_batch"; homes: HomesForBatch | null; refusal: string | null } | null;
   } | null>(null);
   // Beer beyond the booking has to take its share from somewhere on the
@@ -1458,10 +1458,13 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
   // Share that is ours to give (own, unallocated, taproom) moves by itself as
   // the beer ships; the operator is only asked when another partner's would.
   const overAuto = over && over.bbl > 0.0001 ? (over.auto ?? null) : null;
-  const overNeedsHome = !!over && over.bbl > 0.0001 && !overAuto;
+  // Ours is taken as far as it goes; only what is left is a question.
+  const overAsk = over ? (over.askBbl ?? (overAuto ? 0 : over.bbl + (over.shortBbl ?? 0))) : 0;
+  const overNeedsHome = !!over && over.bbl > 0.0001 && overAsk > 0.0001;
   // Share this deal already shipped against and lost when the batch finished short.
   const overShort = over?.shortBbl ?? 0;
-  const homePlan = over ? planPickerDraws(over.homes.sources, homeDraws, over.bbl + overShort, basisOf(over.homes)) : null;
+  const overAskShort = over?.askShortBbl ?? 0;
+  const homePlan = over ? planPickerDraws(over.homes.sources, homeDraws, overAsk + overAskShort, basisOf(over.homes)) : null;
   const homeOk = !overNeedsHome || (!!homePlan && homePlan.ok && !!over?.targetAllocationId);
   // Shipping before the deposit is paid is allowed, but it is a decision the
   // operator makes on purpose: the route refuses without this, and the row
@@ -1629,7 +1632,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
               )}
             </div>
           )}
-          {overAuto && over && (
+          {overAuto && over && !overNeedsHome && (
             <p className="text-xs text-secondary">
               {over.bbl.toFixed(2)} bbl of this shipment is beyond the booking. The booking rises to match, and the share comes from{" "}
               {overAuto.map((d) => `${d.label} (${d.bbl.toFixed(2)} bbl)`).join(" and ")} on #{over.homes.batchNumber ?? "?"}.
@@ -1641,13 +1644,18 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
               <p className="text-xs font-medium text-accent-soft">
                 {over.bbl.toFixed(2)} bbl of this shipment is beyond the booking
               </p>
+              {overAuto && (
+                <p className="text-xs text-secondary">
+                  {overAuto.map((d) => `${d.label} (${d.bbl.toFixed(2)} bbl)`).join(" and ")} on #{over.homes.batchNumber ?? "?"} covers part of it and is taken automatically.
+                </p>
+              )}
               <p className="text-xs text-secondary">
-                Where does the extra {(over.bbl + overShort).toFixed(2)} bbl on #{over.homes.batchNumber ?? "?"} come from?
+                Where does the remaining {(overAsk + overAskShort).toFixed(2)} bbl on #{over.homes.batchNumber ?? "?"} come from?
               </p>
               {!over.targetAllocationId && (
                 <p className="text-xs text-danger">This partner has no share of the drawn batch to grow — add one in Batch Log first.</p>
               )}
-              <HomeSourcePicker sources={over.homes.sources} bblNeeded={over.bbl + overShort} basisBbl={basisOf(over.homes)} draws={homeDraws} onChange={setHomeDraws} batchNumber={over.homes.batchNumber} />
+              <HomeSourcePicker sources={over.homes.sources} bblNeeded={overAsk + overAskShort} basisBbl={basisOf(over.homes)} draws={homeDraws} onChange={setHomeDraws} batchNumber={over.homes.batchNumber} />
             </div>
           )}
           {(unpaidDeposit.length > 0 || bookNeedsDepositAck) && (

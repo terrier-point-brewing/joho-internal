@@ -230,6 +230,56 @@ export function depositRemainingCents(a: { deposit_amount_paid_cents: number | s
   return Math.max(0, Number(a.deposit_amount_paid_cents ?? 0) - Number(a.refund_amount_cents ?? 0));
 }
 
+export interface AutoHomeSplit {
+  /** Taken without asking: the deal's own unshipped share, the unallocated remainder, the taproom. */
+  auto: AutoHomeDraw[];
+  /** What those could not cover; a person picks it from `askSources`. 0 when nothing is left to ask. */
+  askBbl: number;
+  /** The sources still open to the operator: other partners' shares (ours are already spent above). */
+  askSources: HomeSource[];
+  /** Short share still to restore after the auto draws; the operator's draws restore it before booking. */
+  shortLeft: number;
+}
+
+/**
+ * planAutoHome, but partial: ours is taken as far as it goes and only the
+ * remainder is a question. Asking about share that is already the deal's own
+ * made the picker look like it offered the same beer twice.
+ */
+export function splitAutoHome(sources: HomeSource[], bbl: number, shortBbl = 0): AutoHomeSplit {
+  const isOurs = (s: HomeSource) => s.kind === "self" || s.kind === "unallocated" || (s.kind === "allocation" && s.channel === "taproom");
+  const ours = [
+    ...sources.filter((s) => s.kind === "self"),
+    ...sources.filter((s) => s.kind === "unallocated"),
+    ...sources.filter((s) => s.kind === "allocation" && s.channel === "taproom"),
+  ];
+  const auto: AutoHomeDraw[] = [];
+  let left = bbl + shortBbl;
+  let shortLeft = shortBbl;
+  for (const s of ours) {
+    if (left <= EPS) break;
+    const take = Math.min(left, s.freeBbl);
+    if (take <= EPS) continue;
+    auto.push({
+      source: s.kind === "unallocated" || !s.allocationId ? { kind: "unallocated" } : { kind: "allocation", allocationId: s.allocationId },
+      label: s.kind === "self" ? "their own unshipped share" : s.kind === "unallocated" ? "the unallocated share" : "the taproom",
+      bbl: Math.round(take * 10000) / 10000,
+      bookBbl: Math.round(Math.max(0, take - shortLeft) * 10000) / 10000,
+    });
+    shortLeft = Math.max(0, shortLeft - take);
+    left -= take;
+  }
+  // freeBbl is rounded to the cent; a hair short is not a reason to ask.
+  if (left > EPS && left <= 0.01 && auto.length > 0) {
+    const last = auto[auto.length - 1];
+    last.bbl = Math.round((last.bbl + left) * 10000) / 10000;
+    last.bookBbl = Math.round((last.bookBbl + left) * 10000) / 10000;
+    left = 0;
+  }
+  // askBbl is the beer beyond the booking still unhomed; the short left to restore rides separately.
+  return { auto, askBbl: Math.round(Math.max(0, left - shortLeft) * 100) / 100, askSources: sources.filter((s) => !isOurs(s)), shortLeft: Math.round(shortLeft * 10000) / 10000 };
+}
+
 export function sourceLabel(s: HomeSource): string {
   if (s.kind === "unallocated") return "The unallocated share";
   if (s.kind === "self") return "This commitment's own share";

@@ -8,7 +8,7 @@ import {
 import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
 import { planShipment, pickOverTarget, type ShipmentPlan } from "./allocationReserve";
 import { BBL_TO_FL_OZ } from "@/lib/constants/production";
-import { listHomes, netOfCredited, planAutoHome, type AutoHomeDraw, type HomesForBatch } from "./rehome";
+import { listHomes, netOfCredited, splitAutoHome, type AutoHomeDraw, type HomesForBatch } from "./rehome";
 import { loadBatchYields, shareBasisBbl } from "./batchYieldProjection.server";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
@@ -221,11 +221,18 @@ export interface SimulatedShipment {
     /** Share the target is already short of; a home has to cover it on top of `bbl`. */
     shortBbl: number;
     /**
-     * The share is ours to give (the deal's own unshipped share, the
-     * unallocated remainder, the taproom) and is taken without asking. Null
-     * when that cannot cover it — then the operator picks from `homes`.
+     * The share that is ours to give (the deal's own unshipped share, the
+     * unallocated remainder, the taproom), taken without asking — as far as
+     * it goes. Null when ours holds nothing at all.
      */
     auto: AutoHomeDraw[] | null;
+    /**
+     * What ours could not cover: the operator picks it from `homes.sources`,
+     * which then lists only other partners' shares. 0 when nothing is asked.
+     */
+    askBbl: number;
+    /** Short share still to restore after `auto`; the operator's draws restore it before booking. */
+    askShortBbl: number;
   } | null;
   /**
    * Booked on the spot, on the one batch the beer is drawn from, taking its
@@ -324,12 +331,19 @@ export async function simulateShipment(
       const creditedToTarget = plan.credits.find((c) => c.allocationId != null && c.allocationId === target.allocationId)?.bbl ?? 0;
       // The deal's own free share is listed net of what this shipment already
       // credits to it — otherwise the picker offers the same beer twice.
-      const homes: HomesForBatch = { ...raw, sources: netOfCredited(raw.sources, creditedToTarget) };
+      const netSources = netOfCredited(raw.sources, creditedToTarget);
       // The plan above capped the credit at the share as it stands, so a
       // target already short has had none of this shipment credited to it:
       // the home must restore that share too or the credit still falls short.
-      const shortBbl = homes.targetShortBbl;
-      over = { bbl: overBbl, targetAllocationId: target.allocationId, homes, shortBbl, auto: planAutoHome(homes.sources, overBbl, 0, shortBbl) };
+      const shortBbl = raw.targetShortBbl;
+      // Ours is taken as far as it goes; only the remainder is a question, and
+      // the picker then lists only what is still open: other partners' shares.
+      const split = splitAutoHome(netSources, overBbl, shortBbl);
+      const homes: HomesForBatch = { ...raw, sources: split.askBbl > 1e-4 ? split.askSources : netSources };
+      over = {
+        bbl: overBbl, targetAllocationId: target.allocationId, homes, shortBbl,
+        auto: split.auto.length > 0 ? split.auto : null, askBbl: split.askBbl, askShortBbl: split.shortLeft,
+      };
     } else {
       // No share of the drawn batch at all: book the extra there.
       book = await bookOnDrawn(overBbl, "off_batch");
