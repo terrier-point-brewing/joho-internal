@@ -14,7 +14,8 @@ import type { Tone } from "@/app/components/ui/tone";
 import BatchRequestModal from "./BatchRequestModal";
 import ClaimModal from "./ClaimModal";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
-import { apiError, bbl, bbl1, dollars, longDate, monthLabel, shortDate, type ClaimableBatch, type Overview, type PaymentStatus, type PortalDeal, type PortalHistory, type PortalInvoice, type PortalRequest, type PortalShipment, PROGRESS_STEPS } from "./types";
+import { apiError, bbl, bbl1, dollars, longDate, monthLabel, shortDate, type ClaimableBatch, type Overview, type PaymentStatus, type PortalDeal, type PortalHistory, type PortalInvoice, type PortalRefund, type PortalRequest, type PortalShipment, PROGRESS_STEPS } from "./types";
+import { homeAlerts, type HomeAlert } from "./alerts";
 
 type TabKey = "home" | "batches" | "available" | "capacity" | "requests" | "history";
 
@@ -132,7 +133,7 @@ export default function PartnerPortal() {
 
       {overview.error && <Banner className="mb-4">{(overview.error as Error).message}</Banner>}
       {notice && <Banner tone="success" className="mb-4">{notice}</Banner>}
-      {waitingOnYou > 0 && tab !== "requests" && (
+      {waitingOnYou > 0 && tab !== "requests" && tab !== "home" && (
         <Banner tone="info" className="mb-4">
           We have come back with a different share on {waitingOnYou === 1 ? "one of your requests" : `${waitingOnYou} of your requests`}.{" "}
           <button className="underline" onClick={() => setTab("requests")}>Answer under My requests</button>
@@ -324,7 +325,12 @@ export default function PartnerPortal() {
             <>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
                 <Stat label="Total shipped" value={bbl(history.data.summary.shipped_bbl)} />
-                <Stat label="Invoices paid" value={dollars(history.data.summary.paid_cents)} tone="success" />
+                <Stat
+                  label="Invoices paid"
+                  value={dollars(history.data.summary.paid_cents)}
+                  tone="success"
+                  note={history.data.summary.refunded_cents > 0 ? `after ${dollars(history.data.summary.refunded_cents)} refunded to you` : undefined}
+                />
                 <Stat
                   label="Outstanding"
                   value={dollars(history.data.summary.outstanding_cents)}
@@ -341,6 +347,13 @@ export default function PartnerPortal() {
                 <Card className="mb-4">
                   <div className="text-sm font-semibold text-primary">Unpaid invoices</div>
                   <OpenInvoices invoices={history.data.open_invoices} />
+                </Card>
+              )}
+              {history.data.refunds.length > 0 && (
+                <Card className="mb-4">
+                  <div className="text-sm font-semibold text-primary">Refunds</div>
+                  <div className="text-xs text-muted mt-0.5">Money we sent back to your original payment method.</div>
+                  <RefundList refunds={history.data.refunds} />
                 </Card>
               )}
               {history.data.summary.open_deals > 0 && (
@@ -452,6 +465,7 @@ function ShipmentList({ shipments }: { shipments: PortalShipment[] }) {
                   ? <a href={s.invoice.pay_url} target="_blank" rel="noreferrer" className="text-muted underline">Invoice {s.invoice.number ?? ""} · {dollars(s.invoice.total_cents)}</a>
                   : <span className="text-muted">Invoice {s.invoice.number ?? ""} · {dollars(s.invoice.total_cents)}</span>)}
                 <Badge tone={s.invoice?.overdue ? "danger" : PAYMENT[s.payment].tone}>{s.invoice?.overdue ? `Overdue ${s.invoice.days_overdue}d` : PAYMENT[s.payment].label}</Badge>
+                {s.invoice && s.invoice.refunded_cents > 0 && <Badge tone="info">{dollars(s.invoice.refunded_cents)} refunded</Badge>}
               </>
             )}
           </span>
@@ -572,6 +586,7 @@ function DealCard({ deal }: { deal: PortalDeal }) {
                 : <span className="text-danger">Deposit unpaid · {dollars(deal.deposit.paid_cents)} of {dollars(deal.deposit.billed_cents)} received</span>)}
             </div>
           )}
+          {deal.refunds.length > 0 && <RefundLines refunds={deal.refunds} />}
         </div>
 
         <div>
@@ -625,6 +640,80 @@ function DealCard({ deal }: { deal: PortalDeal }) {
   );
 }
 
+const ALERT_LIMIT = 6;
+const ALERT_RING: Record<Tone, string> = {
+  danger: "border-danger-border", accent: "border-accent-border", success: "border-success-border", info: "border-info-border", neutral: "border-line",
+};
+const ALERT_TEXT: Record<Tone, string> = {
+  danger: "text-danger", accent: "text-accent", success: "text-success", info: "text-info", neutral: "text-primary",
+};
+
+/**
+ * What needs them, most urgent first. Rows come and go with the data behind
+ * them — nothing here is dismissed, read, or stored. Nothing renders when the
+ * list is empty: an "all clear" card is noise.
+ */
+function AlertStack({ alerts, go }: { alerts: HomeAlert[]; go: (tab: TabKey) => void }) {
+  const shown = alerts.slice(0, ALERT_LIMIT);
+  const more = alerts.length - shown.length;
+  return (
+    <Card className={ALERT_RING[shown[0].tone]}>
+      <div className="text-xs text-muted">Needs your attention</div>
+      <ul className="mt-2 flex flex-col divide-y divide-line">
+        {shown.map((a) => (
+          <li key={a.key} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 first:pt-0 last:pb-0">
+            <div className="min-w-0 flex-1">
+              <div className={`text-sm font-semibold ${ALERT_TEXT[a.tone]}`}>{a.title}</div>
+              {a.detail && <div className="text-xs text-muted mt-0.5">{a.detail}</div>}
+            </div>
+            <button className={a.tone === "danger" || a.tone === "accent" ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"} onClick={() => go(a.tab)}>{a.cta}</button>
+          </li>
+        ))}
+      </ul>
+      {more > 0 && <div className="text-xs text-muted mt-2">and {more} more under the tabs above.</div>}
+    </Card>
+  );
+}
+
+/** One short line per refund on a deal card: how much, when, and why. */
+function RefundLines({ refunds }: { refunds: PortalRefund[] }) {
+  return (
+    <div className="mt-1 flex flex-col gap-0.5">
+      {refunds.map((r) => (
+        <span key={r.id} className="text-info">
+          {dollars(r.amount_cents)} {r.status === "processing" ? "refund processing" : `refunded ${shortDate(r.date)}`}
+          {r.reason ? ` · ${r.reason}` : ""}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Every refund, newest first: date, amount, reason, the invoice it came off, and the lines when we have them. */
+function RefundList({ refunds }: { refunds: PortalRefund[] }) {
+  return (
+    <ul className="mt-3 border-t border-line pt-2 flex flex-col gap-2">
+      {refunds.map((r) => (
+        <li key={r.id} className="text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <span className="text-body w-24">{longDate(r.date)}</span>
+            <span className="text-muted flex-1 min-w-[10rem]">
+              {r.reason ?? "Refund"}{r.invoice ? ` · invoice ${r.invoice.number ?? ""}` : ""}
+            </span>
+            <span className="text-info font-semibold tabular-nums">{dollars(r.amount_cents)}</span>
+            <Badge tone={r.status === "completed" ? "success" : "info"}>{r.status === "completed" ? "Sent back" : "Processing"}</Badge>
+          </div>
+          {r.lines.length > 0 && (
+            <div className="text-faint mt-0.5 pl-0 sm:pl-24">
+              {r.lines.map((l) => `${l.quantity != null ? `${l.quantity} × ` : ""}${l.label} (${dollars(l.amount_cents)})`).join(", ")}
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** Open invoices in one aligned grid: what each is for, when it is due, and a way to pay it. */
 function OpenInvoices({ invoices, limit }: { invoices: PortalInvoice[]; limit?: number }) {
   const rows = limit ? invoices.slice(0, limit) : invoices;
@@ -674,8 +763,10 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
   const claimable = overview.available.reduce((s, b) => s + b.claimable_bbl, 0);
   const readyNow = overview.available.reduce((s, b) => s + b.ready_now_bbl, 0);
   const owed = history?.summary.outstanding_cents ?? 0;
+  const alerts = homeAlerts(history, requests, new Date().toISOString().slice(0, 10));
   return (
     <section className="flex flex-col gap-4">
+      {alerts.length > 0 && <AlertStack alerts={alerts} go={go} />}
       {history && owed > 0 && (
         <Card className="border-danger-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
