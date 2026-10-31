@@ -259,8 +259,8 @@ function ChannelBadge({ channel }: { channel: string }) {
 }
 
 function InvoiceChip({ inv, onOpen }: { inv: LedgerInvoiceRef; onOpen?: (id: string) => void }) {
-  const cls = INVOICE_BADGE[inv.status] ?? "bg-surface-mid text-muted";
-  const label = `#${inv.invoice_number ?? "—"} · ${fmtUsd(inv.total_cents / 100)} · ${INVOICE_LABEL[inv.status] ?? inv.status}`;
+  const cls = inv.payment_processing ? INVOICE_BADGE.partial : INVOICE_BADGE[inv.status] ?? "bg-surface-mid text-muted";
+  const label = `#${inv.invoice_number ?? "—"} · ${fmtUsd(inv.total_cents / 100)} · ${inv.payment_processing ? "Payment processing" : INVOICE_LABEL[inv.status] ?? inv.status}`;
   return onOpen ? (
     <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(inv.id); }}
       className={`text-xs px-1.5 py-0.5 rounded font-mono ${cls} hover:underline`} title="Open in Export Invoices">

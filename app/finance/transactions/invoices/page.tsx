@@ -1,4 +1,5 @@
 "use client";
+import { invoiceDisplayStatus } from "@/lib/finance/invoiceStatus";
 import { useState, useEffect, useMemo } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
@@ -190,8 +191,8 @@ function InvoiceExpandableRow({
           </Badge>
         </td>
         <td className="px-4 py-2">
-          <Badge tone="none" className={STATUS_CLS[inv.status] ?? STATUS_CLS.unknown}>
-            {inv.status}
+          <Badge tone="none" className={STATUS_CLS[invoiceDisplayStatus(inv.status, (inv as { raw_data?: { square_status?: string | null } | null }).raw_data?.square_status)] ?? STATUS_CLS.unknown}>
+            {invoiceDisplayStatus(inv.status, (inv as { raw_data?: { square_status?: string | null } | null }).raw_data?.square_status)}
           </Badge>
         </td>
         <td className="px-4 py-2">

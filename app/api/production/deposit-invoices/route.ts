@@ -42,6 +42,7 @@ export async function GET() {
     .select(`
       id, invoice_number, invoice_date, customer_name, partner_id,
       status, source, square_invoice_id, total_cents,
+      square_status:raw_data->>square_status,
       deposit_invoice_ingredients(
         id, ingredient_name, unit, quantity_per_bbl, cost_per_unit_usd, line_total_cents, sort_order
       ),
@@ -162,6 +163,7 @@ export async function GET() {
       status: inv.status,
       source: inv.source,
       square_invoice_id: inv.square_invoice_id,
+      square_status: inv.square_status ?? null,
       square_dashboard_url: squareDashboardUrl,
       total_cents: inv.total_cents,
       percentage: alloc?.percentage ?? null,

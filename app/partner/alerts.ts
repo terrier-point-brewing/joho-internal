@@ -73,7 +73,7 @@ export function homeAlerts(history: PortalHistory | undefined, requests: PortalR
         ? `${bbl(total)} of ${ready[0].beer_name ?? "beer"} is packaged and ready`
         : `${bbl(total)} across ${ready.length} beers is packaged and ready`,
       detail: ready.length === 1 ? "On our floor now. Tell us when you want it." : `${ready.map((d) => d.beer_name ?? "beer").join(", ")}. On our floor now. Tell us when you want it.`,
-      tab: "beer", cta: "See my beer",
+      tab: "beer", cta: "See batches",
     });
   }
 

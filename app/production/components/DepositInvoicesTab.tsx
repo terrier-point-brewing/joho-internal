@@ -1,5 +1,6 @@
 "use client";
 
+import { invoiceDisplayStatus } from "@/lib/finance/invoiceStatus";
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson, useContractPartnersQuery } from "../hooks/queries";
@@ -20,7 +21,7 @@ interface DepositBreakdownLine {
 interface DepositInvoiceListItem {
   id: string; invoice_number: string | null; invoice_date: string | null;
   customer_name: string | null; partner_id: string | null; partner_name: string | null;
-  status: string; source: string; square_invoice_id: string | null; square_dashboard_url: string | null;
+  status: string; square_status?: string | null; source: string; square_invoice_id: string | null; square_dashboard_url: string | null;
   total_cents: number; percentage: number | null;
   beer_name: string | null; batch_number: string | null; volume_bbl: number | null;
   generated_at: string | null; sent_at: string | null; paid_at: string | null;
@@ -36,10 +37,11 @@ const STATUS_BADGE: Record<string, string> = {
   paid: "bg-success-surface/40 text-success",
   voided: "bg-danger-surface/40 text-danger",
   partial: "bg-info-surface/40 text-info",
+  processing: "bg-info-surface/40 text-info",
   unknown: "bg-surface-mid text-muted",
 };
 const STATUS_LABEL: Record<string, string> = {
-  draft: "Draft", open: "Sent / Open", paid: "Paid", voided: "Voided", partial: "Partial", unknown: "Unknown",
+  draft: "Draft", open: "Sent / Open", processing: "Payment processing", paid: "Paid", voided: "Voided", partial: "Partial", unknown: "Unknown",
 };
 
 function fmt(iso: string) {
@@ -82,7 +84,7 @@ function ExpandedPanel({ invoice }: { invoice: DepositInvoiceListItem }) {
             </React.Fragment>
           )}
           <span className="text-muted">Status</span>
-          <span><span className={`px-1.5 py-0.5 rounded text-xs ${STATUS_BADGE[invoice.status] ?? STATUS_BADGE.unknown}`}>{STATUS_LABEL[invoice.status] ?? invoice.status}</span></span>
+          <span><span className={`px-1.5 py-0.5 rounded text-xs ${STATUS_BADGE[invoiceDisplayStatus(invoice.status, invoice.square_status)] ?? STATUS_BADGE.unknown}`}>{STATUS_LABEL[invoiceDisplayStatus(invoice.status, invoice.square_status)] ?? invoice.status}</span></span>
           {invoice.square_dashboard_url && (
             <React.Fragment>
               <span className="text-muted">Square</span>
@@ -289,7 +291,7 @@ export default function DepositInvoicesTab() {
                       <td className="px-4 py-2.5 text-body">{inv.partner_name ?? inv.customer_name ?? "—"}</td>
                       <td className="px-4 py-2.5 text-body">{inv.beer_name ?? "—"}</td>
                       <td className="px-4 py-2.5">
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[inv.status] ?? STATUS_BADGE.unknown}`}>{STATUS_LABEL[inv.status] ?? inv.status}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[invoiceDisplayStatus(inv.status, inv.square_status)] ?? STATUS_BADGE.unknown}`}>{STATUS_LABEL[invoiceDisplayStatus(inv.status, inv.square_status)] ?? inv.status}</span>
                         {(inv.refund_amount_cents ?? 0) > 0 && (
                           <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded bg-danger-surface/40 text-danger">Partial Refund</span>
                         )}
