@@ -27,6 +27,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
+  // An event whose kegs were recorded has shipment rows stamped with its id.
+  // Those only reverse in Production, so the event stays until they do.
+  const { data: existing } = await supabase.from("events").select("closed_at").eq("id", id).maybeSingle();
+  if (existing?.closed_at) {
+    return NextResponse.json({ error: "This event has kegs recorded. Ask Production to reverse the shipment before deleting it." }, { status: 409 });
+  }
   const { error } = await supabase.from("events").delete().eq("id", id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

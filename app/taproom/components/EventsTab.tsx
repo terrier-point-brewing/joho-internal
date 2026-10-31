@@ -7,6 +7,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
 import Badge from "@/app/components/ui/Badge";
 import EventsHelp from "./EventsHelp";
+import EventKegsModal, { useEventKegsQuery } from "./EventKegsModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,8 @@ interface TaproomEvent {
   event_host: string;
   notes: string | null;
   created_at: string;
+  /** Set once the event's kegs were recorded (shipped to the taproom from this tab). */
+  closed_at: string | null;
 }
 
 interface PourRow {
@@ -211,6 +214,63 @@ function PourTable({ eventId }: { eventId: string }) {
   );
 }
 
+// ─── KegsUsed ─────────────────────────────────────────────────────────────────
+
+function KegsUsed({ eventId, closed, ended, onRecord }: { eventId: string; closed: boolean; ended: boolean; onRecord: () => void }) {
+  const { data, isLoading, error } = useEventKegsQuery(eventId);
+  const lines = data?.lines ?? [];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted uppercase tracking-wide font-medium">Kegs used</p>
+        {ended && (
+          <button type="button" onClick={onRecord} className={closed ? "btn-secondary btn-xxs" : "btn-primary btn-xxs"}>
+            {closed ? "Add a keg" : "Close out"}
+          </button>
+        )}
+      </div>
+      {isLoading ? (
+        <p className="text-xs text-faint py-2 text-center">Loading…</p>
+      ) : error ? (
+        <p className="text-xs text-danger">{error instanceof Error ? error.message : "Failed to load"}</p>
+      ) : lines.length === 0 ? (
+        <p className="text-xs text-faint italic py-2">
+          {ended ? "No kegs recorded yet. Press Close out to record the kegs this event tapped." : "Kegs are recorded after the event ends."}
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-line">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-line bg-surface/60">
+                <th className="text-left px-3 py-2 text-muted font-medium">Beer</th>
+                <th className="text-left px-3 py-2 text-muted font-medium">Keg</th>
+                <th className="text-right px-3 py-2 text-muted font-medium">Kegs</th>
+                <th className="text-left px-3 py-2 text-muted font-medium">Recorded</th>
+                <th className="text-left px-3 py-2 text-muted font-medium">Note</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/60">
+              {lines.map((l) => (
+                <tr key={l.source_ref}>
+                  <td className="px-3 py-2 text-strong">{l.recipe_name}</td>
+                  <td className="px-3 py-2 text-body">{l.variation_name}</td>
+                  <td className="px-3 py-2 text-right text-body">{l.quantity}</td>
+                  <td className="px-3 py-2 text-muted whitespace-nowrap">{fmtDisplay(l.shipped_at)}</td>
+                  <td className="px-3 py-2 text-muted">{l.notes ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {closed && (
+        <p className="text-xs text-faint">A keg recorded by mistake is reversed in Production, not here.</p>
+      )}
+    </div>
+  );
+}
+
 // ─── Main tab ─────────────────────────────────────────────────────────────────
 
 export default function EventsTab() {
@@ -227,6 +287,9 @@ export default function EventsTab() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [formError,   setFormError]   = useState<string | null>(null);
   const [showHelp,    setShowHelp]    = useState(false);
+  const [kegsFor,     setKegsFor]     = useState<TaproomEvent | null>(null);
+  // "Ended" is judged against the moment the tab mounted; a reload re-judges it.
+  const [now] = useState(() => Date.now());
 
   const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.taproom.events() });
 
@@ -273,10 +336,11 @@ export default function EventsTab() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) =>
-      fetch(`/api/taproom/events/${id}`, { method: "DELETE" }).then((r) => {
-        if (!r.ok && r.status !== 204) throw new Error("Failed to delete");
+      fetch(`/api/taproom/events/${id}`, { method: "DELETE" }).then(async (r) => {
+        if (!r.ok && r.status !== 204) throw new Error((await r.json().catch(() => ({}))).error ?? "Failed to delete");
       }),
-    onSuccess: () => { invalidate(); setDeleteConfirm(null); if (expandedId === deleteConfirm) setExpandedId(null); },
+    onSuccess: () => { invalidate(); setDeleteConfirm(null); setFormError(null); if (expandedId === deleteConfirm) setExpandedId(null); },
+    onError: (e: Error) => { setFormError(e.message); setDeleteConfirm(null); },
   });
 
   return (
@@ -297,8 +361,10 @@ export default function EventsTab() {
       </div>
 
       {showHelp && <EventsHelp onClose={() => setShowHelp(false)} />}
+      {kegsFor && <EventKegsModal eventId={kegsFor.id} eventName={kegsFor.event_name} onClose={() => setKegsFor(null)} />}
 
       {error && <p className="text-xs text-danger">{error instanceof Error ? error.message : "Failed to load events"}</p>}
+      {formError && !creating && !editingId && <p className="text-xs text-danger">{formError}</p>}
 
       {/* Create form */}
       {creating && (
@@ -326,6 +392,8 @@ export default function EventsTab() {
           {events.map((ev) => {
             const isEditing  = editingId  === ev.id;
             const isExpanded = expandedId === ev.id;
+            const ended      = new Date(ev.event_end).getTime() <= now;
+            const closed     = Boolean(ev.closed_at);
 
             return (
               <div key={ev.id} className="rounded-lg border border-line bg-surface/30">
@@ -338,6 +406,11 @@ export default function EventsTab() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-primary">{ev.event_name}</span>
                       <Badge tone="neutral">{ev.event_host}</Badge>
+                      {closed ? (
+                        <Badge tone="success" title={`Kegs recorded ${fmtDisplay(ev.closed_at!)}`}>Closed out</Badge>
+                      ) : ended ? (
+                        <Badge tone="neutral" title="The kegs this event tapped have not been recorded yet">Kegs not recorded</Badge>
+                      ) : null}
                     </div>
                     <p className="text-xs text-muted mt-0.5">
                       {fmtDisplay(ev.event_start)} – {fmtDisplay(ev.event_end)}
@@ -346,6 +419,11 @@ export default function EventsTab() {
                   </button>
 
                   <div className="flex items-center gap-1 shrink-0">
+                    {ended && !closed && !isEditing && (
+                      <button onClick={() => setKegsFor(ev)} className="btn-primary btn-xxs">
+                        Close out
+                      </button>
+                    )}
                     <button
                       onClick={() => { setEditingId(isEditing ? null : ev.id); setFormError(null); }}
                       className="btn-secondary btn-xxs"
@@ -368,14 +446,14 @@ export default function EventsTab() {
                           ✕
                         </button>
                       </>
-                    ) : (
+                    ) : !closed ? (
                       <button
                         onClick={() => setDeleteConfirm(ev.id)}
                         className="btn-danger btn-xxs"
                       >
                         Delete
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
@@ -403,6 +481,9 @@ export default function EventsTab() {
                   <div className="border-t border-line px-4 py-3">
                     <p className="text-xs text-muted uppercase tracking-wide font-medium mb-3">Pour Sales by Variation</p>
                     <PourTable eventId={ev.id} />
+                    <div className="mt-4 pt-3 border-t border-line">
+                      <KegsUsed eventId={ev.id} closed={closed} ended={ended} onRecord={() => setKegsFor(ev)} />
+                    </div>
                   </div>
                 )}
               </div>
