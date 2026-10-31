@@ -21,6 +21,7 @@ export const INVOICE_STATUS_CLS: Record<string, string> = {
   paid:    "bg-success-surface/40 text-success",
   open:    "bg-accent-muted/40 text-accent",
   partial: "bg-info-surface/40 text-info",
+  processing: "bg-info-surface/40 text-info",
   voided:  "bg-danger-surface/20 text-danger",
   draft:   "bg-surface-mid text-muted",
   unknown: "bg-surface-mid text-muted",

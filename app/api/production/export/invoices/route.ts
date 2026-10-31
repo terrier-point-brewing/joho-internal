@@ -43,6 +43,7 @@ export async function GET() {
     .select(`
       id, invoice_number, invoice_date, customer_name, partner_id,
       status, source, square_invoice_id, subtotal_cents, discount_cents, total_cents,
+      square_status:raw_data->>square_status,
       invoice_line_items!invoice_line_items_invoice_id_fkey(
         id, sort_order, line_item_name, variation_name, note, category,
         quantity, unit_price_cents, total_cents,
@@ -86,6 +87,7 @@ export async function GET() {
       status: inv.status,
       source: inv.source,
       square_invoice_id: inv.square_invoice_id,
+      square_status: inv.square_status ?? null,
       square_dashboard_url: squareDashboardUrl,
       subtotal_cents: inv.subtotal_cents,
       discount_cents: inv.discount_cents,

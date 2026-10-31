@@ -7,6 +7,22 @@ import type { InvoiceStatus } from "@/types/finance";
  * drift. A fully-refunded invoice is `voided`; a partial refund stays `paid`
  * (the refunded dollars are tracked separately by the refund sync).
  */
+/**
+ * Square's "the customer has paid, the money has not arrived" state: an ACH or
+ * bank transfer initiated against the invoice. The ledger status stays `open`
+ * (no cash yet), but every screen that shows an open invoice should say the
+ * payment is on its way rather than nag for it. Read from the Square status
+ * the sync keeps in `invoices.raw_data.square_status`.
+ */
+export function isPaymentProcessing(squareStatus: string | null | undefined): boolean {
+  return (squareStatus ?? "").toUpperCase() === "PAYMENT_PENDING";
+}
+
+/** What to call an invoice on screen: its ledger status, or "processing" while a payment is in flight. */
+export function invoiceDisplayStatus(status: string, squareStatus: string | null | undefined): string {
+  return status === "open" && isPaymentProcessing(squareStatus) ? "processing" : status;
+}
+
 export function mapSquareInvoiceStatus(squareStatus: string): InvoiceStatus {
   switch (squareStatus.toUpperCase()) {
     case "DRAFT":                       return "draft";

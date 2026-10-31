@@ -47,7 +47,7 @@ export async function loadPartnerLedger(admin: SupabaseClient): Promise<LedgerPa
     loadBatchYields(admin, batchIds),
     loadDepositCharges(admin, allocRows.filter((a) => a.channel === "contract_brewing").map((a) => a.id)),
     admin.from("invoices")
-      .select("id, invoice_number, invoice_date, status, source, invoice_type, total_cents, square_invoice_id, allocation_id")
+      .select("id, invoice_number, invoice_date, status, source, invoice_type, total_cents, square_invoice_id, allocation_id, square_status:raw_data->>square_status")
       .in("invoice_type", ["allocation_deposit", "export_invoice"]),
     batchIds.length > 0
       ? admin.from("batch_conversions").select("source_batch_id, volume_bbl, target:brew_batches!target_batch_id(beer_name, batch_number)").in("source_batch_id", batchIds)

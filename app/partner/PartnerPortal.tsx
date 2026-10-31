@@ -10,6 +10,7 @@ import TabBar from "@/app/components/TabBar";
 import Banner from "@/app/components/ui/Banner";
 import Badge from "@/app/components/ui/Badge";
 import Card from "@/app/components/ui/Card";
+import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { Tone } from "@/app/components/ui/tone";
 import BatchRequestModal from "./BatchRequestModal";
 import ClaimModal from "./ClaimModal";
@@ -27,17 +28,32 @@ import { homeAlerts, type HomeAlert } from "./alerts";
 type TabKey = "home" | "beer" | "get" | "money";
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: "home", label: "Home" },
-  { key: "beer", label: "My beer" },
-  { key: "get", label: "Get beer" },
-  { key: "money", label: "Money" },
+  { key: "home", label: "Overview" },
+  { key: "beer", label: "Batches & requests" },
+  { key: "get", label: "Capacity & claims" },
+  { key: "money", label: "Invoices & payments" },
 ];
 
 const PAYMENT: Record<PaymentStatus, { label: string; tone: Tone }> = {
   paid: { label: "Paid", tone: "success" },
   unpaid: { label: "Unpaid", tone: "danger" },
+  processing: { label: "Payment processing", tone: "info" },
   not_invoiced: { label: "Not yet invoiced", tone: "neutral" },
 };
+
+/**
+ * What the partner already has coming of this beer, so a claim is a choice
+ * and not an accident. Matched on recipe, falling back to the name for deals
+ * booked before recipes were linked.
+ */
+function alreadyBooked(b: ClaimableBatch, deals: PortalDeal[]): { to_come_bbl: number; ready_by: string | null; deals: number } | null {
+  const same = deals.filter((d) => d.status === "open"
+    && ((b.recipe_id && d.recipe_id === b.recipe_id) || (!b.recipe_id || !d.recipe_id) && (d.beer_name ?? "").trim().toLowerCase() === b.beer_name.trim().toLowerCase()));
+  const toCome = same.reduce((s, d) => s + Math.max(0, (d.has_batch ? d.expected_bbl : d.booked_bbl) - d.shipped_bbl), 0);
+  if (toCome <= 0.005) return null;
+  const dates = same.map((d) => d.progress.ready_by).filter((x): x is string => !!x).sort();
+  return { to_come_bbl: Math.round(toCome * 100) / 100, ready_by: dates[0] ?? null, deals: same.length };
+}
 
 const STAGE_LABEL: Record<ClaimableBatch["stage"], string> = {
   in_tank: "In tank — not packaged yet",
@@ -53,7 +69,8 @@ const STATUS: Record<PortalRequest["status"], { label: string; tone: Tone }> = {
   withdrawn: { label: "Withdrawn", tone: "neutral" },
 };
 /** Sort order in My requests: waiting on the partner, then on us, then approved, declined, withdrawn; newest first within each. */
-/** Completed batches shown on Money before "Show all". */
+const THIS_YEAR = String(new Date().getFullYear());
+/** Completed batches shown on Invoices & payments before "Show all". */
 const COMPLETED_PREVIEW = 5;
 const RANK: Record<PortalRequest["status"], number> = { adjusted: 0, submitted: 1, approved: 2, declined: 3, withdrawn: 4 };
 const byStatusThenNewest = (a: PortalRequest, b: PortalRequest) =>
@@ -144,7 +161,7 @@ export default function PartnerPortal() {
       {waitingOnYou > 0 && tab !== "beer" && tab !== "home" && (
         <Banner tone="info" className="mb-4">
           We have come back with a different share on {waitingOnYou === 1 ? "one of your requests" : `${waitingOnYou} of your requests`}.{" "}
-          <button className="underline" onClick={() => setTab("beer")}>Answer under My beer</button>
+          <button className="underline" onClick={() => setTab("beer")}>Answer under Batches & requests</button>
         </Banner>
       )}
       {overview.isLoading && <p className="text-sm text-muted">Loading…</p>}
@@ -204,26 +221,40 @@ export default function PartnerPortal() {
             <Card><p className="text-sm text-muted">Nothing is available to claim right now. Check back as new batches are scheduled.</p></Card>
           ) : (
             <div className="flex flex-col gap-2">
-              {data.available.map((b) => (
-                <Card key={b.batch_id}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-primary">{b.beer_name}</div>
-                      <div className="text-xs text-muted">
-                        {[b.style, b.abv ? `${b.abv}% ABV` : null].filter(Boolean).join(" · ") || "—"}
+              {data.available.map((b) => {
+                const booked = alreadyBooked(b, history.data?.deals ?? []);
+                const mixed = b.ready_now_bbl > 0.005 && b.in_tank_bbl > 0.005;
+                return (
+                  <Card key={b.batch_id}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-primary">{b.beer_name}</div>
+                        <div className="text-xs text-muted">
+                          {[b.style, b.abv ? `${b.abv}% ABV` : null].filter(Boolean).join(" · ") || "—"}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className="text-sm font-semibold text-strong">{bbl(b.claimable_bbl)} available</div>
+                          <div className="text-xs text-muted">
+                            {mixed ? `${bbl(b.ready_now_bbl)} ready now · ${bbl(b.in_tank_bbl)} in tank` : STAGE_LABEL[b.stage]}
+                            {b.stage !== "packaged" && b.ready_by ? ` · ready around ${shortDate(b.ready_by)}` : ""}
+                          </div>
+                        </div>
+                        <button className="btn-primary" onClick={() => setClaiming(b)}>Claim some</button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <div className="text-sm font-semibold text-strong">{bbl(b.claimable_bbl)} available</div>
-                        <div className="text-xs text-muted">{STAGE_LABEL[b.stage]}{b.stage !== "packaged" && b.ready_by ? ` · ready around ${shortDate(b.ready_by)}` : ""}</div>
+                    <ReadinessBar batch={b} />
+                    {booked && (
+                      <div className="mt-2 text-xs text-accent">
+                        You already have {bbl(booked.to_come_bbl)} of this beer coming{booked.ready_by ? ` around ${shortDate(booked.ready_by)}` : ""}
+                        {booked.deals > 1 ? ` across ${booked.deals} batches` : ""}.{" "}
+                        <button className="underline" onClick={() => setTab("beer")}>See it</button>
                       </div>
-                      <button className="btn-primary" onClick={() => setClaiming(b)}>Claim some</button>
-                    </div>
-                  </div>
-                  <ReadinessBar batch={b} />
-                </Card>
-              ))}
+                    )}
+                  </Card>
+                );
+              })}
             </div>
           )}
           <p className="text-xs text-muted mt-4">
@@ -243,7 +274,7 @@ export default function PartnerPortal() {
           </p>
           {requests.isLoading && <p className="text-sm text-muted">Loading…</p>}
           {requests.data && requests.data.length === 0 && (
-            <Card><p className="text-sm text-muted">No requests yet. Start from Get beer.</p></Card>
+            <Card><p className="text-sm text-muted">No requests yet. Start from Capacity & claims.</p></Card>
           )}
           <div className="flex flex-col gap-2">
             {[...(requests.data ?? [])].sort(byStatusThenNewest).map((r) => (
@@ -317,22 +348,7 @@ export default function PartnerPortal() {
           {history.error && <Banner className="mb-4">{(history.error as Error).message}</Banner>}
           {history.data && (
             <>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
-                <Stat label="Total shipped" value={bbl(history.data.summary.shipped_bbl)} />
-                <Stat
-                  label="Invoices paid"
-                  value={dollars(history.data.summary.paid_cents)}
-                  tone="success"
-                  note={history.data.summary.refunded_cents > 0 ? `after ${dollars(history.data.summary.refunded_cents)} refunded to you` : undefined}
-                />
-                <Stat
-                  label="Unpaid"
-                  value={dollars(history.data.summary.outstanding_cents)}
-                  tone={history.data.summary.outstanding_cents > 0 ? "danger" : undefined}
-                  note={history.data.open_invoices.length > 0 ? `${history.data.open_invoices.length} invoice${history.data.open_invoices.length === 1 ? "" : "s"}${history.data.summary.overdue_cents > 0 ? ` · ${dollars(history.data.summary.overdue_cents)} overdue` : ""}` : "Nothing owed"}
-                />
-                <ExciseStat excise={history.data.excise} />
-              </div>
+              <MoneyStats history={history.data} />
               <p className="text-xs text-muted -mt-2 mb-4">
                 Excise is the beer tax we pass through on shipment invoices; it is already inside the paid and unpaid figures.
               </p>
@@ -350,7 +366,7 @@ export default function PartnerPortal() {
                 </Card>
               )}
               <p className="text-xs text-muted mb-3">
-                Completed batches. Open ones are under <button className="underline" onClick={() => setTab("beer")}>My beer</button>.
+                Completed batches. Open ones are under <button className="underline" onClick={() => setTab("beer")}>Batches & requests</button>.
               </p>
               {history.data.deals.filter((d) => d.status !== "open").length === 0 && <Card><p className="text-sm text-muted">No completed batches yet.</p></Card>}
               <div className="flex flex-col gap-2">
@@ -415,10 +431,6 @@ function ReadinessBar({ batch: b }: { batch: ClaimableBatch }) {
         {b.ready_now_bbl > 0.005 && <div className="h-full bg-success-emphasis" style={{ width: `${(b.ready_now_bbl / total) * 100}%` }} />}
         {b.in_tank_bbl > 0.005 && <div className="h-full bg-info-emphasis" style={{ width: `${(b.in_tank_bbl / total) * 100}%` }} />}
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs mt-1.5">
-        <span className={b.ready_now_bbl > 0.005 ? "text-success" : "text-faint"}>{bbl(b.ready_now_bbl)} packaged and ready now</span>
-        <span className={b.in_tank_bbl > 0.005 ? "text-info" : "text-faint"}>{bbl(b.in_tank_bbl)} still in tank (estimate)</span>
-      </div>
     </div>
   );
 }
@@ -430,6 +442,39 @@ function Stat({ label, value, note, tone }: { label: string; value: string; note
       <div className={`text-xl font-semibold mt-1 ${tone === "success" ? "text-success" : tone === "danger" ? "text-danger" : "text-primary"}`}>{value}</div>
       {note && <div className="text-xs text-muted mt-1">{note}</div>}
     </Card>
+  );
+}
+
+/**
+ * The money figures for one calendar year, or all time. Unpaid is what is owed
+ * today and has no year, so it stays put while the others switch.
+ */
+function MoneyStats({ history }: { history: PortalHistory }) {
+  const years = Object.keys(history.by_year).sort().reverse();
+  const [year, setYear] = useState<string>(years.includes(THIS_YEAR) ? THIS_YEAR : years[0] ?? "all");
+  const y = year === "all" ? null : history.by_year[year];
+  const shipped = y ? y.shipped_bbl : history.summary.shipped_bbl;
+  const paid = y ? Math.max(0, y.paid_cents - y.refunded_cents) : history.summary.paid_cents;
+  const refunded = y ? y.refunded_cents : history.summary.refunded_cents;
+  const processing = history.open_invoices.filter((i) => i.payment_processing).length;
+  const unpaidNote = history.open_invoices.length > 0
+    ? `${history.open_invoices.length} invoice${history.open_invoices.length === 1 ? "" : "s"}${processing > 0 ? ` · ${processing} payment${processing === 1 ? "" : "s"} processing` : ""}${history.summary.overdue_cents > 0 ? ` · ${dollars(history.summary.overdue_cents)} overdue` : ""}`
+    : "Nothing owed";
+  return (
+    <>
+      {years.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+          {years.map((yr) => <ToggleChip key={yr} active={year === yr} onClick={() => setYear(yr)}>{yr}</ToggleChip>)}
+          <ToggleChip active={year === "all"} onClick={() => setYear("all")}>All time</ToggleChip>
+        </div>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+        <Stat label={y ? `Shipped in ${year}` : "Total shipped"} value={bbl(shipped)} />
+        <Stat label={y ? `Paid in ${year}` : "Invoices paid"} value={dollars(paid)} tone="success" note={refunded > 0 ? `after ${dollars(refunded)} refunded to you` : undefined} />
+        <Stat label="Unpaid now" value={dollars(history.summary.outstanding_cents)} tone={history.summary.outstanding_cents > 0 ? "danger" : undefined} note={unpaidNote} />
+        {y ? <Stat label={`Excise charged in ${year}`} value={dollars(y.excise_charged_cents)} note="Passed through on shipment invoices" /> : <ExciseStat excise={history.excise} />}
+      </div>
+    </>
   );
 }
 
@@ -486,17 +531,17 @@ function BatchesTab({ deals }: { deals: PortalDeal[] }) {
   return (
     <>
       <p className="text-sm text-secondary mb-4">
-        Every open batch, in the order it will reach you. A batch moves to Money once it has fully shipped.
+        Every open batch, in the order it will reach you. A batch moves to Invoices & payments once it has fully shipped.
         {owedCents > 0 && <span className="text-danger"> {dollars(owedCents)} unpaid across these batches — each invoice is on its card.</span>}
       </p>
       {deals.length === 0 && (
-        <Card><p className="text-sm text-muted">Nothing in progress right now. Request a batch or claim some under Get beer.</p></Card>
+        <Card><p className="text-sm text-muted">Nothing in progress right now. Request a batch or claim some under Capacity & claims.</p></Card>
       )}
       {groups.map((g) => (
         <div key={g.key} className="mb-5">
           <div className="flex items-baseline gap-2 mb-2">
             <h2 className="text-sm font-semibold text-primary">{g.title}</h2>
-            <span className="text-xs text-muted">{g.deals.length} · {g.note}</span>
+            <span className="text-xs text-muted">{g.deals.length}</span>
           </div>
           <div className="flex flex-col gap-2">
             {g.deals.map((d) => <DealCard key={d.id} deal={d} />)}
@@ -511,11 +556,11 @@ function BatchesTab({ deals }: { deals: PortalDeal[] }) {
 function PayLine({ invoice, label }: { invoice: PortalInvoice; label: string }) {
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-      <span className={invoice.overdue ? "text-danger font-medium" : "text-body"}>
+      <span className={invoice.overdue ? "text-danger font-medium" : invoice.payment_processing ? "text-info" : "text-body"}>
         {label} {invoice.number ?? ""} · {dollars(invoice.total_cents)}
-        {invoice.overdue ? ` · overdue ${invoice.days_overdue}d` : invoice.due_date ? ` · due ${shortDate(invoice.due_date)}` : ""}
+        {invoice.payment_processing ? " · payment processing" : invoice.overdue ? ` · overdue ${invoice.days_overdue}d` : invoice.due_date ? ` · due ${shortDate(invoice.due_date)}` : ""}
       </span>
-      {invoice.pay_url && <a href={invoice.pay_url} target="_blank" rel="noreferrer" className="btn-secondary btn-xxs">Pay</a>}
+      {invoice.pay_url && !invoice.payment_processing && <a href={invoice.pay_url} target="_blank" rel="noreferrer" className="btn-secondary btn-xxs">Pay</a>}
     </div>
   );
 }
@@ -552,7 +597,7 @@ function DealCard({ deal }: { deal: PortalDeal }) {
           {deal.unpaid_invoices.length > 0 && (
             <Badge tone="danger">{deal.unpaid_invoices.length === 1 ? "1 unpaid" : `${deal.unpaid_invoices.length} unpaid`}</Badge>
           )}
-          <Badge tone={status.tone}>{status.label}</Badge>
+          {!isOpen && <Badge tone={status.tone}>{status.label}</Badge>}
         </div>
       </div>
 
@@ -574,7 +619,8 @@ function DealCard({ deal }: { deal: PortalDeal }) {
             <div className="mt-1.5">
               {deal.deposit.status === "paid" && <span className="text-success">Deposit paid{deal.deposit.billed_cents > 0 ? ` · ${dollars(deal.deposit.billed_cents)}` : ""}</span>}
               {deal.deposit.status === "not_invoiced" && <span className="text-muted">Deposit not yet invoiced</span>}
-              {deal.deposit.status === "unpaid" && (depositInvoice
+              {deal.deposit.status === "unpaid" && deal.deposit.invoice?.payment_processing && <span className="text-info">Deposit payment processing · {dollars(deal.deposit.billed_cents)}</span>}
+              {deal.deposit.status === "unpaid" && !deal.deposit.invoice?.payment_processing && (depositInvoice
                 ? <PayLine invoice={depositInvoice} label="Deposit invoice" />
                 : depositOnShipment
                 ? <span className="text-danger">Deposit {dollars(deal.deposit.billed_cents)} · billed on invoice {depositOnShipment.number ?? ""}</span>
@@ -729,18 +775,20 @@ function OpenInvoices({ invoices, limit }: { invoices: PortalInvoice[]; limit?: 
               {i.bbl > 0 ? ` · ${bbl1(i.bbl)}` : ""}
             </span>
             <span className="whitespace-nowrap">
-              {i.overdue
+              {i.payment_processing
+                ? <span className="text-info">Payment processing</span>
+                : i.overdue
                 ? <span className="text-danger font-medium">Overdue {i.days_overdue} day{i.days_overdue === 1 ? "" : "s"} · was due {shortDate(i.due_date)}</span>
                 : <span className="text-muted">{i.due_date ? longDate(i.due_date) : "—"}</span>}
             </span>
             <span className="text-strong text-right whitespace-nowrap">{dollars(i.total_cents)}</span>
             <span className="text-right whitespace-nowrap">
-              {i.pay_url ? <a href={i.pay_url} target="_blank" rel="noreferrer" className="btn-secondary btn-xxs">Pay</a> : <span className="text-faint">link on its way</span>}
+              {i.payment_processing ? <span className="text-faint">—</span> : i.pay_url ? <a href={i.pay_url} target="_blank" rel="noreferrer" className="btn-secondary btn-xxs">Pay</a> : <span className="text-faint">link on its way</span>}
             </span>
           </div>
         ))}
       </div>
-      {limit && invoices.length > limit && <p className="text-xs text-muted mt-2">and {invoices.length - limit} more — see Money</p>}
+      {limit && invoices.length > limit && <p className="text-xs text-muted mt-2">and {invoices.length - limit} more — see Invoices & payments</p>}
     </>
   );
 }
@@ -800,11 +848,11 @@ function HomeTab({ overview, history, requests, go, onRequestBatch }: {
       </div>
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <Stat label="Requests awaiting our reply" value={String(waiting)} note={waiting > 0 ? "We will reply under My beer" : "Nothing pending"} />
+        <Stat label="Requests awaiting our reply" value={String(waiting)} note={waiting > 0 ? "We will reply under Batches & requests" : "Nothing pending"} />
         <Stat label="Open batches" value={String(history?.summary.open_deals ?? "…")} note={history ? `${bbl1(history.summary.to_come_bbl)} still to come` : undefined} />
-        <Stat label="Total shipped" value={history ? bbl1(history.summary.shipped_bbl) : "…"} />
+        <Stat label={`Shipped in ${THIS_YEAR}`} value={history ? bbl1(history.by_year[THIS_YEAR]?.shipped_bbl ?? 0) : "…"} note={history ? `${bbl1(history.summary.shipped_bbl)} all time` : undefined} />
         {owed > 0
-          ? <Stat label="Unpaid" value={dollars(owed)} tone="danger" note={history ? `${history.open_invoices.length} invoice${history.open_invoices.length === 1 ? "" : "s"} · pay under Money` : undefined} />
+          ? <Stat label="Unpaid" value={dollars(owed)} tone="danger" note={history ? `${history.open_invoices.length} invoice${history.open_invoices.length === 1 ? "" : "s"}${history.open_invoices.some((i) => i.payment_processing) ? ` · ${history.open_invoices.filter((i) => i.payment_processing).length} processing` : ""} · see Invoices & payments` : undefined} />
           : <Stat label="Invoices paid" value={history ? dollars(history.summary.paid_cents) : "…"} tone="success" note={history ? "Nothing unpaid" : undefined} />}
         {history && history.excise.charged_cents > 0 && <ExciseStat excise={history.excise} />}
       </div>

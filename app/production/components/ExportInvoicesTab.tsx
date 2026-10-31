@@ -1,5 +1,6 @@
 "use client";
 
+import { invoiceDisplayStatus } from "@/lib/finance/invoiceStatus";
 import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson, useContractPartnersQuery, useExportServiceMappingsQuery, useExportSquareCatalogQuery } from "../hooks/queries";
@@ -68,6 +69,8 @@ interface ExportInvoiceListItem {
   partner_id: string | null;
   partner_name: string | null;
   status: "draft" | "open" | "paid" | "voided" | "partial" | "unknown";
+  /** Square's own status; PAYMENT_PENDING shows as "Payment processing". */
+  square_status?: string | null;
   source: "square" | "quickbooks";
   square_invoice_id: string | null;
   square_dashboard_url: string | null;
@@ -89,12 +92,14 @@ const STATUS_BADGE: Record<string, string> = {
   paid: "bg-success-surface/40 text-success",
   voided: "bg-danger-surface/40 text-danger",
   partial: "bg-info-surface/40 text-info",
+  processing: "bg-info-surface/40 text-info",
   unknown: "bg-surface-mid text-muted",
 };
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
   open: "Sent / Open",
+  processing: "Payment processing",
   paid: "Paid",
   voided: "Voided",
   partial: "Partial",
@@ -297,8 +302,8 @@ function InvoiceExpandedPanel({
           <span className="text-body">{invoice.invoice_date ? fmt(invoice.invoice_date) : "—"}</span>
           <span className="text-muted">Status</span>
           <span>
-            <span className={`px-1.5 py-0.5 rounded text-xs ${STATUS_BADGE[invoice.status]}`}>
-              {STATUS_LABEL[invoice.status] ?? invoice.status}
+            <span className={`px-1.5 py-0.5 rounded text-xs ${STATUS_BADGE[invoiceDisplayStatus(invoice.status, invoice.square_status)]}`}>
+              {STATUS_LABEL[invoiceDisplayStatus(invoice.status, invoice.square_status)] ?? invoice.status}
             </span>
           </span>
           <span className="text-muted">Source</span>
@@ -878,8 +883,8 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
                         {inv.partner_name ?? inv.customer_name ?? "—"}
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[inv.status]}`}>
-                          {STATUS_LABEL[inv.status] ?? inv.status}
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[invoiceDisplayStatus(inv.status, inv.square_status)]}`}>
+                          {STATUS_LABEL[invoiceDisplayStatus(inv.status, inv.square_status)] ?? inv.status}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-right text-strong font-medium tabular-nums">
