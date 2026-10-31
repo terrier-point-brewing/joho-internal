@@ -21,7 +21,17 @@ export interface PortalRequest {
   submitted_by: string | null; withdrawn_by: string | null;
 }
 export type PaymentStatus = "paid" | "unpaid" | "not_invoiced";
-export interface PortalInvoice { id: string; number: string | null; date: string | null; kind: "shipment" | "deposit"; status: "paid" | "unpaid"; total_cents: number; beers: string[]; bbl: number; due_date: string | null; overdue: boolean; days_overdue: number; pay_url: string | null }
+export interface PortalInvoice { id: string; number: string | null; date: string | null; kind: "shipment" | "deposit"; status: "paid" | "unpaid"; total_cents: number; beers: string[]; bbl: number; due_date: string | null; overdue: boolean; days_overdue: number; pay_url: string | null; /** Money sent back against this invoice, completed or in flight. */ refunded_cents: number }
+/**
+ * Money we sent back. Reasons are the partner-facing words, never the code;
+ * null while we have not yet said why (a refund made from the Square dashboard
+ * by hand). Lines are present only when the app issued the refund.
+ */
+export interface PortalRefund {
+  id: string; date: string | null; amount_cents: number; status: "completed" | "processing";
+  reason: string | null; invoice: { id: string; number: string | null } | null;
+  lines: Array<{ label: string; quantity: number | null; amount_cents: number }>;
+}
 export interface DealProgress { step: number; label: string; brew_date: string | null; ready_by: string | null }
 export const PROGRESS_STEPS = ["Scheduled", "Brewing", "Fermenting", "Conditioning", "Packaging", "Ready"] as const;
 export interface PortalShipment {
@@ -35,13 +45,17 @@ export interface PortalDeal {
   shipments: PortalShipment[];
   /** Every invoice on this deal (deposit, shipments, back-charges) still to be paid — one entry per invoice. */
   unpaid_invoices: PortalInvoice[];
+  /** Refunds against this deal's invoices or its deposit, newest first. */
+  refunds: PortalRefund[];
 }
 export interface PortalHistory {
-  summary: { shipped_bbl: number; paid_cents: number; outstanding_cents: number; overdue_cents: number; open_deals: number; to_come_bbl: number };
+  summary: { shipped_bbl: number; paid_cents: number; outstanding_cents: number; overdue_cents: number; open_deals: number; to_come_bbl: number; refunded_cents: number };
   excise: { charged_cents: number; collected_cents: number; outstanding_cents: number; invoices: number };
   open_invoices: PortalInvoice[];
   deals: PortalDeal[];
   other_shipments: PortalShipment[];
+  /** Every refund to this partner, newest first. */
+  refunds: PortalRefund[];
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

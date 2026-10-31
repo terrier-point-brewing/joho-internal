@@ -9,6 +9,7 @@ import type { LedgerTransfer } from "@/lib/production/volumeLedger";
 import { getInvoiceStatus } from "@/lib/square/square-invoices";
 import { EXCISE_LINE_CATEGORY, excisePerPartner, type ExciseInvoice, type ExciseLine, type PartnerExcise } from "@/lib/production/partnerExcise";
 import { type BusyInterval, type Fermenter } from "./capacity";
+import { chunk } from "@/lib/utils/chunk";
 import { claimPool, compareClaimable, DEFAULT_TAPROOM_BUFFER_PCT, visibleToPartner, type ClaimPool } from "./claimable";
 
 /**
@@ -260,6 +261,23 @@ export interface PortalInvoice {
   beers: string[];
   /** Beer it covers: shipped bbl for a shipment invoice, booked bbl for a deposit. */
   bbl: number;
+  /** Money sent back against this invoice, completed or in flight. */
+  refunded_cents: number;
+}
+
+/**
+ * Money we sent back. Reasons are the partner-facing words, never the code;
+ * null while we have not yet said why (a refund made from the Square dashboard
+ * by hand). Lines are present only when the app issued the refund.
+ */
+export interface PortalRefund {
+  id: string;
+  date: string | null;
+  amount_cents: number;
+  status: "completed" | "processing";
+  reason: string | null;
+  invoice: { id: string; number: string | null } | null;
+  lines: Array<{ label: string; quantity: number | null; amount_cents: number }>;
 }
 
 export interface PortalDeal {
@@ -294,6 +312,8 @@ export interface PortalDeal {
   } | null;
   /** Every invoice on this deal (deposit, shipments, back-charges) still to be paid — one entry per invoice. */
   unpaid_invoices: PortalInvoice[];
+  /** Refunds against this deal's invoices or its deposit, newest first. */
+  refunds: PortalRefund[];
   shipments: Array<{
     /** A return is beer that came back: negative volume, no invoice of its own. */
     kind: "shipment" | "return";
@@ -312,6 +332,8 @@ export interface PortalHistory {
     overdue_cents: number;
     open_deals: number;
     to_come_bbl: number;
+    /** Everything sent back to them, completed refunds only. */
+    refunded_cents: number;
   };
   /**
    * Beer excise we billed this partner on shipment invoices. It is INSIDE the
@@ -324,12 +346,14 @@ export interface PortalHistory {
   deals: PortalDeal[];
   /** Beer shipped outside any commitment. */
   other_shipments: PortalDeal["shipments"];
+  /** Every refund to this partner, newest first. */
+  refunds: PortalRefund[];
 }
 
 const EMPTY_HISTORY: PortalHistory = {
-  summary: { shipped_bbl: 0, paid_cents: 0, outstanding_cents: 0, overdue_cents: 0, open_deals: 0, to_come_bbl: 0 },
+  summary: { shipped_bbl: 0, paid_cents: 0, outstanding_cents: 0, overdue_cents: 0, open_deals: 0, to_come_bbl: 0, refunded_cents: 0 },
   excise: { charged_cents: 0, collected_cents: 0, outstanding_cents: 0, invoices: 0 },
-  open_invoices: [], deals: [], other_shipments: [],
+  open_invoices: [], deals: [], other_shipments: [], refunds: [],
 };
 
 /**
@@ -349,6 +373,87 @@ export interface InvoiceExtras {
   invoices: Map<string, { due_date: string | null; pay_url: string | null }>;
   /** Brew and ready dates of the batch behind each allocation, keyed by allocation id. */
   batches?: Map<string, { planned_brew_date: string | null; expected_delivery_date: string | null }>;
+  /**
+   * Every refund raised against one of this partner's invoices or deposits.
+   * When absent (older callers, tests) the ledger's per-allocation figure is
+   * the only refund the history knows about.
+   */
+  refunds?: RefundRow[];
+}
+
+/** One `square_refunds` row as the history needs it, lines already joined. */
+export interface RefundRow {
+  id: string;
+  amount_cents: number;
+  status: string | null;
+  refunded_at: string | null;
+  reason_code: string | null;
+  invoice_id: string | null;
+  allocation_id: string | null;
+  lines: Array<{ description: string | null; variation_name: string | null; quantity: number | null; amount_cents: number }>;
+}
+
+/** The words a partner reads for a refund reason. Codes stay on this side. */
+export function refundReasonLabel(code: string | null): string | null {
+  switch (code) {
+    case "price_correction": return "Price adjustment";
+    case "goods_returned": return "Beer returned";
+    case "never_delivered": return "Not delivered";
+    case "deposit_reduction": return "Deposit reduced";
+    default: return null;
+  }
+}
+
+/**
+ * Refunds to one partner, from the single record every refund lands in
+ * (`square_refunds`, see 20261005090000_unified_refunds.sql). Found through the
+ * invoice or the deposit allocation they were raised against — a taproom POS
+ * refund has neither and never appears. Both id lists are chunked: a bare
+ * `.in()` over a long list fails as a URL too long, not as a query error.
+ */
+export async function loadPartnerRefunds(admin: SupabaseClient, partnerId: string): Promise<RefundRow[]> {
+  const [{ data: invs }, { data: allocs }] = await Promise.all([
+    admin.from("invoices").select("id").eq("partner_id", partnerId),
+    admin.from("batch_allocations").select("id").eq("partner_id", partnerId),
+  ]);
+  const invoiceIds = (invs ?? []).map((r: { id: string }) => r.id);
+  const allocationIds = (allocs ?? []).map((r: { id: string }) => r.id);
+  const SELECT = "id, amount_cents, status, refunded_at, reason_code, invoice_id, allocation_id";
+  type Raw = Omit<RefundRow, "lines">;
+  const byId = new Map<string, Raw>();
+  const take = (rows: Raw[] | null) => { for (const r of rows ?? []) byId.set(r.id, r); };
+  for (const ids of chunk(invoiceIds, 200)) take((await admin.from("square_refunds").select(SELECT).in("invoice_id", ids)).data as Raw[] | null);
+  for (const ids of chunk(allocationIds, 200)) take((await admin.from("square_refunds").select(SELECT).in("allocation_id", ids)).data as Raw[] | null);
+  const refunds: RefundRow[] = [...byId.values()].map((r) => ({ ...r, amount_cents: Number(r.amount_cents ?? 0), lines: [] }));
+  const refundById = new Map(refunds.map((r) => [r.id, r]));
+  type LineRaw = { refund_id: string; quantity: number | string | null; amount_cents: number | string; invoice_line_items: { description: string | null; variation_name: string | null } | null };
+  for (const ids of chunk([...refundById.keys()], 200)) {
+    const { data } = await admin.from("refund_lines")
+      .select("refund_id, quantity, amount_cents, invoice_line_items(description, variation_name)").in("refund_id", ids);
+    for (const l of (data ?? []) as unknown as LineRaw[]) {
+      refundById.get(l.refund_id)?.lines.push({
+        description: l.invoice_line_items?.description ?? null, variation_name: l.invoice_line_items?.variation_name ?? null,
+        quantity: l.quantity == null ? null : Number(l.quantity), amount_cents: Number(l.amount_cents),
+      });
+    }
+  }
+  return refunds;
+}
+
+function toPortalRefund(r: RefundRow, invoiceNumber: (id: string) => string | null): PortalRefund {
+  return {
+    id: r.id,
+    date: r.refunded_at ? r.refunded_at.slice(0, 10) : null,
+    amount_cents: r.amount_cents,
+    status: (r.status ?? "").toUpperCase() === "COMPLETED" ? "completed" : "processing",
+    reason: refundReasonLabel(r.reason_code),
+    invoice: r.invoice_id ? { id: r.invoice_id, number: invoiceNumber(r.invoice_id) } : null,
+    lines: r.lines.map((l) => ({
+      // "Barrel Excise Tax — Regular" already names its variation; do not say it twice.
+      label: [l.description, l.variation_name && !(l.description ?? "").toLowerCase().includes(l.variation_name.toLowerCase()) ? l.variation_name : null].filter(Boolean).join(" · ") || "Credit",
+      quantity: l.quantity, amount_cents: l.amount_cents,
+    })),
+  };
 }
 const NO_EXTRAS: InvoiceExtras = { today: "0000-00-00", invoices: new Map() };
 
@@ -456,7 +561,7 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
     const inv: PortalInvoice = {
       id: ref.id, number: ref.invoice_number, date: ref.invoice_date, kind,
       status: ref.status === "paid" ? "paid" : "unpaid", total_cents: ref.total_cents, beers: [], bbl: 0,
-      due_date: null, overdue: false, days_overdue: 0, pay_url: null,
+      due_date: null, overdue: false, days_overdue: 0, pay_url: null, refunded_cents: 0,
     };
     const extra = extras.invoices.get(ref.id);
     if (extra) {
@@ -525,13 +630,25 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
 
   let looseDepositPaid = 0;
   let refunded = 0;
+  // Refunds are matched to a deal by the invoice or the deposit allocation they
+  // were raised against. Each one belongs to at most one deal.
+  const newestFirst = (a: PortalRefund, b: PortalRefund) => (b.date ?? "").localeCompare(a.date ?? "");
+  const refundRows = extras.refunds ?? [];
+  const unclaimedRefunds = new Set(refundRows.map((r) => r.id));
+  const refundsFor = (invoiceIds: Set<string>, allocationIds: Set<string>): PortalRefund[] => {
+    const mine = refundRows.filter((r) => unclaimedRefunds.has(r.id) && ((r.invoice_id && invoiceIds.has(r.invoice_id)) || (r.allocation_id && allocationIds.has(r.allocation_id))));
+    for (const r of mine) unclaimedRefunds.delete(r.id);
+    return mine.map((r) => toPortalRefund(r, (id) => invoices.get(id)?.number ?? null)).sort(newestFirst);
+  };
   const deals: PortalDeal[] = ledger.commitments.map((c) => {
     const beer = beerLabel(c.recipe_name, c.recipe_style);
     for (const ref of c.export_invoices) note(ref, "shipment");
     let depositStatus: PaymentStatus = "not_invoiced";
     let depositInvoice: PortalInvoice | null = null;
     const backcharges: PortalInvoice[] = [];
+    const dealInvoiceIds = new Set<string>();
     for (const a of c.allocations) {
+      if (a.deposit.invoice) dealInvoiceIds.add(a.deposit.invoice.id);
       for (const ref of a.deposit.backcharge_invoices) {
         const inv = note(ref, "shipment");
         if (inv) backcharges.push(inv);
@@ -559,6 +676,9 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
     const depositBilledOn = depositInvoice ? "own_invoice" as const : depositBackcharge ? "shipment_invoice" as const : null;
     const extra = folded.get(c.id) ?? [];
     const shipments = shipmentsOf([...c.shipments, ...extra], beer);
+    for (const ref of c.export_invoices) dealInvoiceIds.add(ref.id);
+    for (const s of shipments) if (s.invoice) dealInvoiceIds.add(s.invoice.id);
+    const dealRefunds = refundsFor(dealInvoiceIds, new Set(c.allocations.map((a) => a.id)));
     const extraBbl = extra.filter(real).reduce((s, x) => s + x.volume_bbl, 0);
     const shipped = Math.round((c.totals.shipped_bbl + extraBbl) * 100) / 100;
     // One entry per invoice, however many shipments it bills.
@@ -594,6 +714,7 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
         ? { billed_cents: c.totals.deposit_billed_cents, paid_cents: c.totals.deposit_paid_cents - c.totals.deposit_refunded_cents, status: depositStatus, invoice: depositInvoice ?? depositBackcharge, billed_on: depositBilledOn }
         : null,
       shipments,
+      refunds: dealRefunds,
       unpaid_invoices: [...unpaid.values()].sort((a, b) => Number(b.overdue) - Number(a.overdue) || (a.due_date ?? a.date ?? "").localeCompare(b.due_date ?? b.date ?? "")),
     };
   });
@@ -608,6 +729,18 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
 
   const other_shipments = shipmentsOf(strays, null);
   const all = [...invoices.values()];
+  // Every refund, whether or not a deal claimed it (an invoice outside any
+  // commitment still belongs to them). Pending ones show as processing but do
+  // not yet count as money back.
+  const allRefunds = [...deals.flatMap((d) => d.refunds), ...refundRows.filter((r) => unclaimedRefunds.has(r.id)).map((r) => toPortalRefund(r, (id) => invoices.get(id)?.number ?? null))].sort(newestFirst);
+  for (const r of allRefunds) {
+    const inv = r.invoice && invoices.get(r.invoice.id);
+    if (inv) inv.refunded_cents += r.amount_cents;
+  }
+  const refundedCompleted = allRefunds.filter((r) => r.status === "completed").reduce((s, r) => s + r.amount_cents, 0);
+  // With the full record in hand it supersedes the ledger's per-allocation
+  // figure (deposit reductions are in both; counting both would double them).
+  if (extras.refunds) refunded = refundedCompleted;
   const open = deals.filter((d) => d.status === "open");
   return {
     summary: {
@@ -618,11 +751,13 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
       open_deals: open.length,
       // Packaged and waiting, plus the share still in tank.
       to_come_bbl: Math.round(open.reduce((s, d) => s + Math.max(0, d.expected_bbl - d.shipped_bbl), 0) * 100) / 100,
+      refunded_cents: extras.refunds ? refundedCompleted : refunded,
     },
     excise,
     open_invoices: all.filter((i) => i.status === "unpaid")
       .sort((a, b) => Number(b.overdue) - Number(a.overdue) || (a.due_date ?? a.date ?? "").localeCompare(b.due_date ?? b.date ?? "")),
     deals,
     other_shipments,
+    refunds: allRefunds,
   };
 }
