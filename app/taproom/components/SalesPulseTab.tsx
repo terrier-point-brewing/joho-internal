@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { formatCurrencyCents } from "@/lib/format";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys, SALES_REPORT_STALE_TIME } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
@@ -143,12 +143,14 @@ function formatLineTime(iso: string): string {
 // shown in the footer and is the same figure as the cell that opened it — see
 // TaproomLineContribution for why that holds by construction.
 function CategoryDrill({
-  lines, column, expectedCents, loading,
+  lines, column, expectedCents, loading, live,
 }: {
   lines: TaproomLineContribution[];
   column: DrillColumn;
   expectedCents: number;
   loading: boolean;
+  /** The range runs through today, so sales can ring in between fetches. */
+  live: boolean;
 }) {
   const rows = lines
     .filter((c) => drillValue(column, c) !== 0)
@@ -238,14 +240,23 @@ function CategoryDrill({
         <div className="mt-2 text-2xs text-muted italic">est. = refund split across the order.</div>
       )}
 
-      {/* The drill is emitted by the same code that produced the total, so this
-          should never fire. If it ever does, the totals are the thing to trust
-          and something upstream stopped reporting where its money came from. */}
+      {/* The drill is emitted by the same code that produced the total, so on a
+          closed range this can only mean something upstream stopped reporting
+          where its money came from. On a live range it means the other thing:
+          the table and the drill are two Square fetches minutes apart and a
+          sale rang in between them. The parent refetches the stale side; say
+          so instead of telling the reader to file a bug about a pour. */}
       {total !== expectedCents && (
-        <div className="mt-2 text-2xs text-danger">
-          These lines total {formatCurrencyCents(total, 2)} but the category shows{" "}
-          {formatCurrencyCents(expectedCents, 2)}. Report this — the breakdown is incomplete.
-        </div>
+        live ? (
+          <div className="mt-2 text-2xs text-muted italic">
+            Sales rang in since this table loaded — refreshing the totals…
+          </div>
+        ) : (
+          <div className="mt-2 text-2xs text-danger">
+            These lines total {formatCurrencyCents(total, 2)} but the category shows{" "}
+            {formatCurrencyCents(expectedCents, 2)}. Report this — the breakdown is incomplete.
+          </div>
+        )
       )}
     </div>
   );
@@ -388,6 +399,7 @@ export default function SalesPulseTab() {
     ? (lineData?.lines ?? []).filter((c) => c.categoryId === drill.categoryId)
     : [];
 
+
   // ---------------------------------------------------------------------------
   // Chart data — align both weeks on Mon–Sun index
   // ---------------------------------------------------------------------------
@@ -407,6 +419,35 @@ export default function SalesPulseTab() {
   // ---------------------------------------------------------------------------
 
   const catSource = catDayFilter !== null ? catDayData : currentData;
+
+  // The table and the drill are separate Square fetches. On a range that runs
+  // through today a sale can ring in between them, and then the drill's footer
+  // disagrees with the cell that opened it. Whichever side is older gets
+  // refetched: lines newer than the table → refresh the table; table newer than
+  // the lines → refresh the lines. Each new payload earns one refetch, and a
+  // few rounds cover a busy bar; past that the figures are moving faster than
+  // we can fetch, and chasing them further would only hammer Square.
+  const catLive = catEnd >= todayStr;
+  const queryClient = useQueryClient();
+  const syncRounds = useRef(0);
+  useEffect(() => { syncRounds.current = 0; }, [drill?.categoryId, catStart, catEnd]);
+  useEffect(() => {
+    if (!drill || !lineData || !catSource || !catLive) return;
+    if (syncRounds.current >= 3) return;
+    const cat = catSource.by_category.find((c) => c.id === drill.categoryId);
+    if (!cat) return;
+    const lineTotal = lineData.lines
+      .filter((c) => c.categoryId === drill.categoryId)
+      .reduce((s, c) => s + drillValue(drill.column, c), 0);
+    const expected = drillExpectedCents(cat, drill.column);
+    if (lineTotal === expected) return;
+    syncRounds.current += 1;
+    const staleKey = lineTotal > expected
+      ? (catDayFilter !== null ? queryKeys.taproom.salesPulseDay(catEnd) : queryKeys.taproom.salesPulse(catStart, catEnd))
+      : queryKeys.taproom.salesPulseLines(catStart, catEnd);
+    void queryClient.invalidateQueries({ queryKey: staleKey });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineData, catSource]);
 
   const sortedCategories = catSource
     ? [...catSource.by_category].sort((a, b) => {
@@ -575,6 +616,7 @@ export default function SalesPulseTab() {
                               column={drill.column}
                               expectedCents={drillExpectedCents(cat, drill.column)}
                               loading={linesLoading}
+                              live={catLive}
                             />
                           </td>
                         </tr>
