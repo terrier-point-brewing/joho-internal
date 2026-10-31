@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     );
 
     const lines: TrendLine[] = rows
-      .filter((r) => r.cause !== "beer_change")
+      .filter((r) => r.cause !== "beer_change" && r.cause !== "missed_ring")
       .filter((r) => { const d = localDateString(r.occurred_at); return d >= range.start && d <= range.end; })
       .map((r) => {
         const oz = Number(r.unaccounted_fl_oz) || 0;

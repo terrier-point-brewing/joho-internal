@@ -10,7 +10,7 @@ vi.mock("@/lib/production/recordTaproomConsumption", () => ({ recordTaproomConsu
 vi.mock("@/lib/square/inventory", () => ({
   setPhysicalCount: vi.fn(),
   fetchCurrentCounts: vi.fn(),
-  fetchOrderSalesByDay: vi.fn(async () => new Map()),
+  fetchOrderLineEvents: vi.fn(async () => []),
 }));
 vi.mock("@/lib/taproom/draftPourConsumption", async (orig) => ({
   ...(await orig<typeof import("@/lib/taproom/draftPourConsumption")>()),
@@ -28,7 +28,7 @@ import {
 } from "./taproomConsumptionSync";
 import { deriveTaproomConsumption } from "@/lib/square/taproomConsumption";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
-import { setPhysicalCount, fetchCurrentCounts, fetchOrderSalesByDay } from "@/lib/square/inventory";
+import { setPhysicalCount, fetchCurrentCounts, fetchOrderLineEvents } from "@/lib/square/inventory";
 import { pushInventoryToSquare } from "@/lib/production/pushInventoryToSquare";
 import { loadDraftPourVariations } from "@/lib/taproom/draftPourConsumption";
 
@@ -38,7 +38,7 @@ const recount = vi.mocked(setPhysicalCount);
 const fetchCounts = vi.mocked(fetchCurrentCounts);
 const push = vi.mocked(pushInventoryToSquare);
 const loadPourVars = vi.mocked(loadDraftPourVariations);
-const pourSales = vi.mocked(fetchOrderSalesByDay);
+const pourLines = vi.mocked(fetchOrderLineEvents);
 
 /**
  * Arm the pour-sum measurement path: one 16oz pour variation for `recipeId`
@@ -47,7 +47,13 @@ const pourSales = vi.mocked(fetchOrderSalesByDay);
  */
 function armPourSum(recipeId: string, units: number, oz = 16) {
   loadPourVars.mockResolvedValue(new Map([[recipeId, [{ id: "pour-16", oz }]]]));
-  pourSales.mockResolvedValue(new Map([[`pour-16\t2026-07-04`, units]]));
+  pourLines.mockResolvedValue([{ at: "2026-07-04T18:00:00Z", variationId: "pour-16", units }]);
+}
+
+/** Same, but as several pours at distinct times so a missed ring can be placed. */
+function armPourStream(recipeId: string, pours: { at: string; units: number }[], oz = 16) {
+  loadPourVars.mockResolvedValue(new Map([[recipeId, [{ id: "pour-16", oz }]]]));
+  pourLines.mockResolvedValue(pours.map((p) => ({ at: p.at, variationId: "pour-16", units: p.units })));
 }
 
 const RECOUNT = { squareVariationId: "draft-sqvar", quantity: 660, occurredAt: "2026-07-04T20:00:00Z" };
@@ -233,12 +239,12 @@ function fakeSupabaseSwaps(
 
 beforeEach(() => {
   derive.mockReset(); record.mockReset(); recount.mockReset(); fetchCounts.mockReset();
-  push.mockReset(); loadPourVars.mockReset(); pourSales.mockReset();
+  push.mockReset(); loadPourVars.mockReset(); pourLines.mockReset();
   push.mockResolvedValue({ planned: [], applied: 0, deferredRecipeIds: [], warnings: [], pushEnabled: false });
   // Default: no pour variations configured, so measurement falls back to the
   // Square on-hand read. Tests that exercise the pour sum call `armPourSum`.
   loadPourVars.mockResolvedValue(new Map());
-  pourSales.mockResolvedValue(new Map());
+  pourLines.mockResolvedValue([]);
 });
 
 describe("remainingDelta", () => {
@@ -617,6 +623,67 @@ describe("runTaproomConsumptionSync", () => {
     expect(recount).toHaveBeenCalledWith("draft-sqvar", 660, "2026-07-04T20:00:00Z");
   });
 
+  it("rings in each keg nobody rang, at the pour that blew the one before it", async () => {
+    // 100 pints = 1,600 fl oz through a 660 fl oz keg since the last ring: the
+    // first keg was gone past 660 (at 18:30), the next past 1,320 (at 19:30).
+    // Two kegs went on with no ring; the keg coming off now poured 280 of its
+    // 660, so it carries 380 fl oz of shrinkage — a real reading, not an overdraft.
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
+    armPourStream("r1", [
+      { at: "2026-07-01T18:00:00Z", units: 30 }, // 480
+      { at: "2026-07-01T18:30:00Z", units: 30 }, // 960  — past 660
+      { at: "2026-07-01T19:30:00Z", units: 40 }, // 1600 — past 1,320
+    ]);
+    const sink = { shrinkage: [] as unknown[], anchors: [] as Record<string, unknown>[] };
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([], sink, { lastRestockAt: "2026-06-20T20:00:00Z" }), { days: 2 });
+
+    // The real ring plus two inferred ones, each a 1-keg draft_swap off the same tap.
+    expect(record).toHaveBeenCalledTimes(3);
+    expect(record.mock.calls.map((c) => c[1].sourceRef)).toEqual([
+      "sqtransfer:ord-1:line-1",
+      "missedrestock:sqtransfer:ord-1:line-1:1",
+      "missedrestock:sqtransfer:ord-1:line-1:2",
+    ]);
+    for (const [, params] of record.mock.calls) {
+      expect(params).toMatchObject({ recipeId: "r1", variationId: "pv-keg", quantity: 1, kind: "draft_swap" });
+    }
+    expect(res.missedRestocksBooked).toBe(2);
+    expect(res.recordedUnits).toBe(3);
+
+    // One audit row per missed ring, dated at the blowing pour, never averaged.
+    expect(sink.shrinkage).toContainEqual(expect.objectContaining({
+      source_ref: "missedrestock:sqtransfer:ord-1:line-1:1", cause: "missed_ring",
+      occurred_at: "2026-07-01T18:30:00Z", unaccounted_fl_oz: 0, overdraft_fl_oz: 0, full_fl_oz: 660, tap_number: 3,
+    }));
+    expect(sink.shrinkage).toContainEqual(expect.objectContaining({
+      source_ref: "missedrestock:sqtransfer:ord-1:line-1:2", cause: "missed_ring", occurred_at: "2026-07-01T19:30:00Z",
+    }));
+    // The keg that came off at the real ring is measured against only its own pours.
+    expect(sink.shrinkage).toContainEqual(expect.objectContaining({
+      source_ref: "sqtransfer:ord-1:line-1", cause: "keg_emptied", unaccounted_fl_oz: 380, overdraft_fl_oz: 0,
+    }));
+    expect(res.discrepancies.filter((d) => d.kind === "restock_overdraft")).toEqual([]);
+    expect(res.discrepancies.filter((d) => d.kind === "missed_restock_booked")).toHaveLength(2);
+    // A ring means a full keg is on: the recount is full.
+    expect(recount).toHaveBeenCalledWith("draft-sqvar", 660, "2026-07-04T20:00:00Z");
+  });
+
+  it("reads a few pints past the keg as this ring rung late, not as a missed keg", async () => {
+    // 704 fl oz through a 660 keg: 44 past it, inside the late-ring tolerance.
+    // The fresh keg already poured those 44 — netted off its recount, as ever.
+    derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
+    record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
+    armPourStream("r1", [{ at: "2026-07-01T18:00:00Z", units: 40 }, { at: "2026-07-01T19:00:00Z", units: 4 }]); // 704
+    const res = await runTaproomConsumptionSync(
+      fakeSupabase([], undefined, { lastRestockAt: "2026-06-20T20:00:00Z" }), { days: 2 });
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(res.missedRestocksBooked).toBe(0);
+    expect(res.discrepancies).toContainEqual(expect.objectContaining({ kind: "restock_overdraft", overdraftFlOz: 44 }));
+    expect(recount).toHaveBeenCalledWith("draft-sqvar", 616, "2026-07-04T20:00:00Z");
+  });
+
   it("skips a restock swap already fully recorded (physical + phantom) on a prior run", async () => {
     derive.mockResolvedValue({
       units: [swapUnit({ quantity: 1 })],
@@ -661,7 +728,7 @@ describe("runTaproomConsumptionSync", () => {
     await runTaproomConsumptionSync(
       fakeSupabase([], undefined, { lastRestockAt: "2026-06-28T12:00:00Z" }), { days: 2 });
 
-    expect(pourSales).toHaveBeenCalledWith(
+    expect(pourLines).toHaveBeenCalledWith(
       "2026-06-28T12:00:00Z", "2026-07-04T20:00:00Z", ["pour-16"]);
   });
 
@@ -686,7 +753,10 @@ describe("runTaproomConsumptionSync", () => {
     derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
     record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     loadPourVars.mockResolvedValue(new Map([["r1", [{ id: "pour-16", oz: 16 }, { id: "pour-new", oz: null }]]]));
-    pourSales.mockResolvedValue(new Map([["pour-16\t2026-07-04", 20], ["pour-new\t2026-07-04", 5]]));
+    pourLines.mockResolvedValue([
+      { at: "2026-07-04T18:00:00Z", variationId: "pour-16", units: 20 },
+      { at: "2026-07-04T18:10:00Z", variationId: "pour-new", units: 5 },
+    ]);
     fetchCounts.mockResolvedValue(new Map([["draft-sqvar", 45]]));
 
     const res = await runTaproomConsumptionSync(
@@ -916,7 +986,7 @@ describe("runTaproomConsumptionSync — queued swap transitions", () => {
     await runTaproomConsumptionSync(
       fakeSupabaseSwaps([], sink, { lastRestockAt: "2026-06-28T12:00:00Z" }), { days: 2 });
 
-    expect(pourSales).toHaveBeenCalledWith("2026-06-28T12:00:00Z", "2026-07-04T20:00:00Z", ["pour-16"]);
+    expect(pourLines).toHaveBeenCalledWith("2026-06-28T12:00:00Z", "2026-07-04T20:00:00Z", ["pour-16"]);
     expect(sink.shrinkage[0]).toMatchObject({
       recipe_id: "r-old", unaccounted_fl_oz: 384, full_fl_oz: 1984, cause: "beer_change",
     });
