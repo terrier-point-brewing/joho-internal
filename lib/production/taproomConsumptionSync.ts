@@ -185,13 +185,18 @@ export function splitKegBalance(balanceFlOz: number): { unaccountedFlOz: number;
 
 /**
  * Absolute fl oz to recount a fresh keg to: full volume less what it already
- * poured before the restock was rung. Floored at zero — an overdraft bigger than
- * a keg means more than one missed restock, and writing the count negative again
- * would just carry the same error forward.
+ * poured before the restock was rung.
+ *
+ * An overdraft of a whole keg or more means at least one restock was never
+ * rung, so those pours came off kegs this ring knows nothing about — they say
+ * nothing about the keg that just went on. A ring means a full keg is on the
+ * line now, so the recount is FULL. (It used to floor at zero, which put Shadow
+ * Forge's fresh sixtel on tap reading −16 fl oz after one pint on 2026-10-30.)
+ * The missed rings themselves are reported as a `restock_overdraft` warning.
  */
 export function recountTarget(fullFlOz: number, overdraftFlOz: number): number {
-  const t = fullFlOz - overdraftFlOz;
-  return t > 0 ? t : 0;
+  if (overdraftFlOz >= fullFlOz) return fullFlOz;
+  return fullFlOz - overdraftFlOz;
 }
 
 /** How a keg's closing balance was measured. */

@@ -264,8 +264,10 @@ describe("splitKegBalance", () => {
 describe("recountTarget", () => {
   it("is the full keg when nothing was poured pre-ring", () => { expect(recountTarget(660, 0)).toBe(660); });
   it("subtracts what the fresh keg already poured", () => { expect(recountTarget(660, 80)).toBe(580); });
-  it("floors at zero rather than writing the count negative again", () => {
-    expect(recountTarget(660, 700)).toBe(0);
+  it("recounts to FULL when the overdraft is a whole keg or more — those pours belong to missed rings, not this keg", () => {
+    expect(recountTarget(660, 700)).toBe(660);
+    expect(recountTarget(660, 660)).toBe(660);
+    expect(recountTarget(661, 1635)).toBe(661);
   });
 });
 
@@ -605,14 +607,14 @@ describe("runTaproomConsumptionSync", () => {
     expect(recount).toHaveBeenCalledWith("draft-sqvar", 580, "2026-07-04T20:00:00Z");
   });
 
-  it("floors the recount at zero when the overdraft exceeds a full keg", async () => {
-    // More than a keg poured past zero means more than one missed restock;
-    // writing the count negative again would just carry the error forward.
+  it("recounts to FULL when the overdraft exceeds a full keg", async () => {
+    // More than a keg poured past zero means at least one missed restock. Those
+    // pours came off kegs this ring never saw; the keg going on now is full.
     derive.mockResolvedValue({ units: [swapUnit()], discrepancies: [] });
     record.mockResolvedValue({ recordedQty: 1, shortfallQty: 0, exportTransactionIds: ["x"], breaks: [], warnings: [] });
     fetchCounts.mockResolvedValue(new Map([["draft-sqvar", -700]]));
     await runTaproomConsumptionSync(fakeSupabase([]), { days: 2 });
-    expect(recount).toHaveBeenCalledWith("draft-sqvar", 0, "2026-07-04T20:00:00Z");
+    expect(recount).toHaveBeenCalledWith("draft-sqvar", 660, "2026-07-04T20:00:00Z");
   });
 
   it("skips a restock swap already fully recorded (physical + phantom) on a prior run", async () => {
