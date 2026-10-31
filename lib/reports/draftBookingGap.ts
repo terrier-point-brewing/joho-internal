@@ -30,9 +30,30 @@ export interface TapBookingInput {
   swapKegFlOz: number | null;
   /** How many of that swap keg are in cold storage right now. */
   swapKegsOnHand: number;
+  /**
+   * Overdraft measured at the tap's most recent ring: pour fl oz recorded beyond
+   * a full keg between the previous ring and that one. Null when unknown (no ring
+   * yet, or a ring from before the overdraft was persisted).
+   */
+  lastRingOverdraftFlOz?: number | null;
+  /** When that ring happened, for the message. */
+  lastRingAt?: string | null;
 }
 
-export type BookingGapKind = "never_booked" | "unbooked_kegs" | "no_keg_to_draw";
+export type BookingGapKind =
+  | "never_booked"
+  | "unbooked_kegs"
+  | "restock_due"
+  | "missed_restock"
+  | "no_keg_to_draw";
+
+/**
+ * Fraction of a nominal keg poured before "ring it when you swap it" is worth
+ * saying. A sixtel yields ~80% of its 661 fl oz on the median swap (the rest is
+ * foam, line loss, the heel), so 75% means the keg on the tap is about to blow,
+ * and a swap without a ring from here is what wipes the Square count.
+ */
+export const RESTOCK_DUE_FRACTION = 0.75;
 
 export interface BookingGap {
   tapNumber: number;
@@ -81,6 +102,37 @@ export function tapBookingGaps(input: TapBookingInput): BookingGap[] {
         `${round(input.pouredSinceRestockFlOz)} fl oz has poured since the last Draft Restock — ` +
         `more than ${kegs === 1 ? "a full keg" : `${kegs} full kegs`}. ` +
         `${kegs === 1 ? "A keg went on" : `${kegs} kegs went on`} without a ring.`,
+    });
+  } else if (
+    swapKegFlOz && swapKegFlOz > 0 &&
+    input.pouredSinceRestockFlOz >= swapKegFlOz * RESTOCK_DUE_FRACTION
+  ) {
+    // Early, before the damage: the next swap on this tap MUST be rung. Once a
+    // full keg has poured past the ring, the following ring nets the surplus
+    // out of the recount and Square's draft count is reset to zero.
+    out.push({
+      tapNumber, beerName, kind: "restock_due", unbookedKegs: 0,
+      detail:
+        `${round(input.pouredSinceRestockFlOz)} of ${round(swapKegFlOz)} fl oz has poured since the last ` +
+        `Draft Restock, so this keg is close to blowing. Ring Draft Restock when it is swapped — ` +
+        `a swap without a ring here resets Square's draft count to zero.`,
+    });
+  }
+
+  // After the damage: the most recent ring came more than a whole keg late, so
+  // at least one keg poured with no ring and the recount floored to zero.
+  // Square's draft count for this beer is wrong until someone sets it by hand.
+  const overdraft = input.lastRingOverdraftFlOz ?? 0;
+  if (swapKegFlOz && swapKegFlOz > 0 && overdraft >= swapKegFlOz) {
+    const missed = Math.floor(overdraft / swapKegFlOz);
+    const when = input.lastRingAt ? ` on ${input.lastRingAt.slice(0, 10)}` : "";
+    out.push({
+      tapNumber, beerName, kind: "missed_restock", unbookedKegs: missed,
+      detail:
+        `The Draft Restock rung${when} came ${round(overdraft)} fl oz past a full keg — ` +
+        `${missed === 1 ? "a keg" : `${missed} kegs`} went on before it with no ring. ` +
+        `Square's draft count was reset to 0 instead of a full keg: set it by hand to ` +
+        `${round(swapKegFlOz)} fl oz less what has poured since that ring.`,
     });
   }
 

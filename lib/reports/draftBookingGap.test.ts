@@ -47,9 +47,44 @@ describe("tapBookingGaps", () => {
 
   // A real keg never pours its full volume — foam, line loss, the heel. Holding
   // the threshold at a WHOLE keg is what stops this firing on a correct booking.
-  it("does not flag a tap that poured almost a full keg since its restock", () => {
-    expect(tapBookingGaps(tap({ pouredSinceRestockFlOz: SIXTEL - 1 }))).toEqual([]);
-    expect(tapBookingGaps(tap({ pouredSinceRestockFlOz: SIXTEL }))).toEqual([]);
+  it("does not report an unbooked keg for a tap that poured almost a full keg since its restock", () => {
+    const kinds = (oz: number) => tapBookingGaps(tap({ pouredSinceRestockFlOz: oz })).map((g) => g.kind);
+    expect(kinds(SIXTEL - 1)).not.toContain("unbooked_kegs");
+    expect(kinds(SIXTEL)).not.toContain("unbooked_kegs");
+  });
+
+  // Tap 3 / Shadow Forge, 2026-10-30: 1,619 fl oz poured against a 661 fl oz
+  // sixtel between rings. The banner only spoke once a whole keg had already
+  // slipped — by then the next ring zeroed Square. This fires while the keg on
+  // the tap is still the one that was rung for.
+  it("says a restock is due once three quarters of the keg has poured", () => {
+    expect(tapBookingGaps(tap({ pouredSinceRestockFlOz: 400 }))).toEqual([]);
+    const gaps = tapBookingGaps(tap({ pouredSinceRestockFlOz: 500 }));
+    expect(gaps.map((g) => g.kind)).toEqual(["restock_due"]);
+    expect(gaps[0].detail).toContain("500 of 661 fl oz");
+  });
+
+  it("drops restock_due in favour of unbooked_kegs once a full keg has slipped", () => {
+    const kinds = tapBookingGaps(tap({ pouredSinceRestockFlOz: SIXTEL + 1 })).map((g) => g.kind);
+    expect(kinds).toContain("unbooked_kegs");
+    expect(kinds).not.toContain("restock_due");
+  });
+
+  it("reports a missed restock when the last ring's overdraft covers a whole keg", () => {
+    const gaps = tapBookingGaps(tap({
+      beerName: "Shadow Forge", lastRingAt: "2026-10-30T22:29:51Z", lastRingOverdraftFlOz: 958,
+    }));
+    expect(gaps.map((g) => g.kind)).toEqual(["missed_restock"]);
+    expect(gaps[0].unbookedKegs).toBe(1);
+    expect(gaps[0].detail).toContain("2026-10-30");
+    expect(gaps[0].detail).toContain("reset to 0");
+  });
+
+  // A late ring by less than a keg is netted out of the recount correctly — the
+  // count is right, so there is nothing for a person to fix.
+  it("does not report a missed restock for a small overdraft", () => {
+    expect(tapBookingGaps(tap({ lastRingOverdraftFlOz: 80 }))).toEqual([]);
+    expect(tapBookingGaps(tap({ lastRingOverdraftFlOz: null }))).toEqual([]);
   });
 
   it("flags one unbooked keg once a full keg has poured beyond the ring", () => {

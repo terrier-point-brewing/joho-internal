@@ -589,7 +589,7 @@ describe("runTaproomConsumptionSync", () => {
 
     expect(recount).toHaveBeenCalledWith("draft-sqvar", 580, "2026-07-04T20:00:00Z");
     // Shrinkage can't be negative — the surplus is the next keg's, not a loss.
-    expect(sink.shrinkage[0]).toMatchObject({ unaccounted_fl_oz: 0, full_fl_oz: 660 });
+    expect(sink.shrinkage[0]).toMatchObject({ unaccounted_fl_oz: 0, overdraft_fl_oz: 80, full_fl_oz: 660 });
     expect(res.discrepancies).toContainEqual(expect.objectContaining({
       kind: "restock_overdraft", overdraftFlOz: 80, tapNumber: 3,
     }));

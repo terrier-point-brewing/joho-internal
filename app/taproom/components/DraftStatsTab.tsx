@@ -57,7 +57,7 @@ interface TapRow {
 interface BookingGap {
   tapNumber: number;
   beerName: string | null;
-  kind: "never_booked" | "unbooked_kegs" | "no_keg_to_draw";
+  kind: "never_booked" | "unbooked_kegs" | "restock_due" | "missed_restock" | "no_keg_to_draw";
   unbookedKegs: number;
   detail: string;
 }
@@ -506,6 +506,9 @@ export default function DraftStatsTab() {
   // warnings churn, and the operator is already looking at the thing to fix.
   const bookingGaps = editingTaps ? [] : (stats?.booking_gaps ?? []);
   const gapTapCount = new Set(bookingGaps.map((g) => g.tapNumber)).size;
+  // "Not booking" is the accusation; a keg that is merely due a ring hasn't
+  // done anything wrong yet, so the headline softens when that's all there is.
+  const onlyDue = bookingGaps.length > 0 && bookingGaps.every((g) => g.kind === "restock_due");
 
   return (
     <div>
@@ -579,9 +582,13 @@ export default function DraftStatsTab() {
               kind of small wrongness that makes an operator stop trusting the
               rest of the number. */}
           <p className="font-semibold">
-            {gapTapCount === 1
-              ? "One tap is not booking its kegs"
-              : `${gapTapCount} taps are not booking their kegs`}
+            {onlyDue
+              ? (gapTapCount === 1
+                ? "One tap needs its next swap rung"
+                : `${gapTapCount} taps need their next swap rung`)
+              : (gapTapCount === 1
+                ? "One tap is not booking its kegs"
+                : `${gapTapCount} taps are not booking their kegs`)}
           </p>
           <ul className="mt-1.5 space-y-1">
             {bookingGaps.map((g, i) => (
