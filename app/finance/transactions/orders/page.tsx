@@ -53,6 +53,13 @@ interface LineItem {
   effective_chart_of_accounts_id: string | null;
   effective_chart_of_accounts: CoARef | null;
   prefilled_from_mapping: boolean;
+  /** No account, on purpose: the variation is marked excluded on GL Mapping > Revenue. */
+  mapping_excluded: boolean;
+}
+
+/** A line needs no further coding: it has an account, or its variation is excluded from mapping. */
+function isResolved(li: { effective_chart_of_accounts_id: string | null; mapping_excluded: boolean }): boolean {
+  return !!li.effective_chart_of_accounts_id || li.mapping_excluded;
 }
 
 /** Read-only line item reconstructed from a canceled order's raw_data (never GL-mapped). */
@@ -86,7 +93,7 @@ interface Transaction {
 
 function orderMapped(txn: Transaction): [number, number] {
   const items = txn.pos_line_items ?? [];
-  return [items.filter((li) => li.effective_chart_of_accounts_id).length, items.length];
+  return [items.filter(isResolved).length, items.length];
 }
 
 const ORDER_CONTROLS: ControlsConfig<Transaction> = {
@@ -196,6 +203,9 @@ function LineItemRow({
       <div className="text-2xs text-faint truncate">
         {isManualOverride && <span className="text-accent-emphasis/70">override</span>}
         {isPrefilled && effectiveCoa && <span className="text-faint">prefilled</span>}
+        {item.mapping_excluded && !effectiveCoaId && (
+          <span title="This variation is marked excluded on Settings › GL Mapping › Revenue, so it needs no account">excluded</span>
+        )}
       </div>
       <div className="w-4 flex items-center justify-center">
         <SaveHint saving={saving} />
@@ -255,7 +265,7 @@ function OrderRow({
   // list reads as the value of the lines shown.
   const lineItems = narrowToGl(txn.pos_line_items ?? [], (li) => li.effective_chart_of_accounts_id, glFilter);
   const voidedItems = txn.voided_line_items ?? [];
-  const mappedCount = lineItems.filter((li) => li.effective_chart_of_accounts_id).length;
+  const mappedCount = lineItems.filter(isResolved).length;
   const status = txn.status?.toLowerCase() ?? "";
   // Canceled orders carry no pos_line_items; source the breakdown gross from the
   // voided (raw_data) items so it reflects what was actually rung up, not $0.
