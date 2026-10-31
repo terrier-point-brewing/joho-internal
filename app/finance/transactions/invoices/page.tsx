@@ -81,6 +81,13 @@ interface InvoiceLineItemRow {
   square_catalog_variation_id: string | null;
   chart_of_accounts_id: string | null;
   chart_of_accounts: CoARef | null;
+  /** No account, on purpose: the variation is marked excluded on GL Mapping > Revenue. */
+  mapping_excluded: boolean;
+}
+
+/** A line needs no further coding: it has an account, or its variation is excluded from mapping. */
+function isResolved(li: { chart_of_accounts_id: string | null; mapping_excluded: boolean }): boolean {
+  return !!li.chart_of_accounts_id || li.mapping_excluded;
 }
 
 interface InvoiceRow extends Omit<Invoice, "invoice_line_items"> {
@@ -97,7 +104,7 @@ interface InvoiceRow extends Omit<Invoice, "invoice_line_items"> {
 /** [mapped line items, total line items] for the GL-mapping filter. */
 function invoiceMapped(inv: InvoiceRow): [number, number] {
   const items = inv.invoice_line_items ?? [];
-  return [items.filter((li) => li.chart_of_accounts_id).length, items.length];
+  return [items.filter(isResolved).length, items.length];
 }
 
 const INVOICE_CONTROLS: ControlsConfig<InvoiceRow> = {
@@ -160,7 +167,7 @@ function InvoiceExpandableRow({
   // narrowed line list reads as the value of the lines shown.
   const allLineItems = inv.invoice_line_items ?? [];
   const lineItems = narrowToGl(allLineItems, (li) => li.chart_of_accounts_id, glFilter);
-  const mappedCount = lineItems.filter((li) => li.chart_of_accounts_id).length;
+  const mappedCount = lineItems.filter(isResolved).length;
   const shownCents = glFilter.length === 0
     ? inv.total_cents
     : lineItems.reduce((sum, li) => sum + (li.net_sales_cents ?? li.total_cents ?? 0), 0);
@@ -325,6 +332,13 @@ function InvoiceLineItemRow({
         </span>
         <div className="flex items-center gap-2">
           <AccountSelect value={coaId} accounts={accounts} onChange={handleCoaChange} className="w-full max-w-[300px]" />
+          {item.mapping_excluded && !coaId && (
+            <span
+              className="text-2xs text-faint whitespace-nowrap"
+              title="This variation is marked excluded on Settings › GL Mapping › Revenue, so it needs no account">
+              excluded
+            </span>
+          )}
           <SaveHint saving={saving} />
         </div>
       </div>

@@ -37,7 +37,35 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
+
+  // A line whose variation a person marked "excluded" on Settings > GL Mapping
+  // > Revenue will never get an account, so the Invoices tab must count it as
+  // resolved rather than unmapped — the same rule GL Mapping's coverage count
+  // already applies. Flag it here so the page does not need a second fetch.
+  type LineRow = { square_catalog_variation_id: string | null; chart_of_accounts_id: string | null };
+  const rows = (data ?? []) as Array<{ invoice_line_items: LineRow[] | null }>;
+  const variationIds = [...new Set(
+    rows.flatMap((inv) => (inv.invoice_line_items ?? []).map((li) => li.square_catalog_variation_id))
+      .filter((v): v is string => !!v),
+  )];
+  const excluded = new Set<string>();
+  if (variationIds.length > 0) {
+    const { data: exRows } = await supabase
+      .from("square_catalog_variations")
+      .select("square_variation_id")
+      .in("square_variation_id", variationIds)
+      .eq("excluded", true);
+    for (const r of exRows ?? []) if (r.square_variation_id) excluded.add(r.square_variation_id);
+  }
+  const enriched = rows.map((inv) => ({
+    ...inv,
+    invoice_line_items: (inv.invoice_line_items ?? []).map((li) => ({
+      ...li,
+      mapping_excluded:
+        !li.chart_of_accounts_id && !!li.square_catalog_variation_id && excluded.has(li.square_catalog_variation_id),
+    })),
+  }));
+  return NextResponse.json(enriched);
 }
 
 // ── PATCH /api/finance/ledger/invoices ────────────────────────────────────────
