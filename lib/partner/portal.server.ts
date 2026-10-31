@@ -10,6 +10,7 @@ import { getInvoiceStatus } from "@/lib/square/square-invoices";
 import { EXCISE_LINE_CATEGORY, excisePerPartner, type ExciseInvoice, type ExciseLine, type PartnerExcise } from "@/lib/production/partnerExcise";
 import { type BusyInterval, type Fermenter } from "./capacity";
 import { chunk } from "@/lib/utils/chunk";
+import { isPaymentProcessing } from "@/lib/finance/invoiceStatus";
 import { claimPool, compareClaimable, DEFAULT_TAPROOM_BUFFER_PCT, visibleToPartner, type ClaimPool } from "./claimable";
 
 /**
@@ -106,6 +107,8 @@ const MIN_OFFER_BBL = 1;
 
 export interface ClaimableBatch {
   batch_id: string;
+  /** Lets the portal match this beer against the partner's own open deals. */
+  recipe_id: string | null;
   beer_name: string;
   style: string | null;
   abv: number | null;
@@ -122,7 +125,7 @@ export interface ClaimableBatch {
 }
 
 interface BatchRow {
-  id: string; beer_name: string | null; volume_bbl: number | null; status: string; expected_delivery_date: string | null;
+  id: string; beer_name: string | null; recipe_id: string | null; volume_bbl: number | null; status: string; expected_delivery_date: string | null;
   recipes: { beer_name: string | null; style: string | null; abv: number | null; partner_id: string | null; contract_brewing_partners: { recipes_exclusive: boolean } | null } | null;
 }
 
@@ -132,7 +135,7 @@ export async function loadClaimPools(
   opts: { batchIds?: string[] } = {},
 ): Promise<Map<string, { batch: BatchRow; pool: ClaimPool; readyBy: string | null; packaged: boolean; producedAny: boolean }>> {
   let q = admin.from("brew_batches")
-    .select("id, beer_name, volume_bbl, status, expected_delivery_date, recipes(beer_name, style, abv, partner_id, contract_brewing_partners(recipes_exclusive))")
+    .select("id, beer_name, recipe_id, volume_bbl, status, expected_delivery_date, recipes(beer_name, style, abv, partner_id, contract_brewing_partners(recipes_exclusive))")
     .neq("status", "complete");
   if (opts.batchIds) q = q.in("id", opts.batchIds);
   const { data: batchRows } = await q;
@@ -206,6 +209,7 @@ export async function loadClaimableForPartner(admin: SupabaseClient, partnerId: 
     if (!visibleToPartner(partnerId, owner)) continue;
     rows.push({
       batch_id: batch.id,
+      recipe_id: batch.recipe_id ?? null,
       beer_name: batch.recipes?.beer_name ?? batch.beer_name ?? "Beer",
       style: batch.recipes?.style ?? null,
       abv: batch.recipes?.abv ?? null,
@@ -239,9 +243,28 @@ export async function loadPartnerExcise(admin: SupabaseClient, partnerId: string
   return excisePerPartner(rows, lines)[partnerId] ?? none;
 }
 
+/** Excise charged to one partner per calendar year of the invoice, keyed "2026". */
+export async function loadPartnerExciseByYear(admin: SupabaseClient, partnerId: string): Promise<Record<string, number>> {
+  const { data: invoices } = await admin.from("invoices")
+    .select("id, partner_id, status, invoice_date").eq("invoice_type", "export_invoice").eq("partner_id", partnerId);
+  const rows = (invoices ?? []) as Array<ExciseInvoice & { invoice_date: string | null }>;
+  const lines: ExciseLine[] = [];
+  for (let i = 0; i < rows.length; i += 150) {
+    const { data } = await admin.from("invoice_line_items")
+      .select("invoice_id, total_cents").eq("category", EXCISE_LINE_CATEGORY).in("invoice_id", rows.slice(i, i + 150).map((r) => r.id));
+    lines.push(...((data ?? []) as ExciseLine[]));
+  }
+  const byYear = new Map<string, typeof rows>();
+  for (const r of rows) { const y = r.invoice_date?.slice(0, 4); if (y) (byYear.get(y) ?? byYear.set(y, []).get(y)!).push(r); }
+  const out: Record<string, number> = {};
+  for (const [y, group] of byYear) out[y] = excisePerPartner(group, lines)[partnerId]?.charged_cents ?? 0;
+  return out;
+}
+
 // ── History ─────────────────────────────────────────────────────────────────
 
-export type PaymentStatus = "paid" | "unpaid" | "not_invoiced";
+/** `processing`: the partner started a bank payment that Square has not settled yet. */
+export type PaymentStatus = "paid" | "unpaid" | "processing" | "not_invoiced";
 
 export interface PortalInvoice {
   id: string;
@@ -249,6 +272,8 @@ export interface PortalInvoice {
   date: string | null;
   kind: "shipment" | "deposit";
   status: "paid" | "unpaid";
+  /** Unpaid on the books, but a payment is on its way — never shown as overdue. */
+  payment_processing: boolean;
   total_cents: number;
   /** When Square says it should be paid by. */
   due_date: string | null;
@@ -282,6 +307,7 @@ export interface PortalRefund {
 
 export interface PortalDeal {
   id: string;
+  recipe_id: string | null;
   beer_name: string | null;
   style: string | null;
   status: "open" | "closed" | "cancelled";
@@ -335,6 +361,8 @@ export interface PortalHistory {
     /** Everything sent back to them, completed refunds only. */
     refunded_cents: number;
   };
+  /** The same figures cut by calendar year, keyed "2026"; unpaid is a today figure and has no year. */
+  by_year: Record<string, YearTotals>;
   /**
    * Beer excise we billed this partner on shipment invoices. It is INSIDE the
    * paid / outstanding figures above, not on top of them — shown separately
@@ -350,7 +378,10 @@ export interface PortalHistory {
   refunds: PortalRefund[];
 }
 
+export interface YearTotals { shipped_bbl: number; paid_cents: number; refunded_cents: number; excise_charged_cents: number }
+
 const EMPTY_HISTORY: PortalHistory = {
+  by_year: {},
   summary: { shipped_bbl: 0, paid_cents: 0, outstanding_cents: 0, overdue_cents: 0, open_deals: 0, to_come_bbl: 0, refunded_cents: 0 },
   excise: { charged_cents: 0, collected_cents: 0, outstanding_cents: 0, invoices: 0 },
   open_invoices: [], deals: [], other_shipments: [], refunds: [],
@@ -370,7 +401,9 @@ const EMPTY_HISTORY: PortalHistory = {
  */
 export interface InvoiceExtras {
   today: string;
-  invoices: Map<string, { due_date: string | null; pay_url: string | null }>;
+  invoices: Map<string, { due_date: string | null; pay_url: string | null; payment_processing?: boolean }>;
+  /** Excise charged per calendar year, keyed "2026". */
+  excise_by_year?: Record<string, number>;
   /** Brew and ready dates of the batch behind each allocation, keyed by allocation id. */
   batches?: Map<string, { planned_brew_date: string | null; expected_delivery_date: string | null }>;
   /**
@@ -496,7 +529,9 @@ export async function loadInvoiceExtras(admin: SupabaseClient, partnerId: string
   const { data } = await admin.from("invoices")
     .select("id, status, due_date, square_invoice_id, raw_data")
     .eq("partner_id", partnerId).in("invoice_type", ["allocation_deposit", "export_invoice"]);
-  const invoices = new Map<string, { due_date: string | null; pay_url: string | null }>();
+  // Square's own status rides in raw_data; PAYMENT_PENDING means a bank
+  // payment is in flight, which the partner should see as "processing", not "overdue".
+  const invoices = new Map<string, { due_date: string | null; pay_url: string | null; payment_processing: boolean }>();
   for (const row of (data ?? []) as Array<{ id: string; status: string; due_date: string | null; square_invoice_id: string | null; raw_data: Record<string, unknown> | null }>) {
     let payUrl = typeof row.raw_data?.public_url === "string" ? row.raw_data.public_url : null;
     if (!payUrl && row.status === "open" && row.square_invoice_id) {
@@ -505,7 +540,7 @@ export async function loadInvoiceExtras(admin: SupabaseClient, partnerId: string
         if (payUrl) await admin.from("invoices").update({ raw_data: { ...(row.raw_data ?? {}), public_url: payUrl } }).eq("id", row.id);
       } catch { /* Square unreachable: the row still shows, just without a link */ }
     }
-    invoices.set(row.id, { due_date: row.due_date, pay_url: payUrl });
+    invoices.set(row.id, { due_date: row.due_date, pay_url: payUrl, payment_processing: row.status === "open" && isPaymentProcessing(row.raw_data?.square_status as string | null | undefined) });
   }
   const { data: allocs } = await admin.from("batch_allocations")
     .select("id, brew_batches(planned_brew_date, expected_delivery_date)").eq("partner_id", partnerId);
@@ -560,14 +595,15 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
     if (!ref || ref.status === "voided") return null;
     const inv: PortalInvoice = {
       id: ref.id, number: ref.invoice_number, date: ref.invoice_date, kind,
-      status: ref.status === "paid" ? "paid" : "unpaid", total_cents: ref.total_cents, beers: [], bbl: 0,
+      status: ref.status === "paid" ? "paid" : "unpaid", payment_processing: false, total_cents: ref.total_cents, beers: [], bbl: 0,
       due_date: null, overdue: false, days_overdue: 0, pay_url: null, refunded_cents: 0,
     };
     const extra = extras.invoices.get(ref.id);
     if (extra) {
       inv.due_date = extra.due_date;
       inv.pay_url = extra.pay_url;
-      if (inv.status === "unpaid" && extra.due_date && extra.due_date < extras.today) {
+      inv.payment_processing = inv.status === "unpaid" && !!extra.payment_processing;
+      if (inv.status === "unpaid" && !inv.payment_processing && extra.due_date && extra.due_date < extras.today) {
         inv.overdue = true;
         inv.days_overdue = Math.round((Date.parse(`${extras.today}T00:00:00Z`) - Date.parse(`${extra.due_date}T00:00:00Z`)) / 86_400_000);
       }
@@ -602,7 +638,7 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
         kind: isReturn ? "return" as const : "shipment" as const,
         date: s.date, volume_bbl: s.volume_bbl,
         lines: s.lines.map((l) => ({ label: l.variant_label, quantity: l.quantity })),
-        payment: !invoice ? "not_invoiced" : invoice.status,
+        payment: !invoice ? "not_invoiced" : invoice.payment_processing ? "processing" : invoice.status,
         invoice,
       };
     });
@@ -697,6 +733,7 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
     const inTank = c.stage === "open" ? Math.round(Math.min(c.totals.in_tank_bbl, Math.max(0, expected - shipped)) * 100) / 100 : 0;
     return {
       id: c.id,
+      recipe_id: c.recipe_id ?? null,
       beer_name: c.recipe_name,
       style: c.recipe_style ?? null,
       status: c.stage,
@@ -738,6 +775,15 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
     if (inv) inv.refunded_cents += r.amount_cents;
   }
   const refundedCompleted = allRefunds.filter((r) => r.status === "completed").reduce((s, r) => s + r.amount_cents, 0);
+  // Per calendar year: beer by ship date, money by invoice date, refunds by
+  // refund date. Excise comes pre-cut from the loader. Unpaid has no year.
+  const by_year: Record<string, YearTotals> = {};
+  const yr = (iso: string | null | undefined) => (iso && /^\d{4}/.test(iso) ? iso.slice(0, 4) : null);
+  const bucket = (y: string | null) => y ? (by_year[y] ??= { shipped_bbl: 0, paid_cents: 0, refunded_cents: 0, excise_charged_cents: 0 }) : null;
+  for (const s of [...deals.flatMap((d) => d.shipments), ...other_shipments]) { const b = bucket(yr(s.date)); if (b) b.shipped_bbl = Math.round((b.shipped_bbl + s.volume_bbl) * 100) / 100; }
+  for (const i of all) { const b = bucket(yr(i.date)); if (b && i.status === "paid") b.paid_cents += i.total_cents; }
+  for (const r of allRefunds) { const b = bucket(yr(r.date)); if (b && r.status === "completed") b.refunded_cents += r.amount_cents; }
+  for (const [y, cents] of Object.entries(extras.excise_by_year ?? {})) { const b = bucket(y); if (b) b.excise_charged_cents += cents; }
   // With the full record in hand it supersedes the ledger's per-allocation
   // figure (deposit reductions are in both; counting both would double them).
   if (extras.refunds) refunded = refundedCompleted;
@@ -759,5 +805,6 @@ export function toPortalHistory(ledger: LedgerPartner | undefined, excise: Partn
     deals,
     other_shipments,
     refunds: allRefunds,
+    by_year,
   };
 }

@@ -2,7 +2,7 @@
 // client bundle never reaches a server module.
 
 export interface MonthCapacity { month: string; open_slots: number; earliest_start: string | null; max_turns: number }
-export interface ClaimableBatch { batch_id: string; beer_name: string; style: string | null; abv: number | null; ready_by: string | null; packaged: boolean; claimable_bbl: number; ready_now_bbl: number; in_tank_bbl: number; stage: "in_tank" | "packaging" | "packaged" }
+export interface ClaimableBatch { batch_id: string; recipe_id: string | null; beer_name: string; style: string | null; abv: number | null; ready_by: string | null; packaged: boolean; claimable_bbl: number; ready_now_bbl: number; in_tank_bbl: number; stage: "in_tank" | "packaging" | "packaged" }
 export interface OwnRecipe { id: string; beer_name: string; style: string | null }
 export interface Overview {
   company_name: string; preview: boolean; turn_bbl: number; max_turns: number;
@@ -20,8 +20,9 @@ export interface PortalRequest {
   decision_note: string | null; decided_at: string | null; created_at: string; file_names: string[];
   submitted_by: string | null; withdrawn_by: string | null;
 }
-export type PaymentStatus = "paid" | "unpaid" | "not_invoiced";
-export interface PortalInvoice { id: string; number: string | null; date: string | null; kind: "shipment" | "deposit"; status: "paid" | "unpaid"; total_cents: number; beers: string[]; bbl: number; due_date: string | null; overdue: boolean; days_overdue: number; pay_url: string | null; /** Money sent back against this invoice, completed or in flight. */ refunded_cents: number }
+/** `processing`: a bank payment the partner started that Square has not settled yet. */
+export type PaymentStatus = "paid" | "unpaid" | "processing" | "not_invoiced";
+export interface PortalInvoice { id: string; number: string | null; date: string | null; kind: "shipment" | "deposit"; status: "paid" | "unpaid"; /** Unpaid on the books but a payment is on its way; never overdue. */ payment_processing: boolean; total_cents: number; beers: string[]; bbl: number; due_date: string | null; overdue: boolean; days_overdue: number; pay_url: string | null; /** Money sent back against this invoice, completed or in flight. */ refunded_cents: number }
 /**
  * Money we sent back. Reasons are the partner-facing words, never the code;
  * null while we have not yet said why (a refund made from the Square dashboard
@@ -39,7 +40,7 @@ export interface PortalShipment {
   payment: PaymentStatus; invoice: PortalInvoice | null;
 }
 export interface PortalDeal {
-  id: string; beer_name: string | null; status: "open" | "closed" | "cancelled"; booked_bbl: number; produced_bbl: number; expected_bbl: number; has_batch: boolean; progress: DealProgress; shipped_bbl: number;
+  id: string; recipe_id: string | null; beer_name: string | null; status: "open" | "closed" | "cancelled"; booked_bbl: number; produced_bbl: number; expected_bbl: number; has_batch: boolean; progress: DealProgress; shipped_bbl: number;
   remaining_bbl: number; in_tank_bbl: number; style?: string | null; desired_delivery_date: string | null; received_on: string | null;
   deposit: { billed_cents: number; paid_cents: number; status: PaymentStatus; invoice: PortalInvoice | null; billed_on: "own_invoice" | "shipment_invoice" | null } | null;
   shipments: PortalShipment[];
@@ -48,8 +49,11 @@ export interface PortalDeal {
   /** Refunds against this deal's invoices or its deposit, newest first. */
   refunds: PortalRefund[];
 }
+export interface YearTotals { shipped_bbl: number; paid_cents: number; refunded_cents: number; excise_charged_cents: number }
 export interface PortalHistory {
   summary: { shipped_bbl: number; paid_cents: number; outstanding_cents: number; overdue_cents: number; open_deals: number; to_come_bbl: number; refunded_cents: number };
+  /** The same figures cut by calendar year, keyed "2026". */
+  by_year: Record<string, YearTotals>;
   excise: { charged_cents: number; collected_cents: number; outstanding_cents: number; invoices: number };
   open_invoices: PortalInvoice[];
   deals: PortalDeal[];

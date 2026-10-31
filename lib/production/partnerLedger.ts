@@ -1,4 +1,5 @@
 import { sumExportedByAllocation, type ExportVolumeRow } from "./allocationDelivery";
+import { isPaymentProcessing } from "@/lib/finance/invoiceStatus";
 import type { CommitmentStage } from "./commitmentStage";
 import { commitmentDelivery } from "./commitmentDelivery";
 import { classifyAdditions, type AdditionsStatus, type CoverageAllocFields } from "./depositCoverage";
@@ -93,6 +94,8 @@ export interface LedgerInvoiceRow {
   total_cents: number | null;
   square_invoice_id: string | null;
   allocation_id: string | null;
+  /** Square's own status, from raw_data; null for QuickBooks rows. */
+  square_status?: string | null;
 }
 
 export interface LedgerInput {
@@ -131,6 +134,8 @@ export interface LedgerInvoiceRef {
   status: string;
   source: string | null;
   total_cents: number;
+  /** Open, but the partner has started a bank payment Square has not settled yet. */
+  payment_processing: boolean;
 }
 
 export interface LedgerShipment {
@@ -202,6 +207,7 @@ export interface LedgerAllocation {
 
 export interface LedgerCommitment {
   id: string;
+  recipe_id?: string | null;
   recipe_name: string | null;
   recipe_style?: string | null;
   channel: string;
@@ -260,6 +266,7 @@ function invoiceRef(inv: LedgerInvoiceRow | undefined): LedgerInvoiceRef | null 
     status: inv.status,
     source: inv.source,
     total_cents: Number(inv.total_cents ?? 0),
+    payment_processing: inv.status === "open" && isPaymentProcessing(inv.square_status),
   };
 }
 
@@ -435,6 +442,7 @@ export function buildPartnerLedger(input: LedgerInput): LedgerPartner[] {
 
         return {
           id: c.id,
+          recipe_id: c.recipe_id,
           recipe_name: c.recipe_name,
           recipe_style: c.recipe_style ?? null,
           channel: c.channel,

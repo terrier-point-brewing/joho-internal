@@ -5,10 +5,10 @@ import type { PortalDeal, PortalHistory, PortalInvoice, PortalRefund, PortalRequ
 const TODAY = "2026-10-30";
 const invoice = (over: Partial<PortalInvoice> = {}): PortalInvoice => ({
   id: "i", number: "INV-1", date: "2026-09-01", kind: "shipment", status: "unpaid", total_cents: 10_000, beers: [], bbl: 1,
-  due_date: "2026-10-01", overdue: true, days_overdue: 29, pay_url: null, refunded_cents: 0, ...over,
+  due_date: "2026-10-01", overdue: true, days_overdue: 29, pay_url: null, refunded_cents: 0, payment_processing: false, ...over,
 });
 const deal = (over: Partial<PortalDeal> = {}): PortalDeal => ({
-  id: "d", beer_name: "Vienna Lager", status: "open", booked_bbl: 20, produced_bbl: 20, expected_bbl: 20, has_batch: true,
+  id: "d", recipe_id: null, beer_name: "Vienna Lager", status: "open", booked_bbl: 20, produced_bbl: 20, expected_bbl: 20, has_batch: true,
   progress: { step: 5, label: "Ready", brew_date: "2026-09-01", ready_by: "2026-10-15" }, shipped_bbl: 8, remaining_bbl: 12, in_tank_bbl: 0,
   desired_delivery_date: null, received_on: null, deposit: null, shipments: [], unpaid_invoices: [], refunds: [], ...over,
 });
@@ -23,7 +23,7 @@ const request = (over: Partial<PortalRequest> = {}): PortalRequest => ({
 const history = (over: Partial<PortalHistory> = {}): PortalHistory => ({
   summary: { shipped_bbl: 0, paid_cents: 0, outstanding_cents: 0, overdue_cents: 0, open_deals: 0, to_come_bbl: 0, refunded_cents: 0 },
   excise: { charged_cents: 0, collected_cents: 0, outstanding_cents: 0, invoices: 0 },
-  open_invoices: [], deals: [], other_shipments: [], refunds: [], ...over,
+  open_invoices: [], deals: [], other_shipments: [], refunds: [], by_year: {}, ...over,
 });
 
 describe("homeAlerts", () => {
