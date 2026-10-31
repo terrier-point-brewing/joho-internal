@@ -195,6 +195,21 @@ export async function GET() {
         if (pourErr) throw new Error(pourErr.message);
 
         const pourRows = (pours ?? []) as { recipe_id: string; business_date: string; fl_oz: number | string }[];
+
+        // Overdraft at each tap's most recent ring. A ring more than a keg late
+        // floors the Square recount to zero, and that fact lives nowhere else.
+        const { data: rings, error: ringErr } = await supabase
+          .from("draft_swap_shrinkage")
+          .select("tap_number, occurred_at, overdraft_fl_oz")
+          .not("tap_number", "is", null)
+          .order("occurred_at", { ascending: false });
+        if (ringErr) throw new Error(ringErr.message);
+        const lastRingByTap = new Map<number, { occurred_at: string; overdraft_fl_oz: number }>();
+        for (const r of (rings ?? []) as { tap_number: number; occurred_at: string; overdraft_fl_oz: number | string | null }[]) {
+          if (!lastRingByTap.has(r.tap_number)) {
+            lastRingByTap.set(r.tap_number, { occurred_at: r.occurred_at, overdraft_fl_oz: Number(r.overdraft_fl_oz ?? 0) });
+          }
+        }
         const inputs: TapBookingInput[] = [];
         for (const t of taps) {
           const tapRow = t as unknown as {
@@ -219,6 +234,12 @@ export async function GET() {
             if (restockDate === null || p.business_date > restockDate) sinceFlOz += oz;
           }
 
+          // Only the ring the tap's anchor points at counts: a hand reset of
+          // last_restock_at (the fix for a missed ring) must clear the warning.
+          const lastRing = lastRingByTap.get(tapRow.tap_number);
+          const ringMatchesAnchor = !!lastRing && !!tapRow.last_restock_at &&
+            Math.abs(Date.parse(lastRing.occurred_at) - Date.parse(tapRow.last_restock_at)) < 60_000;
+
           inputs.push({
             tapNumber: tapRow.tap_number,
             beerName: tapRow.recipes?.beer_name?.trim() ?? null,
@@ -229,6 +250,8 @@ export async function GET() {
             swapKegsOnHand: tapRow.swap_variation_id
               ? onHandByRecipeVar.get(`${tapRow.recipe_id}|${tapRow.swap_variation_id}`) ?? 0
               : 0,
+            lastRingOverdraftFlOz: ringMatchesAnchor ? lastRing!.overdraft_fl_oz : null,
+            lastRingAt: ringMatchesAnchor ? lastRing!.occurred_at : null,
           });
         }
         bookingGaps = allTapBookingGaps(inputs);

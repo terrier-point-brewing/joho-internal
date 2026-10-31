@@ -620,6 +620,9 @@ export async function runTaproomConsumptionSync(
                 tap_number:        u.tapNumber ?? null,
                 occurred_at:       u.recount.occurredAt,
                 unaccounted_fl_oz: balance.unaccountedFlOz,
+                // Persisted so Draft Stats can say, after the fact, that this
+                // ring was late by more than a keg and Square was reset to 0.
+                overdraft_fl_oz:   balance.overdraftFlOz,
                 full_fl_oz:        u.recount.quantity,
                 cause:             "keg_emptied",
               }, { onConflict: "source_ref" });
