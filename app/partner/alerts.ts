@@ -1,7 +1,7 @@
 import type { Tone } from "@/app/components/ui/tone";
 import { bbl, dollars, shortDate, type PortalHistory, type PortalRequest } from "./types";
 
-export type AlertTab = "batches" | "requests" | "history";
+export type AlertTab = "beer" | "money";
 export interface HomeAlert {
   key: string;
   tone: Tone;
@@ -35,7 +35,7 @@ export function homeAlerts(history: PortalHistory | undefined, requests: PortalR
       key: "overdue", tone: "danger",
       title: `${dollars(history.summary.overdue_cents)} is overdue`,
       detail: `${n} invoice${n === 1 ? "" : "s"} past due, the oldest by ${oldest} day${oldest === 1 ? "" : "s"}.`,
-      tab: "history", cta: "Pay now",
+      tab: "money", cta: "Pay",
     });
   }
 
@@ -45,7 +45,7 @@ export function homeAlerts(history: PortalHistory | undefined, requests: PortalR
       key: `offer:${r.id}`, tone: "accent",
       title: `We offered ${r.offer!.pct}% of the ${r.beer_name} batch`,
       detail: `About ${bbl(r.offer!.bbl)}. The request is on hold until you accept or decline.`,
-      tab: "requests", cta: "Answer",
+      tab: "beer", cta: "Answer",
     });
   }
 
@@ -58,7 +58,7 @@ export function homeAlerts(history: PortalHistory | undefined, requests: PortalR
       key: `deposit:${d.id}`, tone: "danger",
       title: `Deposit for ${d.beer_name ?? "your batch"} is unpaid`,
       detail: `${dollars(owed)} still to pay${d.progress.brew_date ? ` · brew date ${shortDate(d.progress.brew_date)}` : ""}.`,
-      tab: "batches", cta: "See the invoice",
+      tab: "beer", cta: "See the invoice",
     });
   }
 
@@ -73,7 +73,7 @@ export function homeAlerts(history: PortalHistory | undefined, requests: PortalR
         ? `${bbl(total)} of ${ready[0].beer_name ?? "beer"} is packaged and ready`
         : `${bbl(total)} across ${ready.length} beers is packaged and ready`,
       detail: ready.length === 1 ? "On our floor now. Tell us when you want it." : `${ready.map((d) => d.beer_name ?? "beer").join(", ")}. On our floor now. Tell us when you want it.`,
-      tab: "batches", cta: "See my batches",
+      tab: "beer", cta: "See my beer",
     });
   }
 
@@ -83,7 +83,7 @@ export function homeAlerts(history: PortalHistory | undefined, requests: PortalR
       key: `refund:${r.id}`, tone: "info",
       title: r.status === "processing" ? `${dollars(r.amount_cents)} refund is processing` : `${dollars(r.amount_cents)} was refunded to you${r.date ? ` ${shortDate(r.date)}` : ""}`,
       detail: [r.reason, r.invoice ? `invoice ${r.invoice.number ?? ""}`.trim() : null].filter(Boolean).join(" · ") || null,
-      tab: "history", cta: "See refunds",
+      tab: "money", cta: "See refunds",
     });
   }
 
@@ -93,7 +93,7 @@ export function homeAlerts(history: PortalHistory | undefined, requests: PortalR
       key: `declined:${r.id}`, tone: "neutral",
       title: `Your ${r.beer_name} request was declined`,
       detail: r.decision_note ?? null,
-      tab: "requests", cta: "See request",
+      tab: "beer", cta: "See request",
     });
   }
 
