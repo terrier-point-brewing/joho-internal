@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     });
 
     const events = rows
-      .filter((r) => r.cause !== "beer_change")
+      .filter((r) => r.cause !== "beer_change" && r.cause !== "missed_ring")
       .map((r) => {
         const oz = Number(r.unaccounted_fl_oz) || 0;
         const full = Number(r.full_fl_oz) || 0;

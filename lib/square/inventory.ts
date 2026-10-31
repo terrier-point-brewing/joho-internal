@@ -346,6 +346,102 @@ export async function fetchOrderSalesByDay(
   return bucketOrderLinesByDay(orders, { ids: catalogObjectIds, excludeTransfers: true });
 }
 
+/** One sold line item, stamped with the time its order closed. */
+export interface OrderLineEvent {
+  at: string; // order closed_at || created_at (RFC3339)
+  variationId: string;
+  units: number;
+}
+
+/**
+ * Pure: the same line items `bucketOrderLinesByDay` counts, but kept as
+ * individual events in time order instead of summed per day. The keg-swap
+ * inference needs to know WHEN the running total crossed a keg, which a day
+ * bucket cannot say.
+ */
+export function extractOrderLineEvents(
+  orders: DayBucketOrder[],
+  opts?: { ids?: string[]; excludeTransfers?: boolean },
+): OrderLineEvent[] {
+  const ids = opts?.ids ? new Set(opts.ids) : null;
+  const events: OrderLineEvent[] = [];
+
+  for (const order of orders) {
+    if (isInvoiceOrder(order)) continue;
+    const at = order.closed_at ?? order.created_at;
+    if (!at) continue;
+
+    let transferUids: Set<string> | undefined;
+    if (opts?.excludeTransfers) {
+      transferUids = new Set(
+        (order.discounts ?? [])
+          .filter((d) => d.name === KEG_TRANSFER_DISCOUNT_NAME)
+          .map((d) => d.uid),
+      );
+    }
+
+    for (const item of order.line_items ?? []) {
+      const varId = item.catalog_object_id;
+      if (!varId) continue;
+      if (ids && !ids.has(varId)) continue;
+      if (
+        transferUids &&
+        (item.applied_discounts ?? []).some((ad) => transferUids!.has(ad.discount_uid))
+      ) {
+        continue;
+      }
+      const qty = parseFloat(item.quantity ?? "0");
+      if (qty <= 0) continue;
+      events.push({ at, variationId: varId, units: qty });
+    }
+  }
+
+  events.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  return events;
+}
+
+/**
+ * Completed taproom sales for a date range as time-ordered line events. Same
+ * /orders/search request and exclusions as `fetchOrderSalesByDay`.
+ */
+export async function fetchOrderLineEvents(
+  startIso: string,
+  endIso: string,
+  catalogObjectIds?: string[],
+): Promise<OrderLineEvent[]> {
+  const locationId = squareLocationId();
+
+  const orders: Order[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const body: Record<string, unknown> = {
+      location_ids: [locationId],
+      query: {
+        filter: {
+          state_filter: { states: ["COMPLETED"] },
+          date_time_filter: {
+            closed_at: {
+              start_at: new Date(startIso).toISOString(),
+              end_at: new Date(endIso).toISOString(),
+            },
+          },
+        },
+      },
+      limit: 500,
+    };
+    if (cursor) body.cursor = cursor;
+
+    const data = await squarePost<OrderSearchResponse>("/orders/search", body);
+    if (data.errors?.length) throw new Error(data.errors[0].detail);
+
+    orders.push(...(data.orders ?? []));
+    cursor = data.cursor;
+  } while (cursor);
+
+  return extractOrderLineEvents(orders, { ids: catalogObjectIds, excludeTransfers: true });
+}
+
 /** One completed "Draft Restock" line item — a bartender-recorded keg swap. */
 export interface RestockLineEvent {
   orderId: string;

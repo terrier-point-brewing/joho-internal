@@ -852,9 +852,8 @@ export default function DraftStatsTab() {
                   </div>
                 )}
 
-                {/* Metrics: the two numbers that drive a decision. fl oz and BBL
-                    are the same quantity twice, so they sit behind an expander —
-                    except a negative level, which is a fault and stays visible. */}
+                {/* Metrics: the two numbers that drive a decision, plus the level
+                    on tap. A negative level is a fault and reads as one. */}
                 {!editingTaps && tap?.metrics && (
                   <>
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
@@ -871,21 +870,15 @@ export default function DraftStatsTab() {
                         </p>
                       </div>
                     </div>
-                    {tap.metrics.current_fl_oz < 0 ? (
+                    <div className="text-xs">
+                      <span className="text-faint">on tap</span>
                       <p
-                        className="text-xs text-danger tabular-nums"
-                        title="Negative on-tap level — ring a Draft Restock to swap the keg"
+                        className={`tabular-nums ${tap.metrics.current_fl_oz < 0 ? "text-danger" : "text-body"}`}
+                        title={tap.metrics.current_fl_oz < 0 ? "Negative on-tap level — ring a Draft Restock to swap the keg" : undefined}
                       >
-                        {tap.metrics.current_fl_oz.toLocaleString()} fl oz on tap
+                        {tap.metrics.current_fl_oz.toLocaleString()} fl oz · {tap.metrics.current_bbl.toFixed(2)} BBL
                       </p>
-                    ) : (
-                      <details className="text-xs">
-                        <summary className="cursor-pointer text-faint select-none">On tap</summary>
-                        <p className="mt-0.5 text-body tabular-nums">
-                          {tap.metrics.current_fl_oz.toLocaleString()} fl oz · {tap.metrics.current_bbl.toFixed(2)} BBL
-                        </p>
-                      </details>
-                    )}
+                    </div>
                   </>
                 )}
 

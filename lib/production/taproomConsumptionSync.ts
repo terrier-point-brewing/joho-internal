@@ -4,6 +4,7 @@ import { setPhysicalCount, fetchCurrentCounts } from "@/lib/square/inventory";
 import { recordTaproomConsumption } from "@/lib/production/recordTaproomConsumption";
 import { pushInventoryToSquare } from "@/lib/production/pushInventoryToSquare";
 import { PUSH_TO_SQUARE_ENABLED } from "@/lib/square/pushGate";
+import { inferMissedRings, type MissedRing } from "@/lib/taproom/kegPourWindow";
 import { syncDraftPourConsumption } from "./syncDraftPourConsumption";
 import { buildRetirePayload } from "@/lib/taproom/retireRecipe";
 import { fetchPourFlOzBetweenWith } from "@/lib/taproom/kegPourWindow";
@@ -81,6 +82,22 @@ export type SyncDiscrepancy =
     }
   | {
       /**
+       * A Draft Restock nobody rang, booked by this run. The pours between the
+       * tap's previous ring and this one added up to more than a keg, so a keg
+       * went on in between with no ring; it is rung in here at the pour that
+       * must have blown the one before it, as a draft_swap with source_ref
+       * `missedrestock:<this ring's ref>:<n>`.
+       */
+      kind: "missed_restock_booked";
+      sourceRef: string;
+      recipeId: string;
+      tapNumber: number | null;
+      occurredAt: string;
+      recordedQty: number;
+      shortfallQty: number;
+    }
+  | {
+      /**
        * A beer-change swap whose outgoing beer is still pouring on another tap.
        * The draft SKU is per recipe, so its count is the combined level across
        * both taps — zeroing it would wipe the other tap's beer and the residual
@@ -131,6 +148,8 @@ export interface TaproomSyncResult {
   recountsApplied: number;
   /** Queued beer-change transitions this run claimed and booked. */
   swapsConsumed: number;
+  /** Draft Restocks nobody rang that this run inferred from pours and booked. */
+  missedRestocksBooked: number;
   packsBrokenDown: number;
   packagingWarnings: string[];
   discrepancies: SyncDiscrepancy[];
@@ -185,13 +204,18 @@ export function splitKegBalance(balanceFlOz: number): { unaccountedFlOz: number;
 
 /**
  * Absolute fl oz to recount a fresh keg to: full volume less what it already
- * poured before the restock was rung. Floored at zero — an overdraft bigger than
- * a keg means more than one missed restock, and writing the count negative again
- * would just carry the same error forward.
+ * poured before the restock was rung.
+ *
+ * An overdraft of a whole keg or more means at least one restock was never
+ * rung, so those pours came off kegs this ring knows nothing about — they say
+ * nothing about the keg that just went on. A ring means a full keg is on the
+ * line now, so the recount is FULL. (It used to floor at zero, which put Shadow
+ * Forge's fresh sixtel on tap reading −16 fl oz after one pint on 2026-10-30.)
+ * The missed rings themselves are reported as a `restock_overdraft` warning.
  */
 export function recountTarget(fullFlOz: number, overdraftFlOz: number): number {
-  const t = fullFlOz - overdraftFlOz;
-  return t > 0 ? t : 0;
+  if (overdraftFlOz >= fullFlOz) return fullFlOz;
+  return fullFlOz - overdraftFlOz;
 }
 
 /** How a keg's closing balance was measured. */
@@ -225,16 +249,25 @@ export async function measureKegBalance(opts: {
   lastRestockAt: string | null;
   occurredAt: string;
   squareVariationId: string;
-}): Promise<{ balance: KegBalance | null; unmappedVariationIds: string[] }> {
+}): Promise<{ balance: KegBalance | null; unmappedVariationIds: string[]; missedRings: MissedRing[] }> {
   const { pourVarsByRecipe, recipeId, fullFlOz, lastRestockAt, occurredAt, squareVariationId } = opts;
 
   let unmappedVariationIds: string[] = [];
   if (lastRestockAt && fullFlOz > 0 && lastRestockAt < occurredAt) {
     const window = await fetchPourFlOzBetweenWith(pourVarsByRecipe, recipeId, lastRestockAt, occurredAt);
     if (window && window.unmappedVariationIds.length === 0) {
+      // More than a keg (past the late-ring tolerance) poured since the last
+      // ring means kegs went on with no ring. Those are placed in the pour
+      // stream and booked by the caller; the keg coming off NOW is measured
+      // against only what was poured after the last of them, so its balance is
+      // a real reading — or, within the tolerance, a small overdraft that nets
+      // off the recount exactly as a late ring always has.
+      const missedRings = inferMissedRings(window.events, fullFlOz);
+      const thisKegFlOz = window.flOz - missedRings.length * fullFlOz;
       return {
-        balance: { ...splitKegBalance(fullFlOz - window.flOz), source: "pours" },
+        balance: { ...splitKegBalance(fullFlOz - thisKegFlOz), source: "pours" },
         unmappedVariationIds,
+        missedRings,
       };
     }
     unmappedVariationIds = window?.unmappedVariationIds ?? [];
@@ -242,8 +275,8 @@ export async function measureKegBalance(opts: {
 
   const counts = await fetchCurrentCounts([squareVariationId]);
   const onHand = counts.get(squareVariationId);
-  if (onHand === undefined) return { balance: null, unmappedVariationIds };
-  return { balance: { ...splitKegBalance(onHand), source: "square_on_hand" }, unmappedVariationIds };
+  if (onHand === undefined) return { balance: null, unmappedVariationIds, missedRings: [] };
+  return { balance: { ...splitKegBalance(onHand), source: "square_on_hand" }, unmappedVariationIds, missedRings: [] };
 }
 
 /** Sum of already-recorded quantity per source_ref (chunked to stay under `in` limits). */
@@ -450,7 +483,7 @@ export async function runTaproomConsumptionSync(
     return {
       shipmentId, windowDays: days, lockSkipped: true, window: null, unitsExamined: 0,
       recorded: [], recordedUnits: 0, alreadyRecorded: 0, bookedNothing: 0, skipped: 0, totalRecordedQty: 0,
-      recountsApplied: 0, swapsConsumed: 0, packsBrokenDown: 0, packagingWarnings: [], discrepancies: [],
+      recountsApplied: 0, swapsConsumed: 0, missedRestocksBooked: 0, packsBrokenDown: 0, packagingWarnings: [], discrepancies: [],
       squareWriteback: { applied: 0, planned: [], warnings: [], pushEnabled: PUSH_TO_SQUARE_ENABLED },
     };
   }
@@ -472,6 +505,7 @@ export async function runTaproomConsumptionSync(
   let totalRecordedQty = 0;
   let recountsApplied = 0;
   let swapsConsumed = 0;
+  let missedRestocksBooked = 0;
   let packsBrokenDown = 0;
   const packagingWarnings = new Set<string>();
 
@@ -586,7 +620,7 @@ export async function runTaproomConsumptionSync(
       // `consumeSwapTransition` measured the outgoing side above.
       if (!u.swap) {
         try {
-          const { balance, unmappedVariationIds } = await measureKegBalance({
+          const { balance, unmappedVariationIds, missedRings } = await measureKegBalance({
             pourVarsByRecipe,
             recipeId:          u.recipeId,
             fullFlOz:          u.recount.quantity,
@@ -594,6 +628,63 @@ export async function runTaproomConsumptionSync(
             occurredAt:        u.recount.occurredAt,
             squareVariationId: u.recount.squareVariationId,
           });
+
+          // Ring in every restock nobody rang. The pours say a keg went on
+          // between the last ring and this one; a ring that was never fired is
+          // still a keg out of cold storage, so it is booked exactly like a rung
+          // one (same tap, same keg size), at the pour that blew the keg before
+          // it. Deterministic refs off THIS ring keep a re-run from booking them
+          // twice, and the fire-once gate above means this block runs once.
+          for (const m of missedRings) {
+            const ref = `missedrestock:${u.sourceRef}:${m.kegIndex}`;
+            const mres = await recordTaproomConsumption(supabase, {
+              shipmentId,
+              recipeId:     u.recipeId,
+              variationId:  u.variationId,
+              variationIds: u.variationIds,
+              quantity:     1,
+              sourceRef:    ref,
+              notes:        `Draft Restock never rung — inferred from pours: keg ${m.kegIndex} after the ${lastRestockAt} ring on Tap ${u.tapNumber ?? "?"}`,
+              kind:         "draft_swap",
+            });
+            packsBrokenDown += mres.breaks.length;
+            for (const w of mres.warnings) packagingWarnings.add(w);
+            if (mres.recordedQty > EPS) {
+              recordedLines.push({
+                kind: "draft_swap",
+                recipeId: u.recipeId,
+                variationId: u.variationId,
+                sourceRef: ref,
+                label: `${u.label} · missed ring ${m.kegIndex}`,
+                recordedQty: mres.recordedQty,
+              });
+              totalRecordedQty += mres.recordedQty;
+            }
+            // The audit row: this keg's pours add up to exactly a keg by
+            // construction, so it carries no shrinkage reading — `missed_ring`
+            // keeps it out of the shrinkage averages.
+            const { error: mErr } = await supabase.from("draft_swap_shrinkage").upsert({
+              source_ref:        ref,
+              recipe_id:         u.recipeId,
+              tap_number:        u.tapNumber ?? null,
+              occurred_at:       m.occurredAt,
+              unaccounted_fl_oz: 0,
+              overdraft_fl_oz:   0,
+              full_fl_oz:        u.recount.quantity,
+              cause:             "missed_ring",
+            }, { onConflict: "source_ref" });
+            if (mErr) throw new Error(mErr.message);
+            missedRestocksBooked++;
+            shrinkageWarnings.push({
+              kind: "missed_restock_booked",
+              sourceRef: ref,
+              recipeId: u.recipeId,
+              tapNumber: u.tapNumber ?? null,
+              occurredAt: m.occurredAt,
+              recordedQty: mres.recordedQty,
+              shortfallQty: mres.shortfallQty,
+            });
+          }
           if (unmappedVariationIds.length > 0) {
             shrinkageWarnings.push({
               kind: "unmapped_pour_size",
@@ -746,6 +837,7 @@ export async function runTaproomConsumptionSync(
     totalRecordedQty: Math.round(totalRecordedQty * 10000) / 10000,
     recountsApplied,
     swapsConsumed,
+    missedRestocksBooked,
     packsBrokenDown,
     packagingWarnings: [...packagingWarnings],
     discrepancies: [...configDiscrepancies, ...shortStock, ...recountWarnings, ...shrinkageWarnings, ...swapWarnings],
