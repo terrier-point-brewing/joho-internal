@@ -127,6 +127,17 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
         />
 
         <Action
+          button="Add to …"
+          when="Pours were rung but no event counted them"
+          steps={[
+            <>The <span className="font-medium">Unallocated event pours</span> box at the top of the tab lists every Event Pour from the last 60 days that was closed outside all event windows, grouped by day. Change <span className="font-medium">Last</span> to look further back.</>,
+            <>If the group belongs to an event that is listed, press <Btn>Add to &lt;event&gt;</Btn>. The event&rsquo;s window is stretched just enough to cover those pours, and they appear in its table.</>,
+            <>If no event exists for it, press <Btn>New event</Btn>. The form opens with Start and End already set around the pours. Add the name and host, then save.</>,
+          ]}
+          note="The box only finds pours rung on the Event Pour item. It shows nothing once every Event Pour is inside an event, which is the state to aim for before closing out."
+        />
+
+        <Action
           button="Close out"
           when="After the event has ended"
           steps={[
