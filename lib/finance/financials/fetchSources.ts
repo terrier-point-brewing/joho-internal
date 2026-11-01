@@ -10,6 +10,7 @@
 // tests instead of a live Supabase client — see buildFinancials.test.ts.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { currentBreweryMonth } from "@/lib/utils/datetime";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchDepreciationState, type ScheduleState } from "@/lib/finance/depreciation/state";
 import { fetchInventoryValueSeries, firstTrackedMonth, type InventoryValueSeries } from "@/lib/finance/inventoryRelief";
@@ -112,9 +113,10 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** Last real calendar month to include: the current month if `year` is the current year, else December. */
+/** Last real calendar month to include: the current month (at the brewery) if `year` is the current year, else December. */
 function periodEndYearMonth(year: number, now: Date): { y: number; m: number } {
-  return year === now.getFullYear() ? { y: year, m: now.getMonth() + 1 } : { y: year, m: 12 };
+  const [nowY, nowM] = currentBreweryMonth(now).split("-").map(Number);
+  return year === nowY ? { y: year, m: nowM } : { y: year, m: 12 };
 }
 
 /** Trailing (up to) 12 real calendar months ending at `year`'s period end, ascending "YYYY-MM". Explicitly capped at 12. */
@@ -745,8 +747,10 @@ export async function fetchFinancialsSources(params: { statement: StatementKind;
   ]);
 
   // Depreciation and inventory relief inputs, P&L only — see the result type.
-  // The live month uses the runtime clock the same way trailingMonths does.
-  const liveMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  // The live month is the brewery's current month, the same clock
+  // trailingMonths uses — never the runtime's UTC month, which rolls over at
+  // 8pm Eastern and left the just-ended month with no value for a few hours.
+  const liveMonth = currentBreweryMonth(now);
   // Cost of beer sold waits for the value series: beer brewed before the first
   // tracked month was expensed when bought and must not be costed again.
   const [depreciationStates, inventoryValueSeries, exciseExpenseByMonth] = statement === "pl"

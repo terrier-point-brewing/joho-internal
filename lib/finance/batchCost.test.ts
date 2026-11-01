@@ -1,7 +1,7 @@
 // Batch costing: the raw cost follows the beer, shrinkage spreads over the
 // yield, and a conversion inherits rather than re-buys its base beer.
 import { describe, it, expect } from "vitest";
-import { costBatches, workInProcessCents, type BatchCostInput, type CostLedgerTransfer } from "./batchCost";
+import { asOfProductionRecords, costBatches, workInProcessCents, type BatchCostInput, type CostLedgerTransfer } from "./batchCost";
 
 const TANKS = { fv1: "fermenter", fv2: "fermenter", keg: "kegging", can: "canning" };
 
@@ -126,5 +126,47 @@ describe("workInProcessCents", () => {
     const costs = costBatches([batch({ id: "a" }), batch({ id: "b", status: "complete" })], ledger, TANKS, 90, RECIPE);
 
     expect(workInProcessCents(costs)).toBe(100_000);
+  });
+});
+
+describe("asOfProductionRecords", () => {
+  const b1 = { id: "b1", status: "complete" };
+  const b2 = { id: "b2", status: "complete" };
+  const ledger = [
+    transfer({ batch_id: "b1", transfer_type: "brewing", to_tank_id: "fv1", volume_bbl: 20, transferred_at: "2026-08-10T12:00:00+00:00" }),
+    transfer({ batch_id: "b1", transfer_type: "kegging", to_tank_id: "keg", volume_bbl: 18, transferred_at: "2026-09-03T12:00:00+00:00" }),
+    transfer({ batch_id: "b2", transfer_type: "brewing", to_tank_id: "fv2", volume_bbl: 20, transferred_at: "2026-07-01T12:00:00+00:00" }),
+    transfer({ batch_id: "b2", transfer_type: "kegging", to_tank_id: "keg", volume_bbl: 18, transferred_at: "2026-07-20T12:00:00+00:00" }),
+  ];
+  const draws = [
+    { batch_id: "b1", quantity: 1, cost_per_unit_usd: 5, total_value_change_usd: null, created_at: "2026-08-12T00:00:00+00:00" },
+    { batch_id: "b1", quantity: 1, cost_per_unit_usd: 5, total_value_change_usd: null, created_at: "2026-09-01T00:00:00+00:00" },
+  ];
+
+  it("drops movements after the date and reopens a batch that was still moving then", () => {
+    const asOf = asOfProductionRecords([b1, b2], ledger, draws, "2026-08-31");
+    expect(asOf.transfers.map((t) => t.transferred_at)).toEqual([
+      "2026-08-10T12:00:00+00:00",
+      "2026-07-01T12:00:00+00:00",
+      "2026-07-20T12:00:00+00:00",
+    ]);
+    expect(asOf.draws).toHaveLength(1);
+    expect(asOf.batches.find((b) => b.id === "b1")!.status).toBe("fermenting");
+    expect(asOf.batches.find((b) => b.id === "b2")!.status).toBe("complete");
+  });
+
+  it("puts the whole raw cost back in tank for a batch packaged after the date", () => {
+    const asOf = asOfProductionRecords([batch({ id: "b1", status: "complete" })], ledger.slice(0, 2), [], "2026-08-31");
+    const cost = costBatches(asOf.batches, asOf.transfers, TANKS, 90, RECIPE).get("b1")!;
+    expect(cost.wipCents).toBe(100_000);
+
+    const today = costBatches([batch({ id: "b1", status: "complete" })], ledger.slice(0, 2), TANKS, 90, RECIPE).get("b1")!;
+    expect(today.wipCents).toBe(0);
+  });
+
+  it("keeps the day itself: a movement at 23:59 on the date has happened", () => {
+    const late = [transfer({ batch_id: "b1", transfer_type: "brewing", to_tank_id: "fv1", volume_bbl: 20, transferred_at: "2026-08-31T23:59:00+00:00" })];
+    expect(asOfProductionRecords([b1], late, [], "2026-08-31").transfers).toHaveLength(1);
+    expect(asOfProductionRecords([b1], late, [], "2026-08-30").transfers).toHaveLength(0);
   });
 });

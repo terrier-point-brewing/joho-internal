@@ -9,6 +9,18 @@
 
 export const BREWERY_TZ = "America/New_York";
 
+/**
+ * The calendar month ("YYYY-MM") it is right now at the brewery. Statement
+ * code that asks "which month is still open?" must use this, not the runtime
+ * clock: Vercel runs in UTC, so the UTC month rolls over at 8pm Eastern on the
+ * last day and the just-ended month briefly reads as closed with no snapshot.
+ */
+export function currentBreweryMonth(now: Date = new Date(), tz: string = BREWERY_TZ): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "2-digit" }).formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}`;
+}
+
 // Offset (ms) of `tz` from UTC at the instant `date`. Positive when the zone is
 // ahead of UTC. Computed via Intl so DST is handled automatically.
 function tzOffsetMs(date: Date, tz: string): number {
