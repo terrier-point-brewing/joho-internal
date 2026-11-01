@@ -29,14 +29,23 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     fetchCompletedOrders(startDate, endDate),
   ]);
 
-  // Build map: variation_id → variation display name
-  const variationNames = new Map<string, string>();
+  // Which catalog variations are Event Pours today. Used only to RECOGNISE an
+  // event-pour line; never to label it. The Event Pour item's variations get
+  // renamed for every event, so the catalog's current names belong to the
+  // latest event, not to the one being viewed. The label comes from the order
+  // line itself, which Square snapshots at the time of sale.
+  const eventPourVariationIds = new Set<string>();
+  const currentNames = new Map<string, string>();
   for (const item of catalogItems) {
     if (!item.item_data.name.toLowerCase().includes("event pour")) continue;
     for (const v of item.item_data.variations ?? []) {
-      variationNames.set(v.id, v.item_variation_data.name ?? item.item_data.name);
+      eventPourVariationIds.add(v.id);
+      currentNames.set(v.id, v.item_variation_data.name ?? item.item_data.name);
     }
   }
+  const isEventPourLine = (li: { catalog_object_id?: string; name?: string }) =>
+    (li.catalog_object_id != null && eventPourVariationIds.has(li.catalog_object_id)) ||
+    (li.name ?? "").toLowerCase().includes("event pour");
 
   const byVariation = new Map<string, {
     variation_id:   string;
@@ -62,25 +71,31 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     for (const li of order.line_items ?? []) {
       const varId = li.catalog_object_id ?? "";
-      if (!variationNames.has(varId)) continue;
+      if (!isEventPourLine(li)) continue;
 
       orderHasEventPour = true;
+
+      // Sale-time name, so a later rename cannot relabel this event's rows.
+      // Rows are keyed on that name: the same variation sold under two names
+      // (renamed mid-window) shows as two rows rather than one mislabelled one.
+      const name = li.variation_name?.trim() || currentNames.get(varId) || li.name || "Event Pour";
+      const key  = `${varId}|${name}`;
 
       const qty      = parseFloat(li.quantity ?? "0");
       const gross    = li.gross_sales_money?.amount ?? 0;
       const discount = li.total_discount_money?.amount ?? 0;
       const tax      = li.total_tax_money?.amount ?? 0;
 
-      const existing = byVariation.get(varId);
+      const existing = byVariation.get(key);
       if (existing) {
         existing.quantity      += qty;
         existing.gross_cents   += gross;
         existing.discount_cents += discount;
         existing.tax_cents     += tax;
       } else {
-        byVariation.set(varId, {
-          variation_id:   varId,
-          variation_name: variationNames.get(varId)!,
+        byVariation.set(key, {
+          variation_id:   key,
+          variation_name: name,
           quantity:       qty,
           gross_cents:    gross,
           discount_cents: discount,
