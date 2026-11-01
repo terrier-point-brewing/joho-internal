@@ -153,6 +153,7 @@ export const queryKeys = {
     inventory:     () => ["taproom", "inventory"] as const,
     events:        () => ["taproom", "events"] as const,
     eventPours:    (id: string) => ["taproom", "event-pours", id] as const,
+    eventKegs:     (id: string) => ["taproom", "event-kegs", id] as const,
   },
 
   // ─── Payroll ──────────────────────────────────────────────────────────────

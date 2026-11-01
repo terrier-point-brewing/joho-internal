@@ -44,7 +44,9 @@ function Action({
  * names what to set up in Square, what to ring, and what the tab then shows.
  * The matching rules it states are the ones the pours route actually applies:
  * a catalog item whose name contains "Event Pour", and an order closed inside
- * the event's start–end window.
+ * the event's start–end window. The close-out section describes what
+ * POST /api/taproom/events/[id]/kegs does: an ad-hoc taproom shipment of whole
+ * kegs, the same rows Production's Ad-Hoc Export writes.
  */
 export default function EventsHelp({ onClose }: { onClose: () => void }) {
   return (
@@ -55,6 +57,9 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
           <p className="mt-1">
             A pour rung on the regular draft item, or outside the event&rsquo;s start and end times, is counted in the
             everyday taproom numbers instead. Nothing on this tab can move a sale between the two afterwards.
+          </p>
+          <p className="mt-1">
+            Pours are counted from Square. The kegs that poured them are recorded when you <span className="font-medium">close out</span> the event.
           </p>
         </Banner>
 
@@ -68,6 +73,7 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
             <li>Cash tips are usually not recorded at events, so the Cash Tips tile normally shows zero. If cash tips need to reach the tip pool, count the jar separately.</li>
             <li>Invoiced sales are never counted, even when they fall inside the window.</li>
             <li>Event Pour sales appear in Finance under Events rather than Taproom.</li>
+            <li>Event Pour sales do not take beer out of stock on their own. Closing out the event is what records the kegs as used, for inventory and excise.</li>
           </ul>
         </details>
 
@@ -121,12 +127,23 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
         />
 
         <Action
+          button="Close out"
+          when="After the event has ended"
+          steps={[
+            <>Press <Btn>Close out</Btn> on the event. The button appears once the end time has passed.</>,
+            <>For each beer poured, pick the <span className="font-medium">beer</span>, the <span className="font-medium">keg size</span>, and how many kegs were tapped. Count a partly used keg as one. Press <Btn>+ Add another beer</Btn> for the next one.</>,
+            <>Press <Btn>Record kegs &amp; close out</Btn>. The event is marked <span className="font-medium">Closed out</span> and the kegs are listed under it.</>,
+          ]}
+          note={<>This moves the kegs out of cold storage and into the excise record, the same way Production&rsquo;s Ad-Hoc Export does. Forgot one? Open the event and press <Btn>Add a keg</Btn>. A keg recorded by mistake has to be reversed in Production.</>}
+        />
+
+        <Action
           button="Delete"
           when="The event did not happen or was created twice"
           steps={[
             <>Press <Btn>Delete</Btn>, then <Btn>Confirm</Btn>.</>,
           ]}
-          note="Only the event record is removed. The Square sales are untouched, so if you create a new event with the correct window, they will appear there."
+          note="Only the event record is removed. The Square sales are untouched, so if you create a new event with the correct window, they will appear there. An event that has been closed out cannot be deleted until its kegs are reversed in Production."
         />
 
         <div className="flex justify-end pt-1">
