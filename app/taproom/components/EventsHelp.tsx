@@ -67,7 +67,7 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
         <details className="rounded-lg border border-line bg-surface/40 px-4 py-3 text-sm text-body">
           <summary className="cursor-pointer font-medium text-strong select-none">How a pour is counted</summary>
           <ul className="mt-2 ml-5 list-disc space-y-1.5 leading-relaxed marker:text-faint">
-            <li>Any Square item whose name contains <span className="font-medium">Event Pour</span> is treated as an event pour. Each of its variations becomes a row in the event&rsquo;s table.</li>
+            <li>Any Square item whose name contains <span className="font-medium">Event Pour</span> is treated as an event pour. Each variation sold becomes a row in the event&rsquo;s table, under the name it had when it was rung.</li>
             <li>A sale is counted when its order was <span className="font-medium">closed</span> between the event&rsquo;s start and end times. The time the ticket was paid is what matters, not the time it was opened.</li>
             <li>Tips are calculated automatically. Every ticket that includes at least one Event Pour contributes its whole tip, split into card and cash according to how the customer paid. This gives you the event&rsquo;s card tips without any adding up by hand.</li>
             <li>Cash tips are usually not recorded at events, so the Cash Tips tile normally shows zero. If cash tips need to reach the tip pool, count the jar separately.</li>
@@ -89,7 +89,7 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
             <li>Add a new variation only when the event sells more kinds of pour than the item already has.</li>
           </ol>
           <p className="mt-3 text-xs text-muted leading-relaxed">
-            Past events display each variation&rsquo;s current name, so after a rename an older event&rsquo;s table will show the new labels. The quantities and amounts do not change.
+            Renaming is safe for past events: each event&rsquo;s table shows the names the pours were sold under at the time, not today&rsquo;s names.
             If the item is ever missing, create one whose name contains <span className="font-medium">Event Pour</span>. Anything else in the name is fine.
           </p>
         </section>
