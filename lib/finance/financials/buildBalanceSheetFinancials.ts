@@ -20,6 +20,7 @@
 // Reads ONLY persisted tables (no live Square), so this module is
 // Square-independent.
 
+import { currentBreweryMonth } from "@/lib/utils/datetime";
 import { fetchCoa, fetchExciseCoverage, trailingMonths } from "./fetchSources";
 import { coaSection, type CoaRecord } from "./aggregateRows";
 import { buildKpis, buildDataQuality } from "./summaries";
@@ -83,11 +84,13 @@ export async function buildBalanceSheetFinancials(year: number): Promise<Financi
   const now = new Date();
   const months = trailingMonths(year, now);
   // The last month in `months` is only "open" (still accruing, no frozen
-  // snapshot yet) when the requested year IS the current year -- trailingMonths
-  // constructs the window to end at December otherwise (see
-  // fetchSources.ts's periodEndYearMonth), meaning every one of its months is
-  // already fully in the past.
-  const openMonth = year === now.getFullYear() ? months[months.length - 1] : null;
+  // snapshot yet) when it IS the brewery's current month -- trailingMonths
+  // ends the window at December for a past year (see fetchSources.ts's
+  // periodEndYearMonth), and the brewery's calendar, not the runtime's UTC
+  // one, decides when a month ends: at 8pm Eastern on the last day the UTC
+  // clock had already moved on, and the month in progress showed empty.
+  const thisMonth = currentBreweryMonth(now);
+  const openMonth = months[months.length - 1] === thisMonth ? thisMonth : null;
 
   const [coa, balances, statedByCoa] = await Promise.all([
     fetchCoa(supabase),

@@ -140,10 +140,25 @@ function prevMonth(month: string): string {
 }
 
 /**
+ * The months of `months` that today's valuation stands in for: every month
+ * after the last stored snapshot, up to and including the live month. A month
+ * that has ended but not yet been closed is one of them — until its snapshot
+ * exists, what is on the shelf today is the best figure for its month end,
+ * and reading it as "no change" dropped the whole month's purchases onto the
+ * shrinkage line between month end and the close. Pure — tested directly.
+ */
+export function monthsValuedLive(stored: Record<string, number>, months: string[], liveMonth: string | null): string[] {
+  if (!liveMonth) return [];
+  const known = Object.keys(stored).sort();
+  const lastStored = known.length > 0 ? known[known.length - 1] : "";
+  return months.filter((m) => m > lastStored && m <= liveMonth);
+}
+
+/**
  * Value series for every relieving account: stored snapshots through
  * `months`' range (plus the month before it, so the first month's delta has a
- * base), and — when `liveMonth` falls inside the range — today's valuation as
- * that month's figure.
+ * base), and today's valuation for every month after the last snapshot up to
+ * the live month (monthsValuedLive).
  */
 export async function fetchInventoryValueSeries(
   supabase: SupabaseClient,
@@ -178,17 +193,22 @@ export async function fetchInventoryValueSeries(
     byAccount.set(row.chart_of_accounts_id as string, bucket);
   }
 
-  // The live month: one valuation per POOL, shared across accounts on it.
+  // Today's valuation: one per POOL, shared across accounts on it, fetched
+  // only when some account has a month it must stand in for.
+  const liveMonths = new Map<string, string[]>();
+  for (const s of sources) {
+    liveMonths.set(s.accountCoaId, monthsValuedLive(byAccount.get(s.accountCoaId) ?? {}, months, liveMonth));
+  }
   const liveByPool = new Map<InventoryPool, number>();
-  if (liveMonth && liveMonth <= last) {
-    for (const s of sources) {
-      if (!liveByPool.has(s.pool)) liveByPool.set(s.pool, await valueInventoryPoolCents(supabase, s.pool));
-    }
+  for (const s of sources) {
+    if (liveMonths.get(s.accountCoaId)!.length === 0 || liveByPool.has(s.pool)) continue;
+    liveByPool.set(s.pool, await valueInventoryPoolCents(supabase, s.pool));
   }
 
   return sources.map((source) => {
     const valueByMonth = { ...(byAccount.get(source.accountCoaId) ?? {}) };
-    if (liveMonth && liveByPool.has(source.pool)) valueByMonth[liveMonth] = liveByPool.get(source.pool)!;
+    const live = liveByPool.get(source.pool);
+    if (live !== undefined) for (const m of liveMonths.get(source.accountCoaId)!) valueByMonth[m] = live;
     return { source, valueByMonth };
   });
 }

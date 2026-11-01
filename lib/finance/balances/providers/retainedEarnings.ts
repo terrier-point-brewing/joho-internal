@@ -79,6 +79,7 @@ import { buildKpis } from "@/lib/finance/financials/summaries";
 import { cumulativeDepreciationThrough } from "@/lib/finance/financials/derivedStatementRows";
 import { fetchDepreciationState } from "@/lib/finance/depreciation/state";
 import { cumulativeInventoryReliefThrough } from "@/lib/finance/inventoryRelief";
+import { currentBreweryMonth } from "@/lib/utils/datetime";
 import { cumulativeSquareFeesThrough } from "@/lib/finance/squareFees";
 import { cumulativeExciseExpenseThrough } from "@/lib/finance/exciseExpense";
 import { PAGE_CONCURRENCY } from "@/lib/supabase/paginate";
@@ -210,8 +211,7 @@ export const retainedEarnings: BalanceProvider = {
     // which is the exact shape of the manual-net-sales gap documented above.
     // (That gap itself remains untouched, for that comment's own reasons.)
     const throughMonth = periodEnd.slice(0, 7);
-    const now = new Date();
-    const liveMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    const liveMonth = currentBreweryMonth();
     const [depreciationStates, inventoryCents, squareFeeCents, exciseCents] = await Promise.all([
       fetchDepreciationState(supabase, coa),
       cumulativeInventoryReliefThrough(supabase, throughMonth, liveMonth),
