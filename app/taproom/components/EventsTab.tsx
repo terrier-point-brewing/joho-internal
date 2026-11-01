@@ -8,6 +8,8 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import Badge from "@/app/components/ui/Badge";
 import EventsHelp from "./EventsHelp";
 import EventKegsModal, { useEventKegsQuery } from "./EventKegsModal";
+import UnallocatedPoursPanel from "./UnallocatedPoursPanel";
+import { stretchedWindow, type OrphanCluster } from "@/lib/taproom/unallocatedEventPours";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -282,6 +284,8 @@ export default function EventsTab() {
   });
 
   const [creating,    setCreating]    = useState(false);
+  // Prefill for the create form when it was opened from an unallocated-pours group.
+  const [createInitial, setCreateInitial] = useState<EventFormState>(EMPTY_FORM);
   const [editingId,   setEditingId]   = useState<string | null>(null);
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -291,7 +295,12 @@ export default function EventsTab() {
   // "Ended" is judged against the moment the tab mounted; a reload re-judges it.
   const [now] = useState(() => Date.now());
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.taproom.events() });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: queryKeys.taproom.events() });
+    // Any window change can claim or release pours, so the orphan scan is stale too.
+    qc.invalidateQueries({ queryKey: ["taproom", "event-unallocated"] });
+    qc.invalidateQueries({ queryKey: ["taproom", "event-pours"] });
+  };
 
   const createMutation = useMutation({
     mutationFn: (form: EventFormState) =>
@@ -334,6 +343,37 @@ export default function EventsTab() {
     onError: (e: Error) => setFormError(e.message),
   });
 
+  // "Add to <event>" on an unallocated group: widen that event's window so the
+  // pours route counts the pours. Same PUT as Edit, with the rest unchanged.
+  const stretchMutation = useMutation({
+    mutationFn: async (c: OrphanCluster) => {
+      const ev = events.find((e) => e.id === c.nearest_event?.id);
+      if (!ev) throw new Error("That event is no longer listed. Reload and try again.");
+      const win = stretchedWindow(ev, c);
+      const r = await fetch(`/api/taproom/events/${ev.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_name: ev.event_name, event_host: ev.event_host, notes: ev.notes ?? "", ...win }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error ?? "Failed to update");
+      return r.json() as Promise<TaproomEvent>;
+    },
+    onSuccess: (ev) => { invalidate(); setExpandedId(ev.id); setFormError(null); },
+    onError: (e: Error) => setFormError(e.message),
+  });
+
+  const openCreateFromCluster = (c: OrphanCluster) => {
+    const pad = 15 * 60 * 1000;
+    setCreateInitial({
+      ...EMPTY_FORM,
+      event_name:  "",
+      event_start: fmtDatetimeLocal(new Date(new Date(c.first_closed_at).getTime() - pad).toISOString()),
+      event_end:   fmtDatetimeLocal(new Date(new Date(c.last_closed_at).getTime() + pad).toISOString()),
+    });
+    setCreating(true); setEditingId(null); setFormError(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) =>
       fetch(`/api/taproom/events/${id}`, { method: "DELETE" }).then(async (r) => {
@@ -352,7 +392,7 @@ export default function EventsTab() {
         </button>
         {!creating && (
           <button
-            onClick={() => { setCreating(true); setEditingId(null); setFormError(null); }}
+            onClick={() => { setCreateInitial(EMPTY_FORM); setCreating(true); setEditingId(null); setFormError(null); }}
             className="btn-primary shrink-0"
           >
             + New Event
@@ -372,13 +412,21 @@ export default function EventsTab() {
           <p className="text-xs font-semibold text-accent uppercase tracking-wide mb-3">New Event</p>
           {formError && <p className="text-xs text-danger mb-2">{formError}</p>}
           <EventForm
-            initial={EMPTY_FORM}
+            key={`${createInitial.event_start}|${createInitial.event_end}`}
+            initial={createInitial}
             onSave={(form) => createMutation.mutate(form)}
             onCancel={() => { setCreating(false); setFormError(null); }}
             saving={createMutation.isPending}
           />
         </div>
       )}
+
+      {/* Event Pours no event window covers */}
+      <UnallocatedPoursPanel
+        onCreateFromCluster={openCreateFromCluster}
+        onStretchEvent={(c) => stretchMutation.mutate(c)}
+        stretching={stretchMutation.isPending}
+      />
 
       {/* Event list */}
       {isFetching && !events.length ? (
