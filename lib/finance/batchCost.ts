@@ -182,9 +182,48 @@ export async function fetchRecipeCostCents(
   return { perTurn: toCents(perTurnDollars), perBbl: toCents(perBblDollars) };
 }
 
-/** Every batch costed from live production records. */
-export async function loadBatchCosts(supabase: SupabaseClient): Promise<Map<string, BatchCost>> {
-  const [batches, transfers, equipment, draws, recipeCost, packagingYieldPct] = await Promise.all([
+
+/** A raw draw against a batch — a conversion child's fruit or juice. */
+export interface BatchDrawRow {
+  batch_id: string | null;
+  quantity: number | null;
+  cost_per_unit_usd: number | null;
+  total_value_change_usd: number | null;
+  created_at: string;
+}
+
+/**
+ * Pure: the production records as they stood at the end of `asOf`
+ * ("YYYY-MM-DD"). Transfers and draws dated after it have not happened yet,
+ * and a batch that is complete TODAY was still in process then if any of its
+ * movements came later — so its cost still spreads over the projected yield,
+ * exactly as the live figure did on that day. Recipe prices and the yield
+ * rule are today's; history is reconstructed from movements, not re-priced.
+ */
+export function asOfProductionRecords<B extends { status: string | null; id: string }>(
+  batches: B[],
+  transfers: CostLedgerTransfer[],
+  draws: BatchDrawRow[],
+  asOf: string,
+): { batches: B[]; transfers: CostLedgerTransfer[]; draws: BatchDrawRow[] } {
+  const cutoff = Date.parse(`${asOf}T23:59:59.999Z`);
+  const after = (iso: string): boolean => Date.parse(iso) > cutoff;
+  const movedLater = new Set<string>();
+  for (const t of transfers) {
+    if (!after(t.transferred_at)) continue;
+    movedLater.add(t.batch_id);
+    if (t.to_batch_id) movedLater.add(t.to_batch_id);
+  }
+  return {
+    batches: batches.map((b) => (b.status === "complete" && movedLater.has(b.id) ? { ...b, status: "fermenting" } : b)),
+    transfers: transfers.filter((t) => !after(t.transferred_at)),
+    draws: draws.filter((d) => !after(d.created_at)),
+  };
+}
+
+/** Every batch costed from live production records — or, with `asOf`, as they stood at the end of that day. */
+export async function loadBatchCosts(supabase: SupabaseClient, asOf?: string): Promise<Map<string, BatchCost>> {
+  const [liveBatches, liveTransfers, equipment, liveDraws, recipeCost, packagingYieldPct] = await Promise.all([
     fetchAllRows<{
       id: string;
       recipe_id: string | null;
@@ -212,16 +251,19 @@ export async function loadBatchCosts(supabase: SupabaseClient): Promise<Map<stri
     ),
     // Only a conversion child's own draws matter — its fruit, its juice. A
     // brewed batch is costed from its recipe, never from its draws.
-    fetchAllRows<{ batch_id: string | null; quantity: number | null; cost_per_unit_usd: number | null; total_value_change_usd: number | null }>(
-      () =>
-        supabase
-          .from("stock_adjustments")
-          .select("batch_id, quantity, cost_per_unit_usd, total_value_change_usd")
-          .order("id", { ascending: true }),
+    fetchAllRows<BatchDrawRow>(() =>
+      supabase
+        .from("stock_adjustments")
+        .select("batch_id, quantity, cost_per_unit_usd, total_value_change_usd, created_at")
+        .order("id", { ascending: true }),
     ),
     fetchRecipeCostCents(supabase),
     loadPackagingYieldPct(supabase),
   ]);
+
+  const { batches, transfers, draws } = asOf
+    ? asOfProductionRecords(liveBatches, liveTransfers, liveDraws, asOf)
+    : { batches: liveBatches, transfers: liveTransfers, draws: liveDraws };
 
   const tankTypeById: Record<string, string> = {};
   for (const e of equipment) tankTypeById[e.id] = e.type;
