@@ -132,6 +132,41 @@ function EventForm({
   );
 }
 
+// ─── EventCardStats ───────────────────────────────────────────────────────────
+
+/**
+ * Net sales and tips on the collapsed card, so every event can be compared
+ * without opening each one. Same query as the pour table, so expanding the
+ * event costs nothing extra.
+ */
+function EventCardStats({ eventId }: { eventId: string }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: queryKeys.taproom.eventPours(eventId),
+    queryFn:  () => fetchJson<PourData>(`/api/taproom/events/${eventId}/pours`),
+  });
+
+  if (isLoading) return <p className="text-xs text-faint mt-1">Loading sales…</p>;
+  if (error || !data) return null;
+
+  const { totals } = data;
+  const net = totals.gross_cents - totals.discount_cents;
+  const stat = (label: string, value: number, strong = false) => (
+    <span className="whitespace-nowrap">
+      <span className="text-muted">{label} </span>
+      <span className={strong ? "font-semibold text-accent" : "font-medium text-strong"}>{fmtUsd(value)}</span>
+    </span>
+  );
+
+  return (
+    <p className="text-xs mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+      {stat("Net sales", net, true)}
+      {stat("Card tips", totals.card_tip_cents)}
+      {stat("Cash tips", totals.cash_tip_cents)}
+      <span className="whitespace-nowrap"><span className="text-muted">Pours </span><span className="font-medium text-strong">{totals.quantity}</span></span>
+    </p>
+  );
+}
+
 // ─── PourTable ────────────────────────────────────────────────────────────────
 
 function PourTable({ eventId }: { eventId: string }) {
@@ -464,6 +499,7 @@ export default function EventsTab() {
                       {fmtDisplay(ev.event_start)} – {fmtDisplay(ev.event_end)}
                     </p>
                     {ev.notes && <p className="text-xs text-faint mt-0.5 truncate">{ev.notes}</p>}
+                    <EventCardStats eventId={ev.id} />
                   </button>
 
                   <div className="flex items-center gap-1 shrink-0">
