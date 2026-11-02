@@ -25,12 +25,21 @@ describe("findOrphanPours", () => {
   it("keeps Event Pour lines closed outside every event window and drops the rest", () => {
     const orders = [
       order("in", "2026-10-10T23:00:00Z", [["EP1", "2", 1400]]),          // inside Trivia
-      order("late", "2026-10-11T01:30:00Z", [["EP1", "1", 700], ["TAP", "1", 600]]), // after Trivia ended
+      order("late", "2026-10-11T02:30:00Z", [["EP1", "1", 700], ["TAP", "1", 600]]), // after Trivia ended
       order("none", "2026-10-11T01:40:00Z", [["TAP", "3", 1800]]),       // no event pour at all
     ];
     const out = findOrphanPours(orders, names, [trivia]);
     expect(out.map((p) => p.order_id)).toEqual(["late"]);
     expect(out[0]).toMatchObject({ variation_name: "Pint", quantity: 1, gross_cents: 700 });
+  });
+
+  it("counts a pour closed within an hour of the window as the event's, not an orphan", () => {
+    const out = findOrphanPours([
+      order("just-before", "2026-10-10T21:15:00Z", [["EP1", "1", 700]]), // 45 min before start
+      order("just-after",  "2026-10-11T01:45:00Z", [["EP1", "1", 700]]), // 45 min after end
+      order("too-late",    "2026-10-11T02:15:00Z", [["EP1", "1", 700]]), // 75 min after end
+    ], names, [trivia]);
+    expect(out.map((p) => p.order_id)).toEqual(["too-late"]);
   });
 
   it("ignores orders without a closed_at", () => {
@@ -63,7 +72,7 @@ describe("clusterOrphanPours", () => {
   });
 
   it("names the event whose window ended just before the cluster", () => {
-    const pours = findOrphanPours([order("late", "2026-10-11T01:30:00Z", [["EP1", "1", 700]])], names, [trivia]);
+    const pours = findOrphanPours([order("late", "2026-10-11T02:30:00Z", [["EP1", "1", 700]])], names, [trivia]);
     const [c] = clusterOrphanPours(pours, [trivia], TZ);
     expect(c.nearest_event?.id).toBe("ev1");
   });

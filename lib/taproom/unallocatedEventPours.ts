@@ -14,6 +14,7 @@
  * same brewery-local day that are at most `gapMs` apart belong together.
  */
 import type { Order } from "@/types/square";
+import { bufferedEventWindow } from "./eventWindow";
 import { isInvoiceOrder } from "@/lib/square/invoiceOrders";
 import { localDateString } from "@/lib/utils/datetime";
 
@@ -60,8 +61,7 @@ const DEFAULT_NEARBY_MS = 6 * 60 * 60 * 1000; // an event within 6h is "the one 
 
 export function isInsideAnyEvent(closedAtMs: number, events: EventWindow[]): boolean {
   for (const ev of events) {
-    const s = new Date(ev.event_start).getTime();
-    const e = new Date(ev.event_end).getTime();
+    const { startMs: s, endMs: e } = bufferedEventWindow(ev);
     if (closedAtMs >= s && closedAtMs <= e) return true;
   }
   return false;

@@ -4,6 +4,7 @@ import { fetchCompletedOrders } from "@/lib/square/orders";
 import { fetchCatalogItems } from "@/lib/square/catalog";
 import { isInvoiceOrder } from "@/lib/square/invoiceOrders";
 import type { CatalogItem } from "@/types/square";
+import { bufferedEventWindow } from "@/lib/taproom/eventWindow";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
 
-  const startDate = event.event_start.slice(0, 10);
-  const endDate   = event.event_end.slice(0, 10);
+  // One hour either side of the entered window, so a tab opened just before
+  // or closed just after still counts. Fetch by the padded dates too.
+  const { startMs: eventStart, endMs: eventEnd } = bufferedEventWindow(event);
+  const startDate = new Date(eventStart).toISOString().slice(0, 10);
+  const endDate   = new Date(eventEnd).toISOString().slice(0, 10);
 
   const [catalogItems, orders] = await Promise.all([
     fetchCatalogItems() as Promise<CatalogItem[]>,
@@ -56,8 +60,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     tax_cents:      number;
   }>();
 
-  const eventStart = new Date(event.event_start).getTime();
-  const eventEnd   = new Date(event.event_end).getTime();
   let totalTipsCents = 0;
   let cardTipsCents  = 0;
   let cashTipsCents  = 0;

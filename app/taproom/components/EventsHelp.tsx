@@ -53,7 +53,7 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
     <Modal title="How to use Events" onClose={onClose} wide>
       <div className="space-y-3">
         <Banner tone="info">
-          <p className="font-semibold">An event only counts pours that were rung on the Square &ldquo;Event Pour&rdquo; item and closed inside its time window.</p>
+          <p className="font-semibold">An event only counts pours that were rung on the Square &ldquo;Event Pour&rdquo; item and closed inside its time window, plus an hour either side.</p>
           <p className="mt-1">
             A pour rung on the regular draft item, or outside the event&rsquo;s start and end times, is counted in the
             everyday taproom numbers instead. Nothing on this tab can move a sale between the two afterwards.
@@ -68,7 +68,7 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
           <summary className="cursor-pointer font-medium text-strong select-none">How a pour is counted</summary>
           <ul className="mt-2 ml-5 list-disc space-y-1.5 leading-relaxed marker:text-faint">
             <li>Any Square item whose name contains <span className="font-medium">Event Pour</span> is treated as an event pour. Each variation sold becomes a row in the event&rsquo;s table, under the name it had when it was rung.</li>
-            <li>A sale is counted when its order was <span className="font-medium">closed</span> between the event&rsquo;s start and end times. The time the ticket was paid is what matters, not the time it was opened.</li>
+            <li>A sale is counted when its order was <span className="font-medium">closed</span> between one hour before the event&rsquo;s start and one hour after its end. The time the ticket was paid is what matters, not the time it was opened.</li>
             <li>Tips are calculated automatically. Every ticket that includes at least one Event Pour contributes its whole tip, split into card and cash according to how the customer paid. This gives you the event&rsquo;s card tips without any adding up by hand.</li>
             <li>Cash tips are usually not recorded at events, so the Cash Tips tile normally shows zero. If cash tips need to reach the tip pool, count the jar separately.</li>
             <li>Invoiced sales are never counted, even when they fall inside the window.</li>
@@ -99,10 +99,10 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
           when="Before the event starts"
           steps={[
             <>Press <Btn>+ New Event</Btn>, then enter a name and a host.</>,
-            <>Set <span className="font-medium">Start</span> and <span className="font-medium">End</span> to the actual pouring window. Leave a little room at the end so that tabs closed after last call are still counted.</>,
+            <>Set <span className="font-medium">Start</span> and <span className="font-medium">End</span> to the actual pouring hours. An hour either side is added automatically, so tabs opened early or closed after last call are still counted.</>,
             <>Press <Btn>Save Event</Btn>. The event can be created before or after the day itself. Only the time window matters.</>,
           ]}
-          note="Two events whose windows overlap will both count the same pours, so keep their windows apart."
+          note="Two events whose windows come within an hour of each other will both count the same pours, so keep them apart."
         />
 
         <Action
@@ -111,7 +111,7 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
           steps={[
             <>Ring every event pour on the <span className="font-medium">Event Pour</span> item and pick the correct variation. Never ring an event pour on the regular tap item.</>,
             "Apply any event discount to the line as you normally would. It appears in the Discounts column.",
-            "Close each ticket before the event's end time. A tab left open past the end time is not counted toward the event.",
+            "Close each ticket within an hour of the event's end time. A tab left open longer than that is not counted toward the event.",
           ]}
           note="Card tips are collected automatically from every ticket that includes an Event Pour, so keep event pours and regular pours on separate tickets whenever you can. Cash tips are usually not recorded at events, so expect the Cash Tips tile to show zero."
         />
