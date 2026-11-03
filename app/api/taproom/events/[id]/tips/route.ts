@@ -18,6 +18,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { apiError } from "@/lib/utils/api";
 import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 import { eventWorkDate } from "@/lib/payroll/eventTipPayouts";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { bookCompTipRevenue } from "@/lib/taproom/eventTipRevenue";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,8 @@ export interface EventTipPayoutRow {
   settled_on: string | null;
   note: string | null;
   created_at: string;
+  /** For comp: the manual_entries row booking the kept tip as event revenue. */
+  manual_entry_id: string | null;
   /** The pay period the event's day falls in, when one exists. */
   pay_period: { id: string; start_date: string; end_date: string; status: string } | null;
 }
@@ -56,9 +60,9 @@ export interface EventTipsData {
 type Db = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
 async function loadEvent(supabase: Db, id: string) {
-  const { data, error } = await supabase.from("events").select("id, event_start").eq("id", id).single();
+  const { data, error } = await supabase.from("events").select("id, event_name, event_start").eq("id", id).single();
   if (error || !data) return null;
-  return data as { id: string; event_start: string };
+  return data as { id: string; event_name: string; event_start: string };
 }
 
 async function periodFor(supabase: Db, workDate: string): Promise<EventTipPayoutRow["pay_period"]> {
@@ -94,7 +98,7 @@ async function buildResponse(supabase: Db, eventId: string, eventStart: string):
     loadEmployees(supabase),
     supabase
       .from("event_tip_payouts")
-      .select("id, payee_kind, employee_id, payee_name, method, amount_cents, settled_on, note, created_at, employees(first_name, last_name)")
+      .select("id, payee_kind, employee_id, payee_name, method, amount_cents, settled_on, note, created_at, manual_entry_id, employees(first_name, last_name)")
       .eq("event_id", eventId)
       .order("created_at", { ascending: true }),
   ]);
@@ -104,6 +108,7 @@ async function buildResponse(supabase: Db, eventId: string, eventStart: string):
     id: r.id, payee_kind: r.payee_kind, employee_id: r.employee_id,
     payee_name: r.employees ? `${r.employees.first_name} ${r.employees.last_name}` : (r.payee_name ?? ""),
     method: r.method, amount_cents: r.amount_cents, settled_on: r.settled_on, note: r.note, created_at: r.created_at,
+    manual_entry_id: r.manual_entry_id ?? null,
     pay_period: r.method === "payroll" ? pay_period : null,
   }));
   return {
@@ -181,11 +186,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     settled_on = typeof body.settled_on === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.settled_on) ? body.settled_on : work_date;
   }
 
+  // Comped beer: the business keeps the tip money, so it is event revenue.
+  // Booked first, through the service role (the taproom role has no
+  // finance.transactions grant), so a payout never exists without its
+  // revenue side. The payout row carries the entry id for reversal.
+  let manual_entry_id: string | null = null;
+  if (method === "comp") {
+    try {
+      manual_entry_id = await bookCompTipRevenue(createSupabaseAdminClient(), {
+        eventName: event.event_name, amountCents: amount_cents, settledOn: settled_on!, note, userId: session.user.id,
+      });
+    } catch (err) {
+      return apiError(err);
+    }
+  }
+
   const { error } = await supabase.from("event_tip_payouts").insert({
     event_id: id, payee_kind, employee_id, payee_name, method, amount_cents, settled_on, note,
-    created_by: session.user.id,
+    manual_entry_id, created_by: session.user.id,
   });
-  if (error) return apiError(error.message);
+  if (error) {
+    if (manual_entry_id) await createSupabaseAdminClient().from("manual_entries").delete().eq("id", manual_entry_id);
+    return apiError(error.message);
+  }
 
   try {
     return NextResponse.json(await buildResponse(supabase, id, event.event_start), { status: 201 });

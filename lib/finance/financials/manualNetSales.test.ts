@@ -176,3 +176,26 @@ describe("injectManualNetSales", () => {
     expect(rows[0].sourceRef.ids).toEqual(["m-full"]);
   });
 });
+
+describe("injectManualNetSales — channel", () => {
+  it("keeps a channel-stamped entry in its own row instead of blending it into the channel-less entries on the same account", () => {
+    const coaId = COA[0].id;
+    const rows = injectManualNetSales(
+      [],
+      [
+        { id: "m1", startDate: "2026-07-01", endDate: "2026-07-31", amountCents: 1000, chartOfAccountsId: coaId },
+        { id: "m2", startDate: "2026-07-10", endDate: "2026-07-10", amountCents: 2500, chartOfAccountsId: coaId, channel: "events" },
+      ],
+      ["2026-07"],
+      COA,
+    );
+    expect(rows).toHaveLength(2);
+    const unknown = rows.find(r => r.channel === "unknown")!;
+    const events  = rows.find(r => r.channel === "events")!;
+    expect(unknown.amountCentsByMonth["2026-07"]).toBe(1000);
+    expect(unknown.sourceRef.ids).toEqual(["m1"]);
+    expect(events.amountCentsByMonth["2026-07"]).toBe(2500);
+    expect(events.sourceRef.ids).toEqual(["m2"]);
+    expect(events.coaId).toBe(coaId);
+  });
+});

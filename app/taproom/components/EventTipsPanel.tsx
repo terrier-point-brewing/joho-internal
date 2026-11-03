@@ -174,6 +174,7 @@ export default function EventTipsPanel({
                       <span className="text-faint"> · {p.pay_period.start_date} – {p.pay_period.end_date}{p.pay_period.status === "locked" ? " (locked)" : ""}</span>
                     )}
                     {p.method !== "payroll" && p.settled_on && <span className="text-faint"> · {p.settled_on}</span>}
+                    {p.method === "comp" && p.manual_entry_id && <span className="text-faint"> · booked as event revenue</span>}
                   </td>
                   <td className="px-3 py-2 text-right text-body font-mono">{fmtUsd(p.amount_cents)}</td>
                   <td className="px-3 py-2 text-muted">{p.note ?? "—"}</td>
@@ -260,8 +261,11 @@ export default function EventTipsPanel({
               {data?.pay_period ? ` (pay period ${data.pay_period.start_date} – ${data.pay_period.end_date})` : ""}, on top of any taproom pool share.
             </p>
           )}
-          {draft.payee_kind === "volunteer" && (
+          {draft.payee_kind === "volunteer" && draft.method !== "comp" && (
             <p className="text-xs text-faint">A volunteer is not on payroll. Record how their share was settled: cash from the jar, beer comped in lieu, or another arrangement.</p>
+          )}
+          {draft.method === "comp" && (
+            <p className="text-xs text-faint">Comped beer means the tip money stays with the brewery, so this amount is also booked as event revenue (Offsite Event Sales) on the settled date. Removing the payout reverses it.</p>
           )}
           {saveError && <p className="text-xs text-danger">{saveError}</p>}
           <div className="flex justify-end gap-2">
