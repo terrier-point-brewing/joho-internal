@@ -19,7 +19,6 @@ const RATE_MAP: Record<string, number> = {
   nc_sales_line_4: 0.0475,
   nc_sales_line_5: 0.03,
   nc_sales_line_6: 0.0475,
-  nc_sales_line_7: 0.0475,
   nc_sales_line_7: 0.02,
   nc_sales_line_8: 0.02,
   nc_sales_line_9: 0.0225,
