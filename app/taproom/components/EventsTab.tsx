@@ -8,6 +8,7 @@ import { fetchJson } from "@/app/production/hooks/queries";
 import Badge from "@/app/components/ui/Badge";
 import EventsHelp from "./EventsHelp";
 import EventKegsModal, { useEventKegsQuery } from "./EventKegsModal";
+import EventTipsPanel from "./EventTipsPanel";
 import UnallocatedPoursPanel from "./UnallocatedPoursPanel";
 import { stretchedWindow, type OrphanCluster } from "@/lib/taproom/unallocatedEventPours";
 
@@ -248,6 +249,27 @@ function PourTable({ eventId }: { eventId: string }) {
         </table>
       </div>
     </div>
+  );
+}
+
+// ─── Tips ─────────────────────────────────────────────────────────────────────
+
+/** Reads the event's tip totals from the pours query (already cached by the
+ *  table above) and hands them to the payout panel. */
+function EventTipsSection({ eventId, ended }: { eventId: string; ended: boolean }) {
+  const { data } = useQuery({
+    queryKey: queryKeys.taproom.eventPours(eventId),
+    queryFn:  () => fetchJson<PourData>(`/api/taproom/events/${eventId}/pours`),
+  });
+  const t = data?.totals;
+  return (
+    <EventTipsPanel
+      eventId={eventId}
+      ended={ended}
+      collectedCents={(t?.card_tip_cents ?? 0) + (t?.cash_tip_cents ?? 0)}
+      cardCents={t?.card_tip_cents ?? 0}
+      cashCents={t?.cash_tip_cents ?? 0}
+    />
   );
 }
 
@@ -567,6 +589,9 @@ export default function EventsTab() {
                     <PourTable eventId={ev.id} />
                     <div className="mt-4 pt-3 border-t border-line">
                       <KegsUsed eventId={ev.id} closed={closed} ended={ended} onRecord={() => setKegsFor(ev)} />
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-line">
+                      <EventTipsSection eventId={ev.id} ended={ended} />
                     </div>
                   </div>
                 )}

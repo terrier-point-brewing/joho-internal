@@ -98,7 +98,7 @@ describe("built-in method definitions", () => {
       salesTaxPayable: 2,
       ncDorTaxPayable: 3,
       ttbExcisePayable: 2,
-      undistributedTips: 2,
+      undistributedTips: 3,
       accountsReceivable: 2,
       accountsPayable: 2,
     };

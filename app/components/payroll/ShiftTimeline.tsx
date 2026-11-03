@@ -54,6 +54,10 @@ interface ShiftData {
   exclusions: Record<string, DayExclusion>;
   exclusion_drift: Array<{ label: string; date: string; snapshotCents: number; liveCents: number }>;
   total_excluded_tips_cents: number;
+  /** Event-ticket card tips per day — carved out of day_pools, settled from the Events tab. */
+  day_event_tips: Record<string, number>;
+  total_event_tips_cents: number;
+  total_event_payout_cents: number;
   pool_variance: Array<{ label: string; pool_cents: number; attributed_cents: number }>;
   snapshot_variance: {
     livePoolCents: number;
@@ -311,6 +315,14 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
           </span>
         </Banner>
       ))}
+      {data.total_event_tips_cents > 0 && (
+        <Banner tone="neutral" className="mb-3">
+          {fmtCents(data.total_event_tips_cents)} of card tips came in on event tickets
+          ({Object.entries(data.day_event_tips).map(([d, c]) => `${dayLabel(d)} ${fmtCents(c)}`).join(", ")}).
+          Event tips are never part of this pool: they are settled per event on the Taproom → Events tab.
+          {data.total_event_payout_cents > 0 && ` ${fmtCents(data.total_event_payout_cents)} of them was settled through payroll and is included in the card-tip cells below.`}
+        </Banner>
+      )}
       {data.exclusion_drift.map(d => (
         <Banner key={`drift-${d.date}`} tone="danger" className="mb-3">
           {dayLabel(d.date)} was excluded at {fmtCents(d.snapshotCents)} but its card-tip pool is now {fmtCents(d.liveCents)}.

@@ -187,6 +187,12 @@ export const STEP_KEYS_ADDED_SINCE_CAPTURE: Record<string, string> = {
   // returns null unless somebody has actually typed one, so every account in the
   // capture -- which has none -- computes exactly as before.
   manualCorrections: "Corrections on accounts whose calculation has no postings step (GL 2410, GL 3300)",
+  // Event tips are carved out of the taproom tip pool and settled per event
+  // (event_tip_payouts). A share settled in cash, as comped beer or "other"
+  // never passes through payroll, so no posting relieves GL 2310 for it; this
+  // step does. It returns null until a non-payroll payout exists, so every
+  // account in the capture -- which has none -- computes exactly as before.
+  eventTipSettlements: "Event tips settled outside payroll (GL 2310)",
 };
 
 /** Sum of every account's balance for a period, in internal-convention cents.

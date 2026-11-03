@@ -211,6 +211,8 @@ export interface TipBucketSummary {
   tipsAttributedCents: number;
   /** Pool of days excluded from payroll on the record — not in tipsPooledCents. */
   tipsExcludedCents: number;
+  /** Card tips on event tickets — carved out of the pool, settled from the Events tab. */
+  tipsEventCents: number;
   exclusions: Array<{ date: string; reason: string; snapshotCents: number; liveCents: number }>;
 }
 
@@ -225,6 +227,10 @@ export interface PayrollPreview {
   total_pooled_tips_cents: number;
   /** Card tips Square pooled that payroll deliberately leaves in GL 2310. */
   total_excluded_tips_cents: number;
+  /** Card tips on event tickets, never in the taproom pool (settled from the Events tab). */
+  total_event_tips_cents: number;
+  /** Event tips settled THROUGH payroll — already inside the entries' paycheck tips. */
+  total_event_payout_cents: number;
   /** Per-bucket tip totals (1 for biweekly, 2 for weekly, N for daily). */
   tip_buckets: TipBucketSummary[];
 }

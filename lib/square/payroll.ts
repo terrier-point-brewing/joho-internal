@@ -2,8 +2,11 @@ import { unstable_cache } from "next/cache";
 import { squareGetAll, squareLocationId } from "./client";
 import { fetchRefunds } from "./refunds";
 import { fetchCompletedOrders } from "./orders";
-import type { Order } from "@/types/square";
+import { fetchCatalogItems } from "./catalog";
+import type { CatalogItem, Order } from "@/types/square";
 import { dayStartUtc, dayEndUtc, addDaysStr } from "@/lib/utils/datetime";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { eventOrderIds, eventPourVariationIds, type EventWindowRef } from "@/lib/taproom/eventPours";
 
 interface SquarePayment {
   id: string;
@@ -32,7 +35,8 @@ interface RefundInput {
 
 /** The slice of a Square order the pool needs: when, which payment(s), and the
  *  automatic-gratuity service charges (Square's "20% for Large Parties"). */
-export type OrderInput = Pick<Order, "id" | "state" | "created_at" | "service_charges" | "tenders">;
+export type OrderInput = Pick<Order, "id" | "state" | "created_at" | "service_charges" | "tenders">
+  & Partial<Pick<Order, "closed_at" | "line_items" | "source">>;
 
 /** Automatic gratuity on one order, in cents. Only AUTO_GRATUITY charges —
  *  a CUSTOM service charge (a rental fee, say) is house revenue, not tips. */
@@ -81,8 +85,14 @@ function toEasternDate(utcStr: string): string {
 
 export interface DailyTips {
   date: string; // YYYY-MM-DD Eastern local date
-  /** Card tips + automatic gratuity, net of refunds. */
+  /** Card tips + automatic gratuity, net of refunds — the TAPROOM pool. Event
+   *  orders' tips are not in here; they are in eventTipsCents. */
   tipsPooledCents: number;
+  /** Card tips on event orders (a ticket with an Event Pour closed inside an
+   *  event's window), net of refunds. Settled from the Events tab, never
+   *  attributed by hours — the taproom is open while an event runs and event
+   *  staff are often volunteers. */
+  eventTipsCents: number;
 }
 
 /**
@@ -106,12 +116,17 @@ export interface DailyTips {
  * time; card tips now match. Payment time is only the fallback for a payment
  * whose order isn't in the window (a payment with no order, or an order still
  * open when the range was fetched).
+ * `eventOrderIds` are the orders that belong to a listed event
+ * (lib/taproom/eventPours.ts). Their tips — and their auto gratuity — go to
+ * the day's eventTipsCents instead of its pool, so the clocked-in taproom crew
+ * never splits an event's tips by hours. Keyed by the same day rule.
  * Extracted for unit testing; fetchTipsAndCashTakeByDay wraps the Square calls.
  */
 export function aggregateDailyTips(
   payments: PaymentInput[],
   refunds: RefundInput[],
   orders: OrderInput[] = [],
+  eventOrders: Set<string> = new Set(),
 ): DailyTips[] {
   const refundedByPayment = new Map<string, number>();
   for (const r of refunds) {
@@ -119,8 +134,12 @@ export function aggregateDailyTips(
     refundedByPayment.set(r.payment_id, (refundedByPayment.get(r.payment_id) ?? 0) + r.amount_money.amount);
   }
 
-  const acc = new Map<string, number>();
-  const add = (date: string, cents: number) => acc.set(date, (acc.get(date) ?? 0) + cents);
+  const acc = new Map<string, { pool: number; event: number }>();
+  const add = (date: string, cents: number, isEvent: boolean) => {
+    const cur = acc.get(date) ?? { pool: 0, event: 0 };
+    if (isEvent) cur.event += cents; else cur.pool += cents;
+    acc.set(date, cur);
+  };
 
   const orderOpenedAt = new Map<string, string>();
   for (const o of orders) if (o.created_at) orderOpenedAt.set(o.id, o.created_at);
@@ -132,7 +151,7 @@ export function aggregateDailyTips(
     const tip = p.tip_money?.amount ?? 0;
     const refunded = refundedByPayment.get(p.id) ?? 0;
     const openedAt = (p.order_id && orderOpenedAt.get(p.order_id)) || p.created_at;
-    add(toEasternDate(openedAt), Math.max(0, tip - refunded));
+    add(toEasternDate(openedAt), Math.max(0, tip - refunded), p.order_id != null && eventOrders.has(p.order_id));
     if (refunded > tip) refundLeftover.set(p.id, refunded - tip);
   }
 
@@ -144,11 +163,11 @@ export function aggregateDailyTips(
     for (const t of o.tenders ?? []) {
       if (t.payment_id) leftover += refundLeftover.get(t.payment_id) ?? 0;
     }
-    add(toEasternDate(o.created_at), Math.max(0, gratuity - leftover));
+    add(toEasternDate(o.created_at), Math.max(0, gratuity - leftover), eventOrders.has(o.id));
   }
 
   return Array.from(acc.entries())
-    .map(([date, tips]) => ({ date, tipsPooledCents: tips }));
+    .map(([date, t]) => ({ date, tipsPooledCents: t.pool, eventTipsCents: t.event }));
 }
 
 /**
@@ -172,8 +191,32 @@ export async function fetchTipsAndCashTakeByDay(
     fetchCompletedOrders(addDaysStr(endDate, 1), addDaysStr(endDate, 1)),
   ]);
 
+  const allOrders = [...orders, ...nextDayOrders];
+  const [events, catalog] = await Promise.all([
+    fetchEventsTouching(startDate, addDaysStr(endDate, 1)),
+    fetchCatalogItems() as Promise<CatalogItem[]>,
+  ]);
+  const eventOrders = eventOrderIds(allOrders, events, eventPourVariationIds(catalog));
+
   // Only the range's own days: a tab opened after midnight on the day past the
   // range belongs to the next period, which fetches it as its own first day.
-  return aggregateDailyTips(payments, refunds, [...orders, ...nextDayOrders])
+  return aggregateDailyTips(payments, refunds, allOrders, eventOrders)
     .filter((r) => r.date >= startDate && r.date <= endDate);
+}
+
+/**
+ * Listed events whose (buffered) window can touch orders in [start, end].
+ * A day either side covers the one-hour buffer and the UTC/local offset.
+ * Read with the service role: this runs inside cached Square loaders that
+ * have no request cookies, and the events list is not sensitive.
+ */
+async function fetchEventsTouching(startDate: string, endDate: string): Promise<EventWindowRef[]> {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("events")
+    .select("event_start, event_end")
+    .gte("event_end", dayStartUtc(addDaysStr(startDate, -1)))
+    .lte("event_start", dayEndUtc(addDaysStr(endDate, 1)));
+  if (error) throw new Error(`events for tip pool: ${error.message}`);
+  return (data ?? []) as EventWindowRef[];
 }

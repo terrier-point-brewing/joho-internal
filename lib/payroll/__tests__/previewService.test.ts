@@ -93,6 +93,7 @@ const shift = (team_member_id: string, date: string, hours: number, cash_tips_ce
 const tips = (date: string, tipsPooledCents: number): DailyTips => ({
   date,
   tipsPooledCents,
+  eventTipsCents: 0,
 });
 
 beforeEach(() => {

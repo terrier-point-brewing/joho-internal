@@ -5,6 +5,7 @@ import { apiError } from "@/lib/utils/api";
 import { buildPayrollPreview } from "@/lib/payroll/previewService";
 import type { DayOverride, TipDayExclusion } from "@/lib/payroll/dailyGrid";
 import type { PayPeriod, PayrollConfig, Employee, PayrollEntry } from "@/lib/payroll/types";
+import { loadPayrollEventTipPayouts } from "@/lib/payroll/eventTipPayouts";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,7 @@ export async function GET(
 
   let preview;
   try {
+    const eventPayouts = await loadPayrollEventTipPayouts(supabase, period as PayPeriod);
     preview = await buildPayrollPreview(
       period as PayPeriod,
       employees as Employee[],
@@ -68,6 +70,7 @@ export async function GET(
       (storedEntries ?? []) as PayrollEntry[],
       (dayOverrides ?? []) as DayOverride[],
       (exclusionRows ?? []) as TipDayExclusion[],
+      eventPayouts,
     );
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));

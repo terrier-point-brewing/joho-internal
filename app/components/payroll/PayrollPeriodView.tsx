@@ -78,7 +78,7 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
 
   const {
     period, config, entries: rawEntries, employees, salaried_employees, tip_buckets,
-    total_pooled_tips_cents, total_excluded_tips_cents,
+    total_pooled_tips_cents, total_excluded_tips_cents, total_event_tips_cents, total_event_payout_cents,
   } = preview;
   const empById = new Map(employees.map((e) => [e.id, e]));
   const entries = [...rawEntries].sort((a, b) => {
@@ -274,6 +274,15 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
                 <span className="text-secondary" title="Card tips taken on days nobody tip-eligible worked; kept out of payroll on the record and left in GL 2310 Undistributed Tips for finance to reclass. Details on the Shifts tab.">
                   <span className="text-faint">Excluded from payroll:</span>{" "}
                   <span className="font-mono">{fmtCents(total_excluded_tips_cents)}</span>
+                </span>
+              )}
+              {total_event_tips_cents > 0 && (
+                <span className="text-secondary" title="Card tips on event tickets. Never part of the taproom pool: the taproom is open during events and event staff are often volunteers. Settled per event on the Taproom → Events tab; an employee's share settled through payroll is already inside their Paycheck Tips here.">
+                  <span className="text-faint">Event tips (settled from Events tab):</span>{" "}
+                  <span className="font-mono">{fmtCents(total_event_tips_cents)}</span>
+                  {total_event_payout_cents > 0 && (
+                    <span className="text-faint"> · {fmtCents(total_event_payout_cents)} via payroll</span>
+                  )}
                 </span>
               )}
             </div>

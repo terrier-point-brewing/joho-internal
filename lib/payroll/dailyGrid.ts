@@ -30,11 +30,26 @@ export interface BucketExclusion {
   liveCents: number;
 }
 
+/**
+ * An event tip settled through payroll (event_tip_payouts.method = 'payroll').
+ * Lands on the employee's Paycheck Tips for the event's day, ON TOP of their
+ * share of the taproom pool — the event's tips were carved out of that pool
+ * at source, so this is the only way they reach a paycheck.
+ */
+export interface EventTipPayout {
+  employee_id: string;
+  work_date: string;
+  amount_cents: number;
+}
+
 export interface TipBucket {
   label: string;
   days: string[];
   /** The pool that must land on employees — excluded days contribute 0 here. */
   pool_cents: number;
+  /** Card tips on event tickets in these days. Never in pool_cents: settled
+   *  from the Events tab (payroll rows land via EventTipPayout). */
+  event_cents: number;
   pinned_cents: number;
   attributed_cents: number;
   /** Σ live pool of excluded days in this bucket; stays in GL 2310. */
@@ -299,6 +314,10 @@ export interface DailyGrid {
   totalPooledTipsCents: number;
   /** Σ excluded_cents — pooled by Square, kept out of payroll, still in GL 2310. */
   totalExcludedTipsCents: number;
+  /** Σ event_cents — carved out of the pool; the Events tab settles them. */
+  totalEventTipsCents: number;
+  /** Σ EventTipPayout cents that landed in cardTipsByDate (payroll-settled event tips). */
+  totalEventPayoutCents: number;
 }
 
 function setCell(m: Map<string, Map<string, number>>, date: string, sqId: string, v: number) {
@@ -347,6 +366,7 @@ export function computeDailyGrid(
   tipPoolFrequency: TipPoolFrequency,
   overrides: DayOverride[],
   exclusions: TipDayExclusion[] = [],
+  eventPayouts: EventTipPayout[] = [],
 ): DailyGrid {
   const days = getDays(period.start_date, period.end_date);
 
@@ -380,6 +400,7 @@ export function computeDailyGrid(
   }
 
   const poolByDay = new Map(dailyTips.map(t => [t.date, t.tipsPooledCents]));
+  const eventByDay = new Map(dailyTips.map(t => [t.date, t.eventTipsCents ?? 0]));
   const exclusionByDay = new Map(exclusions.map(x => [x.work_date, x]));
   const groups = dayGroups(days, tipPoolFrequency);
   const labels = bucketLabels(tipPoolFrequency, period.start_date, period.end_date);
@@ -388,11 +409,13 @@ export function computeDailyGrid(
   const buckets: TipBucket[] = [];
   let totalPooledTipsCents = 0;
   let totalExcludedTipsCents = 0;
+  let totalEventTipsCents = 0;
 
   for (let gi = 0; gi < groups.length; gi++) {
     const group = groups[gi];
     let poolCents = 0;
     let excludedCents = 0;
+    let eventCents = 0;
     let pinnedOnExcludedCents = 0;
     const bucketExclusions: BucketExclusion[] = [];
     const cells: CellHours[] = [];
@@ -400,6 +423,7 @@ export function computeDailyGrid(
 
     for (const day of group) {
       const dayPool = poolByDay.get(day) ?? 0;
+      eventCents += eventByDay.get(day) ?? 0;
       const excluded = exclusionByDay.get(day);
       if (excluded) {
         // The day's pool is kept out of payroll on the record: nothing to
@@ -425,6 +449,7 @@ export function computeDailyGrid(
     }
     totalPooledTipsCents += poolCents;
     totalExcludedTipsCents += excludedCents;
+    totalEventTipsCents += eventCents;
 
     const { tips, attributedCents, pinnedCents } = attributeBucket(poolCents, cells, pins);
     for (const [key, cents] of tips) {
@@ -436,6 +461,7 @@ export function computeDailyGrid(
       label: labels[gi] ?? `Bucket ${gi + 1}`,
       days: group,
       pool_cents: poolCents,
+      event_cents: eventCents,
       pinned_cents: pinnedCents,
       attributed_cents: attributedCents,
       excluded_cents: excludedCents,
@@ -444,9 +470,23 @@ export function computeDailyGrid(
     });
   }
 
+  // Layer 3: event tips settled through payroll. Added AFTER attribution so
+  // they never count toward a bucket's attributed_cents (they are not from
+  // the pool) and never shift anyone else's share. Only a tipped employee can
+  // carry one — the write path refuses others, so a stray row is dropped here
+  // rather than paid to someone the owner's rule says never receives tips.
+  let totalEventPayoutCents = 0;
+  const dayInPeriod = new Set(days);
+  for (const p of eventPayouts) {
+    const sqId = sqByEmployeeId.get(p.employee_id);
+    if (!sqId || !tippedSqIds.has(sqId) || !dayInPeriod.has(p.work_date)) continue;
+    addCell(cardTipsByDate, p.work_date, sqId, p.amount_cents);
+    totalEventPayoutCents += p.amount_cents;
+  }
+
   return {
     days, hoursByDate, cashByDate, cardTipsByDate, buckets,
-    totalPooledTipsCents, totalExcludedTipsCents,
+    totalPooledTipsCents, totalExcludedTipsCents, totalEventTipsCents, totalEventPayoutCents,
   };
 }
 
@@ -462,7 +502,8 @@ export async function buildDailyGrid(
   tipPoolFrequency: TipPoolFrequency,
   overrides: DayOverride[],
   exclusions: TipDayExclusion[] = [],
+  eventPayouts: EventTipPayout[] = [],
 ): Promise<DailyGrid> {
   const inputs = await fetchDayGridInputs(period);
-  return computeDailyGrid(inputs, period, employees, tipPoolFrequency, overrides, exclusions);
+  return computeDailyGrid(inputs, period, employees, tipPoolFrequency, overrides, exclusions, eventPayouts);
 }

@@ -18,7 +18,7 @@ const cell = (sq: string, date: string, hours: number) => ({ employeeId: sq, dat
 const pin  = (sq: string, date: string, cents: number) => ({ employeeId: sq, date, cents });
 const sum  = (m: Map<string, number>) => [...m.values()].reduce((s, v) => s + v, 0);
 /** A bucket with nothing excluded — the pre-exclusion shape every older test assumed. */
-const noX  = { excluded_cents: 0, exclusions: [], pinned_on_excluded_cents: 0 };
+const noX  = { excluded_cents: 0, exclusions: [], pinned_on_excluded_cents: 0, event_cents: 0 };
 
 describe("distributeByWeight", () => {
   it("splits proportionally", () => {
@@ -257,7 +257,7 @@ describe("buildDailyGrid", () => {
       { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 1000 },
       { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 500 },
     ]);
-    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000 }]);
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000, eventTipsCents: 0 }]);
   });
 
   it("splits the pool by hours with no overrides", async () => {
@@ -277,8 +277,8 @@ describe("buildDailyGrid", () => {
 
   it("creates a cell for a day with no Square shift (missed punch) and attributes its pool", async () => {
     mockTips.mockResolvedValue([
-      { date: "2026-07-01", tipsPooledCents: 8000 },
-      { date: "2026-07-02", tipsPooledCents: 3000 },
+      { date: "2026-07-01", tipsPooledCents: 8000, eventTipsCents: 0 },
+      { date: "2026-07-02", tipsPooledCents: 3000, eventTipsCents: 0 },
     ]);
     const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
       { ...noOv, employee_id: "e1", work_date: "2026-07-02", adj_hours: 8 },
@@ -301,7 +301,7 @@ describe("buildDailyGrid", () => {
   });
 
   it("does not throw when a shrunken pool leaves stored pins over-committed", async () => {
-    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 1000 }]);
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 1000, eventTipsCents: 0 }]);
     const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
       { ...noOv, employee_id: "e1", work_date: "2026-07-01", adj_paycheck_tips_cents: 5000 },
     ]);
@@ -321,8 +321,8 @@ describe("buildDailyGrid", () => {
       { team_member_id: "s2", date: "2026-07-02", hours: 2, cash_tips_cents: 0 },
     ]);
     mockTips.mockResolvedValue([
-      { date: "2026-07-01", tipsPooledCents: 4000 },
-      { date: "2026-07-02", tipsPooledCents: 4000 },
+      { date: "2026-07-01", tipsPooledCents: 4000, eventTipsCents: 0 },
+      { date: "2026-07-02", tipsPooledCents: 4000, eventTipsCents: 0 },
     ]);
     const g = await buildDailyGrid(PERIOD, EMPS, "biweekly", []);
     expect(g.buckets).toHaveLength(1);
@@ -337,8 +337,8 @@ describe("buildDailyGrid", () => {
       { team_member_id: "s2", date: "2026-07-02", hours: 2, cash_tips_cents: 0 },
     ]);
     mockTips.mockResolvedValue([
-      { date: "2026-07-01", tipsPooledCents: 4000 },
-      { date: "2026-07-02", tipsPooledCents: 4000 },
+      { date: "2026-07-01", tipsPooledCents: 4000, eventTipsCents: 0 },
+      { date: "2026-07-02", tipsPooledCents: 4000, eventTipsCents: 0 },
     ]);
     const g = await buildDailyGrid(PERIOD, EMPS, "daily", []);
     expect(g.buckets).toHaveLength(2);
@@ -353,8 +353,8 @@ describe("buildDailyGrid", () => {
       { team_member_id: "s1", date: "2026-07-02", hours: 4, cash_tips_cents: 0 },
     ]);
     mockTips.mockResolvedValue([
-      { date: "2026-07-01", tipsPooledCents: 8000 },
-      { date: "2026-07-02", tipsPooledCents: 4000 },
+      { date: "2026-07-01", tipsPooledCents: 8000, eventTipsCents: 0 },
+      { date: "2026-07-02", tipsPooledCents: 4000, eventTipsCents: 0 },
     ]);
     const g = await buildDailyGrid(PERIOD, EMPS, "daily", [
       { ...noOv, employee_id: "e1", work_date: "2026-07-01", adj_paycheck_tips_cents: 7000 },
@@ -369,7 +369,7 @@ describe("buildDailyGrid", () => {
       { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 0 },
       { team_member_id: "s3", date: "2026-07-01", hours: 4, cash_tips_cents: 0 },
     ]);
-    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000 }]);
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000, eventTipsCents: 0 }]);
     const emps = [
       ...EMPS,
       { id: "e3", square_team_member_id: "s3", receives_tips: true, employment_type: "hourly", active: false } as unknown as Employee,
@@ -391,7 +391,7 @@ describe("buildDailyGrid", () => {
       { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 0 },
       { team_member_id: "s3", date: "2026-07-01", hours: 4, cash_tips_cents: 0 },
     ]);
-    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000 }]);
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000, eventTipsCents: 0 }]);
     const emps = [
       ...EMPS,
       { id: "e3", square_team_member_id: "s3", receives_tips: true, employment_type: "salaried", active: true } as unknown as Employee,
@@ -422,8 +422,8 @@ describe("buildDailyGrid", () => {
       { team_member_id: "s2", date: "2026-07-02", hours: 2, cash_tips_cents: 0 },
     ]);
     mockTips.mockResolvedValue([
-      { date: "2026-07-01", tipsPooledCents: 4000 },
-      { date: "2026-07-02", tipsPooledCents: 4000 },
+      { date: "2026-07-01", tipsPooledCents: 4000, eventTipsCents: 0 },
+      { date: "2026-07-02", tipsPooledCents: 4000, eventTipsCents: 0 },
     ]);
 
     // Baseline (no override): one 8000c pool split 6:2 across the two days.
@@ -454,8 +454,8 @@ describe("buildDailyGrid", () => {
       { team_member_id: "s2", date: "2026-07-08", hours: 3, cash_tips_cents: 0 },
     ]);
     mockTips.mockResolvedValue([
-      { date: "2026-07-01", tipsPooledCents: 8000 },
-      { date: "2026-07-08", tipsPooledCents: 6000 },
+      { date: "2026-07-01", tipsPooledCents: 8000, eventTipsCents: 0 },
+      { date: "2026-07-08", tipsPooledCents: 6000, eventTipsCents: 0 },
     ]);
 
     // Override s2's hours on 07-01 (week 1, days 7/1–7/7) up to 6, matching s1.
@@ -483,7 +483,7 @@ describe("fetchDayGridInputs / computeDailyGrid split", () => {
       { team_member_id: "s1", date: "2026-07-01", hours: 6, cash_tips_cents: 1000 },
       { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 500 },
     ]);
-    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000 }]);
+    mockTips.mockResolvedValue([{ date: "2026-07-01", tipsPooledCents: 8000, eventTipsCents: 0 }]);
   });
 
   // The Shifts route needs two grids over one period (overridden + baseline).
@@ -533,8 +533,8 @@ describe("tip day exclusions", () => {
       { team_member_id: "s2", date: "2026-07-01", hours: 2, cash_tips_cents: 500 },
     ]);
     mockTips.mockResolvedValue([
-      { date: "2026-07-01", tipsPooledCents: 8000 },
-      { date: "2026-07-02", tipsPooledCents: 1150 },
+      { date: "2026-07-01", tipsPooledCents: 8000, eventTipsCents: 0 },
+      { date: "2026-07-02", tipsPooledCents: 1150, eventTipsCents: 0 },
     ]);
   });
   const excl = { work_date: "2026-07-02", amount_cents: 1150, reason: "CO2 refill sale by salaried staff" };
@@ -591,8 +591,8 @@ describe("tip day exclusions", () => {
 
   it("surfaces drift when the live pool no longer matches the excluded amount", async () => {
     mockTips.mockResolvedValue([
-      { date: "2026-07-01", tipsPooledCents: 8000 },
-      { date: "2026-07-02", tipsPooledCents: 900 },
+      { date: "2026-07-01", tipsPooledCents: 8000, eventTipsCents: 0 },
+      { date: "2026-07-02", tipsPooledCents: 900, eventTipsCents: 0 },
     ]);
     const g = await buildDailyGrid(PERIOD, EMPS, "daily", [], [excl]);
     const b = g.buckets.find(x => x.days.includes("2026-07-02"))!;

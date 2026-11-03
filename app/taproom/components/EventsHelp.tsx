@@ -70,7 +70,8 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
             <li>Any Square item whose name contains <span className="font-medium">Event Pour</span> is treated as an event pour. Each variation sold becomes a row in the event&rsquo;s table, under the name it had when it was rung.</li>
             <li>A sale is counted when its order was <span className="font-medium">closed</span> between one hour before the event&rsquo;s start and one hour after its end. The time the ticket was paid is what matters, not the time it was opened.</li>
             <li>Tips are calculated automatically. Every ticket that includes at least one Event Pour contributes its whole tip, split into card and cash according to how the customer paid. This gives you the event&rsquo;s card tips without any adding up by hand.</li>
-            <li>Cash tips are usually not recorded at events, so the Cash Tips tile normally shows zero. If cash tips need to reach the tip pool, count the jar separately.</li>
+            <li>Event tips are <span className="font-medium">kept out of the taproom tip pool</span>. The taproom is open during events and event staff are often volunteers, so payroll never splits an event&rsquo;s tips by the taproom crew&rsquo;s hours. They are settled from the event instead, under <span className="font-medium">Tips</span>.</li>
+            <li>Cash tips are usually not recorded at events, so the Cash Tips tile normally shows zero. If a jar was passed, count it and record its payouts under Tips like the card tips.</li>
             <li>Invoiced sales are never counted, even when they fall inside the window.</li>
             <li>Event Pour sales appear in Finance under Events rather than Taproom.</li>
             <li>Event Pour sales do not take beer out of stock on their own. Closing out the event is what records the kegs as used, for inventory and excise.</li>
@@ -113,7 +114,19 @@ export default function EventsHelp({ onClose }: { onClose: () => void }) {
             "Apply any event discount to the line as you normally would. It appears in the Discounts column.",
             "Close each ticket within an hour of the event's end time. A tab left open longer than that is not counted toward the event.",
           ]}
-          note="Card tips are collected automatically from every ticket that includes an Event Pour, so keep event pours and regular pours on separate tickets whenever you can. Cash tips are usually not recorded at events, so expect the Cash Tips tile to show zero."
+          note="Card tips are collected automatically from every ticket that includes an Event Pour, so keep event pours and regular pours on separate tickets whenever you can: a mixed ticket's whole tip counts as an event tip and leaves the taproom pool. Cash tips are usually not recorded at events, so expect the Cash Tips tile to show zero."
+        />
+
+        <Action
+          button="Record payout"
+          when="Settling the event's tips"
+          steps={[
+            <>Open the event and find <span className="font-medium">Tips</span>. It shows what the event&rsquo;s tickets collected and what is <span className="font-medium">left to settle</span>.</>,
+            <>Press <Btn>Record payout</Btn> once per person. For an <span className="font-medium">employee</span>, choose <span className="font-medium">Through payroll</span> and the amount lands on their Paycheck Tips for the event&rsquo;s day, on top of any taproom pool share they earned that day.</>,
+            <>For a <span className="font-medium">volunteer</span>, type their name and record how their share was settled: <span className="font-medium">Cash</span>, <span className="font-medium">Comped beer</span>, or <span className="font-medium">Other</span>, with a note. Volunteers are never paid through payroll.</>,
+            <>Keep going until the badge reads <span className="font-medium">Settled</span>. A share recorded by mistake is removed with <Btn>Remove</Btn>.</>,
+          ]}
+          note="A payroll payout can only be recorded while its pay period is open; once locked, settle the share another way or correct it on the open period. Payouts settled outside payroll relieve Undistributed Tips in Finance on the date you give."
         />
 
         <Action

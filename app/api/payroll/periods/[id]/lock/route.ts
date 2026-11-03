@@ -5,6 +5,7 @@ import { apiError } from "@/lib/utils/api";
 import { buildPayrollPreview } from "@/lib/payroll/previewService";
 import { unattributedBuckets, exclusionDrift, type DayOverride, type TipDayExclusion } from "@/lib/payroll/dailyGrid";
 import type { PayPeriod, PayrollConfig, Employee, PayrollEntry } from "@/lib/payroll/types";
+import { loadPayrollEventTipPayouts } from "@/lib/payroll/eventTipPayouts";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,7 @@ export async function POST(
 
   let preview;
   try {
+    const eventPayouts = await loadPayrollEventTipPayouts(supabase, period as PayPeriod);
     preview = await buildPayrollPreview(
       period as PayPeriod,
       (employees ?? []) as Employee[],
@@ -66,6 +68,7 @@ export async function POST(
       (storedEntries ?? []) as PayrollEntry[],
       (dayOverrides ?? []) as DayOverride[],
       exclusions,
+      eventPayouts,
     );
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));
@@ -76,6 +79,7 @@ export async function POST(
     label: b.label,
     days: b.days,
     pool_cents: b.tipsPooledCents,
+    event_cents: b.tipsEventCents,
     pinned_cents: 0,
     attributed_cents: b.tipsAttributedCents,
     excluded_cents: b.tipsExcludedCents,

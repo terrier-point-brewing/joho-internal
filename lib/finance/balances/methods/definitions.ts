@@ -294,6 +294,14 @@ const undistributedTips: BalanceMethod = {
       "Payroll and expense lines coded to this account, which is how tip disbursements reach the books. Without this step the liability would only ever grow and never settle.",
       "subtract",
     ),
+    {
+      providerKey: "eventTipSettlements",
+      label: "Event tips settled outside payroll",
+      description:
+        "Event tips handed over in cash, comped as beer or settled some other way, recorded per event on the Taproom → Events tab. Those never pass through payroll, so no posting relieves them; this step does. Event tips an employee receives through payroll are already in Tips paid out.",
+      source: "Event tip payouts (Taproom → Events)",
+      direction: "subtract",
+    },
   ],
 };
 

@@ -20,7 +20,7 @@ describe("aggregateDailyTips", () => {
       [],
       [{ id: "ord", state: "COMPLETED", created_at: "2026-10-23T23:54:28Z" }],
     );
-    expect(rows).toEqual([{ date: "2026-10-23", tipsPooledCents: 1200 }]);
+    expect(rows).toEqual([{ date: "2026-10-23", tipsPooledCents: 1200, eventTipsCents: 0 }]);
   });
 
   it("falls back to the payment's own time when its order isn't in the window", () => {
@@ -29,7 +29,7 @@ describe("aggregateDailyTips", () => {
       [],
       [],
     );
-    expect(rows).toEqual([{ date: "2026-10-24", tipsPooledCents: 1200 }]);
+    expect(rows).toEqual([{ date: "2026-10-24", tipsPooledCents: 1200, eventTipsCents: 0 }]);
   });
 
   it("ignores non-COMPLETED payments", () => {
@@ -122,5 +122,34 @@ describe("aggregateDailyTips", () => {
     expect(pool(200)).toBe(100 + 1000);   // tip absorbs it
     expect(pool(700)).toBe(0 + 600);      // tip gone, 400 out of gratuity
     expect(pool(5000)).toBe(0);           // full refund: nothing pooled
+  });
+});
+
+describe("aggregateDailyTips — event carve-out", () => {
+  it("routes an event order's tip and gratuity to eventTipsCents, leaving the taproom pool untouched", () => {
+    const rows = aggregateDailyTips(
+      [
+        { id: "p-tap", status: "COMPLETED", created_at: "2026-07-16T20:00:00Z", order_id: "o-tap", tip_money: { amount: 400 } },
+        { id: "p-ev",  status: "COMPLETED", created_at: "2026-07-16T21:00:00Z", order_id: "o-ev",  tip_money: { amount: 900 } },
+      ],
+      [],
+      [
+        { id: "o-tap", state: "COMPLETED", created_at: "2026-07-16T19:50:00Z" },
+        { id: "o-ev",  state: "COMPLETED", created_at: "2026-07-16T20:50:00Z",
+          service_charges: [{ type: "AUTO_GRATUITY", applied_money: { amount: 100, currency: "USD" } }] },
+      ],
+      new Set(["o-ev"]),
+    );
+    expect(rows).toEqual([{ date: "2026-07-16", tipsPooledCents: 400, eventTipsCents: 1000 }]);
+  });
+
+  it("nets a refund on an event payment out of the event side, not the pool", () => {
+    const rows = aggregateDailyTips(
+      [{ id: "p-ev", status: "COMPLETED", created_at: "2026-07-16T21:00:00Z", order_id: "o-ev", tip_money: { amount: 900 } }],
+      [{ payment_id: "p-ev", status: "COMPLETED", amount_money: { amount: 300 } }],
+      [{ id: "o-ev", state: "COMPLETED", created_at: "2026-07-16T20:50:00Z" }],
+      new Set(["o-ev"]),
+    );
+    expect(rows).toEqual([{ date: "2026-07-16", tipsPooledCents: 0, eventTipsCents: 600 }]);
   });
 });
