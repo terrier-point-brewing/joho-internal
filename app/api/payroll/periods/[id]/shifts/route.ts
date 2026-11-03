@@ -7,6 +7,7 @@ import {
   type DayOverride, type TipDayExclusion,
 } from "@/lib/payroll/dailyGrid";
 import type { Employee, PayPeriod, TipPoolFrequency } from "@/lib/payroll/types";
+import { loadPayrollEventTipPayouts } from "@/lib/payroll/eventTipPayouts";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +60,9 @@ export async function GET(
 
   let grid, baseline;
   let dayPools: Record<string, number> = {};
+  let dayEventTips: Record<string, number> = {};
   try {
+    const eventPayouts = await loadPayrollEventTipPayouts(supabase, period as PayPeriod);
     // Fetch the Square data ONCE, then compute both grids from it. `baseline`
     // (no overrides) gives the struck-through original — card tips rebalance,
     // so a cell's "original" is only meaningful as what it would have been with
@@ -67,12 +70,13 @@ export async function GET(
     // free; calling buildDailyGrid twice would re-run all three paginated
     // Square endpoint sequences.
     const inputs = await fetchDayGridInputs(period as PayPeriod);
-    grid     = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, overrides, exclusions);
-    baseline = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, [], exclusions);
+    grid     = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, overrides, exclusions, eventPayouts);
+    baseline = computeDailyGrid(inputs, period as PayPeriod, emps, frequency, [], exclusions, eventPayouts);
     // Gross per-day pools, so override mode can offer to exclude a day that
     // took tips with nobody tip-eligible on shift — regardless of pooling
     // frequency, which is what grid.buckets is keyed on.
     dayPools = Object.fromEntries(inputs.dailyTips.map(t => [t.date, t.tipsPooledCents]));
+    dayEventTips = Object.fromEntries(inputs.dailyTips.filter(t => t.eventTipsCents > 0).map(t => [t.date, t.eventTipsCents]));
   } catch (err) {
     return apiError(err instanceof Error ? err.message : String(err));
   }
@@ -177,6 +181,11 @@ export async function GET(
     }])),
     exclusion_drift: exclusionDrift(grid.buckets),
     total_excluded_tips_cents: grid.totalExcludedTipsCents,
+    // Event-ticket tips per day: carved out of day_pools at source, settled
+    // from the Events tab. Shown so the pool never looks short on an event day.
+    day_event_tips: dayEventTips,
+    total_event_tips_cents: grid.totalEventTipsCents,
+    total_event_payout_cents: grid.totalEventPayoutCents,
     pool_variance: grid.buckets
       .filter(b => b.attributed_cents !== b.pool_cents)
       .map(b => ({ label: b.label, pool_cents: b.pool_cents, attributed_cents: b.attributed_cents })),
