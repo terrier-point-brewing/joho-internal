@@ -1,5 +1,5 @@
 /**
- * Event tips that reach a paycheck.
+ * Event tips that reach a paycheck, and event hours that leave the pool.
  *
  * An event's card tips are carved out of the taproom pool at source
  * (lib/square/payroll.ts). When an EMPLOYEE worked the event, the manager
@@ -27,18 +27,28 @@ export async function loadPayrollEventTipPayouts(
   // is decided in brewery-local time below.
   const { data, error } = await supabase
     .from("event_tip_payouts")
-    .select("employee_id, amount_cents, events!inner(event_start)")
-    .eq("method", "payroll")
+    .select("employee_id, amount_cents, method, event_hours, events!inner(event_start)")
+    .eq("payee_kind", "employee")
     .gte("events.event_start", `${addDaysStr(period.start_date, -1)}T00:00:00Z`)
     .lte("events.event_start", `${addDaysStr(period.end_date, 1)}T23:59:59Z`);
   if (error) throw new Error(`event tip payouts: ${error.message}`);
   const out: EventTipPayout[] = [];
   for (const raw of data ?? []) {
-    const row = raw as unknown as { employee_id: string | null; amount_cents: number; events: { event_start: string } | null };
+    const row = raw as unknown as {
+      employee_id: string | null; amount_cents: number; method: string; event_hours: number | string | null;
+      events: { event_start: string } | null;
+    };
     if (!row.employee_id || !row.events) continue;
     const work_date = eventWorkDate(row.events.event_start, tz);
     if (work_date < period.start_date || work_date > period.end_date) continue;
-    out.push({ employee_id: row.employee_id, work_date, amount_cents: row.amount_cents });
+    const event_hours = row.event_hours == null ? 0 : Number(row.event_hours);
+    // Cents reach the paycheck only through payroll; hours apply whatever the
+    // method — a cash-settled employee still wasn't pouring in the taproom.
+    out.push({
+      employee_id: row.employee_id, work_date,
+      amount_cents: row.method === "payroll" ? row.amount_cents : 0,
+      event_hours: Number.isFinite(event_hours) && event_hours > 0 ? event_hours : 0,
+    });
   }
   return out;
 }

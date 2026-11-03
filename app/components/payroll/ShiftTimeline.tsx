@@ -26,6 +26,8 @@ interface ShiftRow {
   daily_cash_tips_cents: Record<string, number> | null;
   total_cash_tips_cents: number | null;
   overrides: Record<string, DayOverrideCell>;
+  /** Hours worked at an event that day — kept out of the pool split, still paid. */
+  event_hours: Record<string, number> | null;
   source_hours: Record<string, number>;
   source_tips_cents: Record<string, number> | null;
   source_cash_tips_cents: Record<string, number> | null;
@@ -404,6 +406,11 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
                                   onChange={v => setEdits(e => ({ ...e, [editKey(row.employee_id, d, "hours")]: v }))}
                                   className="text-sm font-semibold"
                                 />
+                                {(row.event_hours?.[d] ?? 0) > 0 && (
+                                  <span className="text-[10px] leading-none text-muted" title="Hours worked at an event. Paid as usual, but not counted when the taproom tip pool is split.">
+                                    {row.event_hours![d].toFixed(1)}h at event
+                                  </span>
+                                )}
                                 {isTipped && (
                                   <CardLine
                                     value={t && t > 0 ? fmtCents(t) : "—"}

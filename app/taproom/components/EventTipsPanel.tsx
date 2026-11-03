@@ -33,6 +33,7 @@ interface DraftPayout {
   amount: string;
   settled_on: string;
   note: string;
+  event_hours: string;
 }
 
 /**
@@ -60,7 +61,7 @@ export default function EventTipsPanel({
   const { data, isLoading, error } = useEventTipsQuery(eventId);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<DraftPayout>(() => ({
-    payee_kind: "employee", employee_id: "", payee_name: "", method: "payroll", amount: "", settled_on: "", note: "",
+    payee_kind: "employee", employee_id: "", payee_name: "", method: "payroll", amount: "", settled_on: "", note: "", event_hours: "",
   }));
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -80,6 +81,7 @@ export default function EventTipsPanel({
         amount_cents,
         settled_on: draft.method !== "payroll" && draft.settled_on ? draft.settled_on : undefined,
         note: draft.note || undefined,
+        event_hours: draft.payee_kind === "employee" && draft.event_hours !== "" ? Number(draft.event_hours) : undefined,
       };
       const r = await fetch(`/api/taproom/events/${eventId}/tips`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -90,7 +92,7 @@ export default function EventTipsPanel({
       invalidate();
       setAdding(false);
       setSaveError(null);
-      setDraft(d => ({ ...d, employee_id: "", payee_name: "", amount: "", note: "" }));
+      setDraft(d => ({ ...d, employee_id: "", payee_name: "", amount: "", note: "", event_hours: "" }));
     },
     onError: (e) => setSaveError(e instanceof Error ? e.message : "Failed to record payout"),
   });
@@ -111,9 +113,14 @@ export default function EventTipsPanel({
   const payrollBlocked = draft.payee_kind === "volunteer" || (selectedEmp ? !selectedEmp.payroll_eligible : false);
   const periodLocked = data?.pay_period?.status === "locked";
   const amountCents = Math.round(parseFloat(draft.amount || "0") * 100);
+  const availableHours = selectedEmp ? Math.max(0, (selectedEmp.clocked_hours ?? 0) - selectedEmp.allocated_hours) : 0;
+  const draftHours = draft.event_hours === "" ? 0 : Number(draft.event_hours);
+  const hoursOk = draft.payee_kind !== "employee" || draft.event_hours === ""
+    || (Number.isFinite(draftHours) && draftHours >= 0 && draftHours <= availableHours + 1 / 60 && !(draftHours > 0 && periodLocked));
   const canSave = amountCents > 0
     && (draft.payee_kind === "employee" ? !!draft.employee_id : draft.payee_name.trim().length > 0)
-    && !(draft.method === "payroll" && (payrollBlocked || periodLocked));
+    && !(draft.method === "payroll" && (payrollBlocked || periodLocked))
+    && hoursOk;
 
   return (
     <div className="space-y-2">
@@ -175,11 +182,12 @@ export default function EventTipsPanel({
                     )}
                     {p.method !== "payroll" && p.settled_on && <span className="text-faint"> · {p.settled_on}</span>}
                     {p.method === "comp" && p.manual_entry_id && <span className="text-faint"> · booked as event revenue</span>}
+                    {(p.event_hours ?? 0) > 0 && <span className="text-faint"> · {p.event_hours!.toFixed(2)}h at the event</span>}
                   </td>
                   <td className="px-3 py-2 text-right text-body font-mono">{fmtUsd(p.amount_cents)}</td>
                   <td className="px-3 py-2 text-muted">{p.note ?? "—"}</td>
                   <td className="px-3 py-2 text-right">
-                    {!(p.method === "payroll" && p.pay_period?.status === "locked") && (
+                    {!(p.pay_period?.status === "locked") && (
                       <button type="button" onClick={() => removeMutation.mutate(p.id)} className="btn-secondary btn-xxs" disabled={removeMutation.isPending}>
                         Remove
                       </button>
@@ -244,6 +252,19 @@ export default function EventTipsPanel({
               <input className="inp w-full mt-1" type="number" min="0.01" step="0.01" inputMode="decimal" value={draft.amount}
                 onChange={(e) => setDraft(d => ({ ...d, amount: e.target.value }))} placeholder={remaining > 0 ? (remaining / 100).toFixed(2) : "0.00"} />
             </label>
+            {draft.payee_kind === "employee" && selectedEmp?.payroll_eligible && (
+              <label className="block text-xs text-secondary">
+                Hours at the event
+                <span className="text-faint">
+                  {" "}({(selectedEmp.clocked_hours ?? 0).toFixed(2)}h clocked on {data?.work_date ?? "the day"}
+                  {selectedEmp.allocated_hours > 0 ? `, ${selectedEmp.allocated_hours.toFixed(2)}h already at events` : ""}
+                  {" · "}{availableHours.toFixed(2)}h available)
+                </span>
+                <input className="inp w-full mt-1" type="number" min="0" max={availableHours.toFixed(2)} step="0.01" inputMode="decimal"
+                  value={draft.event_hours} onChange={(e) => setDraft(d => ({ ...d, event_hours: e.target.value }))}
+                  placeholder={availableHours > 0 ? availableHours.toFixed(2) : "0"} disabled={periodLocked} />
+              </label>
+            )}
             {draft.method !== "payroll" && (
               <label className="block text-xs text-secondary">
                 Settled on <span className="text-faint">(defaults to the event&rsquo;s day)</span>
@@ -255,6 +276,14 @@ export default function EventTipsPanel({
               <input className="inp w-full mt-1" value={draft.note} onChange={(e) => setDraft(d => ({ ...d, note: e.target.value }))} placeholder="e.g. two pints comped, or share of the jar" />
             </label>
           </div>
+          {draft.payee_kind === "employee" && selectedEmp?.payroll_eligible && (
+            <p className="text-xs text-faint">
+              {draftHours > 0
+                ? `${draftHours.toFixed(2)}h will be left out when the taproom pool for ${data?.work_date ?? "that day"} is split, so the taproom crew keeps those tips. Base pay is unchanged.`
+                : `If ${selectedEmp.name} was working the event rather than the taproom, enter their event hours so they do not take a share of the taproom tip pool for those hours.`}
+              {!hoursOk && draft.event_hours !== "" && <span className="text-danger"> Only {availableHours.toFixed(2)}h are available.</span>}
+            </p>
+          )}
           {draft.method === "payroll" && (
             <p className="text-xs text-faint">
               Lands on {selectedEmp?.name ?? "the employee"}&rsquo;s Paycheck Tips for {data?.work_date ?? "the event's day"}
