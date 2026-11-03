@@ -20,6 +20,10 @@ export interface ManualNetSalesEntryRecord {
   amountCents: number;
   /** manual_entries.chart_of_accounts_id -- NOT NULL at the DB level. */
   chartOfAccountsId: string;
+  /** manual_entries.channel: null for an operator-typed entry (no channel
+   *  dimension), set by system writers — an event tip settled as comped beer
+   *  is booked as "events" revenue so it files next to the pours. */
+  channel?: Exclude<Channel, "unknown"> | null;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -130,16 +134,23 @@ export function injectManualNetSales(
 ): FinancialsRow[] {
   const coaMap = new Map(coa.map((c) => [c.id, c]));
 
-  const entriesByAccount = new Map<string, ManualNetSalesEntryRecord[]>();
+  // Grouped by account AND channel: a system-written entry that declares a
+  // channel (event tip comps -> "events") must not blend into the channel-less
+  // operator entries on the same account, or the Events column loses it.
+  const entriesByGroup = new Map<string, ManualNetSalesEntryRecord[]>();
   for (const entry of entries) {
-    const bucket = entriesByAccount.get(entry.chartOfAccountsId);
+    const key = `${entry.chartOfAccountsId}|${entry.channel ?? MANUAL_CHANNEL}`;
+    const bucket = entriesByGroup.get(key);
     if (bucket) bucket.push(entry);
-    else entriesByAccount.set(entry.chartOfAccountsId, [entry]);
+    else entriesByGroup.set(key, [entry]);
   }
 
   const synthesized: FinancialsRow[] = [];
 
-  for (const [coaId, groupEntries] of entriesByAccount) {
+  for (const [key, groupEntries] of entriesByGroup) {
+    const coaId = groupEntries[0].chartOfAccountsId;
+    const channel: Channel = groupEntries[0].channel ?? MANUAL_CHANNEL;
+    void key;
     const amountCentsByMonth: Record<string, number> = {};
     const idSet = new Set<string>();
     let hasNonZero = false;
@@ -168,7 +179,7 @@ export function injectManualNetSales(
       parentId: account?.parentId ?? null,
       accountName,
       statementSection: coaSection(account),
-      channel: MANUAL_CHANNEL,
+      channel,
       posCategory: null,
       kegSize: null,
       amountCentsByMonth,

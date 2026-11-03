@@ -23,7 +23,7 @@ import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
 import { applyExpenseStatementFilters } from "./expenseFilters";
 import { loadBankLedgerInclusion, INCLUSION_COLUMNS } from "@/lib/finance/bankLedgerInclusion";
 import type { InclusionFacts } from "@/lib/finance/bankLedgerInclusion";
-import type { StatementKind } from "./types";
+import type { StatementKind, Channel } from "./types";
 import type {
   PosLineRecord,
   InvoiceLineRecord,
@@ -681,6 +681,11 @@ export async function fetchRefunds(supabase: SupabaseClient, range: DateRange): 
  * (balance-sheet) rows are deliberately excluded here -- see manual_entries'
  * schema (Task 1 migration) for the entry_kind split.
  */
+const CHANNELS: ReadonlySet<string> = new Set(["taproom", "events", "contract_brewing", "distribution", "wholesale"]);
+function isChannel(v: string | null): v is Exclude<Channel, "unknown"> {
+  return v != null && CHANNELS.has(v);
+}
+
 export async function fetchManualNetSalesEntries(supabase: SupabaseClient): Promise<ManualNetSalesEntryRecord[]> {
   const rows = await fetchAllRows<{
     id: string;
@@ -688,10 +693,11 @@ export async function fetchManualNetSalesEntries(supabase: SupabaseClient): Prom
     end_date: string;
     amount_cents: number | null;
     chart_of_accounts_id: string;
+    channel: string | null;
   }>(() =>
     supabase
       .from("manual_entries")
-      .select("id, start_date, end_date, amount_cents, chart_of_accounts_id")
+      .select("id, start_date, end_date, amount_cents, chart_of_accounts_id, channel")
       .eq("entry_kind", "flow")
       .order("id", { ascending: true }),
   );
@@ -701,6 +707,7 @@ export async function fetchManualNetSalesEntries(supabase: SupabaseClient): Prom
     endDate: r.end_date,
     amountCents: r.amount_cents ?? 0,
     chartOfAccountsId: r.chart_of_accounts_id,
+    channel: isChannel(r.channel) ? r.channel : null,
   }));
 }
 
