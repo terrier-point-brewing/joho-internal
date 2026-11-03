@@ -39,7 +39,12 @@ export interface BucketExclusion {
 export interface EventTipPayout {
   employee_id: string;
   work_date: string;
+  /** Cents landing on the paycheck — 0 for a payout settled outside payroll. */
   amount_cents: number;
+  /** Hours worked AT the event out of the day's clocked hours. Taken out of the
+   *  employee's hours before the taproom pool is attributed; base pay keeps
+   *  the full clocked hours. */
+  event_hours?: number;
 }
 
 export interface TipBucket {
@@ -318,6 +323,8 @@ export interface DailyGrid {
   totalEventTipsCents: number;
   /** Σ EventTipPayout cents that landed in cardTipsByDate (payroll-settled event tips). */
   totalEventPayoutCents: number;
+  /** date -> square_team_member_id -> hours worked at an event (kept out of pool attribution). */
+  eventHoursByDate: Map<string, Map<string, number>>;
 }
 
 function setCell(m: Map<string, Map<string, number>>, date: string, sqId: string, v: number) {
@@ -399,6 +406,18 @@ export function computeDailyGrid(
     if (o.adj_paycheck_tips_cents != null) setCell(pinsByDate, o.work_date, sqId, o.adj_paycheck_tips_cents);
   }
 
+  // Hours worked at an event, per cell. Those hours earned event tips (settled
+  // from the Events tab), not the taproom pool, so attribution runs over the
+  // remainder. Floor at 0: a stale Square shift shorter than the recorded
+  // event hours must never produce a negative weight.
+  const eventHoursByCell = new Map<string, number>();
+  for (const p of eventPayouts) {
+    const sqId = sqByEmployeeId.get(p.employee_id);
+    if (!sqId || !(p.event_hours! > 0)) continue;
+    const k = cellKey(sqId, p.work_date);
+    eventHoursByCell.set(k, (eventHoursByCell.get(k) ?? 0) + p.event_hours!);
+  }
+
   const poolByDay = new Map(dailyTips.map(t => [t.date, t.tipsPooledCents]));
   const eventByDay = new Map(dailyTips.map(t => [t.date, t.eventTipsCents ?? 0]));
   const exclusionByDay = new Map(exclusions.map(x => [x.work_date, x]));
@@ -436,7 +455,9 @@ export function computeDailyGrid(
         poolCents += dayPool;
       }
       for (const [sqId, hours] of hoursByDate.get(day) ?? []) {
-        if (tippedSqIds.has(sqId)) cells.push({ employeeId: sqId, date: day, hours });
+        if (!tippedSqIds.has(sqId)) continue;
+        const poolHours = Math.max(0, hours - (eventHoursByCell.get(cellKey(sqId, day)) ?? 0));
+        cells.push({ employeeId: sqId, date: day, hours: poolHours });
       }
       for (const [sqId, cents] of pinsByDate.get(day) ?? []) {
         if (!tippedSqIds.has(sqId)) continue;
@@ -479,14 +500,21 @@ export function computeDailyGrid(
   const dayInPeriod = new Set(days);
   for (const p of eventPayouts) {
     const sqId = sqByEmployeeId.get(p.employee_id);
-    if (!sqId || !tippedSqIds.has(sqId) || !dayInPeriod.has(p.work_date)) continue;
+    if (!sqId || !tippedSqIds.has(sqId) || !dayInPeriod.has(p.work_date) || p.amount_cents <= 0) continue;
     addCell(cardTipsByDate, p.work_date, sqId, p.amount_cents);
     totalEventPayoutCents += p.amount_cents;
+  }
+
+  const eventHoursByDate = new Map<string, Map<string, number>>();
+  for (const [k, h] of eventHoursByCell) {
+    const [sqId, day] = k.split("|");
+    if (dayInPeriod.has(day)) setCell(eventHoursByDate, day, sqId, h);
   }
 
   return {
     days, hoursByDate, cashByDate, cardTipsByDate, buckets,
     totalPooledTipsCents, totalExcludedTipsCents, totalEventTipsCents, totalEventPayoutCents,
+    eventHoursByDate,
   };
 }
 

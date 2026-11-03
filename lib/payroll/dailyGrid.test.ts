@@ -611,3 +611,40 @@ describe("tip day exclusions", () => {
     expect(g.buckets.every(b => b.exclusions.length === 0)).toBe(true);
   });
 });
+
+describe("computeDailyGrid — event hours leave the pool split", () => {
+  it("attributes the taproom pool over clocked minus event hours, keeps base-pay hours whole, and still lands the payroll event cents", () => {
+    const inputs = {
+      rawShifts: [
+        { team_member_id: "s1", date: "2026-07-01", hours: 8, cash_tips_cents: 0 },
+        { team_member_id: "s2", date: "2026-07-01", hours: 8, cash_tips_cents: 0 },
+      ],
+      dailyTips: [{ date: "2026-07-01", tipsPooledCents: 4000, eventTipsCents: 30000 }],
+    };
+    // e1 (s1) spent the whole shift at the event, settled $200 through payroll.
+    const grid = computeDailyGrid(inputs, PERIOD, EMPS, "daily", [], [], [
+      { employee_id: "e1", work_date: "2026-07-01", amount_cents: 20000, event_hours: 8 },
+    ]);
+    expect(grid.hoursByDate.get("2026-07-01")!.get("s1")).toBe(8);          // base pay untouched
+    expect(grid.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(4000);    // whole pool to the taproom bartender
+    expect(grid.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(20000);   // event cents only
+    expect(grid.buckets[0].attributed_cents).toBe(4000);
+    expect(grid.eventHoursByDate.get("2026-07-01")!.get("s1")).toBe(8);
+  });
+
+  it("splits by the remaining hours when only part of the shift was at the event", () => {
+    const inputs = {
+      rawShifts: [
+        { team_member_id: "s1", date: "2026-07-01", hours: 8, cash_tips_cents: 0 },
+        { team_member_id: "s2", date: "2026-07-01", hours: 4, cash_tips_cents: 0 },
+      ],
+      dailyTips: [{ date: "2026-07-01", tipsPooledCents: 6000, eventTipsCents: 0 }],
+    };
+    // s1: 8h clocked, 6h at the event (cash-settled, no payroll cents) -> 2h in the pool vs s2's 4h.
+    const grid = computeDailyGrid(inputs, PERIOD, EMPS, "daily", [], [], [
+      { employee_id: "e1", work_date: "2026-07-01", amount_cents: 0, event_hours: 6 },
+    ]);
+    expect(grid.cardTipsByDate.get("2026-07-01")!.get("s1")).toBe(2000);
+    expect(grid.cardTipsByDate.get("2026-07-01")!.get("s2")).toBe(4000);
+  });
+});

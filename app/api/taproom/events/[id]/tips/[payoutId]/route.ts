@@ -17,13 +17,13 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const { data: row } = await supabase
     .from("event_tip_payouts")
-    .select("id, method, manual_entry_id, events!inner(event_start)")
+    .select("id, method, event_hours, manual_entry_id, events!inner(event_start)")
     .eq("id", payoutId).eq("event_id", id)
     .maybeSingle();
   if (!row) return apiError("Payout not found", 404);
 
-  const r = row as unknown as { method: string; manual_entry_id: string | null; events: { event_start: string } };
-  if (r.method === "payroll") {
+  const r = row as unknown as { method: string; event_hours: number | string | null; manual_entry_id: string | null; events: { event_start: string } };
+  if (r.method === "payroll" || Number(r.event_hours ?? 0) > 0) {
     const work_date = eventWorkDate(r.events.event_start, await getBreweryTimezone());
     const { data: period } = await supabase
       .from("pay_periods").select("status")

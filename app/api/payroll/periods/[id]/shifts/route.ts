@@ -142,6 +142,7 @@ export async function GET(
       daily_cash_tips_cents: isTipped ? pick(grid.cashByDate, sq) : null,
       total_cash_tips_cents: isTipped ? total(pick(grid.cashByDate, sq)) : null,
       overrides: overridesForRow,
+      event_hours: isTipped ? pick(grid.eventHoursByDate, sq) : null,
       source_hours: pick(baseline.hoursByDate, sq),
       source_tips_cents: isTipped ? pick(baseline.cardTipsByDate, sq) : null,
       source_cash_tips_cents: isTipped ? pick(baseline.cashByDate, sq) : null,
