@@ -16,10 +16,10 @@ describe("resolveFieldOwnership", () => {
     ["line19_prepay_next", "manual"],
     ["line20_credit", "manual"],
     ["line20_credit_explanation", "manual"],
-    ["line9_receipts", "computed"],
-    ["line9_tax", "computed"],
-    ["line9_purchases", "manual"],
-    ["line12_tax", "computed"],
+    ["line8_receipts", "computed"],
+    ["line8_tax", "computed"],
+    ["line8_purchases", "manual"],
+    ["line11_tax", "computed"],
     ["county_WAKE_2pct", "computed"],
     ["county_DURHAM_transit", "computed"],
     ["county_MECKLENBURG_225pct", "computed"],
@@ -34,6 +34,6 @@ describe("isComputedField", () => {
     expect(isComputedField("line1_gross_receipts")).toBe(true);
     expect(isComputedField("line16_penalty")).toBe(false);
     expect(isComputedField("county_WAKE_2pct")).toBe(true);
-    expect(isComputedField("line9_purchases")).toBe(false);
+    expect(isComputedField("line8_purchases")).toBe(false);
   });
 });

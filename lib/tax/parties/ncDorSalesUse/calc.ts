@@ -146,10 +146,10 @@ export function computeNcDorFigures(
     fields[`county_${code}_receipts`] = countyBase;
 
     // Page-1 receipts aggregation: line receipts are the SUM of county bases.
-    const localLine = countyRateLine(tier.local); // '9' | '10'
+    const localLine = countyRateLine(tier.local); // '8' | '9'
     fields[`line${localLine}_receipts`] = num(fields[`line${localLine}_receipts`]) + countyBase;
 
-    const transitLine = transitRateLine(tier.transit); // '11' | '12' | null
+    const transitLine = transitRateLine(tier.transit); // '10' | '11' | null
     if (transitLine) {
       fields[`line${transitLine}_receipts`] = num(fields[`line${transitLine}_receipts`]) + countyBase;
     }

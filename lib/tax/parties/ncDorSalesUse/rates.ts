@@ -11,21 +11,23 @@
  */
 
 /**
- * Rate lines that carry a purchases/receipts/tax triple on the worksheet.
- * Line 7 (Mfg. Homes) is deliberately absent: it shares Line 6's 4.75% rate
- * and is reported with it as a single combined "Modular & Mfg. Homes" line,
- * so the worksheet keeps one field triple for the pair. Any `line7_*` keys on
- * a historical worksheet are inert — they resolve to "manual" ownership and
- * are excluded from the Line 13 sum.
+ * Rate lines that carry a purchases/receipts/tax triple on the worksheet,
+ * numbered as on the current Form E-500:
+ *   4 Gen. State 4.75% · 5 3% State · 6 Modular & Mfg. Homes (one combined
+ *   line) · 7 2% Food · 8 2% County · 9 2.25% County · 10 0.5% Transit ·
+ *   11 0.25% Transit · 12 1% Additional County · 13 = Σ 4–12.
+ * Line 12 has no county tier behind it yet — no NC county in the rate map
+ * carries an additional 1% — so its receipts stay 0 and it is only ever
+ * populated through a manual Purchases-for-Use entry.
  * Lives here (not calc.ts) so this stays a zero-server-import pure module —
  * both `calc.ts` and the pure `fieldOwnership.ts` (shared by the server
  * template and the client worksheet) derive from this single source instead
  * of duplicating the line numbers.
  */
-export const RATE_LINES = [4, 5, 6, 8, 9, 10, 11, 12] as const;
+export const RATE_LINES = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 /** The rate-line numbers, as the string keys used across worksheet fields. */
-export type RateLineKey = "4" | "5" | "6" | "8" | "9" | "10" | "11" | "12";
+export type RateLineKey = "4" | "5" | "6" | "7" | "8" | "9" | "10" | "11" | "12";
 
 /**
  * Represents a county's RESOLVED local/transit tax rates (read from the
@@ -152,23 +154,23 @@ export const NC_COUNTIES: { code: string; name: string; ncCode: number }[] = COU
 /**
  * Map a county's RESOLVED local tax rate to its NC DOR form line number.
  * @param localRate The county's local rate (read from the rate map)
- * @returns '9' for 2% local, '10' for 2.25% local
+ * @returns '8' for 2% local, '9' for 2.25% local
  */
-export function countyRateLine(localRate: number): '9' | '10' {
-  return localRate === 0.0225 ? '10' : '9';
+export function countyRateLine(localRate: number): '8' | '9' {
+  return localRate === 0.0225 ? '9' : '8';
 }
 
 /**
  * Map a county's RESOLVED transit tax rate to its NC DOR form line number.
  * @param transitRate The county's transit rate (read from the rate map)
- * @returns '11' for 0.5% transit, '12' for 0.25% transit, null for no transit
+ * @returns '10' for 0.5% transit, '11' for 0.25% transit, null for no transit
  */
-export function transitRateLine(transitRate: number): '11' | '12' | null {
+export function transitRateLine(transitRate: number): '10' | '11' | null {
   if (transitRate === 0.005) {
-    return '11';
+    return '10';
   }
   if (transitRate === 0.0025) {
-    return '12';
+    return '11';
   }
   return null;
 }
