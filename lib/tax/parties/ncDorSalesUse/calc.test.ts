@@ -19,12 +19,12 @@ const RATE_MAP: Record<string, number> = {
   nc_sales_line_4: 0.0475,
   nc_sales_line_5: 0.03,
   nc_sales_line_6: 0.0475,
-  nc_sales_line_7: 0.0475,
+  nc_sales_line_7: 0.02,
   nc_sales_line_8: 0.02,
-  nc_sales_line_9: 0.02,
-  nc_sales_line_10: 0.0225,
-  nc_sales_line_11: 0.005,
-  nc_sales_line_12: 0.0025,
+  nc_sales_line_9: 0.0225,
+  nc_sales_line_10: 0.005,
+  nc_sales_line_11: 0.0025,
+  nc_sales_line_12: 0.01,
   nc_local_WAKE: 0.02,
   nc_transit_WAKE: 0.005,
   nc_local_MECKLENBURG: 0.02,
@@ -60,12 +60,12 @@ describe("computeNcDorFigures", () => {
     // State line 4 @ 4.75%
     expect(f.line4_receipts).toBe(100000);
     expect(f.line4_tax).toBe(4750);
-    // Wake local 2% -> line 9
-    expect(f.line9_receipts).toBe(100000);
-    expect(f.line9_tax).toBe(2000);
-    // Wake transit 0.5% -> line 11
-    expect(f.line11_receipts).toBe(100000);
-    expect(f.line11_tax).toBe(500);
+    // Wake local 2% -> line 8
+    expect(f.line8_receipts).toBe(100000);
+    expect(f.line8_tax).toBe(2000);
+    // Wake transit 0.5% -> line 10
+    expect(f.line10_receipts).toBe(100000);
+    expect(f.line10_tax).toBe(500);
     // Totals
     expect(f.line13_total).toBe(7250);
     expect(f.line15_total).toBe(7250);
@@ -95,15 +95,15 @@ describe("computeNcDorFigures", () => {
       RATE_MAP,
     );
     const f = ws.fields;
-    // Wake 2% on 50000 -> line 9
+    // Wake 2% on 50000 -> line 8
+    expect(f.line8_receipts).toBe(50000);
+    expect(f.line8_tax).toBe(1000);
+    // Durham 2.25% on 50000 -> line 9
     expect(f.line9_receipts).toBe(50000);
-    expect(f.line9_tax).toBe(1000);
-    // Durham 2.25% on 50000 -> line 10
-    expect(f.line10_receipts).toBe(50000);
-    expect(f.line10_tax).toBe(1125);
-    // Both transit 0.5% -> line 11 adds
-    expect(f.line11_tax).toBe(500); // 250 + 250
-    expect(f.line11_receipts).toBe(100000); // 50000 + 50000
+    expect(f.line9_tax).toBe(1125);
+    // Both transit 0.5% -> line 10 adds
+    expect(f.line10_tax).toBe(500); // 250 + 250
+    expect(f.line10_receipts).toBe(100000); // 50000 + 50000
     // Page-2 county rows
     expect(f.county_WAKE_2pct).toBe(1000);
     expect(f.county_WAKE_transit).toBe(250);
@@ -118,7 +118,7 @@ describe("computeNcDorFigures", () => {
       n(f.county_DURHAM_225pct) +
       n(f.county_DURHAM_transit);
     expect(countySum).toBe(
-      n(f.line9_tax) + n(f.line10_tax) + n(f.line11_tax) + n(f.line12_tax),
+      n(f.line8_tax) + n(f.line9_tax) + n(f.line10_tax) + n(f.line11_tax),
     );
     // line13 = state + county + transit
     expect(f.line13_total).toBe(4750 + 1000 + 1125 + 500);
@@ -138,10 +138,10 @@ describe("computeNcDorFigures", () => {
       RATE_MAP,
     );
     const f = ws.fields;
-    // both are 2% local -> both land on line 9, receipts must sum to full base
-    expect(f.line9_receipts).toBe(100001);
+    // both are 2% local -> both land on line 8, receipts must sum to full base
+    expect(f.line8_receipts).toBe(100001);
     // no base is lost or duplicated
-    expect(n(f.line9_receipts)).toBe(100001);
+    expect(n(f.line8_receipts)).toBe(100001);
   });
 
   it("emits a reconciliation warning when collected deviates by a rate-misconfig-sized amount", () => {
@@ -207,8 +207,8 @@ describe("computeDependentTotals", () => {
   it("flows manual penalty/interest/credit into line21", () => {
     const totals = computeDependentTotals({
       line4_tax: 4750,
-      line9_tax: 2000,
-      line11_tax: 500,
+      line8_tax: 2000,
+      line10_tax: 500,
       line14_excess: 0,
       line16_penalty: 100,
       line17_interest: 25,
@@ -336,8 +336,8 @@ describe("computeNcDorWorksheet", () => {
     const ws = await computeNcDorWorksheet(ctx, stubSb(rows));
     expect(ws.fields.line1_gross_receipts).toBe(100000);
     expect(ws.fields.line4_tax).toBe(4750);
-    expect(ws.fields.line9_tax).toBe(2000);
-    expect(ws.fields.line11_tax).toBe(500);
+    expect(ws.fields.line8_tax).toBe(2000);
+    expect(ws.fields.line10_tax).toBe(500);
     expect(ws.fields.line13_total).toBe(7250);
     expect(ws.warnings ?? []).toEqual([]);
     expect(ws.meta?.provenance).toBe("square");

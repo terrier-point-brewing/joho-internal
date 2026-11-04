@@ -11,12 +11,12 @@ const RATE_MAP: Record<string, number> = {
   nc_sales_line_4: 0.0475,
   nc_sales_line_5: 0.03,
   nc_sales_line_6: 0.0475,
-  nc_sales_line_7: 0.0475,
+  nc_sales_line_7: 0.02,
   nc_sales_line_8: 0.02,
-  nc_sales_line_9: 0.02,
-  nc_sales_line_10: 0.0225,
-  nc_sales_line_11: 0.005,
-  nc_sales_line_12: 0.0025,
+  nc_sales_line_9: 0.0225,
+  nc_sales_line_10: 0.005,
+  nc_sales_line_11: 0.0025,
+  nc_sales_line_12: 0.01,
   nc_local_WAKE: 0.02,
   nc_transit_WAKE: 0.005,
   nc_local_DURHAM: 0.0225,
@@ -89,7 +89,7 @@ describe("recomputeClientTotals", () => {
     expect(next.line13_total).toBe(0);
   });
 
-  it("a manual line9_purchases edit flows into line9_tax, the county row, and the totals", () => {
+  it("a manual line8_purchases edit flows into line8_tax, the county row, and the totals", () => {
     const base = computeNcDorFigures(
       {
         taxableBaseCents: 100000,
@@ -98,9 +98,9 @@ describe("recomputeClientTotals", () => {
       },
       RATE_MAP,
     ).fields;
-    const next = recomputeClientTotals({ ...base, line9_purchases: 50000 }, RATE_MAP);
-    // line9_tax = round((50000 + 100000) × 0.02) = 3000
-    expect(next.line9_tax).toBe(3000);
+    const next = recomputeClientTotals({ ...base, line8_purchases: 50000 }, RATE_MAP);
+    // line8_tax = round((50000 + 100000) × 0.02) = 3000
+    expect(next.line8_tax).toBe(3000);
     expect(next.county_WAKE_2pct).toBe(3000);
     // +1000 vs baseline (7250) flows through
     expect(next.line13_total).toBe(8250);
@@ -120,16 +120,16 @@ describe("recomputeClientTotals", () => {
       RATE_MAP,
     ).fields;
     // simulate a user typing purchases on both a state line and a county line
-    const edited = { ...base, line4_purchases: 25000, line9_purchases: 15000 };
+    const edited = { ...base, line4_purchases: 25000, line8_purchases: 15000 };
     const client = recomputeClientTotals(edited, RATE_MAP);
     const engine = deriveNcDorFigures(edited, RATE_MAP);
     expect(client).toEqual(engine);
     // and the county schedule reconciles to the page-1 line taxes, purchases included
     const n = (v: number | string | null | undefined) => Number(v ?? 0);
-    expect(n(client.county_WAKE_2pct)).toBe(n(client.line9_tax));
-    expect(n(client.county_DURHAM_225pct)).toBe(n(client.line10_tax));
+    expect(n(client.county_WAKE_2pct)).toBe(n(client.line8_tax));
+    expect(n(client.county_DURHAM_225pct)).toBe(n(client.line9_tax));
     expect(n(client.county_WAKE_transit) + n(client.county_DURHAM_transit)).toBe(
-      n(client.line11_tax) + n(client.line12_tax),
+      n(client.line10_tax) + n(client.line11_tax),
     );
   });
 });

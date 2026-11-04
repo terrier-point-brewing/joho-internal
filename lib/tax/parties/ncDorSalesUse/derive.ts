@@ -42,7 +42,7 @@ const round = (v: number) => Math.round(v);
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
 
 /** Rate lines whose tax is built up from the per-county page-2 schedule. */
-const COUNTY_LINE_KEYS = new Set<RateLineKey>(["9", "10", "11", "12"]);
+const COUNTY_LINE_KEYS = new Set<RateLineKey>(["8", "9", "10", "11"]);
 
 /** Structural county-code allowlist — guards `readCountyReceipts` against a
  * stray field matching the `county_*_receipts` pattern for a non-county key. */
@@ -130,7 +130,7 @@ function readCountyReceipts(fields: WorksheetFields, rateMap: Record<string, num
 }
 
 /**
- * Rebuild one county rate line (9/10 local, 11/12 transit): split that line's
+ * Rebuild one county rate line (8/9 local, 10/11 transit): split that line's
  * manual purchases across its member counties by receipts weight, set each
  * county's page-2 row, and return the page-1 line tax as the SUM of the rounded
  * county rows (so `Σ county rows = lineN_tax` holds by construction).
@@ -182,7 +182,7 @@ export function deriveNcDorFigures(
   const f: WorksheetFields = { ...fields };
   const counties = readCountyReceipts(f, rateMap);
 
-  // Non-county rate lines (4–8): tax = round((purchases + receipts) × rate).
+  // Non-county rate lines (4–7, 12): tax = round((purchases + receipts) × rate).
   for (const n of RATE_LINES) {
     const key = String(n) as RateLineKey;
     if (COUNTY_LINE_KEYS.has(key)) continue; // rebuilt from the county split below
@@ -192,11 +192,11 @@ export function deriveNcDorFigures(
     f[`line${key}_tax`] = round((receipts + purchases) * rate);
   }
 
-  // County rate lines (9–12): built from the per-county page-2 schedule.
+  // County rate lines (8–11): built from the per-county page-2 schedule.
+  deriveCountyLine(f, counties, "local", "8", rateMap);
   deriveCountyLine(f, counties, "local", "9", rateMap);
-  deriveCountyLine(f, counties, "local", "10", rateMap);
+  deriveCountyLine(f, counties, "transit", "10", rateMap);
   deriveCountyLine(f, counties, "transit", "11", rateMap);
-  deriveCountyLine(f, counties, "transit", "12", rateMap);
 
   const totals = computeDependentTotals(f);
   f.line13_total = totals.line13_total;

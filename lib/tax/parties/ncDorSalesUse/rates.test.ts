@@ -2,10 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { NC_COUNTIES, RATE_LINES, countyRateLine, transitRateLine } from './rates';
 
 describe('NC DOR Rate Schedule (structural)', () => {
-  it('should export the rate lines 4-12, less the merged line 7', () => {
-    // Line 7 (Mfg. Homes) is reported inside Line 6 as one combined
-    // "Modular & Mfg. Homes" line — it carries no field triple of its own.
-    expect(RATE_LINES).toEqual([4, 5, 6, 8, 9, 10, 11, 12]);
+  it('should export the rate lines 4-12', () => {
+    expect(RATE_LINES).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12]);
   });
 
   describe('NC_COUNTIES', () => {
@@ -59,17 +57,17 @@ describe('NC DOR Rate Schedule (structural)', () => {
   });
 
   describe('countyRateLine', () => {
-    it('should return "9" for a 2% local rate', () => {
-      expect(countyRateLine(0.02)).toBe('9');
+    it('should return "8" for a 2% local rate', () => {
+      expect(countyRateLine(0.02)).toBe('8');
     });
 
-    it('should return "10" for a 2.25% local rate', () => {
-      expect(countyRateLine(0.0225)).toBe('10');
+    it('should return "9" for a 2.25% local rate', () => {
+      expect(countyRateLine(0.0225)).toBe('9');
     });
 
     it('is independent of the transit rate (only the local rate is inspected)', () => {
-      expect(countyRateLine(0.02)).toBe('9');
-      expect(countyRateLine(0.0225)).toBe('10');
+      expect(countyRateLine(0.02)).toBe('8');
+      expect(countyRateLine(0.0225)).toBe('9');
     });
   });
 
@@ -78,12 +76,12 @@ describe('NC DOR Rate Schedule (structural)', () => {
       expect(transitRateLine(0)).toBeNull();
     });
 
-    it('should return "11" for a 0.5% transit rate', () => {
-      expect(transitRateLine(0.005)).toBe('11');
+    it('should return "10" for a 0.5% transit rate', () => {
+      expect(transitRateLine(0.005)).toBe('10');
     });
 
-    it('should return "12" for a 0.25% transit rate', () => {
-      expect(transitRateLine(0.0025)).toBe('12');
+    it('should return "11" for a 0.25% transit rate', () => {
+      expect(transitRateLine(0.0025)).toBe('11');
     });
 
     it('returns null for an unrecognized transit rate', () => {

@@ -32,22 +32,24 @@ const RATE_LINE_LABEL: Record<number, string> = {
   4: "Gen. State Rate 4.75%",
   5: "3% State Rate",
   6: "Modular & Mfg. Homes",
-  8: "2% Food Rate",
-  9: "2% County Rate",
-  10: "2.25% County Rate",
-  11: ".5% Transit County Rate",
-  12: ".25% Transit County Rate",
+  7: "2% Food Rate",
+  8: "2% County Rate",
+  9: "2.25% County Rate",
+  10: ".5% Transit County Rate",
+  11: ".25% Transit County Rate",
+  12: "1% Additional County Rate",
 };
 
 const RATE_LINE_RATE_DISPLAY: Record<number, string> = {
   4: "4.75%",
   5: "3%",
   6: "—",
+  7: "2%",
   8: "2%",
-  9: "2%",
-  10: "2.25%",
-  11: "0.5%",
-  12: "0.25%",
+  9: "2.25%",
+  10: "0.5%",
+  11: "0.25%",
+  12: "1%",
 };
 
 function num(v: number | string | null | undefined): number {

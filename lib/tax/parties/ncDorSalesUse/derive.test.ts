@@ -16,12 +16,12 @@ const RATE_MAP: Record<string, number> = {
   nc_sales_line_4: 0.0475,
   nc_sales_line_5: 0.03,
   nc_sales_line_6: 0.0475,
-  nc_sales_line_7: 0.0475,
+  nc_sales_line_7: 0.02,
   nc_sales_line_8: 0.02,
-  nc_sales_line_9: 0.02,
-  nc_sales_line_10: 0.0225,
-  nc_sales_line_11: 0.005,
-  nc_sales_line_12: 0.0025,
+  nc_sales_line_9: 0.0225,
+  nc_sales_line_10: 0.005,
+  nc_sales_line_11: 0.0025,
+  nc_sales_line_12: 0.01,
   nc_local_WAKE: 0.02,
   nc_transit_WAKE: 0.005,
   nc_local_MECKLENBURG: 0.02,
@@ -60,8 +60,8 @@ describe("computeDependentTotals", () => {
   it("flows manual penalty/interest/credit into line21", () => {
     const totals = computeDependentTotals({
       line4_tax: 4750,
-      line9_tax: 2000,
-      line11_tax: 500,
+      line8_tax: 2000,
+      line10_tax: 500,
       line16_penalty: 100,
       line17_interest: 25,
       line18_less_prepay: 200,
@@ -81,7 +81,7 @@ describe("deriveNcDorFigures — rateMap is required and must be honored", () =>
     ).fields;
     const f = deriveNcDorFigures({ ...base }, {});
     expect(f.line4_tax).toBe(0);
-    expect(f.line9_tax).toBe(0);
+    expect(f.line8_tax).toBe(0);
     expect(f.line13_total).toBe(0);
   });
 });
@@ -89,7 +89,7 @@ describe("deriveNcDorFigures — rateMap is required and must be honored", () =>
 // The realistic flow: initial Square compute (purchases 0) → the user enters a
 // manual `lineN_purchases` → the shared derivation re-derives tax + totals.
 describe("deriveNcDorFigures — purchases for use flow into line tax", () => {
-  it("single county Wake: line9_purchases flows into line9_tax, county row, line13 & line21", () => {
+  it("single county Wake: line8_purchases flows into line8_tax, county row, line13 & line21", () => {
     const base = computeNcDorFigures(
       {
         taxableBaseCents: 100000,
@@ -99,13 +99,13 @@ describe("deriveNcDorFigures — purchases for use flow into line tax", () => {
       RATE_MAP,
     ).fields;
     // baseline (purchases 0)
-    expect(base.line9_tax).toBe(2000);
+    expect(base.line8_tax).toBe(2000);
     expect(base.line13_total).toBe(7250);
     expect(base.line21_total_due).toBe(7250);
 
-    const f = deriveNcDorFigures({ ...base, line9_purchases: 50000 }, RATE_MAP);
-    // line9_tax = round((50000 + 100000) × 0.02) = 3000
-    expect(f.line9_tax).toBe(3000);
+    const f = deriveNcDorFigures({ ...base, line8_purchases: 50000 }, RATE_MAP);
+    // line8_tax = round((50000 + 100000) × 0.02) = 3000
+    expect(f.line8_tax).toBe(3000);
     // page-2 county row reconciles to the page-1 line, purchases included
     expect(f.county_WAKE_2pct).toBe(3000);
     // +1000 vs the no-purchases case flows through line13 and line21
@@ -113,7 +113,7 @@ describe("deriveNcDorFigures — purchases for use flow into line tax", () => {
     expect(f.line21_total_due).toBe(8250);
     // untouched lines unchanged
     expect(f.line4_tax).toBe(4750);
-    expect(f.line11_tax).toBe(500);
+    expect(f.line10_tax).toBe(500);
   });
 
   it("state line 4: line4_purchases flows into line4_tax and the totals", () => {
@@ -135,9 +135,9 @@ describe("deriveNcDorFigures — purchases for use flow into line tax", () => {
     expect(f.line21_total_due).toBe(7250 + 475);
   });
 
-  it("multi-county (Wake 50 / Durham 50): line9_purchases splits across the 2%-counties by weight; county rows reconcile", () => {
-    // Two counties on DIFFERENT local lines (Wake→9, Durham→10). Add a third
-    // 2%-county (Mecklenburg) so line 9 has two members and the split matters.
+  it("multi-county (Wake 50 / Durham 50): line8_purchases splits across the 2%-counties by weight; county rows reconcile", () => {
+    // Two counties on DIFFERENT local lines ((Wake→8, Durham→9)). Add a third
+    // 2%-county (Mecklenburg) so line 8 has two members and the split matters.
     const base = computeNcDorFigures(
       {
         taxableBaseCents: 100000,
@@ -149,17 +149,17 @@ describe("deriveNcDorFigures — purchases for use flow into line tax", () => {
       },
       RATE_MAP,
     ).fields;
-    // both 2% local → both on line 9, each receipts 50000
-    expect(base.line9_tax).toBe(2000);
+    // both 2% local → both on line 8, each receipts 50000
+    expect(base.line8_tax).toBe(2000);
 
-    const f = deriveNcDorFigures({ ...base, line9_purchases: 40000 }, RATE_MAP);
+    const f = deriveNcDorFigures({ ...base, line8_purchases: 40000 }, RATE_MAP);
     // 40000 split 50/50 → 20000 each. Each county row = round((50000+20000)×0.02) = 1400
     expect(f.county_WAKE_2pct).toBe(1400);
     expect(f.county_MECKLENBURG_2pct).toBe(1400);
-    // line9_tax = sum of the county rows = 2800 = round((100000+40000)×0.02)
-    expect(f.line9_tax).toBe(2800);
-    // reconciliation: Σ county 2pct rows === line9_tax
-    expect(n(f.county_WAKE_2pct) + n(f.county_MECKLENBURG_2pct)).toBe(n(f.line9_tax));
+    // line8_tax = sum of the county rows = 2800 = round((100000+40000)×0.02)
+    expect(f.line8_tax).toBe(2800);
+    // reconciliation: Σ county 2pct rows === line8_tax
+    expect(n(f.county_WAKE_2pct) + n(f.county_MECKLENBURG_2pct)).toBe(n(f.line8_tax));
   });
 
   it("multi-county with an odd purchases split still reconciles Σ county rows === line tax", () => {
@@ -174,10 +174,22 @@ describe("deriveNcDorFigures — purchases for use flow into line tax", () => {
       },
       RATE_MAP,
     ).fields;
-    const f = deriveNcDorFigures({ ...base, line9_purchases: 33333 }, RATE_MAP);
-    expect(n(f.county_WAKE_2pct) + n(f.county_MECKLENBURG_2pct)).toBe(n(f.line9_tax));
-    // transit line 11 (both Wake & Meck are 0.5% transit) still reconciles
-    expect(n(f.county_WAKE_transit) + n(f.county_MECKLENBURG_transit)).toBe(n(f.line11_tax));
+    const f = deriveNcDorFigures({ ...base, line8_purchases: 33333 }, RATE_MAP);
+    expect(n(f.county_WAKE_2pct) + n(f.county_MECKLENBURG_2pct)).toBe(n(f.line8_tax));
+    // transit line 10 (both Wake & Meck are 0.5% transit) still reconciles
+    expect(n(f.county_WAKE_transit) + n(f.county_MECKLENBURG_transit)).toBe(n(f.line10_tax));
+  });
+
+  it("line 12 (1% additional county): receipts stay 0; a manual purchases entry is taxed at 1% into line 13", () => {
+    const base = computeNcDorFigures(
+      { taxableBaseCents: 100000, counties: [{ code: "WAKE", weight: 100 }], collectedGeneralTaxCents: 7250 },
+      RATE_MAP,
+    ).fields;
+    expect(base.line12_receipts).toBe(0);
+    expect(base.line12_tax).toBe(0);
+    const f = deriveNcDorFigures({ ...base, line12_purchases: 10000 }, RATE_MAP);
+    expect(f.line12_tax).toBe(100);
+    expect(f.line13_total).toBe(7350);
   });
 
   it("purchases = 0 is a pure pass-through of the initial compute (regression)", () => {

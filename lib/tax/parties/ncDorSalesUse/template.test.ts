@@ -11,12 +11,12 @@ const RATE_MAP: Record<string, number> = {
   nc_sales_line_4: 0.0475,
   nc_sales_line_5: 0.03,
   nc_sales_line_6: 0.0475,
-  nc_sales_line_7: 0.0475,
+  nc_sales_line_7: 0.02,
   nc_sales_line_8: 0.02,
-  nc_sales_line_9: 0.02,
-  nc_sales_line_10: 0.0225,
-  nc_sales_line_11: 0.005,
-  nc_sales_line_12: 0.0025,
+  nc_sales_line_9: 0.0225,
+  nc_sales_line_10: 0.005,
+  nc_sales_line_11: 0.0025,
+  nc_sales_line_12: 0.01,
   nc_local_WAKE: 0.02,
   nc_transit_WAKE: 0.005,
 };
@@ -76,10 +76,10 @@ describe("resolveFieldOwnership", () => {
     ["line19_prepay_next", "manual"],
     ["line20_credit", "manual"],
     ["line20_credit_explanation", "manual"],
-    ["line9_receipts", "computed"],
-    ["line9_tax", "computed"],
-    ["line9_purchases", "manual"],
-    ["line12_tax", "computed"],
+    ["line8_receipts", "computed"],
+    ["line8_tax", "computed"],
+    ["line8_purchases", "manual"],
+    ["line11_tax", "computed"],
     ["county_WAKE_2pct", "computed"],
     ["county_DURHAM_transit", "computed"],
     ["county_MECKLENBURG_225pct", "computed"],
@@ -121,7 +121,7 @@ describe("ncDorSalesUseTemplate.mergeWorksheet", () => {
     expect(merged.fields.line1_gross_receipts).toBe(100000); // computed -> overwritten
     expect(merged.fields.line16_penalty).toBe(250); // manual -> preserved
     expect(merged.fields.line4_tax).toBe(4750); // computed -> re-derived
-    expect(merged.fields.line9_tax).toBe(2000);
+    expect(merged.fields.line8_tax).toBe(2000);
     expect(merged.fields.line13_total).toBe(7250);
     expect(merged.fields.line21_total_due).toBe(7500); // 7250 + manual 250 penalty
     expect(merged.warnings).toEqual(["reconciliation note"]);
@@ -138,13 +138,13 @@ describe("ncDorSalesUseTemplate.mergeWorksheet", () => {
       RATE_MAP,
     );
     const recomputed: WorksheetData = { fields: base.fields };
-    // The user had entered a Purchases-for-Use on line 9 before recomputing.
-    const current: WorksheetData = { fields: { ...base.fields, line9_purchases: 50000 } };
+    // The user had entered a Purchases-for-Use on line 8 before recomputing.
+    const current: WorksheetData = { fields: { ...base.fields, line8_purchases: 50000 } };
 
     const merged = ncDorSalesUseTemplate.mergeWorksheet(current, recomputed, RATE_MAP);
 
-    expect(merged.fields.line9_purchases).toBe(50000); // manual -> preserved
-    expect(merged.fields.line9_tax).toBe(3000); // round((50000+100000)×0.02)
+    expect(merged.fields.line8_purchases).toBe(50000); // manual -> preserved
+    expect(merged.fields.line8_tax).toBe(3000); // round((50000+100000)×0.02)
     expect(merged.fields.county_WAKE_2pct).toBe(3000); // reconciles
     expect(merged.fields.line13_total).toBe(8250);
     expect(merged.fields.line21_total_due).toBe(8250);
