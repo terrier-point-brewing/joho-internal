@@ -16,24 +16,26 @@ describe("legacy role <-> scoped permission equivalence", () => {
   // migration, plus 23 from the 2026-07-28 scope restructure, plus the
   // phantom-alerts GET lowered to taproomPerformanceRead the same day (brewer
   // and viewer both gain a read they were wrongly 403'd out of). Of the 23: 19 tax routes manager no longer reaches (their tax grant
-  // was unreachable and was removed), 4 Square-mapping routes that moved to the
-  // shared `catalog` scope, and the excise-rates row, which already carried a
+  // was unreachable and was removed), and the excise-rates row, which already carried a
   // change and gained `manager: false`. The tips-passthrough row added by #284
   // is NOT among them: raising POST payroll/gl-reports/backfill from
   // payrollOperate to payrollManage put it back on the legacy default, so its
   // intentionalChange was dropped rather than inverted. The two
   // tip-exclusions rows (PUT/DELETE, 2026-10-19) carry the same change as the
   // shift-overrides row they sit beside: manager gains a new payrollDayOverride
-  // route.
+  // route. The 4 Square-mapping routes that moved to the shared `catalog`
+  // scope were among the 23 until 2026-11-09, when manager was granted
+  // catalog:operate and they went back to their legacy answer, so their
+  // intentionalChange rows were dropped (59 -> 55).
   //
   // This count is the whole point of the fixture: a bundle edit that moves any
   // (route, role) answer WITHOUT a recorded reason fails here rather than
   // shipping as silent drift.
-  it("fixture has exactly 216 rows, 59 with an intentional change, every reason non-empty", () => {
+  it("fixture has exactly 216 rows, 55 with an intentional change, every reason non-empty", () => {
     expect(LEGACY_MATRIX).toHaveLength(216);
 
     const changed = LEGACY_MATRIX.filter((row) => row.intentionalChange);
-    expect(changed).toHaveLength(59);
+    expect(changed).toHaveLength(55);
 
     for (const row of changed) {
       expect(row.intentionalChange!.reason.trim().length).toBeGreaterThan(0);

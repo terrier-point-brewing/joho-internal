@@ -127,6 +127,42 @@ export default function DraftStatsHelp({
           note="Only works before the restock is rung. Nothing has moved yet, so there is nothing else to undo."
         />
 
+        {/* A new beer crosses two jobs. Named here so nobody waits on the other. */}
+        <section className="rounded-lg border border-line bg-surface/40 p-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Btn>New recipe</Btn>
+            <p className="text-sm font-medium text-strong">A beer we haven&rsquo;t sold before is going on tap</p>
+          </div>
+          <p className="mt-2 text-sm text-body leading-relaxed">
+            The brewer makes the recipe and the stock. The taproom manager makes it sellable. Until both are done the
+            beer cannot be set on a tap.
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-md border border-line/60 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Brewer</p>
+              <ol className="mt-2 ml-5 list-decimal space-y-1.5 text-sm text-body leading-relaxed marker:text-faint">
+                <li>Create the recipe in Production, with its keg sizes.</li>
+                <li>Brew and package it so kegs are in stock.</li>
+              </ol>
+            </div>
+            <div className="rounded-md border border-line/60 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Taproom manager</p>
+              <ol className="mt-2 ml-5 list-decimal space-y-1.5 text-sm text-body leading-relaxed marker:text-faint">
+                <li>In Square, add the beer&rsquo;s draft item and its keg variations.</li>
+                <li>
+                  Open <span className="font-medium">Settings &rsaquo; Catalog</span>, find the recipe, and link each
+                  packaging to its Square item. Accept the suggestion if it is right.
+                </li>
+                <li>Come back here and <Btn>Set beer</Btn> or <Btn>Swap beer</Btn> as usual.</li>
+              </ol>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-muted leading-relaxed">
+            Without the Square link the keg cannot be booked or recounted when Draft Restock is rung. Reach the
+            taproom manager, not the brewer, if a new beer is missing from a tap&rsquo;s picker.
+          </p>
+        </section>
+
         {/* Hidden from whoever can't do it — nothing to ask an admin for. */}
         {canSetUpTaps && (
           <section className="rounded-lg border border-dashed border-line-strong p-4">

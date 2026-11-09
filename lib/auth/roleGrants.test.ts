@@ -79,15 +79,16 @@ describe("ROLE_BUNDLES", () => {
     expect(effectiveLevel(ROLE_BUNDLES.manager, "finance.tax.pii")).toBeNull();
   });
 
-  it("grants manager no manage anywhere, and no catalog", () => {
-    // The settings hub shows a subtab only at `manage`, so "manager holds no
-    // manage" IS the mechanism that keeps the hub empty for them. Restoring
-    // any of it should be a grant edit, not a code change — if this test
-    // fails, check that was deliberate.
+  it("grants manager no manage anywhere, and catalog at operate", () => {
+    // Manager holds no `manage`: the only settings group they reach is
+    // Catalog, which gates on catalog:read. Square Item Mappings is theirs
+    // because keeping Square and the app catalog in step for a new beer is
+    // the taproom manager's job — but "Refresh from Square" stays behind
+    // finance.transactions:manage, so `operate` is the ceiling here.
     for (const level of Object.values(ROLE_BUNDLES.manager)) {
       expect(["read", "operate"]).toContain(level);
     }
-    expect(effectiveLevel(ROLE_BUNDLES.manager, "catalog")).toBeNull();
+    expect(effectiveLevel(ROLE_BUNDLES.manager, "catalog")).toBe("operate");
   });
 
   it("brewer's finance.tax.filing leaf confers nothing else in finance", () => {

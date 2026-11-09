@@ -9,7 +9,7 @@ export default function SquareMappingsPage() {
     <div className="px-4 sm:px-6">
       <SettingsHeader
         title="Square Item Mappings"
-        description="Which Square catalog item each recipe and package format sells as."
+        description="Which Square catalog item each recipe and package format sells as. Tap a row to change it."
       />
       <div className="pb-4 sm:pb-6">
         <SquareMappingsPanel />

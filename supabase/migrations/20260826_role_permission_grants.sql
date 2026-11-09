@@ -47,6 +47,7 @@ insert into role_permission_grants (role, scope, level) values
   ('manager', 'production.export',      'read'),
   ('manager', 'production.partners',    'read'),
   ('manager', 'production.settings',    'operate'),
+  ('manager', 'catalog',                'operate'),
 
   ('brewer',  'taproom.access',         'read'),
   ('brewer',  'taproom.performance',    'read'),
