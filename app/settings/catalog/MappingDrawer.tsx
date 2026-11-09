@@ -209,7 +209,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
       />
 
       {/* Drawer panel */}
-      <div className="fixed inset-y-0 right-0 z-40 w-[400px] bg-canvas border-l border-line shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 right-0 z-40 w-full sm:w-[400px] bg-canvas border-l border-line shadow-2xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <div>
@@ -220,7 +220,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            className="text-muted hover:text-strong transition-colors text-lg leading-none"
+            className="-mr-2 p-2 text-muted hover:text-strong transition-colors text-xl leading-none"
             aria-label="Close drawer"
           >
             ×
@@ -243,7 +243,7 @@ export default function MappingDrawer({ recipeId, colKey, onClose }: Props) {
                 {isLinked ? (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between rounded-lg border border-success-border/40 bg-success-surface/20 px-3 py-2">
-                      <span className="text-xs text-success">✓ {v.linkedSquareName}</span>
+                      <span className="text-xs text-success break-words min-w-0">✓ {v.linkedSquareName}</span>
                       <button
                         onClick={() => handleRemove(v)}
                         disabled={isBusy}

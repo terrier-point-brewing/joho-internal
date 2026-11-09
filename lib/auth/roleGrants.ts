@@ -25,12 +25,16 @@ export const ROLE_BUNDLES: Record<UserRole, ScopeGrants> = {
     "production.access": "read",
     "production.export": "read", "production.partners": "read",
     "production.settings": "operate",
-    // No finance key of any kind, and no `catalog` key. The tax grant that
-    // used to sit here was unreachable — every tax screen lives under
-    // /finance, which manager cannot enter — so it was removed rather than
-    // made real. Manager holds no `manage` anywhere, which is what keeps the
-    // settings hub empty for them; restoring any of this is a grant edit, not
-    // a code change.
+    // Square Item Mappings. When a new beer is brewed, keeping Square and the
+    // app catalog in step is the taproom manager's job, not the brewer's —
+    // so manager can read and edit mappings. `operate`, not `manage`:
+    // "Refresh from Square" stays behind finance.transactions:manage.
+    catalog: "operate",
+    // No finance key of any kind. The tax grant that used to sit here was
+    // unreachable — every tax screen lives under /finance, which manager
+    // cannot enter — so it was removed rather than made real. Manager holds
+    // no `manage` anywhere; restoring any of this is a grant edit, not a code
+    // change.
   },
 
   brewer: {

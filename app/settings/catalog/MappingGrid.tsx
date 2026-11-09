@@ -206,12 +206,95 @@ export default function MappingGrid({
     invalidateSquareMappings(qc);
   }
 
+
+  // One chip per packaging variation — the same drawing in the table cell and
+  // the phone card.
+  function renderChip(row: MappingGridRow, col: MappingColumn, v: MappingCellVariation, multi: boolean) {
+    const isLinked = !!v.linkId;
+    const isHighConf = !isLinked && v.suggestion?.confidence === "high";
+    const isMedConf = !isLinked && v.suggestion?.confidence === "medium";
+    const label = multi ? varLabel(v.variationName, col.label) : null;
+
+    if (isLinked) {
+      const squareName = v.linkedSquareName || v.variationName;
+      return (
+        <span
+          key={v.variationId}
+          className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-success-surface/30 border border-success-border/50 text-success break-words leading-4"
+          title={squareName}
+        >
+          {label && (
+            <span className="text-success mr-0.5">{label}:</span>
+          )}
+          ✓ {squareName}
+        </span>
+      );
+    }
+
+    if (isHighConf || isMedConf) {
+      const squareName = v.suggestion!.squareName;
+      const chipColor = isHighConf
+        ? "border-info-border/50 text-info"
+        : "border-accent-border/40 text-accent";
+      const labelColor = isHighConf ? "text-info" : "text-accent-emphasis";
+      const sparkColor = isHighConf ? "text-info" : "text-accent-emphasis";
+      return (
+        <span
+          key={v.variationId}
+          className={`inline-flex items-start gap-1.5 px-1.5 py-0.5 rounded text-[10px] border break-words leading-4 ${chipColor}`}
+          title={squareName}
+        >
+          <span className="flex-1 min-w-0">
+            {label && (
+              <span className={`block text-[9px] mb-0.5 ${labelColor}`}>{label}</span>
+            )}
+            <span>
+              <span className={`opacity-50 mr-0.5 text-[8px] ${sparkColor}`}>✦</span>
+              {squareName}
+            </span>
+          </span>
+          <button
+            data-accept-chip
+            type="button"
+            className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-sm bg-success-surface/50 border border-success-border/60 text-success hover:bg-success-surface/70 transition-colors self-start mt-0.5 text-[9px] leading-none"
+            onClick={(e) => acceptOne(row, col, v, e)}
+            title="Accept this suggestion"
+          >
+            ✓
+          </button>
+        </span>
+      );
+    }
+
+    if (v.ignored) {
+      return (
+        <span
+          key={v.variationId}
+          className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-line text-muted bg-surface-mid/40 break-words leading-4"
+          title="Ignored — no Square mapping needed"
+        >
+          {label ? `${label}: ` : ""}Ignored
+        </span>
+      );
+    }
+
+    // Unmapped, no suggestion — red chip to flag missing mapping
+    return (
+      <span
+        key={v.variationId}
+        className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-danger-border/40 text-danger bg-danger-surface/10 break-words leading-4"
+      >
+        {label ? `${label}: —` : "—"}
+      </span>
+    );
+  }
+
   const syncedLabel = syncedAgo(data.catalogSyncedAt);
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search recipes…" />
           {canSyncCatalog && (
             <button onClick={refreshFromSquare} disabled={syncing} className="btn-secondary">
@@ -237,7 +320,7 @@ export default function MappingGrid({
       )}
 
       {totalHigh > 0 && (
-        <div className="mb-3 flex items-center justify-between rounded-lg border border-info-border/40 bg-info-surface/20 px-4 py-2.5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-info-border/40 bg-info-surface/20 px-4 py-2.5">
           <span className="text-sm text-info">
             {totalHigh} high-confidence suggestion{totalHigh !== 1 ? "s" : ""} ready to accept
           </span>
@@ -250,7 +333,53 @@ export default function MappingGrid({
         </div>
       )}
 
-      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-140px)] rounded-lg border border-line">
+      {/* Phones: one card per recipe, one row per packaging. A 5-column sticky
+          grid at 180px a column is unreadable at 390px wide, so the table only
+          renders from md up. Same chips, same drawer. */}
+      <div className="md:hidden space-y-4">
+        {visibleRows.map((row, i) => {
+          const showHeader = i === 0 || row.recipePartnerName !== visibleRows[i - 1].recipePartnerName;
+          return (
+            <div key={row.recipeId}>
+              {showHeader && (
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-faint">
+                  {row.recipePartnerName ?? "House"}
+                </p>
+              )}
+              <div className="rounded-lg border border-line bg-surface/40 overflow-hidden">
+                <p className="px-3 py-2 text-sm font-medium text-strong border-b border-line/40">{row.recipeName}</p>
+                <ul className="divide-y divide-line/40">
+                  {columns.map((col) => {
+                    const cell = row.cells[col.key];
+                    if (cell === null) return null;
+                    const multi = cell.variations.length > 1;
+                    return (
+                      <li key={col.key}>
+                        <button
+                          type="button"
+                          onClick={() => onCellClick(row.recipeId, col.key)}
+                          className="flex w-full items-start gap-3 px-3 py-2.5 text-left active:bg-surface/60"
+                        >
+                          <span className="w-20 shrink-0 pt-0.5 text-xs text-secondary">{col.label}</span>
+                          <span className="flex min-w-0 flex-1 flex-col gap-1">
+                            {cell.variations.map((v) => renderChip(row, col, v, multi))}
+                          </span>
+                          <span className="pt-0.5 text-muted" aria-hidden="true">›</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </div>
+          );
+        })}
+        {visibleRows.length === 0 && (
+          <p className="py-8 text-center text-sm text-muted">No recipes match.</p>
+        )}
+      </div>
+
+      <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-140px)] rounded-lg border border-line">
         <table className="text-xs border-collapse" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
           <colgroup>
             <col style={{ width: 200 }} />
@@ -327,85 +456,7 @@ export default function MappingGrid({
                         onClick={() => onCellClick(row.recipeId, col.key)}
                       >
                         <div className="flex flex-col gap-1">
-                          {cell.variations.map((v) => {
-                            const isLinked = !!v.linkId;
-                            const isHighConf = !isLinked && v.suggestion?.confidence === "high";
-                            const isMedConf = !isLinked && v.suggestion?.confidence === "medium";
-                            const label = multi ? varLabel(v.variationName, col.label) : null;
-
-                            if (isLinked) {
-                              const squareName = v.linkedSquareName || v.variationName;
-                              return (
-                                <span
-                                  key={v.variationId}
-                                  className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-success-surface/30 border border-success-border/50 text-success break-words leading-4"
-                                  title={squareName}
-                                >
-                                  {label && (
-                                    <span className="text-success mr-0.5">{label}:</span>
-                                  )}
-                                  ✓ {squareName}
-                                </span>
-                              );
-                            }
-
-                            if (isHighConf || isMedConf) {
-                              const squareName = v.suggestion!.squareName;
-                              const chipColor = isHighConf
-                                ? "border-info-border/50 text-info"
-                                : "border-accent-border/40 text-accent";
-                              const labelColor = isHighConf ? "text-info" : "text-accent-emphasis";
-                              const sparkColor = isHighConf ? "text-info" : "text-accent-emphasis";
-                              return (
-                                <span
-                                  key={v.variationId}
-                                  className={`inline-flex items-start gap-1.5 px-1.5 py-0.5 rounded text-[10px] border break-words leading-4 ${chipColor}`}
-                                  title={squareName}
-                                >
-                                  <span className="flex-1 min-w-0">
-                                    {label && (
-                                      <span className={`block text-[9px] mb-0.5 ${labelColor}`}>{label}</span>
-                                    )}
-                                    <span>
-                                      <span className={`opacity-50 mr-0.5 text-[8px] ${sparkColor}`}>✦</span>
-                                      {squareName}
-                                    </span>
-                                  </span>
-                                  <button
-                                    data-accept-chip
-                                    type="button"
-                                    className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-sm bg-success-surface/50 border border-success-border/60 text-success hover:bg-success-surface/70 transition-colors self-start mt-0.5 text-[9px] leading-none"
-                                    onClick={(e) => acceptOne(row, col, v, e)}
-                                    title="Accept this suggestion"
-                                  >
-                                    ✓
-                                  </button>
-                                </span>
-                              );
-                            }
-
-                            if (v.ignored) {
-                              return (
-                                <span
-                                  key={v.variationId}
-                                  className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-line text-muted bg-surface-mid/40 break-words leading-4"
-                                  title="Ignored — no Square mapping needed"
-                                >
-                                  {label ? `${label}: ` : ""}Ignored
-                                </span>
-                              );
-                            }
-
-                            // Unmapped, no suggestion — red chip to flag missing mapping
-                            return (
-                              <span
-                                key={v.variationId}
-                                className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-danger-border/40 text-danger bg-danger-surface/10 break-words leading-4"
-                              >
-                                {label ? `${label}: —` : "—"}
-                              </span>
-                            );
-                          })}
+                          {cell.variations.map((v) => renderChip(row, col, v, multi))}
                         </div>
                       </td>
                     );
