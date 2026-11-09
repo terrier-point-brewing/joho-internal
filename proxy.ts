@@ -65,7 +65,7 @@ export async function proxy(request: NextRequest) {
   if (user && user.app_metadata?.portal_partner === true) {
     if (!partnerMayReach(pathname)) {
       return pathname.startsWith("/api/")
-        ? new NextResponse("Forbidden", { status: 403 })
+        ? NextResponse.json({ error: "Forbidden" }, { status: 403 })
         : NextResponse.redirect(new URL("/partner", request.url));
     }
     return response;

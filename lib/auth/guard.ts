@@ -12,11 +12,13 @@ export async function requirePermission(cap: Capability): Promise<Session> {
   const session = await getSessionUser();
 
   if (!session) {
-    throw new Response("Unauthorized", { status: 401 });
+    throw Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   if (!can(session.grants, cap.scope, cap.level)) {
-    throw new Response("Forbidden", { status: 403 });
+    // JSON, not bare text: every caller does `(await res.json()).error`, and a
+    // text body surfaces as "Unexpected token 'F'" instead of the real reason.
+    throw Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
   return session;
