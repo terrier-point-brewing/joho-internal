@@ -6,8 +6,7 @@ import { planTransform, type PhantomTransformPlan } from "@/lib/production/phant
 /**
  * Phantom-export alerts: taproom bookings that carried barrel excise with no
  * cold-storage stock to deduct. Each open alert is an `export_transactions` row
- * with `is_phantom = true` and `alert_acknowledged_at IS NULL`; the daily digest
- * additionally filters on `alert_emailed_at IS NULL`.
+ * with `is_phantom = true` and `alert_acknowledged_at IS NULL`.
  *
  * NOT all of these are draft swaps, and this module used to assume they were.
  * `recordTaproomConsumption` books draft swaps, keg sales and can sales through
@@ -129,20 +128,16 @@ interface ColdStorageLotRow {
   } | null;
 }
 
-async function fetchPhantomAlerts(
-  supabase: SupabaseClient,
-  opts: { unemailedOnly: boolean },
-): Promise<PhantomAlert[]> {
-  let query = supabase
+/** Open, unacknowledged phantom alerts (the in-app list). */
+export async function fetchOpenPhantomAlerts(supabase: SupabaseClient): Promise<PhantomAlert[]> {
+  const { data, error } = await supabase
     .from("export_transactions")
     .select(
       "id, recipe_id, packaging_item_id, packaging_format, variant_label, quantity, volume_bbl, total_excise_tax_usd, created_at, phantom_origin, recipes(beer_name)",
     )
     .eq("is_phantom", true)
-    .is("alert_acknowledged_at", null);
-  if (opts.unemailedOnly) query = query.is("alert_emailed_at", null);
-
-  const { data, error } = await query.order("created_at", { ascending: true });
+    .is("alert_acknowledged_at", null)
+    .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as unknown as PhantomTxRow[];
@@ -244,16 +239,6 @@ async function resolveTapNumber(
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as unknown as { tap_number: number | null }[];
   return rows.length > 0 ? rows[0].tap_number ?? null : null;
-}
-
-/** Open, unacknowledged phantom alerts (the in-app list). */
-export async function fetchOpenPhantomAlerts(supabase: SupabaseClient): Promise<PhantomAlert[]> {
-  return fetchPhantomAlerts(supabase, { unemailedOnly: false });
-}
-
-/** Open, unacknowledged AND not-yet-emailed phantom alerts (the daily digest). */
-export async function fetchUnemailedPhantomAlerts(supabase: SupabaseClient): Promise<PhantomAlert[]> {
-  return fetchPhantomAlerts(supabase, { unemailedOnly: true });
 }
 
 /**
@@ -370,17 +355,4 @@ async function fetchTargetVariation(
   const row = ((data ?? []) as { id: string; name: string; total_volume_fl_oz: number | null }[])[0];
   if (!row || row.total_volume_fl_oz == null) return null;
   return { id: row.id, name: row.name ?? "", volumeFlOz: Number(row.total_volume_fl_oz) };
-}
-
-/** Stamp `alert_emailed_at` on the given phantom export rows (digest dedupe). */
-export async function markPhantomAlertsEmailed(
-  supabase: SupabaseClient,
-  ids: string[],
-): Promise<void> {
-  if (ids.length === 0) return;
-  const { error } = await supabase
-    .from("export_transactions")
-    .update({ alert_emailed_at: new Date().toISOString() })
-    .in("id", ids);
-  if (error) throw new Error(error.message);
 }

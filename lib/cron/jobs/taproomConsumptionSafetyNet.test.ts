@@ -178,12 +178,6 @@ describe("planWindow — a failed night hands its days to the next run", () => {
 // because that is precisely what advances the catch-up anchor past days nobody
 // examined.
 vi.mock("@/lib/production/taproomConsumptionSync", () => ({ runTaproomConsumptionSync: vi.fn() }));
-vi.mock("@/lib/production/phantomExportAlerts", () => ({
-  fetchUnemailedPhantomAlerts: vi.fn(async () => []),
-  markPhantomAlertsEmailed: vi.fn(),
-}));
-vi.mock("@/lib/production/phantomAlertEmail", () => ({ renderPhantomAlertEmail: vi.fn() }));
-vi.mock("@/lib/resend", () => ({ sendEmail: vi.fn(), ADMIN_EMAIL: "admin@example.com" }));
 
 import { runTaproomConsumptionJob } from "./taproomConsumptionSync";
 import { runTaproomConsumptionSync } from "@/lib/production/taproomConsumptionSync";
