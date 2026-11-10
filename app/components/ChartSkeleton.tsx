@@ -1,4 +1,4 @@
-export default function ChartSkeleton({ height = 280 }: { height?: number }) {
+export default function ChartSkeleton({ height = 280 }: { height?: number | string }) {
   return (
     <div
       className="w-full animate-pulse rounded-lg bg-surface/40"

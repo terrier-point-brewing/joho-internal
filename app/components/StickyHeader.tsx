@@ -14,6 +14,10 @@ import { Children, isValidElement, type ReactNode } from "react";
  * reader (the bottom nav already reaches every section). Callers don't
  * change; the component decides what freezes.
  *
+ * In a short viewport (phone in landscape, `short:`) nothing freezes: the
+ * fixed top bar and bottom nav already take 100px of a ~375px screen, and
+ * pinning the title and subtabs on top of that leaves no room to read.
+ *
  * `divider`: a page with no subtab bar underneath its title has nothing to
  * supply the border a TabBar/SubNav row draws for free — pass this so the
  * frozen header still reads as visually distinct from the scrollable
@@ -29,7 +33,7 @@ export default function StickyHeader({ children, divider = false }: { children: 
   return (
     <>
       {areaNav.length > 0 && <div className="pt-2 md:hidden">{areaNav}</div>}
-      <div className={`sticky top-0 z-40 bg-canvas pt-2 sm:pt-8 ${divider ? "pb-4 border-b border-line" : ""}`}>
+      <div className={`sticky short:static top-0 z-40 bg-canvas pt-2 sm:pt-8 short:pt-2 ${divider ? "pb-4 border-b border-line" : ""}`}>
         {frozen}
       </div>
     </>

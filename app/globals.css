@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* `short:` — a viewport too short to afford pinned chrome: a phone held in
+   landscape (≈ 375–430px tall). Used to unpin sticky headers and trim
+   vertical padding so the content pane keeps a usable height. */
+@custom-variant short (@media (max-height: 30rem));
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Design tokens — see docs/UI_STANDARD.md
    Declared in @theme so each token emits bg-, text-, border-, ring- utilities
