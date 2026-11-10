@@ -18,6 +18,8 @@ import RecipeVariationPicker from "./RecipeVariationPicker";
 import ProductCodeInput from "./ProductCodeInput";
 import { baseMapOf, lineageAncestors, lineageDescendants, splitBillAgainstBase } from "@/lib/production/recipeLineage";
 import type { ControlsConfig } from "@/lib/table/types";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 
 interface BrewStepTemplateData {
   id: string;
@@ -103,6 +105,12 @@ function templateToFormLine(t: RecipeBrewActivityTemplate): ActivityFormLine {
 
 export default function RecipesTab() {
   const qc = useQueryClient();
+  const { can } = usePermissions();
+  // Recipe rows and their packaging-variation links are gated by the recipes
+  // routes (recipesOperate); the brew-step templates a recipe carries are
+  // written through /brew-activities, which is a brewing write (brewingOperate).
+  const canOperate = can(CAP.recipesOperate);
+  const canOperateBrewing = can(CAP.brewingOperate);
   const { data: recipes = [] } = useRecipesQuery();
   const { data: ingredients = [] } = useIngredientsQuery();
   const { data: partners = [] } = useContractPartnersQuery();
@@ -278,14 +286,15 @@ export default function RecipesTab() {
       if (!res.ok) throw new Error((await res.json()).error ?? "Error");
       const saved = await res.json();
 
-      // Sync activity templates: delete all existing, re-insert
-      if (editingId) {
+      // Sync activity templates: delete all existing, re-insert. Skipped
+      // without brewingOperate: the route would refuse every call.
+      if (canOperateBrewing && editingId) {
         const existingIds = (recipes.find((r) => r.id === editingId)?.recipe_brew_activity_templates ?? []).map((t) => t.id);
         for (const tid of existingIds) {
           await fetch(`/api/production/brew-activities?id=${tid}`, { method: "DELETE" });
         }
       }
-      for (let i = 0; i < activityLines.length; i++) {
+      for (let i = 0; canOperateBrewing && i < activityLines.length; i++) {
         const al = activityLines[i];
         if (!al.activity.trim()) continue;
         await fetch("/api/production/brew-activities", {
@@ -430,9 +439,11 @@ export default function RecipesTab() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={openNew} className="btn-primary">+ New Recipe</button>
-      </div>
+      {canOperate && (
+        <div className="flex items-center justify-between mb-4">
+          <button onClick={openNew} className="btn-primary">+ New Recipe</button>
+        </div>
+      )}
 
       {recipes.length > 0 && (
         <FilterBar activeCount={activeCount} onClear={reset} className="mb-4">
@@ -589,15 +600,17 @@ export default function RecipesTab() {
                     {/* Actions ride at the top of the panel: on a long recipe the bottom
                       * of the card sits two screens from the name it belongs to. Delete is
                       * pushed to the far edge so it is not a slip away from Clone. */}
-                    <div className="flex items-center gap-3 px-4 py-2.5 border-b border-line bg-surface/30">
-                      <button onClick={() => openEdit(r)} className="btn-secondary">Edit recipe</button>
-                      <button onClick={() => openClone(r)} className="btn-secondary">Clone</button>
-                      <button onClick={() => setManagingFor(r.id)} className="btn-secondary">Manage variations</button>
-                      {baseRecipe && (
-                        <button onClick={() => breakBaseLink(r)} className="btn-secondary">Break link</button>
-                      )}
-                      <button onClick={() => handleDelete(r.id, r.beer_name)} className="btn-danger ml-auto">Delete</button>
-                    </div>
+                    {canOperate && (
+                      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-line bg-surface/30">
+                        <button onClick={() => openEdit(r)} className="btn-secondary">Edit recipe</button>
+                        <button onClick={() => openClone(r)} className="btn-secondary">Clone</button>
+                        <button onClick={() => setManagingFor(r.id)} className="btn-secondary">Manage variations</button>
+                        {baseRecipe && (
+                          <button onClick={() => breakBaseLink(r)} className="btn-secondary">Break link</button>
+                        )}
+                        <button onClick={() => handleDelete(r.id, r.beer_name)} className="btn-danger ml-auto">Delete</button>
+                      </div>
+                    )}
 
                     {/* Two columns from lg up: what the beer is made of on the left, how
                       * it is scheduled and packaged on the right. The old layout stacked
@@ -845,24 +858,30 @@ export default function RecipesTab() {
                                 <span className="flex-1 text-sm text-body leading-snug break-words">
                                   {link.packaging_variations?.name ?? "—"}
                                 </span>
-                                <ProductCodeInput
-                                  link={link}
-                                  showLabel={false}
-                                  onSaved={() => qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations })}
-                                />
-                                <button
-                                  onClick={() => unlinkVariation(link.id)}
-                                  aria-label={`Unlink ${link.packaging_variations?.name ?? "variation"}`}
-                                  title="Unlink"
-                                  className="w-5 text-center text-faint hover:text-danger leading-none"
-                                >
-                                  ×
-                                </button>
+                                {canOperate ? (
+                                  <>
+                                    <ProductCodeInput
+                                      link={link}
+                                      showLabel={false}
+                                      onSaved={() => qc.invalidateQueries({ queryKey: productionKeys.recipePackagingVariations })}
+                                    />
+                                    <button
+                                      onClick={() => unlinkVariation(link.id)}
+                                      aria-label={`Unlink ${link.packaging_variations?.name ?? "variation"}`}
+                                      title="Unlink"
+                                      className="w-5 text-center text-faint hover:text-danger leading-none"
+                                    >
+                                      ×
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-xs text-muted font-mono">{link.product_code ?? "—"}</span>
+                                )}
                               </div>
                             ))}
                           </div>
                         ) : (
-                          <p className="text-xs text-faint">No packaging variations linked yet — use <span className="text-muted">Manage variations</span> above.</p>
+                          <p className="text-xs text-faint">No packaging variations linked yet{canOperate && <> — use <span className="text-muted">Manage variations</span> above</>}.</p>
                         )}
                       </div>
                         );
@@ -1231,10 +1250,12 @@ export default function RecipesTab() {
                       ))}
                     </select>
                   )}
-                  <button type="button" onClick={addActivityLine}
-                    className="btn-secondary">
-                    + Add step
-                  </button>
+                  {canOperateBrewing && (
+                    <button type="button" onClick={addActivityLine}
+                      className="btn-secondary">
+                      + Add step
+                    </button>
+                  )}
                 </div>
               </div>
               <p className="text-xs text-faint mb-2">Copied into each new batch&apos;s log.</p>
@@ -1275,8 +1296,10 @@ export default function RecipesTab() {
                               onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, vsp: e.target.value } : l))} />
                           </td>
                           <td className="px-3 py-1.5 text-center">
-                            <button type="button" onClick={() => removeActivityLine(i)}
-                              className="btn-danger btn-xxs">×</button>
+                            {canOperateBrewing && (
+                              <button type="button" onClick={() => removeActivityLine(i)}
+                                className="btn-danger btn-xxs">×</button>
+                            )}
                           </td>
                         </tr>
                       ))}

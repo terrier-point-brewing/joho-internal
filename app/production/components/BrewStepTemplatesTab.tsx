@@ -6,6 +6,8 @@ import { queryKeys } from "@/lib/query-keys";
 import { Recipe } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import { fetchJson, useRecipesQuery } from "../hooks/queries";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -140,6 +142,7 @@ function TemplateModal({
       const url    = isEdit ? `/api/production/brew-step-templates/${template!.id}` : "/api/production/brew-step-templates";
       const method = isEdit ? "PATCH" : "POST";
 
+      // TODO(auth): route enforces no capability
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -300,6 +303,11 @@ export default function BrewStepTemplatesTab() {
   const { data: recipes = [] } = useRecipesQuery();
 
   const refresh = () => qc.invalidateQueries({ queryKey: queryKeys.production.brewStepTemplates() });
+  const { can } = usePermissions();
+  // "Apply to Recipe" rewrites the recipe's steps through /brew-activities,
+  // a brewingOperate write. Template create/edit/delete hit
+  // /brew-step-templates, which enforces no capability (see TODO(auth)).
+  const canOperateBrewing = can(CAP.brewingOperate);
 
   const [editingTemplate, setEditingTemplate] = useState<BrewStepTemplate | null | "new">(null);
   const [applyingTemplate, setApplyingTemplate] = useState<BrewStepTemplate | null>(null);
@@ -307,6 +315,7 @@ export default function BrewStepTemplatesTab() {
 
   async function handleDelete(t: BrewStepTemplate) {
     if (!confirm(`Delete template "${t.name}"? This cannot be undone.`)) return;
+    // TODO(auth): route enforces no capability
     const res = await fetch(`/api/production/brew-step-templates/${t.id}`, { method: "DELETE" });
     if (!res.ok) {
       alert("Delete failed");
@@ -399,10 +408,12 @@ export default function BrewStepTemplatesTab() {
                         className="btn-secondary">
                         Edit
                       </button>
-                      <button onClick={() => setApplyingTemplate(t)}
-                        className="btn-primary">
-                        Apply to Recipe
-                      </button>
+                      {canOperateBrewing && (
+                        <button onClick={() => setApplyingTemplate(t)}
+                          className="btn-primary">
+                          Apply to Recipe
+                        </button>
+                      )}
                       <button onClick={() => handleDelete(t)}
                         className="btn-danger">
                         Delete

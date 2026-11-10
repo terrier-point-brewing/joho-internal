@@ -36,6 +36,8 @@ import InvoicePreviewModal from "./InvoicePreviewModal";
 import type { HomesForBatch } from "@/lib/production/rehome";
 import HomeSourcePicker, { EMPTY_DRAWS, planPickerDraws, type PickerDraws } from "./HomeSourcePicker";
 import { Modal } from "./shared";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 
 /**
  * Give a stray shipment (over-delivery or old ad-hoc) a home: pick the
@@ -398,7 +400,7 @@ function ShipmentRows({ shipments, onOpenInvoice, onRehome }: { shipments: Ledge
   );
 }
 
-function CommitmentPanel({ c, onOpenInvoice, onChanged }: { c: LedgerCommitment; onOpenInvoice: (id: string) => void; onChanged: () => void }) {
+function CommitmentPanel({ c, onOpenInvoice, onChanged, canOperate }: { c: LedgerCommitment; onOpenInvoice: (id: string) => void; onChanged: () => void; canOperate: boolean }) {
   return (
     <div className="px-6 py-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="space-y-4">
@@ -426,7 +428,7 @@ function CommitmentPanel({ c, onOpenInvoice, onChanged }: { c: LedgerCommitment;
                           · paid {fmtDate(a.deposit.paid_at)}, amount not recorded
                           {a.deposit.state === "written_off" && " (remaining volume later written off)"}
                         </span>
-                        <RecordPaidAmount allocationId={a.id} onDone={onChanged} />
+                        {canOperate && <RecordPaidAmount allocationId={a.id} onDone={onChanged} />}
                       </>
                     )}
                     {a.deposit.collected_cents > 0 && <span className="text-muted">· {fmtUsd(a.deposit.collected_cents / 100)} collected on export invoices</span>}
@@ -490,6 +492,10 @@ export default function PartnerLedgerTab({ onNavigateToInvoice, focusCommitmentI
   // modal the Shipments tab uses, fed the deal's uninvoiced shipment ids.
   const scrolledToFocus = React.useRef(false);
   const [invoiceFor, setInvoiceFor] = useState<string[] | null>(null);
+  const { can } = usePermissions();
+  // Generate invoice, Record amount and Give it a home are all
+  // production.export:operate routes; readers see the ledger only.
+  const canOperate = can(CAP.exportOperate);
   const [rehome, setRehome] = useState<{ partner: LedgerPartner; shipment: LedgerShipment } | null>(null);
 
   // One flat list, then grouped by partner for the header rows — so every
@@ -641,7 +647,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice, focusCommitmentI
                                     <span className={c.totals.export_paid_cents >= c.totals.export_billed_cents ? "text-success" : "text-body"}>{fmtUsd(c.totals.export_paid_cents / 100)}</span>
                                     {c.totals.export_billed_cents > c.totals.export_paid_cents && <span className="text-muted"> of {fmtUsd(c.totals.export_billed_cents / 100)}</span>}
                                   </div>
-                                  {(c.totals.uninvoiced_transaction_ids?.length ?? 0) > 0
+                                  {canOperate && (c.totals.uninvoiced_transaction_ids?.length ?? 0) > 0
                                     ? (
                                       <button type="button" className="btn-primary btn-xxs mt-0.5"
                                         onClick={(e) => { e.stopPropagation(); setInvoiceFor(c.totals.uninvoiced_transaction_ids ?? []); }}>
@@ -656,7 +662,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice, focusCommitmentI
                         </tr>
                         {open && (
                           <tr className="border-b border-line bg-surface/20">
-                            <td colSpan={COLUMNS} className="p-0"><CommitmentPanel c={c} onOpenInvoice={onNavigateToInvoice} onChanged={refresh} /></td>
+                            <td colSpan={COLUMNS} className="p-0"><CommitmentPanel c={c} onOpenInvoice={onNavigateToInvoice} onChanged={refresh} canOperate={canOperate} /></td>
                           </tr>
                         )}
                       </React.Fragment>
@@ -669,7 +675,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice, focusCommitmentI
                           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--cat-amber-fg)]">
                             Shipped without a commitment <span className="font-normal normal-case tracking-normal text-muted">— {bbl(p.unallocated_bbl)} bbl that needs a home</span>
                           </div>
-                          {p.unallocated_uninvoiced_transaction_ids.length > 0 && (
+                          {canOperate && p.unallocated_uninvoiced_transaction_ids.length > 0 && (
                             <button type="button" className="btn-primary btn-xxs" onClick={() => setInvoiceFor(p.unallocated_uninvoiced_transaction_ids)}>
                               Generate invoice
                             </button>
@@ -678,7 +684,7 @@ export default function PartnerLedgerTab({ onNavigateToInvoice, focusCommitmentI
                         <ShipmentRows
                           shipments={p.unallocated}
                           onOpenInvoice={onNavigateToInvoice}
-                          onRehome={(shipment) => setRehome({ partner: p, shipment })}
+                          onRehome={canOperate ? (shipment) => setRehome({ partner: p, shipment }) : undefined}
                         />
                       </td>
                     </tr>

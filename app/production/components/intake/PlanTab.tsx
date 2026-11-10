@@ -12,6 +12,8 @@ import ButtonGroup from "@/app/components/ButtonGroup";
 import type { Tone } from "@/app/components/ui/tone";
 import type { PlanRow } from "@/lib/production/intakeDemand.server";
 import type { DemandWeek } from "../../lib/demandCalendar";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 
 /**
  * Intake's home: one row per beer, one question — does it need a batch?
@@ -90,10 +92,14 @@ export default function PlanTab({ onSchedule }: { onSchedule: (recipeId: string 
   const [view, setView] = useState<View>("action");
   const [open, setOpen] = useState<string | null>(null);
   const [retiring, setRetiring] = useState<string | null>(null);
+  // Schedule opens the batch form (POST /batches) → brewingOperate.
+  const { can } = usePermissions();
+  const canBrewingOperate = can(CAP.brewingOperate);
 
   async function toggleRetire(row: PlanRow) {
     setRetiring(row.recipe_id);
     try {
+      // TODO(auth): route enforces no capability
       const res = await fetch("/api/production/taproom-recipe-settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -132,7 +138,7 @@ export default function PlanTab({ onSchedule }: { onSchedule: (recipeId: string 
         />
         <div className="flex items-center gap-2">
           <button onClick={() => refetch()} className="btn-secondary">Refresh</button>
-          <button onClick={() => onSchedule(null)} className="btn-primary">+ Schedule batch</button>
+          {canBrewingOperate && <button onClick={() => onSchedule(null)} className="btn-primary">+ Schedule batch</button>}
         </div>
       </div>
 
@@ -179,7 +185,7 @@ export default function PlanTab({ onSchedule }: { onSchedule: (recipeId: string 
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap"><RunsOut row={row} /></td>
                       <td className="px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                        {!row.is_retired && (
+                        {canBrewingOperate && !row.is_retired && (
                           <button onClick={() => onSchedule(row.recipe_id)} className={v.needsBatch ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}>
                             Schedule batch
                           </button>

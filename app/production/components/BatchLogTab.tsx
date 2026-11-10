@@ -91,6 +91,8 @@ const BATCH_EMPTY = {
 export default function BatchLogTab() {
   const { can } = usePermissions();
   const isAdmin = can(CAP.batchDelete);
+  // POST /batches, PATCH /batches/[id] and the schedule/activity writes require brewingOperate.
+  const canOperate = can(CAP.brewingOperate);
   const qc = useQueryClient();
   const { data: batches = [] } = useBatchesQuery();
   const { data: recipes = [] } = useRecipesQuery();
@@ -245,7 +247,7 @@ export default function BatchLogTab() {
             onChange={(v) => setFilter("status", v)}
           />
         </FilterBar>
-        <button onClick={openNew} className="btn-primary ml-auto shrink-0">+ New Batch</button>
+        {canOperate && <button onClick={openNew} className="btn-primary ml-auto shrink-0">+ New Batch</button>}
       </div>
 
       {recipes.length === 0 && (
@@ -295,6 +297,7 @@ export default function BatchLogTab() {
           onComplete={handleComplete}
           onDelete={handleDelete}
           isAdmin={isAdmin}
+          canOperate={canOperate}
           onSort={toggleSort}
           tankTypeById={tankTypeById}
           assignedBatchIds={assignedBatchIds}
@@ -542,6 +545,9 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
     qc.invalidateQueries({ queryKey: queryKeys.production.commitments() }),
   ]);
   const invoice = useDepositInvoiceActions(refresh);
+  // Every allocation write (POST/PATCH/DELETE /allocations, /adjust, /invoice) requires exportOperate.
+  const { can } = usePermissions();
+  const canExportOperate = can(CAP.exportOperate);
   const batchVol = Number(batch.volume_bbl);
   // Always display allocations sorted by allocation % descending.
   const sortedAllocations = [...allocations].sort((a, b) => Number(b.percentage) - Number(a.percentage));
@@ -692,10 +698,10 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold text-secondary uppercase tracking-wide">Who gets this batch</p>
-        <button type="button" onClick={() => setShowAddForm(v => !v)}
+        {canExportOperate && <button type="button" onClick={() => setShowAddForm(v => !v)}
           className="text-xs text-accent-emphasis hover:text-accent transition-colors">
           {showAddForm ? "Cancel" : "+ Add share"}
-        </button>
+        </button>}
       </div>
 
       {/* Stacked allocation bar */}
@@ -820,7 +826,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                         type="number" step="0.1" min="0" max="100"
                         className="inp-sm w-16 text-right tabular-nums"
                         value={pctVal}
-                        readOnly={!!a.invoice_paid_at}
+                        readOnly={!canExportOperate || !!a.invoice_paid_at}
                         title={a.invoice_paid_at ? "Deposit paid — the percentage is locked. Use “Refund part of deposit…” to reduce it." : undefined}
                         onChange={e => setEditingPct(p => ({ ...p, [a.id]: e.target.value }))}
                         onBlur={() => savePct(a)}
@@ -836,7 +842,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                         already billed on an export invoice, so no own invoice.
                         A paid deposit can be partly refunded, on purpose. */}
                     <div className="flex items-center justify-end">
-                      {a.channel === "contract_brewing" && !a.invoice_paid_at && !a.deposit_backcharged_invoice_id && !a.invoice_generated_at && (
+                      {canExportOperate && a.channel === "contract_brewing" && !a.invoice_paid_at && !a.deposit_backcharged_invoice_id && !a.invoice_generated_at && (
                         <button type="button"
                           onClick={() => invoice.openPreview(a)}
                           disabled={invoice.actionLoading === a.id}
@@ -844,7 +850,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                           Generate Invoice
                         </button>
                       )}
-                      {a.channel === "contract_brewing" && !a.invoice_paid_at && !a.deposit_backcharged_invoice_id && a.invoice_generated_at && !a.invoice_sent_at && (
+                      {canExportOperate && a.channel === "contract_brewing" && !a.invoice_paid_at && !a.deposit_backcharged_invoice_id && a.invoice_generated_at && !a.invoice_sent_at && (
                         <button type="button"
                           onClick={() => invoice.send(a.id)}
                           disabled={invoice.actionLoading === a.id}
@@ -852,7 +858,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                           {invoice.actionLoading === a.id ? "Sending…" : "Send Invoice"}
                         </button>
                       )}
-                      {a.channel === "contract_brewing" && a.invoice_paid_at && !a.written_off_at && (
+                      {canExportOperate && a.channel === "contract_brewing" && a.invoice_paid_at && !a.written_off_at && (
                         <button type="button"
                           onClick={() => { setRefundError(null); setRefundAlloc({ allocation: a, newPercentage: Number(a.percentage) }); }}
                           className="btn-secondary btn-xxs whitespace-nowrap">
@@ -861,8 +867,10 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                       )}
                     </div>
                     <AllocationStatusBadge allocation={a} />
-                    <button type="button" onClick={() => handleDelete(a.id, !!a.invoice_paid_at)}
-                      className="btn-danger btn-xxs justify-self-end">✕</button>
+                    {canExportOperate
+                      ? <button type="button" onClick={() => handleDelete(a.id, !!a.invoice_paid_at)}
+                          className="btn-danger btn-xxs justify-self-end">✕</button>
+                      : <span />}
                   </div>
                 </div>
 
@@ -1055,6 +1063,7 @@ function BatchTable({
   onComplete,
   onDelete,
   isAdmin,
+  canOperate,
   onSort,
   tankTypeById,
   assignedBatchIds,
@@ -1071,6 +1080,7 @@ function BatchTable({
   onComplete: (id: string, name: string) => void;
   onDelete: (id: string, name: string) => void;
   isAdmin: boolean;
+  canOperate: boolean;
   onSort: (key: string) => void;
   tankTypeById: Record<string, string>;
   assignedBatchIds: Set<string>;
@@ -1127,8 +1137,8 @@ function BatchTable({
                       </span>
             </>);
             const rowActions = (<>
-                      <button onClick={() => onEdit(b)} className="btn-secondary btn-xxs">Edit</button>
-                      {b.status !== "complete" && (
+                      {canOperate && <button onClick={() => onEdit(b)} className="btn-secondary btn-xxs">Edit</button>}
+                      {canOperate && b.status !== "complete" && (
                         <button onClick={() => onComplete(b.id, b.beer_name)} className="btn-secondary btn-xxs">Complete</button>
                       )}
                       {isAdmin && (

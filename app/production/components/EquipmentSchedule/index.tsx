@@ -26,6 +26,8 @@ import { AddStagePanel } from "./AddStagePanel";
 import { BuildSchedulePanel } from "./BuildSchedulePanel";
 import { SplitPanel } from "./SplitPanel";
 import { ConvertPanel } from "./ConvertPanel";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 
 type ActivePanel =
   | { kind: "none" }
@@ -49,6 +51,10 @@ export function EquipmentScheduleSection({
 }) {
   const qc     = useQueryClient();
   const reload = () => qc.invalidateQueries({ queryKey: productionKeys.batchSchedule });
+  // Every write here (batch-schedule, batch-scheduler/suggest, batch-conversions)
+  // requires brewingOperate; a read-only viewer gets the graph with no controls.
+  const { can } = usePermissions();
+  const canOperate = can(CAP.brewingOperate);
 
   // React Flow's own chrome (canvas, controls, dot grid) is theme-driven: under
   // the brand skin the app can be light, so drive xyflow's colorMode + the dot
@@ -325,6 +331,7 @@ export function EquipmentScheduleSection({
       onConvert,
       onRemove:  removeEntry,
       editing,
+      readOnly:  !canOperate,
     },
   }));
 
@@ -333,7 +340,7 @@ export function EquipmentScheduleSection({
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-semibold text-secondary uppercase tracking-wide">Equipment Schedule</p>
-        <div className="flex gap-3 items-center">
+        {canOperate && <div className="flex gap-3 items-center">
           {batch?.recipe_id && (
             <button type="button" onClick={autoSuggest} disabled={suggesting}
               className="text-xs text-accent hover:text-accent-emphasis disabled:opacity-40 transition-colors">
@@ -345,7 +352,7 @@ export function EquipmentScheduleSection({
             className="text-xs text-muted hover:text-body transition-colors">
             + Add stage
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* ── Planning incomplete alerts ───────────────────────────────────── */}
@@ -360,7 +367,9 @@ export function EquipmentScheduleSection({
       {nodes.length === 0
         ? (
           <div className="mb-3">
-            <GhostFlowChain onBuild={onBuild} />
+            {canOperate
+              ? <GhostFlowChain onBuild={onBuild} />
+              : <p className="text-xs text-faint">No equipment schedule yet.</p>}
           </div>
         )
         : (

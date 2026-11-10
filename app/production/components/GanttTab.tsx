@@ -7,6 +7,8 @@ import {
   startOfToday, subDays,
 } from "date-fns";
 import { Equipment } from "../types";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { useBatchScheduleQuery, useEquipmentQuery, useBatchesQuery, useScheduleConflictsQuery, productionKeys, type ScheduleEntry, type ScheduleConflict } from "../hooks/queries";
 import { BATCH_PALETTE, CATEGORY_FALLBACK_HEX, EQUIPMENT_TYPE_ACCENT_HEX as TYPE_ACCENT } from "../lib/categoryColors";
 
@@ -45,6 +47,9 @@ const DAY_PX_BASE: Record<number, number> = { 14: 48, 30: 28, 90: 12, 180: 7 };
 
 export default function GanttTab() {
   const qc = useQueryClient();
+  const { can } = usePermissions();
+  // PATCH /batch-schedule/[id] requires brewingOperate.
+  const canOperate = can(CAP.brewingOperate);
   const { data: equipment = [] } = useEquipmentQuery();
   const { data: batches = [] } = useBatchesQuery();
   const { data: entries = [] } = useBatchScheduleQuery();
@@ -431,7 +436,7 @@ export default function GanttTab() {
                   )}
                 </div>
                 <div className="flex gap-2 flex-none">
-                  {conflict.suggested_resolution && (
+                  {canOperate && conflict.suggested_resolution && (
                     <button
                       onClick={() => applyConflictFix(conflict)}
                       disabled={resolvingConflict === conflict.id}
