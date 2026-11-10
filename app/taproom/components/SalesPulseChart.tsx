@@ -53,8 +53,8 @@ export default function SalesPulseChart({
   };
 
   return (
-    <ResponsiveContainer width="100%" height={280}>
-      <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" vertical={false} />
         <XAxis
           dataKey="day"
@@ -67,11 +67,11 @@ export default function SalesPulseChart({
           tick={{ fill: "#a1a1aa", fontSize: 11 }}
           axisLine={false}
           tickLine={false}
-          width={44}
+          width={40}
         />
         <Tooltip content={<ChartTooltip metric={chartMetric} />} />
         <Legend
-          wrapperStyle={{ fontSize: 12, color: "#a1a1aa", paddingTop: 8 }}
+          wrapperStyle={{ fontSize: 12, color: "#a1a1aa", paddingTop: 4 }}
           formatter={(value) => <span style={{ color: "#a1a1aa" }}>{value}</span>}
         />
         <Line

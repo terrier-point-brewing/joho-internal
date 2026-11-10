@@ -15,7 +15,7 @@ import type { TaproomLineContribution } from "@/types/reports";
 
 const SalesPulseChart = dynamic(() => import("./SalesPulseChart"), {
   ssr: false,
-  loading: () => <ChartSkeleton height={280} />,
+  loading: () => <ChartSkeleton height="100%" />,
 });
 
 // ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ function CategoryDrill({
   }
 
   return (
-    <div className="bg-canvas border-y border-line/60 px-4 py-3">
+    <div className="bg-canvas border-y border-line/60 px-3 sm:px-4 py-3">
       <div className="text-2xs text-faint uppercase tracking-wider mb-2">
         {DRILL_LABELS[column]} — {rows.length} {rows.length === 1 ? "line" : "lines"}
         {rows.length > shown.length && (
@@ -187,15 +187,15 @@ function CategoryDrill({
 
       {/* Capped height: the drill opens inside the category table, so an
           uncapped list pushes every category below it off the screen. */}
-      <div className="overflow-auto max-h-80">
-        <table className="w-full text-xs min-w-[520px]">
+      <div className="overflow-y-auto max-h-60 sm:max-h-80">
+        <table className="w-full text-xs">
           <thead>
             <tr className="text-2xs text-faint uppercase tracking-wider border-b border-line/60">
               <th className="text-left py-1.5 font-medium">When</th>
               <th className="text-left py-1.5 px-3 font-medium">Item</th>
               <th className="text-right py-1.5 px-3 font-medium">Qty</th>
               {showDiscountNames && <th className="text-left py-1.5 px-3 font-medium">Discount</th>}
-              <th className="text-left py-1.5 px-3 font-medium">Order</th>
+              <th className="text-left py-1.5 px-3 font-medium hidden sm:table-cell">Order</th>
               <th className="text-right py-1.5 pl-3 font-medium">{DRILL_LABELS[column]}</th>
             </tr>
           </thead>
@@ -219,7 +219,7 @@ function CategoryDrill({
                     {c.discountNames.length > 0 ? c.discountNames.join(", ") : <span className="text-disabled">—</span>}
                   </td>
                 )}
-                <td className="py-1.5 px-3 font-mono text-accent">{c.orderId.slice(-8)}</td>
+                <td className="py-1.5 px-3 font-mono text-accent hidden sm:table-cell">{c.orderId.slice(-8)}</td>
                 <td className="py-1.5 pl-3 text-right font-mono text-strong tabular-nums">
                   {formatCurrencyCents(drillValue(column, c), 2)}
                 </td>
@@ -286,12 +286,12 @@ function KpiCard({
       type="button"
       aria-pressed={active}
       onClick={onSelect}
-      className={`text-left bg-surface border rounded-lg p-4 transition-colors ${
+      className={`text-left bg-surface border rounded-lg p-3 sm:p-4 transition-colors ${
         active ? "border-accent-border bg-accent-muted/20" : "border-line hover:border-line-subtle"
       }`}
     >
       <div className={`text-xs mb-1 ${active ? "text-accent-soft" : "text-muted"}`}>{label}</div>
-      <div className="text-base sm:text-xl font-semibold text-primary">
+      <div className="text-lg sm:text-xl font-semibold text-primary leading-tight tabular-nums">
         {current !== null ? formatMetricValue(metric, current) : <span className="text-faint">—</span>}
       </div>
       {change !== null && (
@@ -467,34 +467,42 @@ export default function SalesPulseTab() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
 
       {/* Week selector */}
-      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+      {/* One row on every width: prev | label | next. The label takes the
+          slack so the buttons sit at the edges on a phone and the row never
+          wraps a button under the label. */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <button
           onClick={() => changeWeek(-7)}
-          className="btn-secondary"
+          className="btn-secondary shrink-0"
+          aria-label="Previous week"
         >
-          ‹ Prev
+          ‹ <span className="hidden sm:inline">Prev</span>
         </button>
-        <div className="text-sm font-medium text-strong text-center">
-          {isCurrentWeek ? (
-            <><span className="text-accent text-xs font-medium mr-2">This Week</span>{weekLabel(weekStart)}</>
-          ) : weekLabel(weekStart)}
+        <div className="flex-1 min-w-0 text-sm font-medium text-strong text-center sm:flex-none">
+          {isCurrentWeek && (
+            <span className="text-accent text-xs font-medium block sm:inline sm:mr-2">This Week</span>
+          )}
+          {weekLabel(weekStart)}
         </div>
         <button
           onClick={() => changeWeek(7)}
           disabled={isCurrentWeek}
-          className="btn-secondary"
+          className="btn-secondary shrink-0"
+          aria-label="Next week"
         >
-          Next ›
+          <span className="hidden sm:inline">Next</span> ›
         </button>
-        {loading && <span className="text-xs text-muted ml-2">Loading…</span>}
-        <TimezoneLabel className="w-full sm:w-auto sm:ml-auto" />
+        <div className="flex items-center gap-3 w-full sm:w-auto sm:ml-auto">
+          <TimezoneLabel />
+          {loading && <span className="text-xs text-muted">Loading…</span>}
+        </div>
       </div>
 
       {/* 4 KPI tiles — the selected one is what the chart draws */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
         {KPI_OPTIONS.map(({ value, label }) => (
           <KpiCard
             key={value}
@@ -510,11 +518,15 @@ export default function SalesPulseTab() {
 
       {/* Chart */}
       <div className="bg-surface border border-line rounded-lg p-3 sm:p-5">
-        <div className="text-sm font-medium text-body mb-4">
+        <div className="text-sm font-medium text-body mb-3 sm:mb-4">
           Daily {KPI_OPTIONS.find((o) => o.value === chartMetric)?.label ?? "Performance"}
         </div>
 
-        <SalesPulseChart chartData={chartData} chartMetric={chartMetric} />
+        {/* The wrapper owns the height so the chart can be shorter on a phone
+            and shorter again in landscape, where 280px is most of the screen. */}
+        <div className="h-48 sm:h-64 lg:h-70 short:h-40">
+          <SalesPulseChart chartData={chartData} chartMetric={chartMetric} />
+        </div>
       </div>
 
       {/* Category breakdown */}
@@ -548,12 +560,11 @@ export default function SalesPulseTab() {
 
         {catSource && (
           <>
-            <div className="overflow-x-auto -mx-5 px-5">
+            <div className="overflow-x-auto -mx-3 px-3 sm:-mx-5 sm:px-5">
             <table className="w-full text-sm min-w-[540px]">
               <thead>
                 <tr className="text-xs text-muted uppercase border-b border-line">
-                  <th className="text-left py-2 font-medium w-5" />
-                  <th className="text-left py-2 font-medium">Category</th>
+                  <th className="text-left py-2 font-medium sticky left-0 z-10 bg-surface">Category</th>
                   <th className="text-right py-2 px-3 font-medium">Gross Sales</th>
                   <th className="text-right py-2 px-3 font-medium">Discounts</th>
                   <th className="text-right py-2 px-3 font-medium">Returns</th>
@@ -586,16 +597,13 @@ export default function SalesPulseTab() {
                   return (
                     <Fragment key={cat.id}>
                       <tr className={`border-b ${cat.excluded ? "border-line/30" : "border-line/60"}`}>
+                        {/* Pinned while the row scrolls sideways on a phone, so
+                            the figures never lose their label. */}
                         <td
-                          className="py-2.5 w-5 text-faint text-2xs cursor-pointer"
+                          className={`py-2.5 pr-2 font-medium ${dim} cursor-pointer hover:text-primary sticky left-0 z-10 bg-surface whitespace-nowrap`}
                           onClick={() => toggleDrill(cat.id, "net")}
                         >
-                          {open ? "▾" : "▸"}
-                        </td>
-                        <td
-                          className={`py-2.5 font-medium ${dim} cursor-pointer hover:text-primary`}
-                          onClick={() => toggleDrill(cat.id, "net")}
-                        >
+                          <span className="text-faint text-2xs mr-1.5">{open ? "▾" : "▸"}</span>
                           {cat.label}
                           {cat.excluded && (
                             <span className="ml-2 text-xs font-normal text-disabled italic">excl.</span>
@@ -610,7 +618,7 @@ export default function SalesPulseTab() {
 
                       {open && drill && (
                         <tr>
-                          <td colSpan={7} className="p-0">
+                          <td colSpan={6} className="p-0">
                             <CategoryDrill
                               lines={drillLines}
                               column={drill.column}
@@ -628,8 +636,7 @@ export default function SalesPulseTab() {
               {catNetTotal > 0 && (
                 <tfoot>
                   <tr className="border-t border-line-strong text-strong font-semibold">
-                    <td className="py-2" />
-                    <td className="py-2">Total (included)</td>
+                    <td className="py-2 sticky left-0 z-10 bg-surface whitespace-nowrap">Total (included)</td>
                     <td className="py-2 px-3 text-right font-mono">{formatCurrency(catGrossTotal)}</td>
                     <td className="py-2 px-3 text-right font-mono text-danger/70">
                       {catDiscTotal > 0 ? `(${formatCurrency(catDiscTotal)})` : "—"}
