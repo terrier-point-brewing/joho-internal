@@ -2,22 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { sendEmail, ADMIN_EMAIL } from "@/lib/resend";
+import { sendEmail } from "@/lib/resend";
 import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
-
-async function notifyAdminOfRequest(name: string, email: string, reason: string | null) {
-  await sendEmail(
-    ADMIN_EMAIL,
-    `New account request from ${name}`,
-    `
-      <p><strong>${name}</strong> (${email}) has requested access to TPB Square Reports.</p>
-      ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
-      <p>Log in to review and approve or deny the request.</p>
-    `,
-  );
-}
 
 // Anyone (unauthenticated) can POST a request; only admins can GET/PATCH.
 export async function POST(req: NextRequest) {
@@ -31,9 +19,8 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  notifyAdminOfRequest(name, email, reason ?? null).catch((err) =>
-    console.error("[Resend] Failed to send account request notification:", err)
-  );
+  // Nobody is emailed here. A pending request shows on the Home alert center
+  // and in the morning alert digest until it is approved or denied.
 
   return NextResponse.json({ ok: true }, { status: 201 });
 }

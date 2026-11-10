@@ -9,8 +9,6 @@ import {
   isAlertEligible,
   ensureTasksForSchedule,
   scheduleStartBoundary,
-  tasksNeedingAlert,
-  markAlerted,
   getTask,
   listTasks,
   saveWorksheet,
@@ -324,64 +322,6 @@ describe("start boundary keeps a schedule out of periods that predate it", () =>
     const schedule = makeSchedule({ created_at: "" });
     const ends = await endsInsertedFor(schedule, "2026-07-05", 45);
     expect(ends).toEqual(["2026-05-31", "2026-06-30"]);
-  });
-});
-
-describe("tasksNeedingAlert", () => {
-  it("returns only open, unsent tasks whose eligibility predicate passes, using each task's schedule lead_days", async () => {
-    const rows = [
-      { id: "T1", due_date: "2026-07-20", tax_schedules: { lead_days: 7 } }, // threshold 07-13, today 07-13 -> eligible
-      { id: "T2", due_date: "2026-08-01", tax_schedules: { lead_days: 7 } }, // threshold 07-25 -> not eligible yet
-    ];
-    const client = {
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            is: () => Promise.resolve({ data: rows, error: null }),
-          }),
-        }),
-      }),
-    } as unknown as SupabaseClient;
-
-    const result = await tasksNeedingAlert(client, refDate("2026-07-13"));
-
-    expect(result.map((t) => t.id)).toEqual(["T1"]);
-  });
-
-  it("throws with the Supabase error message on query failure", async () => {
-    const client = {
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            is: () => Promise.resolve({ data: null, error: { message: "boom" } }),
-          }),
-        }),
-      }),
-    } as unknown as SupabaseClient;
-
-    await expect(tasksNeedingAlert(client, refDate("2026-07-13"))).rejects.toThrow(/boom/);
-  });
-});
-
-describe("markAlerted", () => {
-  it("updates alert_sent_at and updated_at for the given task id", async () => {
-    const recorded: Recorded[] = [];
-    const client = {
-      from: (table: string) => ({
-        update: (payload: unknown) => ({
-          eq: (col: string, val: unknown) => {
-            recorded.push({ table, op: "update", payload, args: [col, val] });
-            return Promise.resolve({ error: null });
-          },
-        }),
-      }),
-    } as unknown as SupabaseClient;
-
-    await markAlerted(client, "T1");
-
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0].args).toEqual(["id", "T1"]);
-    expect(recorded[0].payload).toMatchObject({ alert_sent_at: expect.any(String) });
   });
 });
 

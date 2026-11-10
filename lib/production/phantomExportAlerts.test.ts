@@ -11,10 +11,8 @@ import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   fetchOpenPhantomAlerts,
-  fetchUnemailedPhantomAlerts,
   fetchLotOptions,
   phantomPerUnitFlOz,
-  markPhantomAlertsEmailed,
   type PhantomAlert,
 } from "./phantomExportAlerts";
 
@@ -173,18 +171,6 @@ describe("fetchOpenPhantomAlerts", () => {
   });
 });
 
-describe("fetchUnemailedPhantomAlerts", () => {
-  it("additionally filters on alert_emailed_at IS NULL", async () => {
-    const { client, calls } = makeSupabase(baseTables());
-    const alerts = await fetchUnemailedPhantomAlerts(client);
-    expect(alerts).toHaveLength(1);
-    const etCalls = calls.export_transactions;
-    expect(etCalls.some((c) => c.method === "eq" && c.args[0] === "is_phantom" && c.args[1] === true)).toBe(true);
-    expect(etCalls.some((c) => c.method === "is" && c.args[0] === "alert_acknowledged_at" && c.args[1] === null)).toBe(true);
-    expect(etCalls.some((c) => c.method === "is" && c.args[0] === "alert_emailed_at" && c.args[1] === null)).toBe(true);
-  });
-});
-
 describe("phantomPerUnitFlOz", () => {
   it("converts total BBL over keg count to per-keg fl oz", () => {
     expect(phantomPerUnitFlOz(0.1666, 1)).toBeCloseTo(661.1, 0); // 1/6 keg
@@ -290,24 +276,5 @@ describe("fetchLotOptions", () => {
   it("throws when the query errors", async () => {
     const { client } = makeSupabase({ cold_storage_inventory: { rows: null, error: "boom" } });
     await expect(fetchLotOptions(client, alert)).rejects.toThrow("boom");
-  });
-});
-
-describe("markPhantomAlertsEmailed", () => {
-  it("stamps alert_emailed_at on the given export_transactions ids", async () => {
-    const { client, calls } = makeSupabase({ export_transactions: { rows: [] } });
-    await markPhantomAlertsEmailed(client, ["et-1", "et-2"]);
-    const etCalls = calls.export_transactions;
-    const update = etCalls.find((c) => c.method === "update");
-    expect(update).toBeTruthy();
-    expect(update?.args[0]).toMatchObject({ alert_emailed_at: expect.any(String) });
-    const inCall = etCalls.find((c) => c.method === "in");
-    expect(inCall?.args).toEqual(["id", ["et-1", "et-2"]]);
-  });
-
-  it("is a no-op for an empty id list", async () => {
-    const { client, calls } = makeSupabase({ export_transactions: { rows: [] } });
-    await markPhantomAlertsEmailed(client, []);
-    expect(calls.export_transactions ?? []).toEqual([]);
   });
 });

@@ -15,9 +15,6 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runTaproomConsumptionSync } from "@/lib/production/taproomConsumptionSync";
-import { fetchUnemailedPhantomAlerts, markPhantomAlertsEmailed } from "@/lib/production/phantomExportAlerts";
-import { renderPhantomAlertEmail } from "@/lib/production/phantomAlertEmail";
-import { sendEmail, ADMIN_EMAIL } from "@/lib/resend";
 
 const JOB = "taproom-consumption-sync";
 
@@ -113,21 +110,7 @@ export async function runTaproomConsumptionJob(supabase: SupabaseClient) {
     );
   }
 
-  // Best-effort daily digest of open phantom-export alerts (draft swaps that
-  // booked excise with no cold-storage stock). Email failure must not fail the
-  // sync — it is caught and surfaced in the cron detail, never rethrown.
-  let phantomDigest: { emailed: number } | { error: string };
-  try {
-    const alerts = await fetchUnemailedPhantomAlerts(supabase);
-    if (alerts.length > 0) {
-      const { subject, html } = renderPhantomAlertEmail(alerts);
-      await sendEmail(ADMIN_EMAIL, subject, html);
-      await markPhantomAlertsEmailed(supabase, alerts.map((a) => a.exportTransactionId));
-    }
-    phantomDigest = { emailed: alerts.length };
-  } catch (err) {
-    phantomDigest = { error: err instanceof Error ? err.message : String(err) };
-  }
-
-  return { ...result, catchUp: plan, phantomDigest };
+  // Open phantom-export alerts are not emailed from here. They sit on the Home
+  // alert center and ride along in the morning alert digest until reconciled.
+  return { ...result, catchUp: plan };
 }

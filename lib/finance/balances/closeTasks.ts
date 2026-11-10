@@ -292,24 +292,6 @@ export async function listTasksForPeriod(supabase: AdminClient, periodEnd: strin
   return ((data ?? []) as CloseTaskRow[]).map(toCloseTask);
 }
 
-/** Pure. Open, not-yet-alerted tasks whose dueDate - leadDays threshold has been reached (todayIso is on/after it). */
-export function tasksNeedingAlert(tasks: CloseTask[], todayIso: string, leadDays: number): CloseTask[] {
-  return tasks.filter((task) => {
-    if (task.status !== "open") return false;
-    if (task.alertSentAt) return false;
-    return todayIso >= addDaysIso(task.dueDate, -leadDays);
-  });
-}
-
-export async function markAlerted(supabase: AdminClient, ids: string[]): Promise<void> {
-  if (ids.length === 0) return;
-  const { error } = await supabase
-    .from("balance_close_tasks")
-    .update({ alert_sent_at: new Date().toISOString() })
-    .in("id", ids);
-  if (error) throw new Error(error.message);
-}
-
 export interface ReconcileResult {
   /** Open tasks whose balance has now appeared. */
   completed: number;

@@ -1,4 +1,4 @@
-// Pure-logic tests (tasksNeedingAlert, everyTaskAnswered) plus IO tests
+// Pure-logic tests (everyTaskAnswered) plus IO tests
 // (ensureTasksForPeriod, reconcileCloseTasks) against a small stateful fake
 // Supabase double -- same "generic table->rows fake stands in for Supabase"
 // idiom as lib/finance/balances/providers/transactionPostings.test.ts, but
@@ -8,7 +8,6 @@ import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ensureTasksForPeriod,
-  tasksNeedingAlert,
   everyTaskAnswered,
   reconcileCloseTasks,
   dueDateForPeriod,
@@ -307,33 +306,6 @@ describe("ensureTasksForPeriod", () => {
 
     expect(created).toBe(1);
     expect(db.closeTasks.map((t) => t.chart_of_accounts_id)).toEqual(["coa-2"]);
-  });
-});
-
-describe("tasksNeedingAlert", () => {
-  it("excludes the day before the alert threshold (dueDate - leadDays)", () => {
-    const t = task({ dueDate: "2026-07-05" });
-    expect(tasksNeedingAlert([t], "2026-07-01", 3)).toEqual([]);
-  });
-
-  it("includes the day of the alert threshold", () => {
-    const t = task({ dueDate: "2026-07-05" });
-    expect(tasksNeedingAlert([t], "2026-07-02", 3)).toEqual([t]);
-  });
-
-  it("includes the day after the alert threshold", () => {
-    const t = task({ dueDate: "2026-07-05" });
-    expect(tasksNeedingAlert([t], "2026-07-03", 3)).toEqual([t]);
-  });
-
-  it("never returns an already-alerted task", () => {
-    const t = task({ dueDate: "2026-07-05", alertSentAt: "2026-07-02T00:00:00.000Z" });
-    expect(tasksNeedingAlert([t], "2026-07-03", 3)).toEqual([]);
-  });
-
-  it("never returns a completed task", () => {
-    const t = task({ dueDate: "2026-07-05", status: "completed" });
-    expect(tasksNeedingAlert([t], "2026-07-05", 3)).toEqual([]);
   });
 });
 

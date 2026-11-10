@@ -17,10 +17,9 @@
  *      log what the derivation predicted against what the operator actually
  *      found. Re-anchoring silently absorbs its own errors; this is the only
  *      record that it did.
- *   4. Alert -- for every task that has crossed its due_date -
- *      alert_lead_days threshold and hasn't been alerted yet, one email to
- *      each responsible person listing their own accounts. Anything with
- *      nobody named still goes to the admin address.
+ *
+ * It sends no email. Accounts still missing a balance are listed on the Home
+ * alert center and in the morning alert digest every day until entered.
  * ── What this job deliberately does NOT do ───────────────────────────────────
  * It does not freeze anything. It used to, once every task was done OR the due
  * date had passed, and that second condition turned "the deadline went by" into
@@ -29,16 +28,14 @@
  *
  * Freezing is now the close action in lib/finance/balances/periodClose.ts,
  * performed by a person whose name goes on it. What this run contributes is the
- * evidence they close on: fresh figures, a current checklist, and an email when
- * something is late. It reports `readyToClose` so a period that is finished but
+ * evidence they close on: fresh figures and a current checklist. It reports `readyToClose` so a period that is finished but
  * unclosed is visible rather than silently rolling on.
  *
  * runCronJob wraps the whole thing so a run lands in cron_runs for the
  * Settings > Cron Jobs monitor, success or failure.
  *
- * One thing to know before running it by hand: it sends email, on the same
- * "only tasks not yet alerted" rule as the tax job. Nothing it does is
- * irreversible -- since the freeze moved out, a manual run is a refresh.
+ * Nothing it does is irreversible -- since the freeze moved out, a manual run
+ * is a refresh.
  */
 import "@/lib/finance/balances/methods";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -47,17 +44,12 @@ import {
   ensureTasksForPeriod,
   listTasksForPeriod,
   reconcileCloseTasks,
-  tasksNeedingAlert,
-  markAlerted,
   everyTaskAnswered,
   dueDateForPeriod,
   readCloseConfig,
-  resolveResponsibleEmails,
 } from "@/lib/finance/balances/closeTasks";
 import { readPeriodClose } from "@/lib/finance/balances/periodClose";
 import { recordSquareDrift, squareBalanceAccountIds } from "@/lib/finance/balances/squareDrift";
-import { renderBalanceCloseEmail } from "@/lib/finance/balances/alertEmail";
-import { sendEmail, ADMIN_EMAIL } from "@/lib/resend";
 import { todayLocalDate } from "@/lib/utils/datetime";
 // Shared with the integration connect-time check, which must validate the SAME
 // period this job reads. It previously had its own copy resolved in UTC.
@@ -87,60 +79,10 @@ export async function runBalanceClose(supabase: SupabaseClient) {
 
   const tasks = await listTasksForPeriod(supabase, periodEnd);
 
-  const { alertLeadDays, dueDay } = await readCloseConfig(supabase);
-  const alertCandidates = tasksNeedingAlert(tasks, todayIso, alertLeadDays);
-
-  let alertsSent = 0;
-  if (alertCandidates.length > 0) {
-    try {
-      const coaIds = alertCandidates.map((t) => t.coaId);
-      const [{ data: coaRows, error: coaError }, responsibleEmails] = await Promise.all([
-        supabase.from("chart_of_accounts").select("id, account_name, account_number").in("id", coaIds),
-        resolveResponsibleEmails(supabase, coaIds),
-      ]);
-      if (coaError) throw new Error(coaError.message);
-
-      const coaById = new Map(
-        ((coaRows ?? []) as { id: string; account_name: string; account_number: string | null }[]).map((r) => [
-          r.id,
-          { accountName: r.account_name, accountNumber: r.account_number },
-        ]),
-      );
-
-      // Grouped by recipient, so each person gets ONE email listing their own
-      // accounts -- the same shape as the single combined email this replaces,
-      // addressed to whoever actually has to act on it. An account with nobody
-      // named still lands at the admin address rather than going nowhere.
-      const byRecipient = new Map<string, typeof alertCandidates>();
-      for (const t of alertCandidates) {
-        const to = responsibleEmails.get(t.coaId) ?? ADMIN_EMAIL;
-        const bucket = byRecipient.get(to);
-        if (bucket) bucket.push(t);
-        else byRecipient.set(to, [t]);
-      }
-
-      for (const [to, tasksForPerson] of byRecipient) {
-        const missing = tasksForPerson.map((t) => ({
-          accountName: coaById.get(t.coaId)?.accountName ?? t.coaId,
-          accountNumber: coaById.get(t.coaId)?.accountNumber ?? null,
-          dueDate: t.dueDate,
-        }));
-        const unassigned = tasksForPerson.every((t) => !responsibleEmails.has(t.coaId));
-        const { subject, html } = renderBalanceCloseEmail(missing, periodEnd, unassigned);
-
-        // Marked per recipient, inside the loop: a send that failed for one
-        // person must stay unmarked so the next run retries it, without
-        // re-alerting everybody who already received theirs.
-        await sendEmail(to, subject, html);
-        await markAlerted(supabase, tasksForPerson.map((t) => t.id));
-        alertsSent += tasksForPerson.length;
-      }
-    } catch (err) {
-      // Isolate an alert failure (e.g. a Resend outage) so it never blocks the
-      // rest of the run -- unalerted tasks simply retry next run.
-      console.error("[balance-close] failed to send/mark alert", { periodEnd, err });
-    }
-  }
+  // No reminder email goes out from here. Accounts still missing a balance
+  // are listed on the Home alert center and in the morning alert digest
+  // (lib/alerts/sources/finance.ts) every day until they are entered.
+  const { dueDay } = await readCloseConfig(supabase);
 
   // Reported, never acted on. A period whose checklist is finished but which
   // nobody has closed is the state this whole change exists to make visible:
@@ -155,7 +97,6 @@ export async function runBalanceClose(supabase: SupabaseClient) {
     tasksClosed: reconciled.completed,
     tasksReopened: reconciled.reopened,
     driftsRecorded,
-    alertsSent,
     closed,
     readyToClose: !closed && everyTaskAnswered(tasks) && snapshot.errors.length === 0,
     // Derived from CONFIG, not from tasks[0] -- with zero tasks there is no
