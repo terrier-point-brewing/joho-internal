@@ -15,7 +15,7 @@ import ToggleChip from "@/app/components/ui/ToggleChip";
 
 const AchievementChart = dynamic(() => import("./AchievementChart"), {
   ssr: false,
-  loading: () => <ChartSkeleton height={300} />,
+  loading: () => <ChartSkeleton />,
 });
 
 // ---------------------------------------------------------------------------
@@ -572,6 +572,8 @@ export default function AchievementTab() {
             </div>
           </div>
 
+          <div className="chart-box">
+
           <AchievementChart
             chartData={chartData}
             chartView={chartView}
@@ -582,6 +584,8 @@ export default function AchievementTab() {
             activeTierColor={activeTierColor}
             tierLabel={tierLabel}
           />
+
+          </div>
         </div>
       )}
 

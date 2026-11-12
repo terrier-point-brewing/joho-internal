@@ -23,6 +23,7 @@ import { formatCurrencyCents, formatPercent, EM_DASH } from "@/lib/format";
 import type { FinancialsResponse, FinancialsRow, Measure, StatementKind } from "@/lib/finance/financials/types";
 import type { StatementSection } from "@/lib/finance/accountSections";
 import PageHeader from "@/app/components/PageHeader";
+import TitleRow from "@/app/components/ui/TitleRow";
 import StickyHeader from "@/app/components/StickyHeader";
 import Banner from "@/app/components/ui/Banner";
 import Card from "@/app/components/ui/Card";
@@ -268,13 +269,13 @@ export default function FinancialsClient({
   );
 
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
+    <div className="frame bg-canvas text-primary">
       <div className="shrink-0 px-4 sm:px-6">
         <StickyHeader>
           <FinanceNav mobile />
-          <div className="flex items-start justify-between gap-4">
-            <PageHeader title="Financials" description="Monthly statements" />
-            <div className="flex items-center gap-2 shrink-0 mt-4">
+          <TitleRow
+            title={<PageHeader title="Financials" description="Monthly statements" />}
+            actions={<>
               {data && (
                 <DataQualityPanel
                   summary={data.dataQuality}
@@ -289,8 +290,8 @@ export default function FinancialsClient({
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
               <button onClick={() => void refetch()} className="btn-primary">Refresh</button>
-            </div>
-          </div>
+            </>}
+          />
           <TabBar tabs={STATEMENT_TABS} activeKey={view} onSelect={handleStatementSelect} className="mb-0" />
         </StickyHeader>
       </div>
@@ -304,7 +305,7 @@ export default function FinancialsClient({
       <CloseTasksBanner />
 
       {view === "spend_watch" ? (
-        <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
+        <div className="pane px-4 sm:px-6 pb-6 pt-4">
           {isFetching && !data && (
             <div className="flex items-center justify-center h-32">
               <p className="text-xs text-faint">Loading…</p>
@@ -322,7 +323,7 @@ export default function FinancialsClient({
           )}
         </div>
       ) : (
-      <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
+      <div className="pane px-4 sm:px-6 pb-6 pt-4">
         <KpiStrip data={data} />
 
         <FilterBar activeCount={activeCount} onClear={reset} className="mb-4">

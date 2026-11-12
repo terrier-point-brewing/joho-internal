@@ -67,9 +67,11 @@ export default function MappingFrame({
 }) {
   return (
     <>
-      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex items-start gap-4">
-        {selector}
-        <Banner tone={summaryTone} className="flex-1">{summary}</Banner>
+      {/* Stacked on a phone: side by side, the six chips wrapped to three
+          rows and the banner was squeezed to a word a line. */}
+      <div className="shrink-0 px-4 sm:px-6 pt-4 pb-2 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4">
+        <div className="scroll-x -mx-4 px-4 sm:mx-0 sm:px-0 [&>*]:flex-nowrap sm:[&>*]:flex-wrap">{selector}</div>
+        <Banner tone={summaryTone} className="sm:flex-1">{summary}</Banner>
       </div>
 
       {error && <Banner className="mx-4 sm:mx-6 my-2">{error}</Banner>}
@@ -94,10 +96,10 @@ export default function MappingFrame({
       ) : rowCount === 0 ? (
         <Centered title={emptyRows.title} hint={emptyRows.hint} />
       ) : (
-        <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+        <div className="pane px-4 sm:px-6 py-4">
           {search && <div className="mb-3">{search}</div>}
-          <div className="bg-surface border border-line rounded-lg overflow-hidden">
-            <table className="w-full text-xs border-collapse">
+          <div className="bg-surface border border-line rounded-lg scroll-x">
+            <table className="w-full text-xs border-collapse tbl-pin">
               <thead>
                 <tr className="border-b border-line">
                   {headers.map((h) => (

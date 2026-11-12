@@ -1,5 +1,6 @@
 "use client";
 
+import FieldRow from "@/app/components/ui/FieldRow";
 import { useState } from "react";
 import { isValidNetTermsDays, netTermsLabel, MAX_NET_TERMS_DAYS, MIN_NET_TERMS_DAYS } from "@/lib/production/invoiceTerms";
 import { useQueryClient } from "@tanstack/react-query";
@@ -46,27 +47,25 @@ function IngredientDepositMappingSection() {
     <section>
       <h3 className="text-sm font-medium text-strong mb-2">Ingredient Deposit — Square Item</h3>
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted italic w-28">Default</span>
+        <FieldRow label={<span className="italic">Default</span>}>
           <SquareCatalogSelect
             items={items}
             itemId={defaultRow?.square_catalog_item_id ?? null}
             variationId={defaultRow?.square_catalog_variation_id ?? null}
             onChange={(itemId, variationId) => upsert(defaultRow, null, itemId, variationId)}
           />
-        </div>
+        </FieldRow>
         {overrideRows.map((m) => {
           const partner = partners.find((p) => p.id === m.partner_id);
           return (
-            <div key={m.id} className="flex items-center gap-2">
-              <span className="text-xs text-body w-28 truncate">{partner?.company_name ?? "Unknown partner"}</span>
+            <FieldRow key={m.id} label={<span className="text-body">{partner?.company_name ?? "Unknown partner"}</span>}>
               <SquareCatalogSelect
                 items={items}
                 itemId={m.square_catalog_item_id}
                 variationId={m.square_catalog_variation_id}
                 onChange={(itemId, variationId) => upsert(m, m.partner_id, itemId, variationId)}
               />
-            </div>
+            </FieldRow>
           );
         })}
         <PartnerOverridePicker

@@ -31,11 +31,11 @@ export default function SettingsGroupShell({
 }) {
   return (
     <SettingsGroupNavProvider nav={nav}>
-      <div className="flex flex-col h-full min-h-0">
+      <div className="frame">
         <div className="shrink-0 px-4 sm:px-6">
           <SubNav entries={SETTINGS_GROUPS} mobile sticky />
         </div>
-        <div className="flex-1 min-h-0 flex flex-col">{children}</div>
+        <div className="desk:flex-1 desk:min-h-0 desk:flex desk:flex-col">{children}</div>
       </div>
     </SettingsGroupNavProvider>
   );

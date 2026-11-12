@@ -197,7 +197,7 @@ export default function PayrollSettingsPage() {
 
   return (
     <>
-      <div className="flex-1 overflow-auto px-4 sm:px-6">
+      <div className="pane px-4 sm:px-6">
       <SettingsHeader
         title="Payroll Config"
         description="Pay periods, tip pool frequency, and per-employee job title, wage, and employment type."

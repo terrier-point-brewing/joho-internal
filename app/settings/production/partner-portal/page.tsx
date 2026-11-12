@@ -5,7 +5,7 @@ import PartnerPortalSettingsPanel from "./PartnerPortalSettingsPanel";
 // settings group shell; the page owns its header and content padding.
 export default function PartnerPortalSettingsPage() {
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6">
+    <div className="pane px-4 sm:px-6">
       <SettingsHeader
         title="Partner Portal"
         description="The rules behind what external partners are offered."

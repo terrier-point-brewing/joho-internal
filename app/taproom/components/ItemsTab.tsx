@@ -27,7 +27,7 @@ import type { TrendSeries } from "./DraftTrendChart";
 
 const DraftTrendChart = dynamic(() => import("./DraftTrendChart"), {
   ssr: false,
-  loading: () => <ChartSkeleton height={300} />,
+  loading: () => <ChartSkeleton />,
 });
 
 // Per-item sell-through, built like Draft Stats' trend view: a line chart at
@@ -323,7 +323,9 @@ export default function ItemsTab() {
                 </button>
               )}
             </div>
-            <DraftTrendChart chartData={chartData} series={series} unit={unit} connectGaps={false} />
+            <div className="chart-box">
+              <DraftTrendChart chartData={chartData} series={series} unit={unit} connectGaps={false} />
+            </div>
             <div className="flex flex-wrap gap-3 mt-2">
               {series.map((s) => (
                 <span key={s.key} className="flex items-center gap-1.5 text-xs text-secondary">

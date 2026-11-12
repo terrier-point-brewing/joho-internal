@@ -560,16 +560,19 @@ export default function SalesPulseTab() {
 
         {catSource && (
           <>
-            <div className="overflow-x-auto -mx-3 px-3 sm:-mx-5 sm:px-5">
-            <table className="w-full text-sm min-w-[540px]">
+            {/* Phones see Category, Gross and Net; Discounts, Returns and Tax
+                wait for `sm` (the drill under a row still shows every figure).
+                Three columns fit 390px with no sideways scroll. */}
+            <div className="scroll-x -mx-3 px-3 sm:-mx-5 sm:px-5">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-muted uppercase border-b border-line">
                   <th className="text-left py-2 font-medium sticky left-0 z-10 bg-surface">Category</th>
                   <th className="text-right py-2 px-3 font-medium">Gross Sales</th>
-                  <th className="text-right py-2 px-3 font-medium">Discounts</th>
-                  <th className="text-right py-2 px-3 font-medium">Returns</th>
+                  <th className="text-right py-2 px-3 font-medium max-sm:hidden">Discounts</th>
+                  <th className="text-right py-2 px-3 font-medium max-sm:hidden">Returns</th>
                   <th className="text-right py-2 px-3 font-medium">Net Sales</th>
-                  <th className="text-right py-2 pl-3 font-medium">Tax</th>
+                  <th className="text-right py-2 pl-3 font-medium max-sm:hidden">Tax</th>
                 </tr>
               </thead>
               <tbody>
@@ -610,10 +613,10 @@ export default function SalesPulseTab() {
                           )}
                         </td>
                         {cell("gross", cat.gross_sales_cents, cat.gross_sales_cents > 0 ? formatCurrency(cat.gross_sales_cents) : <span className="text-disabled">—</span>, `px-3 ${mono}`)}
-                        {cell("discounts", cat.discounts_cents, cat.discounts_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.discounts_cents)})</span> : <span className="text-disabled">—</span>, `px-3 ${mono}`)}
-                        {cell("returns", cat.returns_cents, cat.returns_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.returns_cents)})</span> : <span className="text-disabled">—</span>, `px-3 ${mono}`)}
+                        {cell("discounts", cat.discounts_cents, cat.discounts_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.discounts_cents)})</span> : <span className="text-disabled">—</span>, `px-3 max-sm:hidden ${mono}`)}
+                        {cell("returns", cat.returns_cents, cat.returns_cents > 0 ? <span className="text-danger/70">({formatCurrency(cat.returns_cents)})</span> : <span className="text-disabled">—</span>, `px-3 max-sm:hidden ${mono}`)}
                         {cell("net", cat.net_sales_cents, cat.net_sales_cents > 0 ? formatCurrency(cat.net_sales_cents) : <span className="text-disabled">—</span>, `px-3 font-mono font-medium ${cat.excluded ? "text-faint" : "text-primary"}`)}
-                        {cell("tax", cat.tax_cents, cat.tax_cents > 0 ? formatCurrency(cat.tax_cents) : <span className="text-disabled">—</span>, `pl-3 ${mono}`)}
+                        {cell("tax", cat.tax_cents, cat.tax_cents > 0 ? formatCurrency(cat.tax_cents) : <span className="text-disabled">—</span>, `pl-3 max-sm:hidden ${mono}`)}
                       </tr>
 
                       {open && drill && (
@@ -638,14 +641,14 @@ export default function SalesPulseTab() {
                   <tr className="border-t border-line-strong text-strong font-semibold">
                     <td className="py-2 sticky left-0 z-10 bg-surface whitespace-nowrap">Total (included)</td>
                     <td className="py-2 px-3 text-right font-mono">{formatCurrency(catGrossTotal)}</td>
-                    <td className="py-2 px-3 text-right font-mono text-danger/70">
+                    <td className="py-2 px-3 text-right font-mono text-danger/70 max-sm:hidden">
                       {catDiscTotal > 0 ? `(${formatCurrency(catDiscTotal)})` : "—"}
                     </td>
-                    <td className="py-2 px-3 text-right font-mono text-danger/70">
+                    <td className="py-2 px-3 text-right font-mono text-danger/70 max-sm:hidden">
                       {catRetTotal > 0 ? `(${formatCurrency(catRetTotal)})` : "—"}
                     </td>
                     <td className="py-2 px-3 text-right font-mono text-primary">{formatCurrency(catNetTotal)}</td>
-                    <td className="py-2 pl-3 text-right font-mono">{formatCurrency(catTaxTotal)}</td>
+                    <td className="py-2 pl-3 text-right font-mono max-sm:hidden">{formatCurrency(catTaxTotal)}</td>
                   </tr>
                 </tfoot>
               )}

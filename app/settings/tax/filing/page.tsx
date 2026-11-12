@@ -37,7 +37,7 @@ export default function TaxFilingSettingsPage() {
           description="Square mappings and rate tables per filing."
         />
       </div>
-      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">
+      <div className="pane px-4 sm:px-6 py-4 flex flex-col gap-6">
         {activeModule && parties.length >= 1 && (
           <ButtonGroup
             tabs={parties.map((p) => ({ key: p.key, label: p.label }))}

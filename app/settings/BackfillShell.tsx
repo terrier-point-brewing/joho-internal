@@ -100,7 +100,7 @@ export default function BackfillShell<T>({
   const shown = applied ?? previewResult;
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6">
+    <div className="pane px-4 sm:px-6">
       <SettingsHeader title={title} />
       <div className="mt-4 pb-4 sm:pb-8">
       <Card className="max-w-4xl">

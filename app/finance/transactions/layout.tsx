@@ -11,7 +11,7 @@ import TransactionsNav from "./TransactionsNav";
 export default async function TransactionsLayout({ children }: { children: React.ReactNode }) {
   await requirePage(CAP.financeTransactionsRead);
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
+    <div className="frame bg-canvas text-primary">
       <FinanceNav mobile />
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
         <PageHeader title="Transactions" description="Lines coded to the GL" />

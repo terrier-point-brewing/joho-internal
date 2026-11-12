@@ -20,7 +20,7 @@ export default function DraftTrendChart({
   // Point markers only while there is room for them; a year of days is a smear.
   const showDots = connectGaps || chartData.length <= 31;
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height="100%">
       <LineChart data={chartData} margin={{ top: 5, right: 16, left: 0, bottom: 20 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
         <XAxis

@@ -50,7 +50,7 @@ export default function BusinessSettings() {
   }
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6">
+    <div className="pane px-4 sm:px-6">
       <SettingsHeader
         title="Business"
         description="Location-wide settings that apply across every report and dashboard."

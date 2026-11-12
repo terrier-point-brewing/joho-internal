@@ -53,7 +53,7 @@ export default function AchievementChart({
   const yAxisFmt = (v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v.toFixed(0)}`;
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height="100%">
       <LineChart data={chartData}
         margin={{ top: 8, right: 16, bottom: grain === "weekly" ? 30 : 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" vertical={false} />
