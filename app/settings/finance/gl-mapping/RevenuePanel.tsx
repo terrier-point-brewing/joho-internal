@@ -922,7 +922,7 @@ export default function RevenuePanel({ selector }: { selector?: ReactNode }) {
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto pb-8">
+        <div className="pane pb-8">
           <div className="divide-y divide-line/60">
             {groups.map((parent) => {
               const parentKey     = parent.parent_id ?? "__uncategorized__";

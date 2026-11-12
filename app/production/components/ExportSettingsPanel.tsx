@@ -295,8 +295,8 @@ function ServiceMappingDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 z-30 bg-black/40" onClick={onClose} aria-hidden="true" />
-      <div className="fixed inset-y-0 right-0 z-40 w-[400px] bg-canvas border-l border-line shadow-2xl flex flex-col">
+      <div className="fixed inset-0 z-[60] bg-black/40" onClick={onClose} aria-hidden="true" />
+      <div className="fixed inset-y-0 right-0 z-[70] w-full sm:w-[400px] pb-[env(safe-area-inset-bottom,0px)] bg-canvas border-l border-line shadow-2xl flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <div>
             <p className="text-xs text-muted uppercase tracking-wide">Export Settings</p>

@@ -151,7 +151,7 @@ export default function PayrollDepartmentMappingsPage() {
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 space-y-4">
+        <div className="pane px-4 sm:px-6 py-4 space-y-4">
           <Card padding="">
             <table className="w-full text-xs border-collapse">
               <thead>

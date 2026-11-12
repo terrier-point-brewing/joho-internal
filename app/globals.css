@@ -5,6 +5,14 @@
    vertical padding so the content pane keeps a usable height. */
 @custom-variant short (@media (max-height: 30rem));
 
+/* `desk:` — a desktop-sized viewport with room to spare: at least `md` wide
+   AND taller than `short:`. The only place a page may pin its own chrome
+   (full-height frames, inner scroll panes, frozen table headers). Everything
+   narrower or shorter is `handheld:` and gets one scroller: the app pane.
+   See docs/UI_STANDARD.md §7. */
+@custom-variant desk (@media (min-width: 48rem) and (min-height: 30.01rem));
+@custom-variant handheld (@media (max-width: 47.99rem), (max-height: 30rem));
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Design tokens — see docs/UI_STANDARD.md
    Declared in @theme so each token emits bg-, text-, border-, ring- utilities
@@ -342,7 +350,8 @@ body {
    same treatment to every existing hand-written table wrapper, so no page
    has to be touched to get it. */
 .scroll-x,
-.overflow-x-auto:has(> table) {
+.overflow-x-auto:has(> table),
+.overflow-auto:has(> table) {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -353,14 +362,76 @@ body {
   animation-timeline: scroll(self x);
 }
 .scroll-x::-webkit-scrollbar,
-.overflow-x-auto:has(> table)::-webkit-scrollbar { display: none; }
+.overflow-x-auto:has(> table)::-webkit-scrollbar,
+.overflow-auto:has(> table)::-webkit-scrollbar { display: none; }
 .scroll-x > :not(table) { scroll-snap-align: start; }
 @keyframes scroll-x-fade {
   0%   { mask-image: linear-gradient(to right, transparent 0, #000 0,    #000 calc(100% - 2rem), transparent 100%); }
   100% { mask-image: linear-gradient(to right, transparent 0, #000 2rem, #000 100%, transparent 100%); }
 }
 
+/* ── Mobile nav auto-hide ──────────────────────────────────────────────────
+   The bottom nav slides away while the reader scrolls down and returns on the
+   first upward scroll (NavBar's useHideOnScroll). The content pane keeps its
+   reserved bottom space either way, so nothing jumps. */
+.mobile-nav-hidden { transform: translateY(110%); }
+.mobile-nav { transition: transform 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .mobile-nav { transition: none; } }
+
 } /* end @layer components */
+
+/* ── Page frames (docs/UI_STANDARD.md §7, pattern A) ───────────────────────
+   `frame` + `pane` replace the hand-written `flex flex-col h-full` →
+   `shrink-0` header → `flex-1 overflow-auto` body. On a `desk:` viewport they
+   behave exactly like that: the page owns its height and only the pane
+   scrolls, so headers and table heads stay put. On a handheld viewport both
+   are inert: the page is a normal block, the app pane is the one scroller,
+   StickyHeader pins (or, under `short:`, unpins) the title, and the area
+   tabs scroll away. Nothing in a page needs a breakpoint to get this. */
+@utility frame {
+  @media (min-width: 48rem) and (min-height: 30.01rem) {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+}
+@utility pane {
+  @media (min-width: 48rem) and (min-height: 30.01rem) {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow: auto;
+  }
+}
+
+/* ── Chart box (pattern B) ─────────────────────────────────────────────────
+   The wrapper owns a chart's height so the chart can be shorter on a phone
+   and shorter again in landscape. Charts render at height="100%" inside it. */
+@utility chart-box {
+  height: 12rem;
+  @media (min-width: 40rem) { height: 16rem; }
+  @media (min-width: 64rem) { height: 17.5rem; }
+  @media (max-height: 30rem) { height: 10rem; }
+}
+
+/* ── Pinned first column (pattern B) ───────────────────────────────────────
+   On a table that scrolls sideways, keep the row's label in view. Applied by
+   <Table pin> and LedgerTable's `pin`; usable on any hand-written table. */
+.tbl-pin th:first-child,
+.tbl-pin td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background: var(--color-surface);
+}
+
+/* ── Touch input size ───────────────────────────────────────────────────────
+   iOS zooms the page when a focused input's font is under 16px. Every
+   finance editor (.inp-sm at 12px) triggered that; on a coarse pointer the
+   text steps up to 16px and the layout otherwise stays the same. */
+@media (pointer: coarse) {
+  .inp, .inp-sm, .inp-sm select, select.inp-sm { font-size: 1rem; }
+}
 
 /* Markdown brew steps rendering */
 .prose-steps h1, .prose-steps h2, .prose-steps h3 {

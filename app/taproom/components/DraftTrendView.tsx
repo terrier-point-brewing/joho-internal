@@ -18,7 +18,7 @@ import TrendLineDrill from "./TrendLineDrill";
 
 const DraftTrendChart = dynamic(() => import("./DraftTrendChart"), {
   ssr: false,
-  loading: () => <ChartSkeleton height={300} />,
+  loading: () => <ChartSkeleton />,
 });
 
 // Only the leaders get a line of their own; twenty near-identical hues can't be
@@ -194,7 +194,9 @@ export default function DraftTrendView({
             <h4 className="text-xs font-medium text-muted uppercase tracking-wide mb-3">
               {chartTitle(grouping)}
             </h4>
-            <DraftTrendChart chartData={chartData} series={series} unit={unit} connectGaps={mode === "mean"} />
+            <div className="chart-box">
+              <DraftTrendChart chartData={chartData} series={series} unit={unit} connectGaps={mode === "mean"} />
+            </div>
             <div className="flex flex-wrap gap-3 mt-2">
               {series.map((s) => (
                 <span key={s.key} className="flex items-center gap-1.5 text-xs text-secondary">

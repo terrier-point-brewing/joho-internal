@@ -3,6 +3,9 @@
 import { useState } from "react";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
+import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { useUserRole } from "@/lib/hooks/useUserRole";
 
 export default function AccountSettings() {
   const [newPassword, setNewPassword] = useState("");
@@ -10,6 +13,14 @@ export default function AccountSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
+  const { user } = useUserRole();
+
+  async function handleSignOut() {
+    const supabase = createSupabaseBrowserClient();
+    await supabase.auth.signOut();
+    window.location.href = "/login";
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,8 +55,8 @@ export default function AccountSettings() {
   }
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6">
-      <SettingsHeader title="Change Password" description="Set a new password for your account." />
+    <div className="pane px-4 sm:px-6">
+      <SettingsHeader title="Account" description="Your password and session." />
       <div className="pb-4 sm:pb-8 max-w-md">
       {error && <Banner tone="danger" className="mb-4">{error}</Banner>}
       {success && (
@@ -81,6 +92,23 @@ export default function AccountSettings() {
           </button>
         </div>
       </form>
+
+      {/* Sign out lives here as well as in the phone top bar: in landscape the
+          top bar is hidden (NavBar), so this is the one place left to reach it. */}
+      <div className="mt-8 pt-6 border-t border-line">
+        <div className="text-xs text-muted mb-2">Signed in as {user?.email ?? "…"}</div>
+        <button type="button" onClick={() => setSignOutOpen(true)} className="btn-secondary">Sign out</button>
+      </div>
+      {signOutOpen && (
+        <ConfirmDialog
+          title="Sign out?"
+          message={`You are signed in as ${user?.email ?? "this account"}.`}
+          confirmLabel="Sign out"
+          tone="primary"
+          onConfirm={handleSignOut}
+          onCancel={() => setSignOutOpen(false)}
+        />
+      )}
       </div>
     </div>
   );

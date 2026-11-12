@@ -29,7 +29,7 @@ function KpiTileSkeleton() {
 
 export default function Loading() {
   return (
-    <div className="flex flex-col h-full bg-canvas text-primary">
+    <div className="frame bg-canvas text-primary">
       <FinanceNav mobile />
       <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-8">
         <div className="flex items-center justify-between">
@@ -49,7 +49,7 @@ export default function Loading() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-4 sm:px-6 pb-6 pt-4">
+      <div className="pane px-4 sm:px-6 pb-6 pt-4">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
           {Array.from({ length: 5 }).map((_, i) => <KpiTileSkeleton key={i} />)}
         </div>

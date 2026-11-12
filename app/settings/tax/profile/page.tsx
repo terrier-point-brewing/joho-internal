@@ -24,7 +24,7 @@ export default function TaxProfileSettingsPage() {
           description="Identity, signer, payment account, registrations."
         />
       </div>
-      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4 flex flex-col gap-6">
+      <div className="pane px-4 sm:px-6 py-4 flex flex-col gap-6">
         <section className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold text-primary">Filer Identity</h3>
           <IdentityForm

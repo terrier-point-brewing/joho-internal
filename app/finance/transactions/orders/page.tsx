@@ -17,7 +17,7 @@ import DateRangeFilter from "../components/DateRangeFilter";
 import AcceptUnmappedButton from "../components/AcceptUnmappedButton";
 import SummaryStatBar from "../components/SummaryStatBar";
 import Pagination from "../components/Pagination";
-import { LedgerTable, Th, CategoryBadges } from "../components/LedgerTable";
+import { LedgerTable, Th, Td, DrawerCell, CategoryBadges } from "../components/LedgerTable";
 import SortableTh from "@/app/components/ui/SortableTh";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterBar from "@/app/components/ui/FilterBar";
@@ -276,22 +276,24 @@ function OrderRow({
   return (
     <>
       <tr className="border-t border-line/40 hover:bg-surface-mid/20 cursor-pointer" onClick={() => setExpanded((e) => !e)}>
-        <td className="px-4 py-2 w-6"><span className="text-faint text-2xs">{expanded ? "▾" : "▸"}</span></td>
-        <td className="px-4 py-2 text-secondary whitespace-nowrap">
+        {/* The chevron rides in the first cell instead of a column of its own:
+            that column was 56px of a phone's width for one glyph. */}
+        <Td className="text-secondary whitespace-nowrap">
+          <span className="text-faint text-2xs mr-1.5">{expanded ? "▾" : "▸"}</span>
           {fmtDate(txn.transaction_date)}
           <span className="text-2xs text-faint ml-1.5">{fmtTime(txn.transaction_date)}</span>
-        </td>
-        <td className="px-4 py-2 font-mono text-accent">{txn.square_order_id.slice(-8)}</td>
-        <td className="px-4 py-2 text-body">{txn.customer_name ?? "—"}</td>
-        <td className="px-4 py-2"><CategoryBadges items={orderCategories(lineItems)} /></td>
-        <td className="px-4 py-2">
+        </Td>
+        <Td hide="sm" className="font-mono text-accent">{txn.square_order_id.slice(-8)}</Td>
+        <Td className="text-body">{txn.customer_name ?? "—"}</Td>
+        <Td hide="sm"><CategoryBadges items={orderCategories(lineItems)} /></Td>
+        <Td hide="md">
           {status && (
             <Badge tone="none" className={ORDER_STATUS_CLS[status] ?? "bg-surface-mid text-muted border-line-strong"}>
               {status}
             </Badge>
           )}
-        </td>
-        <td className="px-4 py-2">
+        </Td>
+        <td className="px-2 sm:px-4 py-2">
           <div className="flex flex-col gap-0.5 items-start">
             <MappingStatusPill mapped={mappedCount} total={lineItems.length} accepted={txn.unmapped_accepted} />
             {mappingState(mappedCount, lineItems.length, txn.unmapped_accepted) !== "mapped" && (
@@ -299,7 +301,7 @@ function OrderRow({
             )}
           </div>
         </td>
-        <td className="px-4 py-2 text-right font-mono text-strong tabular-nums">
+        <td className="px-2 sm:px-4 py-2 text-right font-mono text-strong tabular-nums">
           {glFilter.length === 0 ? fmtMoney(txn.total_cents) : (
             <>
               {/* Net sales, not the order total: that is the figure the GL account
@@ -314,10 +316,10 @@ function OrderRow({
 
       {expanded && (
         <tr className="border-t border-line/20">
-          <td colSpan={8} className="p-0">
+          <DrawerCell colSpan={7}>
             <div className="bg-canvas border-b border-line/60 pb-1">
               {/* Order breakdown summary */}
-              <div className="grid grid-cols-4 gap-px mx-4 my-2 bg-surface-mid rounded overflow-hidden text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-px mx-4 my-2 bg-surface-mid rounded overflow-hidden text-center">
                 {[
                   { label: "Gross Sales", cents: grossCents },
                   { label: "Discounts",   cents: -txn.discount_cents },
@@ -352,7 +354,7 @@ function OrderRow({
                   ? voidedItems.map((li, i) => <VoidedLineItemRow key={li.uid ?? i} item={li} />)
                   : <p className="px-8 py-3 text-xs text-faint italic">No line items</p>}
             </div>
-          </td>
+          </DrawerCell>
         </tr>
       )}
     </>
@@ -507,17 +509,20 @@ export default function SquareTransactionsPage() {
             <p className="text-xs text-faint">Click &ldquo;Sync from Square&rdquo; to pull POS orders.</p>
           </div>
         )}
+        {/* Phones keep Date, Customer, Mapping and Total; Order # and
+            Categories wait for `sm`, Status for `md`. Everything hidden is
+            in the drawer a tap opens. */}
         {!loading && transactions.length > 0 && (
           <LedgerTable
             fill
+            pin
             head={
               <>
-                <Th className="w-6" />
                 <SortableTh sortKey="date" label="Date" sort={sort} onSort={toggleSort} />
-                <SortableTh sortKey="order" label="Order #" sort={sort} onSort={toggleSort} />
+                <SortableTh sortKey="order" label="Order #" sort={sort} onSort={toggleSort} hide="sm" />
                 <SortableTh sortKey="customer" label="Customer" sort={sort} onSort={toggleSort} />
-                <Th label="Categories" />
-                <SortableTh sortKey="status" label="Status" sort={sort} onSort={toggleSort} />
+                <Th label="Categories" hide="sm" />
+                <SortableTh sortKey="status" label="Status" sort={sort} onSort={toggleSort} hide="md" />
                 <Th label="Mapping" />
                 <SortableTh sortKey="total" label="Total" sort={sort} onSort={toggleSort} align="right" />
               </>

@@ -123,7 +123,7 @@ export default async function RootLayout({
           {/* The bottom padding is the mobile nav's own footprint — bar height
               plus whatever the home indicator takes — so the last row of any
               page can still be scrolled clear of it. */}
-          <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden pt-11 md:pt-0 pb-[var(--mobile-nav-space)] md:pb-0">
+          <div id="app-pane" className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden pt-11 md:pt-0 short:pt-0 pb-[var(--mobile-nav-space)] md:pb-0">
             {children}
           </div>
         </Providers>

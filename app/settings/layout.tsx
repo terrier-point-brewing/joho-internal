@@ -10,5 +10,5 @@ export default async function SettingsLayout({ children }: { children: React.Rea
   const session = await getSessionUser();
   if (!session) redirect("/login");
 
-  return <div className="flex flex-col h-full min-h-0">{children}</div>;
+  return <div className="frame">{children}</div>;
 }

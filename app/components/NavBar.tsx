@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { useHideOnScroll } from "@/app/hooks/useHideOnScroll";
 import { useUserRole, usePermissions } from "@/lib/hooks/useUserRole";
 import PartnerBar from "@/app/partner/PartnerBar";
 import { usePendingAccessRequestCount } from "@/lib/hooks/useAccessRequests";
@@ -60,17 +61,26 @@ export default function NavBar() {
   const [collapsed, setCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
+  const navHidden = useHideOnScroll();
 
-  // Read persisted state after hydration to avoid server/client mismatch
+  // Read persisted state after hydration to avoid server/client mismatch.
+  // With nothing persisted, a short viewport (a phone or small tablet held
+  // sideways, where the sidebar replaces the bottom nav) starts collapsed:
+  // 192px of rail is a quarter of that screen. The choice is only written
+  // when the user toggles it, so the default keeps tracking the viewport.
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (stored === "true") setCollapsed(true);
+    else if (stored === null && window.matchMedia("(max-height: 30rem)").matches) setCollapsed(true);
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, String(collapsed));
-  }, [collapsed]);
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      localStorage.setItem(STORAGE_KEY, String(!c));
+      return !c;
+    });
+  };
 
   if (pathname === "/login" || pathname.startsWith("/auth/")) return null;
 
@@ -129,7 +139,7 @@ export default function NavBar() {
             </Link>
           )}
           <button
-            onClick={() => setCollapsed((c) => !c)}
+            onClick={toggleCollapsed}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="text-muted hover:text-strong transition-colors p-1 rounded hover:bg-surface-mid/60"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -367,8 +377,12 @@ export default function NavBar() {
       {/* The account block is the way to sign out on a phone: tapping it asks
           first (ConfirmDialog), since a 44px target next to the thumb should
           never end a session by accident. Sign out used to be a bottom-nav
-          tab — it isn't a destination, and the bar had seven items. */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-50 bg-surface border-b border-line flex items-center justify-between px-4 h-11">
+          tab — it isn't a destination, and the bar had seven items.
+          In a short viewport (phone in landscape) the bar is gone altogether:
+          it carries no navigation, and 44px is an eighth of that screen. Sign
+          out is then on Settings → Account, and the pane drops its top
+          padding to match (app/layout.tsx). */}
+      <div className="md:hidden short:hidden fixed top-0 inset-x-0 z-50 bg-surface border-b border-line flex items-center justify-between px-4 h-11">
         <Link href="/home" className={`text-sm font-bold tracking-wide ${isHome ? "text-accent" : "text-primary"}`}>TPB</Link>
         {!loading && user && (
           <button
@@ -419,7 +433,9 @@ export default function NavBar() {
           <>
             <nav
               aria-label="Sections"
-              className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-surface border-t border-line flex items-stretch h-[var(--mobile-nav-h)] box-content pb-[env(safe-area-inset-bottom,0px)]"
+              className={`mobile-nav md:hidden fixed bottom-0 inset-x-0 z-50 bg-surface border-t border-line flex items-stretch h-[var(--mobile-nav-h)] box-content pb-[env(safe-area-inset-bottom,0px)] ${
+                navHidden && !moreOpen ? "mobile-nav-hidden" : ""
+              }`}
             >
               {shown.map((x) => (
                 <MobileNavItem key={x.href} href={x.href} active={x.active} label={x.label}>

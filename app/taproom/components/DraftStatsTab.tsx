@@ -518,7 +518,7 @@ export default function DraftStatsTab() {
         {editingTaps ? <div /> : (
           <ButtonGroup tabs={DRAFT_VIEWS} activeKey={view} onSelect={setView} />
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowHelp(true)} className="btn-secondary">
             How to use
           </button>

@@ -65,6 +65,32 @@ const eslintConfig = defineConfig([
           message:
             "Page titles come from <PageHeader> (docs/UI_STANDARD.md §4); raw <h1>/<h2> break the heading outline.",
         },
+        // ── Mobile patterns (docs/UI_STANDARD.md §7) ──────────────────────────
+        {
+          selector: 'JSXAttribute[name.name="className"] > Literal[value=/\\bflex-1 overflow-auto\\b/]',
+          message:
+            "Pattern A: use `pane` for a page's scroll region (and `frame` on its parent). A hand-written inner scroller pins the chrome on phones and in landscape.",
+        },
+        {
+          selector: 'JSXAttribute[name.name="className"] > Literal[value=/\\bflex-col h-full\\b/]',
+          message:
+            "Pattern A: use `frame` instead of `flex flex-col h-full`. It is the same on desktop and a normal block on a handheld, where the app pane is the one scroller.",
+        },
+        {
+          selector: 'JSXAttribute[name.name="className"] > Literal[value=/max-h-\\[calc\\(100vh/]',
+          message:
+            "A viewport-derived max-height leaves a ~75px scroll window in landscape and 100vh is the wrong unit on iOS. Let the pane scroll instead (pattern A), or gate the cap under desk:.",
+        },
+        {
+          selector: 'JSXOpeningElement[name.name="table"] JSXAttribute[name.name="className"] > Literal[value=/min-w-\\[[4-9][0-9]{2}px\\]/], JSXAttribute[name.name="className"] > Literal[value=/min-w-\\[[4-9][0-9]{2}px\\]/]',
+          message:
+            "A 400px+ min-width forces sideways scroll on every phone. Hide secondary columns below sm instead (<Th hide>/<Td hide>, pattern B) and let the table fit.",
+        },
+        {
+          selector: 'JSXAttribute[name.name="onDoubleClick"]',
+          message:
+            "Double-click is double-tap-to-zoom on touch. Give the action a visible button (≥44px on a coarse pointer) instead.",
+        },
       ],
     },
   },

@@ -180,7 +180,7 @@ export default function UserManagement() {
   const displayError = apiError ?? (error as Error)?.message ?? null;
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6">
+    <div className="pane px-4 sm:px-6">
       <SettingsHeader title="Users" />
       <div className="pb-4 sm:pb-8">
       {isLoading && <p className="text-sm text-muted">Loading…</p>}

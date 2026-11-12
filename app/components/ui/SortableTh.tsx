@@ -13,6 +13,7 @@ export default function SortableTh({
   onSort,
   align = "left",
   className = "",
+  hide,
 }: {
   label: string;
   sortKey: string;
@@ -20,13 +21,15 @@ export default function SortableTh({
   onSort: (key: string) => void;
   align?: "left" | "right";
   className?: string;
+  /** Drop the column below this breakpoint (pair with the matching <Td hide>). */
+  hide?: "sm" | "md";
 }) {
   const active = sort?.key === sortKey;
   const ariaSort = active ? (sort!.dir === "asc" ? "ascending" : "descending") : "none";
   return (
     <th
       aria-sort={ariaSort}
-      className={`px-4 py-3 font-medium text-body select-none whitespace-nowrap text-${align} ${className}`.trim()}
+      className={`px-2 sm:px-4 py-3 font-medium text-body select-none whitespace-nowrap text-${align} ${hide === "sm" ? "max-sm:hidden" : hide === "md" ? "max-md:hidden" : ""} ${className}`.trim()}
     >
       <button
         type="button"

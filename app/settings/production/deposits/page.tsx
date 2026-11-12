@@ -5,7 +5,7 @@ import DepositSettingsPanel from "@/app/production/components/DepositSettingsPan
 // settings group shell; the page owns its header and content padding.
 export default function DepositSettingsPage() {
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6">
+    <div className="pane px-4 sm:px-6">
       <SettingsHeader
         title="Deposit Settings"
         description="Deposit terms and the Square item deposit invoices bill against."

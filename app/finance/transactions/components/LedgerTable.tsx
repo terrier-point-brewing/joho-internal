@@ -11,9 +11,42 @@ import Badge from "@/app/components/ui/Badge";
 type Align = "left" | "right" | "center";
 const alignCls = (a: Align) => (a === "right" ? "text-right" : a === "center" ? "text-center" : "text-left");
 
-/** Static (non-sortable) column header. */
-export function Th({ label, align = "left", className = "" }: { label?: string; align?: Align; className?: string }) {
-  return <th className={`px-4 py-2 ${alignCls(align)} text-muted font-medium ${className}`}>{label}</th>;
+/** Below which breakpoint a column is dropped on a handheld (pattern B). */
+export type Hide = "sm" | "md";
+export const hideCls = (h?: Hide) => (h === "sm" ? "max-sm:hidden" : h === "md" ? "max-md:hidden" : "");
+
+/** Ledger cell padding: tight on a phone, where eight `px-4` cells spend 256px on gutters. */
+export const CELL = "px-2 sm:px-4 py-2";
+
+/**
+ * Static (non-sortable) column header. `hide` drops the column below that
+ * breakpoint; the matching <td>s take the same `hideCls`/`<Td hide>` so the
+ * row stays aligned.
+ */
+export function Th({ label, align = "left", className = "", hide }: { label?: string; align?: Align; className?: string; hide?: Hide }) {
+  return <th className={`${CELL} ${alignCls(align)} text-muted font-medium ${hideCls(hide)} ${className}`}>{label}</th>;
+}
+
+/** Body cell with the ledger's padding and the same `hide` contract as <Th>. */
+export function Td({ children, align = "left", className = "", hide, colSpan, onClick }: {
+  children?: React.ReactNode; align?: Align; className?: string; hide?: Hide; colSpan?: number; onClick?: () => void;
+}) {
+  return <td colSpan={colSpan} onClick={onClick} className={`${CELL} ${alignCls(align)} ${hideCls(hide)} ${className}`}>{children}</td>;
+}
+
+/**
+ * The full-width drawer under an expanded row. A `colSpan` cell is as wide as
+ * the table's scroll width, so anything laid out inside it (split editors,
+ * their Save button) can sit off-screen on a phone. The inner box pins itself
+ * to the left edge and caps at the viewport, so the drawer lays out at the
+ * width the reader can see, whatever the table behind it is doing.
+ */
+export function DrawerCell({ colSpan, children, className = "" }: { colSpan: number; children: React.ReactNode; className?: string }) {
+  return (
+    <td colSpan={colSpan} className="p-0">
+      <div className={`sticky left-0 max-w-[calc(100vw-2rem)] desk:max-w-none ${className}`}>{children}</div>
+    </td>
+  );
 }
 
 /**
@@ -34,26 +67,35 @@ export function Th({ label, align = "left", className = "" }: { label?: string; 
  * gesture, except the page version carried the headers away with it. Callers
  * that sit inside a normally-scrolling page (Payroll, the Settings backfills,
  * Period Close) leave it off and are untouched.
+ *
+ * `fill` only engages on a `desk:` viewport. On a handheld the page is a
+ * normal block and the app pane scrolls (pattern A), so the card is just a
+ * `.scroll-x` strip like the non-fill case — an inner scroller there was a
+ * 0–230px window fighting the page.
+ *
+ * `pin` keeps the first column in view while the rows scroll sideways.
  */
 export function LedgerTable({
   head,
   groupHead,
   children,
   fill = false,
+  pin = false,
 }: {
   head: React.ReactNode;
   groupHead?: React.ReactNode;
   children: React.ReactNode;
   fill?: boolean;
+  pin?: boolean;
 }) {
   // A sticky <th> inside a border-collapse table drops its own border as it
   // detaches, so the header row's hairline is drawn as an inset shadow instead
   // — that travels with the cell.
   const headRowCls = fill ? "" : "border-b border-line";
   return (
-    <div className={`bg-surface border border-line rounded-lg overflow-hidden ${fill ? "flex-1 min-h-0 flex flex-col" : ""}`}>
-      <div className={fill ? "flex-1 min-h-0 overflow-auto overscroll-x-contain" : "scroll-x"}>
-        <table className="w-full text-xs border-collapse">
+    <div className={`bg-surface border border-line rounded-lg overflow-hidden ${fill ? "desk:flex-1 desk:min-h-0 desk:flex desk:flex-col" : ""}`}>
+      <div className={`scroll-x ${fill ? "desk:flex-1 desk:min-h-0 desk:overflow-auto desk:overscroll-x-contain" : ""}`}>
+        <table className={`w-full text-xs border-collapse ${pin ? "tbl-pin" : ""}`}>
           <thead
             className={
               fill

@@ -109,7 +109,7 @@ export default function CronMonitor() {
   }
 
   return (
-    <div className="flex-1 overflow-auto px-4 sm:px-6">
+    <div className="pane px-4 sm:px-6">
       <SettingsHeader
         title="Cron Jobs"
         description="Scheduled jobs and their recent run history. Schedules run in UTC."

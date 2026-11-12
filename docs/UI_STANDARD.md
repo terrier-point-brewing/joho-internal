@@ -203,10 +203,11 @@ Production's shell is the model (100% consistent there). Every content page conf
 title/description, section sub-tabs — to the top of the page's scroll container so they
 never scroll away, regardless of content height. It's the single shared mechanism for
 this; don't hand-roll a `position: sticky` wrapper or per-element sticky offsets in a
-page. (Full-height shells that already isolate scrolling structurally — `flex flex-col
-h-full` → `shrink-0` header → `flex-1 overflow-auto` content, e.g. Finance's Financials/
-Transactions/Period Close and Settings — get the same frozen-header behavior for free
-from that structure and don't need `<StickyHeader>` too.)
+page. Full-height shells (Finance's Financials/Transactions/Period Close and Settings)
+use `frame` → `shrink-0` header → `pane` content instead of hand-written
+`h-full`/`overflow-auto`; see §7, pattern A. On desktop that structure freezes the
+header for free; on a handheld it is inert and `<StickyHeader>` does the pinning, so a
+full-height shell still wraps its title in `<StickyHeader>`.
 
 Rules:
 - **Page = shell; feature logic lives in a co-located `*Tab`/component.** (Fix
@@ -436,3 +437,55 @@ raw-color exception — pass category color classes via `FilterChips`
 **Enforcement:** `npm run check:search-filter` (CI, warn-only during the PR 1–4
 retrofit sweep; blocking afterward) flags raw search inputs, inline
 `.toLowerCase().includes()`, and local `SortTh`/`FilterChips` in feature code.
+
+---
+
+## 7. Mobile patterns (strict)
+
+Phone width (≤ `md`) and landscape phones (`short:`, ≤ 30rem tall) are first-class.
+docs/ui/MOBILE_REVIEW_2026-11.md found four structural patterns behind nearly every
+mobile defect; each now has one shared mechanism, and new code uses it rather than a
+per-page breakpoint. Two custom variants underpin them (`globals.css`):
+
+- `desk:` — at least `md` wide **and** taller than `short:`. The only viewport where a
+  page may pin its own chrome.
+- `handheld:` — everything else. One scroller: the app pane (`#app-pane`).
+
+### A. Page frames: `frame` + `pane`
+Replaces `flex flex-col h-full` → `shrink-0` header → `flex-1 overflow-auto` body.
+On `desk:` it is exactly that; on a handheld both utilities are inert, so the page is
+a normal block, the pane scrolls, area tabs scroll away and `StickyHeader` pins (or,
+under `short:`, unpins) the title. `LedgerTable fill` follows the same rule. Never
+write `h-full`, an inner `overflow-auto` or a `max-h-[calc(100vh…)]` in a page; if a
+desktop-only cap is load-bearing, prefix it `desk:`.
+
+### B. Tables: priority columns, pinned label, viewport-width drawer
+Sideways scroll is the fallback, not the design. `app/components/ui/Table.tsx`
+(`Table`, `Th`, `Td`, `DrawerCell`) and the same props on `LedgerTable`/`SortableTh`:
+
+- `hide="sm" | "md"` on a `<Th>` and every `<Td>` of that column drops it below the
+  breakpoint. Keep the columns the reader acts on (date, name, amount, action); fold
+  the rest into a sub-line or the expanded row. No `min-w-[Npx]` on a table.
+- `pin` keeps the first column in view (`.tbl-pin`).
+- `<DrawerCell colSpan>` lays the expanded row out at the viewport's width, so an
+  editor and its Save button are never off-screen.
+- Cells are `px-2 sm:px-4`; the row chevron rides in the first cell, not a column.
+- Charts render `height="100%"` inside a `chart-box` wrapper (phone / desktop /
+  landscape heights); `ChartSkeleton` with no `height` is the same box.
+- A wide editable grid becomes **one card per row below `md`** (Catalog's
+  `MappingGrid` is the reference).
+
+### C. Label + control rows: `FieldRow` and `TitleRow`
+`<FieldRow label>` puts the label left at a fixed `sm:w-*` and stacks it above the
+control on a phone, so the control gets the full row. `<TitleRow title actions>` lets
+an action cluster wrap under the title instead of crushing it. Never pair a fixed
+`w-*` label or a `shrink-0` button cluster with a `flex-1` control in a bare flex row.
+
+### D. Shell
+In `short:` the phone top bar is hidden (sign out is on Settings → Account), the
+bottom nav slides away while scrolling down and returns on the first upward scroll
+(`useHideOnScroll`), and the desktop sidebar starts collapsed. `.inp`/`.inp-sm` are
+16px under a coarse pointer so iOS does not zoom on focus.
+
+ESLint (`eslint.config.mjs`) warns on the hand-written forms of A and B.
+
