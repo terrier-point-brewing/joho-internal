@@ -16,6 +16,8 @@ import { CreditInvoiceModal } from "./CreditInvoiceModal";
 import CancelInvoiceModal from "./CancelInvoiceModal";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import { Modal } from "@/app/components/ui/Modal";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 
 /**
  * A line item is two things and only two things: a LABEL and a NOTE.
@@ -120,9 +122,13 @@ function fmt(iso: string) {
 function InvoiceExpandedPanel({
   invoice,
   onRefresh,
+  canOperate,
 }: {
   invoice: ExportInvoiceListItem;
   onRefresh: () => void;
+  /** production.export:operate — every write here (line items, send, sync,
+      credit, cancel) is behind it on the server. */
+  canOperate: boolean;
 }) {
   const { data: mappings = [] } = useExportServiceMappingsQuery();
   const { data: catalog } = useExportSquareCatalogQuery();
@@ -468,8 +474,8 @@ function InvoiceExpandedPanel({
                       order, not a Square line item — there is nothing on the
                       other end for these buttons to edit or delete. Change it
                       in Square and it re-syncs. */}
-                  {isDraft && li.category === "discount" && <td />}
-                  {isDraft && li.category !== "discount" && (
+                  {canOperate && isDraft && li.category === "discount" && <td />}
+                  {canOperate && isDraft && li.category !== "discount" && (
                     <td className="py-1 text-right whitespace-nowrap">
                       <button
                         onClick={() => startEdit(li)}
@@ -518,7 +524,7 @@ function InvoiceExpandedPanel({
         </div>
 
         {/* Add line item (Draft only) */}
-        {isDraft && (
+        {canOperate && isDraft && (
           <div className="mt-2 pt-2 border-t border-line">
             {!addOpen ? (
               <button
@@ -603,7 +609,7 @@ function InvoiceExpandedPanel({
       </div>
 
       {/* Actions */}
-      {(isDraft || isPaid || isCancellable || (isSquare && !isPaid)) && (
+      {canOperate && (isDraft || isPaid || isCancellable || (isSquare && !isPaid)) && (
         <div className={`${panelClass} flex items-center gap-2`}>
           {isDraft && (
             <button
@@ -724,6 +730,8 @@ function InvoiceExpandedPanel({
 
 export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoicesTabProps) {
   const qc = useQueryClient();
+  const { can } = usePermissions();
+  const canOperate = can(CAP.exportOperate);
   const { data: invoices = [] } = useQuery({
     queryKey: queryKeys.production.exportInvoices(),
     queryFn: () => fetchJson<ExportInvoiceListItem[]>("/api/production/export/invoices"),
@@ -894,7 +902,7 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
                     {isExpanded && (
                       <tr className="border-b border-line bg-surface/20">
                         <td colSpan={6} className="p-0">
-                          <InvoiceExpandedPanel invoice={inv} onRefresh={refresh} />
+                          <InvoiceExpandedPanel invoice={inv} onRefresh={refresh} canOperate={canOperate} />
                         </td>
                       </tr>
                     )}

@@ -10,6 +10,8 @@ import ReviseShipmentModal from "./ReviseShipmentModal";
 import { isShipmentEditable, isShipmentRevisable } from "@/lib/production/shipmentEdit";
 import { CHANNEL_COLOR } from "../lib/categoryColors";
 import { fmtDateLong } from "@/lib/utils/formatting";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { localDateString } from "@/lib/utils/datetime";
 import {
@@ -342,6 +344,10 @@ function groupByInvoice(rows: ShipmentRow[]): InvoiceGroup[] {
 }
 
 export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps) {
+  const { can } = usePermissions();
+  // Every write on this tab (generate/send invoice, mark paid, edit, revise)
+  // is a production.export:operate route. Readers get the list only.
+  const canOperate = can(CAP.exportOperate);
   const { data: allRows = [] } = useQuery({
     queryKey: queryKeys.production.exports(),
     queryFn: () => fetchJson<ShipmentRow[]>("/api/production/exports"),
@@ -657,7 +663,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                     <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-surface-mid text-secondary"}`}>
                       {STATUS_LABELS[group.status] ?? group.status}
                     </span>
-                    {group.status === "draft" && group.invoice_id && (
+                    {canOperate && group.status === "draft" && group.invoice_id && (
                       <button
                         onClick={() => handleSendInvoice(group)}
                         disabled={sendingKey !== null}
@@ -666,7 +672,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                         {sendingKey === group.key ? "Sending…" : "Send Invoice"}
                       </button>
                     )}
-                    {isShipmentEditable(group.rows) && (
+                    {canOperate && isShipmentEditable(group.rows) && (
                       <button
                         onClick={() => setEditing(group)}
                         className="btn-secondary"
@@ -679,7 +685,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                         together), and a revision is scoped to ONE shipment
                         because the unship + rebook has to reverse a coherent
                         physical drop. */}
-                    {(() => {
+                    {canOperate && (() => {
                       const shipmentIds = [...new Set(group.rows.map((r) => r.shipment_id))];
                       if (shipmentIds.length !== 1) return null;
                       if (!isShipmentRevisable(group.rows)) return null;
@@ -705,7 +711,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                 {group.products.map((product, pi) => {
                   const isLastProduct = pi === group.products.length - 1;
                   const checked = isProductChecked(product);
-                  const canCheck = canProductCheck(product, group);
+                  const canCheck = canOperate && canProductCheck(product, group);
                   const productKey = `${group.key}:${product.recipe_id ?? ""}:${product.variant_label}`;
                   const isExpanded = expandedProducts.has(productKey);
 
@@ -848,7 +854,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
       )}
 
       {/* Sticky action bar */}
-      {selected && selected.ids.size > 0 && (
+      {canOperate && selected && selected.ids.size > 0 && (
         <div className="fixed bottom-[calc(1.5rem+var(--mobile-nav-space))] left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 bg-surface border border-line-strong rounded-xl shadow-2xl text-sm">
           <span className="text-secondary">
             {selected.ids.size} line{selected.ids.size !== 1 ? "s" : ""} selected

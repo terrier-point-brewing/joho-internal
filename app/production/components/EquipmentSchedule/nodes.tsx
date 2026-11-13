@@ -24,6 +24,8 @@ export type EntryNodeCallbacks = {
   onConvert: (e: ScheduleEntry) => void;
   onRemove:  (id: string) => void;
   editing:   ScheduleEntry | null;
+  /** Viewer lacks brewingOperate: no edit/remove/split/convert affordances. */
+  readOnly?: boolean;
 };
 
 export type EntryNodeData = EntryNodeCallbacks & {
@@ -40,7 +42,7 @@ export type EntryNodeData = EntryNodeCallbacks & {
 };
 
 export function EntryNode({ data }: NodeProps) {
-  const { entry, onEdit, onSplit, onConvert, onRemove, editing, partialDrain,
+  const { entry, onEdit, onSplit, onConvert, onRemove, editing, readOnly, partialDrain,
           packagingShrinkageBbl, stageShrinkageBbl, conversionBbl, pendingConversionBbl } =
     data as EntryNodeData;
 
@@ -57,8 +59,8 @@ export function EntryNode({ data }: NodeProps) {
 
   return (
     <div
-      onClick={() => (onEdit as EntryNodeCallbacks["onEdit"])(entry)}
-      className={`relative group w-44 rounded-lg border cursor-pointer transition-all select-none
+      onClick={readOnly ? undefined : () => (onEdit as EntryNodeCallbacks["onEdit"])(entry)}
+      className={`relative group w-44 rounded-lg border ${readOnly ? "cursor-default" : "cursor-pointer"} transition-all select-none
         ${style.bg}
         ${isEditing
           ? style.activeBorder + " ring-2 ring-accent/40 border-2"
@@ -129,13 +131,13 @@ export function EntryNode({ data }: NodeProps) {
       </div>
 
       {/* Remove */}
-      <button type="button"
+      {!readOnly && <button type="button"
         onClick={ev => { ev.stopPropagation(); (onRemove as EntryNodeCallbacks["onRemove"])(entry.id); }}
         className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 text-faint hover:text-danger text-xs transition-opacity leading-none"
-        title="Remove">×</button>
+        title="Remove">×</button>}
 
       {/* Split / Convert */}
-      {(canSplit || canConvert) && (
+      {!readOnly && (canSplit || canConvert) && (
         <div className="absolute bottom-1.5 left-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1.5">
           {canSplit && (
             <button type="button"
@@ -163,14 +165,15 @@ export type GhostNodeData = {
   label:      string;
   isRequired: boolean;
   onBuild:    () => void;
+  readOnly?:  boolean;
 };
 
 export function GhostNode({ data }: NodeProps) {
-  const { label, isRequired, onBuild } = data as GhostNodeData;
+  const { label, isRequired, onBuild, readOnly } = data as GhostNodeData;
   return (
     <div
-      onClick={() => (onBuild as () => void)()}
-      className={`w-44 rounded-lg border border-dashed cursor-pointer transition-all select-none
+      onClick={readOnly ? undefined : () => (onBuild as () => void)()}
+      className={`w-44 rounded-lg border border-dashed ${readOnly ? "cursor-default" : "cursor-pointer"} transition-all select-none
         ${isRequired
           ? "border-line-subtle hover:border-accent-border bg-surface/20 hover:bg-accent-muted/20"
           : "border-line-strong hover:border-line-subtle bg-surface/10 hover:bg-surface-mid/20"}`}
