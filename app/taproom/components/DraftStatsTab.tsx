@@ -118,8 +118,8 @@ const oz = (v: number) => Math.round(v).toLocaleString();
 
 const SHRINKAGE_COLUMNS: TrendSummaryColumn[] = [
   { label: "Avg (fl oz)", title: "Average fl oz unaccounted for per keg", value: (r) => oz(r.mean) },
-  { label: "Avg %", title: "Average share of the keg unaccounted for", value: (r) => (r.aux_mean != null ? `${r.aux_mean.toFixed(1)}%` : "—") },
-  { label: "Kegs", title: "Kegs replaced in the range", value: (r) => r.count.toLocaleString() },
+  { label: "Avg %", title: "Average share of the keg unaccounted for", hide: "sm", value: (r) => (r.aux_mean != null ? `${r.aux_mean.toFixed(1)}%` : "—") },
+  { label: "Kegs", title: "Kegs replaced in the range", hide: "sm", value: (r) => r.count.toLocaleString() },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

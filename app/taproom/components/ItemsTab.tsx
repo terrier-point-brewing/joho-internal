@@ -9,7 +9,7 @@ import { formatCurrencyCents } from "@/lib/format";
 import { TAPROOM_MODEL_CATEGORIES } from "@/lib/constants/categories";
 import {
   buildTrend, combineOthers, bucketOf, trendWindowQuery,
-  type TrendData, type TrendGrouping, type TrendRow, type TrendWindow,
+  type TrendData, type TrendGrouping, type TrendWindow,
 } from "@/lib/reports/draftTrend";
 import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
 import { todayLocalDate } from "@/lib/utils/datetime";
@@ -23,6 +23,9 @@ import ChartSkeleton from "@/app/components/ChartSkeleton";
 import FilterBar from "@/app/components/ui/FilterBar";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterSelect from "@/app/components/ui/FilterSelect";
+import { Modal } from "@/app/components/ui/Modal";
+import { Table, Th, Td, CellLabel } from "@/app/components/ui/Table";
+import TrendTable from "./TrendTable";
 import type { TrendSeries } from "./DraftTrendChart";
 
 const DraftTrendChart = dynamic(() => import("./DraftTrendChart"), {
@@ -111,61 +114,53 @@ function ItemDrill({ item, start, end, onClose }: { item: ItemSalesItem; start: 
   const total = lines.reduce((s, l) => s + net(l), 0);
   const units = lines.reduce((s, l) => s + (l.kind === "return" ? -l.quantity : l.quantity), 0);
 
+  const num = "font-mono tabular-nums";
   return (
-    <div className="rounded-lg border border-line bg-canvas mb-6">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-line/60">
-        <div>
-          <span className="text-sm font-semibold text-strong">{itemLabel(item)}</span>
-          <span className="text-xs text-muted ml-2">transactions · {start} → {end}</span>
-        </div>
-        <button type="button" onClick={onClose} className="btn-secondary text-xs">Close</button>
-      </div>
-
-      {isPending && <div className="px-4 py-3 text-xs text-faint">Loading transactions…</div>}
-      {error instanceof Error && <div className="px-4 py-3 text-xs text-danger">{error.message}</div>}
-      {data && lines.length === 0 && <div className="px-4 py-3 text-xs text-faint italic">No transactions in this window.</div>}
+    <Modal title={itemLabel(item)} onClose={onClose} wide>
+      <p className="text-xs text-muted mb-3">Transactions · {start} → {end}</p>
+      {isPending && <p className="text-xs text-faint">Loading transactions…</p>}
+      {error instanceof Error && <p className="text-xs text-danger">{error.message}</p>}
+      {data && lines.length === 0 && <p className="text-xs text-faint italic">No transactions in this window.</p>}
 
       {lines.length > 0 && (
         <>
-          <div className="overflow-auto max-h-96">
-            <table className="w-full text-xs min-w-[520px]">
-              <thead className="sticky top-0 bg-canvas">
-                <tr className="text-2xs text-faint uppercase tracking-wider border-b border-line/60">
-                  <th className="text-left px-4 py-1.5 font-medium">When</th>
-                  <th className="text-right px-3 py-1.5 font-medium">Qty</th>
-                  <th className="text-right px-3 py-1.5 font-medium">Gross</th>
-                  <th className="text-right px-3 py-1.5 font-medium">Discount</th>
-                  <th className="text-right px-3 py-1.5 font-medium">Net</th>
-                  <th className="text-left px-3 py-1.5 font-medium">Order</th>
+          <Table bleed={false}>
+            <thead>
+              <tr className="text-2xs uppercase tracking-wider border-b border-line">
+                <Th>When</Th>
+                <Th align="right">Qty</Th>
+                <Th align="right" hide="sm">Gross</Th>
+                <Th align="right" hide="sm">Discount</Th>
+                <Th align="right">Net</Th>
+                <Th hide="sm">Order</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((l) => (
+                <tr key={`${l.orderId}:${l.lineUid}:${l.kind}`} className="border-b border-line/30">
+                  <Td className="text-muted whitespace-nowrap">
+                    {formatLineTime(l.occurredAt)}
+                    {l.kind === "return" && <span className="ml-2 text-2xs text-danger/70 uppercase tracking-wider">return</span>}
+                    {l.prorated && <span className="ml-2 text-2xs text-muted italic">est.</span>}
+                  </Td>
+                  <Td align="right" className={`${num} text-muted`}>{l.kind === "return" ? -l.quantity : l.quantity}</Td>
+                  <Td align="right" hide="sm" className={`${num} text-muted`}>{formatCurrencyCents(l.grossSalesCents, 2)}</Td>
+                  <Td align="right" hide="sm" className={`${num} text-muted`} title={l.discountNames.join(", ")}>
+                    {l.discountsCents ? formatCurrencyCents(l.discountsCents, 2) : <span className="text-disabled">—</span>}
+                  </Td>
+                  <Td align="right" className={`${num} text-strong`}>{formatCurrencyCents(net(l), 2)}</Td>
+                  <Td hide="sm" className="font-mono text-accent">{l.orderId.slice(-8)}</Td>
                 </tr>
-              </thead>
-              <tbody>
-                {lines.map((l) => (
-                  <tr key={`${l.orderId}:${l.lineUid}:${l.kind}`} className="border-b border-line/30">
-                    <td className="px-4 py-1.5 text-muted whitespace-nowrap">
-                      {formatLineTime(l.occurredAt)}
-                      {l.kind === "return" && <span className="ml-2 text-2xs text-danger/70 uppercase tracking-wider">return</span>}
-                      {l.prorated && <span className="ml-2 text-2xs text-muted italic">est.</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted">{l.kind === "return" ? -l.quantity : l.quantity}</td>
-                    <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted">{formatCurrencyCents(l.grossSalesCents, 2)}</td>
-                    <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted" title={l.discountNames.join(", ")}>
-                      {l.discountsCents ? formatCurrencyCents(l.discountsCents, 2) : <span className="text-disabled">—</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-right font-mono tabular-nums text-strong">{formatCurrencyCents(net(l), 2)}</td>
-                    <td className="px-3 py-1.5 font-mono text-accent">{l.orderId.slice(-8)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center justify-between px-4 py-2 border-t border-line-strong text-xs font-semibold text-strong">
+              ))}
+            </tbody>
+          </Table>
+          <div className="flex items-center justify-between pt-3 text-xs font-semibold text-strong">
             <span>{lines.length} {lines.length === 1 ? "line" : "lines"} · {units} units</span>
-            <span className="font-mono tabular-nums">{formatCurrencyCents(total, 2)}</span>
+            <span className={num}>{formatCurrencyCents(total, 2)}</span>
           </div>
         </>
       )}
-    </div>
+    </Modal>
   );
 }
 
@@ -264,6 +259,8 @@ export default function ItemsTab() {
     label: r === others ? r.beer_name.replace("beer", "item") : r.beer_name,
     color: r === others ? OTHER_COLOR : SERIES_COLORS[i % SERIES_COLORS.length],
   }));
+  // The table marks each charted row with its line's colour.
+  const colorOf = new Map(series.filter((x) => x.key !== others?.recipe_id).map((x) => [x.key, x.color]));
   // A bucket with nothing sold is a real zero for a stocked item, so every
   // series is drawn across the whole window.
   const chartData = buckets.map((b) => {
@@ -292,14 +289,14 @@ export default function ItemsTab() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <FilterBar>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">
+        <FilterBar className="max-sm:w-full">
           <SearchInput value={search} onChange={setSearch} placeholder="Search items…" />
           <FilterSelect label="Category" options={CATEGORY_OPTIONS} value={category} onChange={setCategory} />
         </FilterBar>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <ButtonGroup tabs={METRICS}   activeKey={metric}   onSelect={changeMetric} />
-          <ButtonGroup tabs={GROUPINGS} activeKey={grouping} onSelect={setGrouping} />
+        <div className="flex flex-wrap items-center gap-2 desk:gap-x-4">
+          <ButtonGroup label="Metric"   collapse tabs={METRICS}   activeKey={metric}   onSelect={changeMetric} />
+          <ButtonGroup label="Grouping" collapse tabs={GROUPINGS} activeKey={grouping} onSelect={setGrouping} />
           <TrendWindowPicker presets={RANGES} value={range} onChange={setRange} today={today} />
         </div>
       </div>
@@ -326,16 +323,18 @@ export default function ItemsTab() {
             <div className="chart-box">
               <DraftTrendChart chartData={chartData} series={series} unit={unit} connectGaps={false} />
             </div>
-            <div className="flex flex-wrap gap-3 mt-2">
+            <div className="scroll-x flex sm:flex-wrap gap-3 mt-2">
               {series.map((s) => (
-                <span key={s.key} className="flex items-center gap-1.5 text-xs text-secondary">
+                <span key={s.key} className="flex shrink-0 items-center gap-1.5 text-xs text-secondary whitespace-nowrap">
                   <span className="w-2.5 h-0.5 inline-block" style={{ background: s.color }} />
                   {s.label}
                 </span>
               ))}
             </div>
             <p className="text-2xs text-faint mt-2">
-              Click a row to chart just that item (click more to compare). Double-click a row, or use Transactions, for the sales behind it.
+              Select a row to chart just that item (select more to compare).
+              <span className="md:hidden"> Its total opens the sales behind it.</span>
+              <span className="max-md:hidden"> Transactions opens the sales behind it.</span>
               {unsizedCount > 0 && ` ${unsizedCount} ${unsizedCount === 1 ? "item has" : "items have"} no size in the name and ${unsizedCount === 1 ? "is" : "are"} left out of the fl oz view.`}
             </p>
           </div>
@@ -344,84 +343,41 @@ export default function ItemsTab() {
             <ItemDrill item={drillItem} start={data.start} end={data.end} onClose={() => setDrill(null)} />
           )}
 
-          <div className="overflow-auto rounded-lg border border-line w-fit max-w-full">
-            <table className="text-xs tabular-nums border-separate border-spacing-0">
-              <thead>
-                <tr>
-                  <th className="sticky left-0 z-20 bg-surface px-3 py-2 text-left font-semibold text-secondary whitespace-nowrap border-b border-line">
-                    Item
-                  </th>
-                  <th className="bg-surface px-3 py-2 text-left font-semibold text-secondary whitespace-nowrap border-b border-line">Category</th>
-                  <th className="bg-surface px-3 py-2 text-right font-semibold text-secondary whitespace-nowrap border-b border-line">Total</th>
-                  <th className="bg-surface px-3 py-2 text-right font-semibold text-secondary whitespace-nowrap border-b border-line border-r" title={`Average per ${grouping} over the window`}>
-                    Avg / {grouping}
-                  </th>
-                  <th className="bg-surface px-2 py-2 border-b border-line border-r" />
-                  {cols.map((b) => {
-                    const h = bucketLabels(b, grouping);
-                    return (
-                      <th key={b} className="bg-surface px-2.5 py-2 text-right font-medium text-secondary whitespace-nowrap border-b border-line">
-                        <span className="block text-faint">{b === thisBucket && bucketOf(data!.end, grouping) !== data!.end ? (data!.end === today ? "so far" : "partial") : h.top}</span>
-                        {h.main}
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {allRows.map((r: TrendRow) => {
-                  const item = itemById.get(r.recipe_id);
-                  const isPicked = picked.has(r.recipe_id);
-                  return (
-                    <tr
-                      key={r.recipe_id}
-                      onClick={() => togglePick(r.recipe_id)}
-                      onDoubleClick={() => setDrill(r.recipe_id)}
-                      className={`cursor-pointer select-none ${isPicked ? "bg-accent-muted/20" : "hover:bg-surface-mid/40"}`}
-                    >
-                      <td className={`sticky left-0 z-10 px-3 py-2 font-medium text-strong whitespace-nowrap border-b border-line/40 ${isPicked ? "bg-accent-muted/20" : "bg-canvas"}`}>
-                        {item?.itemName ?? r.beer_name}
-                        {item?.variationName && <span className="text-faint ml-1.5 font-normal">{item.variationName}</span>}
-                      </td>
-                      <td className="px-3 py-2 text-muted whitespace-nowrap border-b border-line/40">
-                        {item ? CATEGORY_LABEL[item.categoryId] ?? item.categoryId : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right font-semibold text-strong border-b border-line/40">{fmt(r.sum)}</td>
-                      <td className="px-3 py-2 text-right text-body border-b border-line/40 border-r">{fmt(r.sum / bucketCount)}</td>
-                      <td className="px-2 py-2 border-b border-line/40 border-r">
-                        <button
-                          type="button"
-                          className="text-2xs text-accent hover:underline whitespace-nowrap"
-                          onClick={(e) => { e.stopPropagation(); setDrill(r.recipe_id); }}
-                        >
-                          Transactions
-                        </button>
-                      </td>
-                      {cols.map((b) => (
-                        <td key={b} className={`px-2.5 py-2 text-right border-b border-line/40 ${r.by_bucket[b] != null ? "text-body" : "text-faint"}`}>
-                          {r.by_bucket[b] != null ? fmt(r.by_bucket[b]) : "—"}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-                <tr>
-                  <td className="sticky left-0 z-10 bg-surface px-3 py-2 font-semibold text-strong whitespace-nowrap">
-                    All shown ({allRows.length})
-                  </td>
-                  <td className="bg-surface" />
-                  <td className="bg-surface px-3 py-2 text-right font-semibold text-strong">{fmt(trend.overall.sum)}</td>
-                  <td className="bg-surface px-3 py-2 text-right font-semibold text-strong border-r border-line/40">{fmt(trend.overall.sum / bucketCount)}</td>
-                  <td className="bg-surface border-r border-line/40" />
-                  {cols.map((b) => (
-                    <td key={b} className="bg-surface px-2.5 py-2 text-right font-semibold text-strong">
-                      {trend.overall.by_bucket[b] != null ? fmt(trend.overall.by_bucket[b]) : "—"}
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <TrendTable
+            labelHeader="Item"
+            rows={allRows}
+            overall={{ label: `All shown (${allRows.length})`, row: trend.overall }}
+            buckets={cols}
+            bucketHeader={(b) => {
+              const h = bucketLabels(b, grouping);
+              const partial = b === thisBucket && thisBucket !== data!.end;
+              return { top: partial ? (data!.end === today ? "so far" : "partial") : h.top, main: h.main };
+            }}
+            describe={[{
+              label: "Category", hide: "md",
+              value: (r) => { const i = itemById.get(r.recipe_id); return i ? CATEGORY_LABEL[i.categoryId] ?? i.categoryId : "—"; },
+            }]}
+            summary={[
+              { label: "Total", value: (r) => fmt(r.sum) },
+              { label: `Avg / ${grouping}`, title: `Average per ${grouping} over the window`, hide: "sm", value: (r) => fmt(r.sum / bucketCount) },
+            ]}
+            cell={(v) => (v != null ? fmt(v) : "—")}
+            renderLabel={(r) => {
+              const item = itemById.get(r.recipe_id);
+              const cat = item ? CATEGORY_LABEL[item.categoryId] ?? item.categoryId : null;
+              // In the fl oz view the variation slot already holds the category.
+              const showCat = cat && cat !== item?.variationName;
+              return (
+                <CellLabel swatch={colorOf.get(r.recipe_id) ?? null} sub={showCat ? <span className="md:hidden">{cat}</span> : undefined}>
+                  {item?.itemName ?? r.beer_name}
+                  {item?.variationName && <span className="text-faint ml-1.5 font-normal">{item.variationName}</span>}
+                </CellLabel>
+              );
+            }}
+            onRowClick={(r) => togglePick(r.recipe_id)}
+            isActive={(r) => picked.has(r.recipe_id)}
+            details={{ label: "Transactions", onOpen: (r) => setDrill(r.recipe_id) }}
+          />
         </>
       )}
     </div>

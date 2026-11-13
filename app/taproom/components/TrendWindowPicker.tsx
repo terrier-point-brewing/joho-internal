@@ -40,6 +40,8 @@ export default function TrendWindowPicker({
   return (
     <div className="flex flex-wrap items-center gap-2">
       <ButtonGroup
+        label="Range"
+        collapse
         tabs={tabs}
         activeKey={activeKey}
         onSelect={(k) => {

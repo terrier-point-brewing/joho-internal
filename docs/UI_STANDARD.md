@@ -413,6 +413,7 @@ All list/table search, filtering, and sorting use the shared primitives in
   free text.
 - ≤ 5 mutually-exclusive options → `<FilterChips>` (segmented); > 5 options or
   tight space → `<FilterSelect>` (dropdown). Multi-select via `multiple`.
+- On a phone the bar is at most two rows; see §7 E for what folds and what does not.
 - "All" is always the default and first option (state = empty array).
 
 **Sort — lean toward enabling it.**
@@ -443,7 +444,8 @@ retrofit sweep; blocking afterward) flags raw search inputs, inline
 ## 7. Mobile patterns (strict)
 
 Phone width (≤ `md`) and landscape phones (`short:`, ≤ 30rem tall) are first-class.
-docs/ui/MOBILE_REVIEW_2026-11.md found four structural patterns behind nearly every
+docs/ui/MOBILE_REVIEW_2026-11.md found four structural patterns (A to D; E came out of
+the Items rework) behind nearly every
 mobile defect; each now has one shared mechanism, and new code uses it rather than a
 per-page breakpoint. Two custom variants underpin them (`globals.css`):
 
@@ -475,11 +477,56 @@ Sideways scroll is the fallback, not the design. `app/components/ui/Table.tsx`
 - A wide editable grid becomes **one card per row below `md`** (Catalog's
   `MappingGrid` is the reference).
 
+**Wide tables: fixed columns plus more columns than the screen holds.** A matrix
+(label, a few summaries, then a column per week or month) cannot be folded into a
+drawer, so sideways scroll is legitimate. What is not is spending the first screen
+on the fixed columns. `app/taproom/components/TrendTable.tsx` (Items, Draft loss) is
+the reference. Every column has one of four roles, and the role decides what a phone
+does with it:
+
+| Role | Example | Below `sm` |
+|---|---|---|
+| **Label** (who the row is) | Item, Beer, Account | The only pinned column. `<CellLabel>` caps it at 40vw, two lines. |
+| **Describer** (says more about the label) | Category, Owner | `hide`; repeated in the label's `sub` line. |
+| **Headline** (the number the reader came for) | Total, Net | Always shown, directly after the label. |
+| **Secondary summary** | Avg, %, count | `hide="sm"`; back in landscape. |
+| **Action** | Transactions, Details | No column. The headline number is the link; from `md` it gets a labelled column. |
+| **Series** (one per period) | Wk of 11/2 | Scrolls, newest first. |
+
+The test at 390px wide, before any scrolling: **the label, the headline and at least
+two series columns are in view**. If they are not, a column has the wrong role.
+
+- Pin one column, never two. A second pinned column is a describer or a headline.
+- A row has one gesture, a tap. Nothing hangs off a double-click or a hover.
+- The records behind a row open in `<Modal>` (a bottom sheet on a phone), not in a
+  panel elsewhere on the page that the reader has to scroll to find.
+- A chart legend is one scrolling line on a phone (`scroll-x flex sm:flex-wrap`), and
+  the table marks charted rows with the series colour (`CellLabel swatch`).
+
 ### C. Label + control rows: `FieldRow` and `TitleRow`
 `<FieldRow label>` puts the label left at a fixed `sm:w-*` and stacks it above the
 control on a phone, so the control gets the full row. `<TitleRow title actions>` lets
 an action cluster wrap under the title instead of crushing it. Never pair a fixed
 `w-*` label or a `shrink-0` button cluster with a `flex-1` control in a bare flex row.
+
+### E. Toolbars: filters and view controls
+The controls above a table or chart get **two rows on a phone and one in landscape**.
+Anything more pushes the content off the first screen (Items was five rows).
+
+- **Filters narrow the rows; view controls change what is drawn** (metric, grouping,
+  range). Filters go in `<FilterBar>`, view controls beside it. Actions (Add, Sync,
+  Refresh) are neither and stay out of both.
+- **Search is never folded.** `FilterBar` keeps `<SearchInput>` on the first row at
+  the spare width. One more filter sits beside it; two or more fold behind a
+  `Filters (n)` button on that same row.
+- **A chip group is a select on a handheld.** `<ButtonGroup label collapse>` renders
+  chips on `desk:` and one native `<select>` otherwise. Use it whenever a toolbar has
+  more than one group or a group has more than three options. A lone group of three
+  or fewer stays chips.
+- A `<FilterSelect>` is capped at 9rem on a handheld so a long option cannot crush
+  the search box.
+- The current value is the label. No "Group by:" prefix on a phone; the select reads
+  `Week`. Give it an `aria-label`.
 
 ### D. Shell
 In `short:` the phone top bar is hidden (sign out is on Settings → Account), the
@@ -487,5 +534,6 @@ bottom nav slides away while scrolling down and returns on the first upward scro
 (`useHideOnScroll`), and the desktop sidebar starts collapsed. `.inp`/`.inp-sm` are
 16px under a coarse pointer so iOS does not zoom on focus.
 
-ESLint (`eslint.config.mjs`) warns on the hand-written forms of A and B.
+ESLint (`eslint.config.mjs`) warns on the hand-written forms of A and B, including a
+hand-pinned `sticky left-0` cell.
 

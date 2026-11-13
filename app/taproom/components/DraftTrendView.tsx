@@ -5,10 +5,12 @@ import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/app/components/ChartSkeleton";
 import ButtonGroup from "@/app/components/ButtonGroup";
+import { CellLabel } from "@/app/components/ui/Table";
+import TrendTable, { type TrendTableSummary } from "./TrendTable";
 import { fetchJson } from "../../production/hooks/queries";
 import {
   buildTrend, combineOthers, trendWindowQuery,
-  type TrendData, type TrendGrouping, type TrendMode, type TrendRow, type TrendWindow,
+  type TrendData, type TrendGrouping, type TrendMode, type TrendWindow,
 } from "@/lib/reports/draftTrend";
 import { useBreweryTimezone } from "@/app/hooks/useBreweryTimezone";
 import { todayLocalDate } from "@/lib/utils/datetime";
@@ -72,11 +74,7 @@ export interface TrendLinesSource {
   formatValue: (v: number) => string;
 }
 
-export interface TrendSummaryColumn {
-  label: string;
-  title?: string;
-  value: (row: TrendRow) => string;
-}
+export type TrendSummaryColumn = TrendTableSummary;
 
 /**
  * One trend report: a beer filter, day/week/month grouping and a time range
@@ -165,9 +163,9 @@ export default function DraftTrendView({
           <h3 className="text-sm font-semibold text-strong">{title}</h3>
           <p className="text-xs text-muted mt-0.5">{subtitle}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-2 desk:gap-x-4 max-sm:w-full">
           <select
-            className="inp-sm w-52"
+            className="inp-sm max-sm:flex-1 max-sm:min-w-0 sm:w-52"
             aria-label="Filter to one beer"
             value={selected ? selected.recipe_id : "all"}
             onChange={(e) => setRecipeFilter(e.target.value)}
@@ -177,7 +175,7 @@ export default function DraftTrendView({
               <option key={r.recipe_id} value={r.recipe_id}>{r.beer_name}</option>
             ))}
           </select>
-          <ButtonGroup tabs={GROUPINGS} activeKey={grouping} onSelect={setGrouping} />
+          <ButtonGroup label="Grouping" collapse tabs={GROUPINGS} activeKey={grouping} onSelect={setGrouping} />
           <TrendWindowPicker presets={RANGES} value={range} onChange={setRange} today={today} />
         </div>
       </div>
@@ -197,9 +195,9 @@ export default function DraftTrendView({
             <div className="chart-box">
               <DraftTrendChart chartData={chartData} series={series} unit={unit} connectGaps={mode === "mean"} />
             </div>
-            <div className="flex flex-wrap gap-3 mt-2">
+            <div className="scroll-x flex sm:flex-wrap gap-3 mt-2">
               {series.map((s) => (
-                <span key={s.key} className="flex items-center gap-1.5 text-xs text-secondary">
+                <span key={s.key} className="flex shrink-0 items-center gap-1.5 text-xs text-secondary whitespace-nowrap">
                   <span className="w-2.5 h-0.5 inline-block" style={{ background: s.color }} />
                   {s.label}
                 </span>
@@ -223,108 +221,24 @@ export default function DraftTrendView({
 
           {lines && (
             <p className="text-2xs text-faint mb-2">
-              Click a row to chart just that beer. Double-click a row, or use Details, for the records behind it.
+              Select a row to chart just that beer.
+              <span className="md:hidden"> Its first figure opens the records behind it.</span>
+              <span className="max-md:hidden"> Details opens the records behind it.</span>
             </p>
           )}
 
-          <div className="overflow-auto rounded-lg border border-line w-fit max-w-full">
-            <table className="text-xs tabular-nums border-separate border-spacing-0">
-              <thead>
-                <tr>
-                  <th className="sticky left-0 z-20 bg-surface px-3 py-2 text-left font-semibold text-secondary whitespace-nowrap border-b border-line">
-                    Beer
-                  </th>
-                  {summaryColumns.map((c, i) => (
-                    <th
-                      key={c.label}
-                      title={c.title}
-                      className={`bg-surface px-3 py-2 text-right font-semibold text-secondary whitespace-nowrap border-b border-line ${
-                        i === summaryColumns.length - 1 && !lines ? "border-r" : ""
-                      }`}
-                    >
-                      {c.label}
-                    </th>
-                  ))}
-                  {lines && <th className="bg-surface px-2 py-2 border-b border-line border-r" />}
-                  {cols.map((b) => {
-                    const h = bucketLabels(b, grouping);
-                    return (
-                      <th key={b} className="bg-surface px-2.5 py-2 text-right font-medium text-secondary whitespace-nowrap border-b border-line">
-                        <span className="block text-faint">{h.top}</span>
-                        {h.main}
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr
-                    key={r.recipe_id}
-                    onClick={() => setRecipeFilter(selected ? "all" : r.recipe_id)}
-                    onDoubleClick={lines ? () => setDrill(r.recipe_id) : undefined}
-                    className="cursor-pointer select-none hover:bg-surface-mid/40"
-                  >
-                    <td className="sticky left-0 z-10 bg-canvas px-3 py-2 font-medium text-strong whitespace-nowrap border-b border-line/40">
-                      {r.beer_name}
-                    </td>
-                    {summaryColumns.map((c, i) => (
-                      <td
-                        key={c.label}
-                        className={`px-3 py-2 text-right border-b border-line/40 ${
-                          i === 0 ? "font-semibold text-strong" : "text-body"
-                        } ${i === summaryColumns.length - 1 && !lines ? "border-r" : ""}`}
-                      >
-                        {c.value(r)}
-                      </td>
-                    ))}
-                    {lines && (
-                      <td className="px-2 py-2 border-b border-line/40 border-r">
-                        <button
-                          type="button"
-                          className="text-2xs text-accent hover:underline whitespace-nowrap"
-                          onClick={(e) => { e.stopPropagation(); setDrill(r.recipe_id); }}
-                        >
-                          Details
-                        </button>
-                      </td>
-                    )}
-                    {cols.map((b) => (
-                      <td
-                        key={b}
-                        className={`px-2.5 py-2 text-right border-b border-line/40 ${r.by_bucket[b] != null ? "text-body" : "text-faint"}`}
-                      >
-                        {num(r.by_bucket[b])}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-                {!selected && (
-                  <tr>
-                    <td className="sticky left-0 z-10 bg-surface px-3 py-2 font-semibold text-strong whitespace-nowrap">
-                      {overallLabel}
-                    </td>
-                    {summaryColumns.map((c, i) => (
-                      <td
-                        key={c.label}
-                        className={`bg-surface px-3 py-2 text-right font-semibold text-strong ${
-                          i === summaryColumns.length - 1 && !lines ? "border-r border-line/40" : ""
-                        }`}
-                      >
-                        {c.value(trend.overall)}
-                      </td>
-                    ))}
-                    {lines && <td className="bg-surface border-r border-line/40" />}
-                    {cols.map((b) => (
-                      <td key={b} className="bg-surface px-2.5 py-2 text-right font-semibold text-strong">
-                        {num(trend.overall.by_bucket[b])}
-                      </td>
-                    ))}
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <TrendTable
+            labelHeader="Beer"
+            rows={rows}
+            overall={selected ? null : { label: overallLabel, row: trend.overall }}
+            buckets={cols}
+            bucketHeader={(b) => bucketLabels(b, grouping)}
+            summary={summaryColumns}
+            cell={num}
+            renderLabel={(r) => <CellLabel>{r.beer_name}</CellLabel>}
+            onRowClick={(r) => setRecipeFilter(selected ? "all" : r.recipe_id)}
+            details={lines ? { label: "Details", onOpen: (r) => setDrill(r.recipe_id) } : undefined}
+          />
         </>
       )}
     </div>
