@@ -14,6 +14,7 @@ import { triggerSquarePush } from "@/lib/production/triggerSquarePush";
 import { upsertColdStorageInventory } from "@/lib/production/coldStorageUpsert";
 import { clawBackPlannedPackaging } from "@/lib/production/packagingClawback";
 import { recordInPlaceSwitchOnDeparture } from "@/lib/production/inPlaceConditioning";
+import { resolveInPlaceConversionVolume } from "@/lib/production/inPlaceConversion";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,16 @@ interface TransferLineInput {
    * whole run instead.
    */
   skipSchedule?: boolean;
+  /**
+   * The conversion row of an in-place conversion (source and destination are
+   * the same tank). The RPC is told there is NO destination: it would otherwise
+   * hand the tank straight back to the source batch and re-stamp its status,
+   * and the tank belongs to the child from here on. The route stamps the tank
+   * onto the row together with the child, and finalizeConversion does the
+   * schedule — reconcileSchedule reads a same-tank row as an in-place
+   * conditioning switch, which this is not.
+   */
+  inPlaceConversion?: boolean;
 }
 
 /**
@@ -69,13 +80,13 @@ async function processTransferLine(
   supabase: SupabaseClient,
   line: TransferLineInput
 ): Promise<{ transfer: Record<string, unknown>; scheduleUpdate: ScheduleUpdateEntry[]; coldStorageError: string | null }> {
-  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id, packaging_loss_pct: packagingLossPct, packaged_as_recipe_id, skipSchedule } = line;
+  const { batch_id, from_tank_id, to_tank_id, volume_bbl, shrinkage_bbl, transfer_type, notes, variation_id, quantity, created_by, recipe_id, packaging_loss_pct: packagingLossPct, packaged_as_recipe_id, skipSchedule, inPlaceConversion } = line;
 
   const { data: transfer, error } = await supabase
     .rpc("record_batch_transfer", {
       p_batch_id:      batch_id,
       p_from_tank_id:  from_tank_id || null,
-      p_to_tank_id:    to_tank_id   || null,
+      p_to_tank_id:    inPlaceConversion ? null : (to_tank_id || null),
       p_volume_bbl:    volume_bbl,
       p_shrinkage_bbl: shrinkage_bbl ?? 0,
       p_transfer_type: transfer_type ?? "transfer",
@@ -200,7 +211,7 @@ async function processTransferLine(
   }
 
   // ── Schedule reconciliation ───────────────────────────────────────────────
-  const scheduleUpdate = skipSchedule
+  const scheduleUpdate = skipSchedule || inPlaceConversion
     ? []
     : await reconcileSchedule(supabase, { batch_id, from_tank_id, to_tank_id, volume_bbl });
 
@@ -973,6 +984,44 @@ export async function POST(req: NextRequest) {
     lines.push({ volume_bbl: Number(body.volume_bbl ?? 0), shrinkage_bbl: totalShrinkage, variation_id: null, quantity: null });
   }
 
+  // ── In-place conversion ────────────────────────────────────────────────────
+  // Same tank on both ends: the beer becomes another beer where it sits. A tank
+  // holds one batch, so this is always the whole tank — the volume is read off
+  // the ledger, never taken from the request, so no dust can be left behind to
+  // squat in the tank under the old batch (see lib/production/inPlaceConversion).
+  const inPlaceConversion = transfer_type === "conversion" && !!from_tank_id && from_tank_id === to_tank_id;
+  let conversionVolumeBbl = Number(body.volume_bbl ?? 0);
+  if (inPlaceConversion) {
+    if (!to_batch_id && !new_batch?.recipe_id) {
+      return NextResponse.json({ error: "Choose what this batch is being converted into." }, { status: 422 });
+    }
+    if (to_batch_id) {
+      // The tank becomes the target's. A target already sitting in a vessel of
+      // its own would end up in two places at once.
+      const { data: targetTanks } = await supabase
+        .from("batch_tank_assignments").select("id").eq("batch_id", to_batch_id).is("released_at", null).limit(1);
+      if ((targetTanks ?? []).length > 0) {
+        return NextResponse.json(
+          { error: "That batch is already in a tank of its own — convert into a new batch, or one that has not been brewed yet." },
+          { status: 422 },
+        );
+      }
+    }
+    const [{ data: srcBatch }, { data: srcLedger }] = await Promise.all([
+      supabase.from("brew_batches").select("volume_bbl").eq("id", batch_id).single(),
+      supabase.from("batch_transfers")
+        .select("batch_id, from_tank_id, to_tank_id, to_batch_id, volume_bbl, shrinkage_bbl, transferred_at")
+        .or(`batch_id.eq.${batch_id},to_batch_id.eq.${batch_id}`),
+    ]);
+    const resolved = resolveInPlaceConversionVolume({
+      batchId: batch_id, batchVolumeBbl: Number(srcBatch?.volume_bbl ?? 0),
+      tankId: from_tank_id!, shrinkageBbl: totalShrinkage, ledger: srcLedger ?? [],
+    });
+    if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 422 });
+    conversionVolumeBbl = resolved.deliveredBbl;
+    lines[0].volume_bbl = resolved.deliveredBbl;
+  }
+
   const totalVolumeForCapacityCheck = lines.reduce((s, l) => s + l.volume_bbl, 0);
 
   // Zero-volume guard: moving no beer INTO a tank is never a real event. Worse,
@@ -992,7 +1041,8 @@ export async function POST(req: NextRequest) {
 
   // Capacity guard: reject before writing anything if destination is a
   // constrained tank and the total transfer volume exceeds its capacity_bbl.
-  if (to_tank_id && totalVolumeForCapacityCheck > 0) {
+  // (An in-place conversion adds nothing to the tank — the beer is already in it.)
+  if (to_tank_id && totalVolumeForCapacityCheck > 0 && !inPlaceConversion) {
     const { data: destTank } = await supabase.from("equipment").select("capacity_bbl, type").eq("id", to_tank_id).single();
     const UNCONSTRAINED = new Set(["kegging", "canning", "cold_storage", "backlog", "loading_bay", "export_bay"]);
     if (destTank && !UNCONSTRAINED.has(destTank.type) && destTank.capacity_bbl != null && totalVolumeForCapacityCheck > destTank.capacity_bbl) {
@@ -1268,6 +1318,7 @@ export async function POST(req: NextRequest) {
           variation_id: line.variation_id, quantity: line.quantity,
           created_by: currentUser?.id ?? null, recipe_id,
           packaging_loss_pct: packagingLossPct,
+          inPlaceConversion,
         });
         transfers.push(transfer);
         allScheduleUpdates.push(...scheduleUpdate);
@@ -1293,7 +1344,7 @@ export async function POST(req: NextRequest) {
 
   // ── Conversion side effects ────────────────────────────────────────────────
   if (transfer_type === "conversion" && (to_batch_id || new_batch) && transfers.length > 0) {
-    const convertedVol = Number(body.volume_bbl ?? 0);
+    const convertedVol = conversionVolumeBbl;
 
     // Resolve the target batch: an existing one, a pending plan's waiting
     // child, or a brand-new batch created inline. The pending-plan check
@@ -1338,6 +1389,15 @@ export async function POST(req: NextRequest) {
           expectedDeliveryDate: new_batch.expected_delivery_date ?? null,
         });
       } catch (createErr) {
+        // An in-place row with no child would read as the whole tank poured
+        // away, with the source already released from it. Nothing else has
+        // been written yet, so take the row back and put the batch back in
+        // its tank rather than leave that behind.
+        if (inPlaceConversion) {
+          const strandedId = (transfers[0] as { id?: string }).id;
+          if (strandedId) await supabase.from("batch_transfers").delete().eq("id", strandedId);
+          await supabase.from("batch_tank_assignments").insert({ batch_id, tank_id: from_tank_id });
+        }
         return NextResponse.json({ error: (createErr as Error).message }, { status: 500 });
       }
     }
@@ -1358,7 +1418,12 @@ export async function POST(req: NextRequest) {
 
       const transferId = (transfers[0] as { id?: string }).id;
       if (transferId) {
-        await supabase.from("batch_transfers").update({ to_batch_id: targetBatchId }).eq("id", transferId);
+        // In place, the row gets its tank here too — in the same write as the
+        // child, so the ledger never shows the beer back under the source.
+        await supabase.from("batch_transfers")
+          .update({ to_batch_id: targetBatchId, ...(inPlaceConversion ? { to_tank_id } : {}) })
+          .eq("id", transferId);
+        if (inPlaceConversion) Object.assign(transfers[0], { to_batch_id: targetBatchId, to_tank_id });
       }
       // Keep the batch_conversions record in step with the ledger — stamping a
       // pre-planned record executed, or CREATING one for an ad-hoc conversion.
@@ -1412,6 +1477,7 @@ export async function POST(req: NextRequest) {
           toTankId:      to_tank_id,
           volumeBbl:     convertedVol,
           today:         new Date().toISOString().split("T")[0],
+          inPlace:       inPlaceConversion,
         });
       } catch (finalizeErr) {
         console.error("[transfers] Conversion finalize failed (transfer committed):", finalizeErr);

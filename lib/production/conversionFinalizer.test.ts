@@ -333,6 +333,25 @@ describe("finalizeConversion", () => {
     expect(recorded.find(r => r.table === "batch_schedule_entries" && r.op === "insert")).toBeUndefined();
   });
 
+  it("in place: closes the source's stay in the tank instead of cancelling it", async () => {
+    const { client, recorded } = stub({ equipmentType: "brite", targetStatus: "planning", exhaustion: { is_exhausted: true } });
+    await finalizeConversion(client, { ...base, fromTankId: "dst", inPlace: true });
+    const srcEntryUpdates = recorded.filter(r =>
+      r.table === "batch_schedule_entries" && r.op === "update" && r.match["batch_id"] === "S" && r.match["equipment_id"] === "dst");
+    // The close runs first, so the cancel that follows finds only unstarted bookings.
+    expect(srcEntryUpdates[0]?.payload).toEqual({ actual_end: "2026-07-03" });
+    expect(srcEntryUpdates[1]?.payload).toHaveProperty("cancelled_at");
+    // The tank is the child's.
+    expect(recorded.find(r => r.table === "batch_tank_assignments" && r.op === "insert")?.payload).toEqual({ batch_id: "T", tank_id: "dst" });
+  });
+
+  it("not in place: never stamps an end on the source's dest-tank entry", async () => {
+    const { client, recorded } = stub({ equipmentType: "brite", targetStatus: "planning", exhaustion: { is_exhausted: true } });
+    await finalizeConversion(client, base);
+    expect(recorded.some(r => r.table === "batch_schedule_entries" && r.op === "update"
+      && r.match["batch_id"] === "S" && (r.payload as Record<string, unknown>).actual_end !== undefined)).toBe(false);
+  });
+
   it("does nothing to the dest tank when toTankId is null", async () => {
     const { client, recorded } = stub({ equipmentType: null, exhaustion: { is_exhausted: false } });
     await finalizeConversion(client, { ...base, toTankId: null });

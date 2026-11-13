@@ -175,14 +175,15 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
 
   const allowed = DEST_RULES[fromTank.type] ?? [];
   const sameTankOk = SAME_TANK_ALLOWED_SOURCE_TYPES.has(fromTank.type);
-  const destTanks = allTanks.filter((t) => {
+  const destsFor = (m: "transfer" | "convert") => allTanks.filter((t) => {
     const sameTank = t.id === fromTank.id;
     if (sameTank && !sameTankOk) return false;
     if (!allowed.includes(t.type)) return false;
-    // For conversions, destination must be a free tank of a valid type for this stage
-    // (same-tank conversion isn't meaningful — the conversion always draws into a NEW batch).
-    if (mode === "convert") {
-      if (sameTank) return false;
+    // For conversions, the destination is a free tank of a valid type for this
+    // stage — or the tank the beer is already in, when the addition is dosed
+    // straight into it and the whole tank becomes the new beer where it sits.
+    if (m === "convert") {
+      if (sameTank) return true;
       const convertTypes = CONVERT_DEST_TYPES[fromTank.type] ?? ["fermenter"];
       return convertTypes.includes(t.type) && !occupiedTankIds.has(t.id);
     }
@@ -191,6 +192,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
     if (SINGLE_OCCUPANCY_TYPES.has(t.type) && hasRecipeConflict(t.id)) return false;
     return true;
   });
+  const destTanks = destsFor(mode);
 
   // ── Conversion lineage ──────────────────────────────────────────────────────
   // A recipe that converts from this batch's beer — directly or further down a
@@ -320,6 +322,11 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const validDestIds = new Set(destTanks.map((t) => t.id));
   const effectiveDestId = validDestIds.has(destId) ? destId : (destTanks[0]?.id ?? "");
 
+  // Converting in place: the destination IS the tank the beer is in. A tank
+  // holds one batch, so this is always the whole tank — the volume is not a
+  // choice (the server reads it off the ledger; this is the same figure).
+  const inPlaceConvert = mode === "convert" && effectiveDestId === fromTank.id;
+
   // Whether to show keg/can packaging forms — based on SOURCE type (out-transfers) or DEST type (packaging transfers)
   const showKegDetail = mode === "transfer" && (fromTank.type === "kegging" || destTank?.type === "kegging");
   const showCanDetail = mode === "transfer" && (fromTank.type === "canning" || destTank?.type === "canning");
@@ -339,7 +346,9 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   const shrinkBbl = parseFloat(shrinkage) || 0;
 
   let drawBbl = 0;
-  if (mode === "convert") {
+  if (inPlaceConvert) {
+    drawBbl = Math.max(0, batchVol - shrinkBbl);
+  } else if (mode === "convert") {
     drawBbl = parseFloat(convert.volumeBbl) || 0;
   } else if (isPackagingForm) {
     const activeVariations = showKegDetail ? kegVariations : canVariations;
@@ -390,20 +399,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
   function handleModeChange(m: "transfer" | "convert") {
     setMode(m);
     // Reset destination to first valid option for the new mode
-    const newDests = allTanks.filter((t) => {
-      const sameTank = t.id === fromTank.id;
-      if (sameTank && !sameTankOk) return false;
-      if (!allowed.includes(t.type)) return false;
-      if (m === "convert") {
-        if (sameTank) return false;
-        const convertTypes = CONVERT_DEST_TYPES[fromTank.type] ?? ["fermenter"];
-        return convertTypes.includes(t.type) && !occupiedTankIds.has(t.id);
-      }
-      if (sameTank) return true;
-      if (SINGLE_OCCUPANCY_TYPES.has(t.type) && hasRecipeConflict(t.id)) return false;
-      return true;
-    });
-    setDestId(newDests[0]?.id ?? "");
+    setDestId(destsFor(m)[0]?.id ?? "");
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -421,7 +417,10 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
         const usingExisting = convert.targetMode === "existing";
         if (usingExisting && !convert.targetBatchId) { setFormError("Select a target batch."); return; }
         if (!usingExisting && !convert.newRecipeId) { setFormError("Select the beer the conversion produces."); return; }
-        if (!(parseFloat(convert.volumeBbl) > 0)) { setFormError("Enter the volume to convert."); return; }
+        if (!(drawBbl > 0)) {
+          setFormError(inPlaceConvert ? "Shrinkage cannot be the whole tank." : "Enter the volume to convert.");
+          return;
+        }
 
         // The allocation plan gates the conversion: an impossible consequence
         // (a refund with no payment on file) must be fixed BEFORE beer moves.
@@ -451,7 +450,8 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               conversion_date:        convert.conversionDate || null,
               expected_delivery_date: convert.expectedDeliveryDate || null,
             },
-            volume_bbl:    parseFloat(convert.volumeBbl),
+            // In place the server derives this from the ledger (whole tank).
+            volume_bbl:    drawBbl,
             shrinkage_bbl: shrinkBbl,
             transfer_type: "conversion",
             notes:         notes || null,
@@ -623,9 +623,9 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 {destTanks.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name} ({EQ[t.type]?.label ?? t.type})
-                    {t.id === fromTank.id ? " · stay in place" : ""}
+                    {t.id === fromTank.id ? (mode === "convert" ? " · convert in place" : " · stay in place") : ""}
                     {t.capacity_bbl ? ` · ${t.capacity_bbl} BBL` : ""}
-                    {(occupiedTankRecipeIds?.[t.id]?.length ?? 0) > 0 ? " · combining with existing batch" : ""}
+                    {t.id !== fromTank.id && (occupiedTankRecipeIds?.[t.id]?.length ?? 0) > 0 ? " · combining with existing batch" : ""}
                   </option>
                 ))}
               </select>
@@ -648,6 +648,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                   value={convert}
                   onChange={setConvert}
                   volumeMax={batchVol}
+                  lockedVolumeBbl={inPlaceConvert ? drawBbl : undefined}
                 />
                 <Field label="Shrinkage (BBL)">
                   <div className="flex items-center gap-2">
@@ -710,7 +711,12 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             ⚠ Planned for <span className="font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span> — proceeding cancels that booking.
           </div>
         )}
-        {mode === "convert" && drawBbl > 0 && remaining <= 0 && (
+        {inPlaceConvert && (
+          <p className="text-xs text-muted">
+            Converting in place: everything in {fromTank.name} becomes the new batch and stays in {fromTank.name}.
+          </p>
+        )}
+        {mode === "convert" && drawBbl > 0 && remaining <= 0.0015 && (
           <p className="text-accent text-xs">
             Full conversion — the parent batch will be marked complete after this.
           </p>
@@ -869,7 +875,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 <span>{mode === "convert" ? "Converted volume" : "Transfer draw"}</span>
                 <span>− {fmtBbl(drawBbl)}</span>
               </div>
-              {mode === "transfer" && shrinkBbl > 0 && (
+              {(mode === "transfer" || inPlaceConvert) && shrinkBbl > 0 && (
                 <div className="flex justify-between text-secondary">
                   <span>Shrinkage</span><span>− {fmtBbl(shrinkBbl)}</span>
                 </div>
