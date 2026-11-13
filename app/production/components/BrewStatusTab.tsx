@@ -318,7 +318,9 @@ export default function BrewStatusTab() {
   // tank to act from (e.g. the batch hasn't been brewed/placed yet).
   function openUpNextAction(e: ScheduleEntry) {
     const currentTank = currentTankByBatchId[e.batch_id];
-    if (!currentTank) {
+    // A reader (manager, viewer) sees the plan but cannot act on it: the
+    // server would 403 the transfer anyway, so never open the modal for them.
+    if (!currentTank || !canOperate) {
       if (e.equipment_id) setPlansEquipmentId(e.equipment_id);
       return;
     }
@@ -338,6 +340,7 @@ export default function BrewStatusTab() {
     if (!conv) return;
     const sourceTank = conv.source_equipment_id ? tanks.find(t => t.id === conv.source_equipment_id) : null;
     if (!sourceTank) return;
+    if (!canOperate) { setPlansEquipmentId(sourceTank.id); return; }
     setTransferTankId(sourceTank.id);
     setTransferBatchId(conv.source_batch_id);
     setTransferFromVol(undefined);
@@ -441,7 +444,7 @@ export default function BrewStatusTab() {
               where: eqName,
               what: b ? `#${b.batch_number} ${b.beer_name}` : "—",
               when: `${fmtDate(e.planned_start)}${e.volume_bbl != null ? ` · ${Number(e.volume_bbl).toFixed(1)} BBL` : ""}`,
-              action: currentTankByBatchId[e.batch_id] ? "Transfer" : null,
+              action: canOperate && currentTankByBatchId[e.batch_id] ? "Transfer" : null,
               onClick: () => openUpNextAction(e),
               isConversion: false,
             };
@@ -456,7 +459,7 @@ export default function BrewStatusTab() {
               where: sourceTank?.name ?? "—",
               what: `${sourceBatch ? `#${sourceBatch.batch_number} ${sourceBatch.beer_name}` : "—"}${conv.target_batch ? ` → ${conv.target_batch.beer_name}` : ""}`,
               when: `${conv.planned_date ? fmtDate(conv.planned_date) : "—"} · ${Number(conv.volume_bbl).toFixed(1)} BBL`,
-              action: sourceTank ? "Convert" : null,
+              action: canOperate && sourceTank ? "Convert" : null,
               onClick: () => openPendingConversionAction(conv.id),
               isConversion: true,
             };
@@ -553,7 +556,7 @@ export default function BrewStatusTab() {
 
       {/* Mobile-only: New Batch shortcut + Undo (desktop controls live on the Up next row) */}
       <div className="md:hidden flex items-center justify-between gap-2 mb-4">
-        <button onClick={() => setShowNewBatch(true)} className="btn-primary">+ New Batch</button>
+        {canOperate && <button onClick={() => setShowNewBatch(true)} className="btn-primary">+ New Batch</button>}
         {canOperate && <UndoTransferActions onUndone={onRefresh} />}
       </div>
 
@@ -663,7 +666,7 @@ export default function BrewStatusTab() {
                                     {otherBatch.batch_number && <span className="text-muted font-mono text-xs shrink-0">#{otherBatch.batch_number}</span>}
                                     <span className="text-strong text-sm truncate">{otherBatch.beer_name} <span className="text-faint text-xs">+combined</span></span>
                                   </div>
-                                  {!editMode && (
+                                  {!editMode && canOperate && (
                                     <button
                                       onClick={() => { setTransferTankId(tank.id); setTransferBatchId(otherBatch.id); setTransferFromVol(volFor(otherBatch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                       className="btn-primary btn-xxs shrink-0"
@@ -674,7 +677,7 @@ export default function BrewStatusTab() {
                                 </div>
                               );
                             })}
-                            {!editMode && (
+                            {!editMode && canOperate && (
                               <button
                                 onClick={() => { setTransferTankId(tank.id); setTransferBatchId(batch.id); setTransferFromVol(volFor(batch)); setTransferInitialMode(undefined); setTransferInitialDestId(undefined); setTransferInitialConvert(undefined); }}
                                 className="btn-primary btn-xxs"
@@ -700,7 +703,7 @@ export default function BrewStatusTab() {
                                   <p className="text-sm text-faint">Empty</p>
                                 )}
                               </div>
-                              {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
+                              {!editMode && canOperate && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
                                   className="btn-primary btn-xxs shrink-0"
@@ -933,7 +936,7 @@ export default function BrewStatusTab() {
                             </div>
                           )}
                         </div>
-                        {!editMode && (
+                        {!editMode && canOperate && (
                           <div className="shrink-0">
                             <button
                               onClick={() => setShowNewBatch(true)}
@@ -987,7 +990,7 @@ export default function BrewStatusTab() {
                       };
                       return (
                         <div className="flex-1 min-h-0 flex flex-col gap-1">
-                          {!editMode && !batch && unassignedBatches.length > 0 && (
+                          {!editMode && canOperate && !batch && unassignedBatches.length > 0 && (
                             <button onClick={() => assign.openAssign(tank.id)} onMouseDown={(e) => e.stopPropagation()} className="btn-primary btn-xxs w-full shrink-0" style={{ fontSize: 11 }}>
                               Assign a batch
                             </button>
@@ -998,7 +1001,7 @@ export default function BrewStatusTab() {
                                 {batch.batch_number && <span className="text-muted font-mono">#{batch.batch_number} </span>}{batch.beer_name}
                                 {assignment && <span className="text-faint"> · {fmtDate(assignment.assigned_at)}</span>}
                               </span>
-                              {!editMode && (
+                              {!editMode && canOperate && (
                                 <button onClick={() => openTransfer(batch)} onMouseDown={(e) => e.stopPropagation()} className="btn-primary btn-xxs shrink-0" style={{ fontSize: 11 }}>Transfer</button>
                               )}
                             </div>
@@ -1078,7 +1081,7 @@ export default function BrewStatusTab() {
                                       {otherBatch.batch_number && <span className="text-muted font-mono">#{otherBatch.batch_number} </span>}
                                       {otherBatch.beer_name} <span className="text-faint">+combined</span>
                                     </span>
-                                    {!editMode && (
+                                    {!editMode && canOperate && (
                                       <button
                                         onClick={() => openTransfer(otherBatch)}
                                         onMouseDown={(e) => e.stopPropagation()}
@@ -1095,7 +1098,7 @@ export default function BrewStatusTab() {
 
                             {/* Transfer —
                                 always visible — brewers must see what they can do. */}
-                            {!editMode && (
+                            {!editMode && canOperate && (
                               <div className="shrink-0">
                                 <button
                                   onClick={() => openTransfer(batch)}
@@ -1124,7 +1127,7 @@ export default function BrewStatusTab() {
                             ) : (
                               <p className="shrink-0 text-disabled" style={{ fontSize: 11 }}>Empty</p>
                             )}
-                            {!editMode && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
+                            {!editMode && canOperate && tank.type === "brewhouse" && unassignedBatches.length > 0 && (
                               <div className="shrink-0">
                                 <button
                                   onClick={() => assign.openAssign(tank.id)}
