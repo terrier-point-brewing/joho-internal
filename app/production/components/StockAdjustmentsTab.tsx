@@ -186,14 +186,14 @@ export default function StockAdjustmentsTab() {
     <thead>
       <tr className="border-b border-line bg-surface/50 text-left">
         <SortableTh label="Date" sortKey="date" sort={sort} onSort={toggleSort} />
-        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Source</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap max-sm:hidden">Source</th>
         <th className="px-3 py-2.5 text-xs font-medium text-muted">Item</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-muted">Type</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted max-sm:hidden">Type</th>
         <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Change</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Unit Cost</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap max-sm:hidden">Unit Cost</th>
         <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Value Δ</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Note</th>
-        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Batch</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap max-sm:hidden">Note</th>
+        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap max-sm:hidden">Batch</th>
       </tr>
     </thead>
   );
@@ -217,7 +217,7 @@ export default function StockAdjustmentsTab() {
         </FilterBar>
 
         {/* View options + count, anchored right */}
-        <div className="ml-auto flex items-center gap-3 shrink-0">
+        <div className="sm:ml-auto flex items-center gap-3 shrink-0">
           <ToggleChip active={groupByDate} onClick={() => setGroupByDate((v) => !v)}>
             Group by Day
           </ToggleChip>
@@ -241,28 +241,37 @@ export default function StockAdjustmentsTab() {
                 <h3 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2 px-1">{group.label}</h3>
               )}
               <div className="overflow-x-auto rounded-lg border border-line">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm max-sm:[&_td]:px-2 max-sm:[&_th]:px-2">
                   {thead}
                   <tbody>
                     {group.rows.map((r, i) => (
                       <tr key={r.id} className={`border-b border-line/60 last:border-0 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
-                        <td className="px-3 py-2 text-muted text-xs whitespace-nowrap">{fmtDate(r.createdAt)}</td>
-                        <td className="px-3 py-2">
+                        <td className="px-3 py-2 text-muted text-xs sm:whitespace-nowrap max-sm:w-16">{fmtDate(r.createdAt)}</td>
+                        <td className="px-3 py-2 max-sm:hidden">
                           <span className={`text-xs px-1.5 py-px rounded border ${SOURCE_COLORS[r.source]}`}>{r.sourceLabel}</span>
                         </td>
-                        <td className="px-3 py-2 text-body font-medium max-w-[180px] truncate">{r.itemName}</td>
-                        <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap">{r.typeLabel}</td>
+                        {/* On a phone the row is Date, Item, Change and Value;
+                            source, type, note and batch fold under the item
+                            (docs/UI_STANDARD.md §7 B). */}
+                        <td className="px-3 py-2 text-body font-medium sm:max-w-[180px] sm:truncate">
+                          {r.itemName}
+                          <div className="sm:hidden text-xs font-normal text-muted">
+                            {r.sourceLabel} · {r.typeLabel}{r.batch ? ` · ${r.batch}` : ""}
+                          </div>
+                          {r.note && <div className="sm:hidden text-xs font-normal text-faint">{r.note}</div>}
+                        </td>
+                        <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap max-sm:hidden">{r.typeLabel}</td>
                         <td className={`px-3 py-2 text-right tabular-nums text-xs font-mono whitespace-nowrap ${qtyColor(r.quantity)}`}>
                           {fmtQty(r.quantity)} {r.unitLabel}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-xs text-secondary whitespace-nowrap">
+                        <td className="px-3 py-2 text-right tabular-nums text-xs text-secondary whitespace-nowrap max-sm:hidden">
                           {r.costPerUnit != null ? `$${Number(r.costPerUnit).toFixed(4)}` : "—"}
                         </td>
                         <td className={`px-3 py-2 text-right tabular-nums text-xs font-mono whitespace-nowrap ${valColor(r.valueChange)}`}>
                           {r.valueChange != null ? fmtValue(r.valueChange) : "—"}
                         </td>
-                        <td className="px-3 py-2 text-muted text-xs max-w-[140px] truncate">{r.note ?? "—"}</td>
-                        <td className="px-3 py-2 text-faint text-xs font-mono whitespace-nowrap">{r.batch ?? "—"}</td>
+                        <td className="px-3 py-2 text-muted text-xs max-w-[140px] truncate max-sm:hidden">{r.note ?? "—"}</td>
+                        <td className="px-3 py-2 text-faint text-xs font-mono whitespace-nowrap max-sm:hidden">{r.batch ?? "—"}</td>
                       </tr>
                     ))}
                   </tbody>

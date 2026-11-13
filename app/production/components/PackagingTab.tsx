@@ -237,7 +237,7 @@ export default function PackagingTab() {
             onChange={(v) => setFilter("type", v)}
           />
         </FilterBar>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex flex-wrap gap-2">
           {canOperate && (
             <button onClick={() => setShowBulkReceive(true)} className="btn-secondary" disabled={packaging.length === 0}>Bulk Receive</button>
           )}
@@ -264,8 +264,8 @@ export default function PackagingTab() {
                   <span className="text-xs text-faint">{items.length} item{items.length !== 1 ? "s" : ""}</span>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-line">
-                  <table className="w-full text-sm table-fixed min-w-[680px]">
-                    <colgroup>
+                  <table className="w-full text-sm sm:table-fixed sm:min-w-[680px]">
+                    <colgroup className="max-sm:hidden">
                       <col style={{ width: "20%" }} />
                       <col style={{ width: "12%" }} />
                       <col style={{ width: "12%" }} />
@@ -278,34 +278,55 @@ export default function PackagingTab() {
                     <thead>
                       <tr className="border-b border-line bg-surface/50 text-left">
                         <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Name</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Partner</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Supplier</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap max-sm:hidden">Partner</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap max-sm:hidden">Supplier</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Stock</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Unit Cost</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap max-sm:hidden">Unit Cost</th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap max-sm:hidden">
                           {needsVolume(t) ? "Volume" : needsCanCount(t) ? "Can Count" : "Details"}
                         </th>
                         <th className="px-3 py-2.5 text-xs font-medium text-muted text-center whitespace-nowrap">Default</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted"></th>
+                        <th className="px-3 py-2.5 text-xs font-medium text-muted max-sm:hidden"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((item, i) => (
+                      {items.map((item, i) => {
+                        const rowActions = (<>
+                              {canOperate && (
+                              <button onClick={() => openAdj(item)} className="btn-primary btn-xxs">Adjust</button>
+                              )}
+                              {canEditMaster && (<>
+                              <button onClick={() => openEdit(item)} className="btn-secondary btn-xxs">Edit</button>
+                              <button onClick={() => handleDelete(item)} className="btn-danger btn-xxs">Del</button>
+                              </>)}
+                        </>);
+                        const detail = needsVolume(t)
+                          ? (item.volume_fl_oz != null ? `${Number(item.volume_fl_oz).toLocaleString(undefined, { maximumFractionDigits: 1 })} oz` : null)
+                          : needsCanCount(t) ? (item.can_count != null ? `${formatNumber(Number(item.can_count))} cans` : null) : null;
+                        return (
                         <tr key={item.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
-                          <td className="px-3 py-2.5 text-strong font-medium truncate">{item.name}</td>
-                          <td className="px-3 py-2.5 text-secondary truncate">{partnerName(item) ?? "—"}</td>
-                          <td className="px-3 py-2.5 text-secondary truncate">{supplierName(item) ?? "—"}</td>
+                          {/* On a phone the row is Name, Stock and Default. The rest folds
+                              under the name, actions included (§7 B). */}
+                          <td className="px-3 py-2.5 text-strong font-medium sm:truncate">
+                            {item.name}
+                            <div className="sm:hidden text-xs font-normal text-muted">
+                              {[supplierName(item), partnerName(item), item.unit_cost_usd != null ? formatUnitCost(Number(item.unit_cost_usd)) : null, detail].filter(Boolean).join(" · ")}
+                            </div>
+                            <div className="sm:hidden mt-1.5 flex flex-wrap gap-1.5 empty:hidden">{rowActions}</div>
+                          </td>
+                          <td className="px-3 py-2.5 text-secondary truncate max-sm:hidden">{partnerName(item) ?? "—"}</td>
+                          <td className="px-3 py-2.5 text-secondary truncate max-sm:hidden">{supplierName(item) ?? "—"}</td>
                           <td className="px-3 py-2.5 text-right tabular-nums">
                             <span className={Number(item.stock_quantity) < 0 ? "text-danger" : "text-body"}>
                               {formatNumber(Number(item.stock_quantity))}
                             </span>
                           </td>
-                          <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap">
+                          <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap max-sm:hidden">
                             {item.unit_cost_usd != null
                               ? formatUnitCost(Number(item.unit_cost_usd))
                               : "—"}
                           </td>
-                          <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap">
+                          <td className="px-3 py-2.5 text-secondary text-right tabular-nums whitespace-nowrap max-sm:hidden">
                             {needsVolume(t)
                               ? (item.volume_fl_oz != null
                                   ? `${Number(item.volume_fl_oz).toLocaleString(undefined, { maximumFractionDigits: 1 })} oz`
@@ -331,19 +352,12 @@ export default function PackagingTab() {
                               </span>
                             )}
                           </td>
-                          <td className="px-3 py-2.5">
-                            <div className="flex gap-1 justify-end items-center whitespace-nowrap">
-                              {canOperate && (
-                              <button onClick={() => openAdj(item)} className="btn-primary btn-xxs">Adjust</button>
-                              )}
-                              {canEditMaster && (<>
-                              <button onClick={() => openEdit(item)} className="btn-secondary btn-xxs">Edit</button>
-                              <button onClick={() => handleDelete(item)} className="btn-danger btn-xxs">Del</button>
-                              </>)}
-                            </div>
+                          <td className="px-3 py-2.5 max-sm:hidden">
+                            <div className="flex gap-1 justify-end items-center whitespace-nowrap">{rowActions}</div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

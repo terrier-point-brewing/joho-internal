@@ -82,7 +82,7 @@ const eslintConfig = defineConfig([
             "A viewport-derived max-height leaves a ~75px scroll window in landscape and 100vh is the wrong unit on iOS. Let the pane scroll instead (pattern A), or gate the cap under desk:.",
         },
         {
-          selector: 'JSXOpeningElement[name.name="table"] JSXAttribute[name.name="className"] > Literal[value=/min-w-\\[[4-9][0-9]{2}px\\]/], JSXAttribute[name.name="className"] > Literal[value=/min-w-\\[[4-9][0-9]{2}px\\]/]',
+          selector: 'JSXOpeningElement[name.name="table"] JSXAttribute[name.name="className"] > Literal[value=/(^|\\s)min-w-\\[[4-9][0-9]{2}px\\]/], JSXAttribute[name.name="className"] > Literal[value=/(^|\\s)min-w-\\[[4-9][0-9]{2}px\\]/]',
           message:
             "A 400px+ min-width forces sideways scroll on every phone. Hide secondary columns below sm instead (<Th hide>/<Td hide>, pattern B) and let the table fit.",
         },
