@@ -477,6 +477,13 @@ Sideways scroll is the fallback, not the design. `app/components/ui/Table.tsx`
 - A wide editable grid becomes **one card per row below `md`** (Catalog's
   `MappingGrid` and Target Setting's quarter cards are the references).
 
+**List and log tables** (one row per thing, mostly text) do not scroll sideways on a
+phone at all. Keep the label and one or two numbers as columns; every other column
+takes `max-sm:hidden` and is repeated in a muted sub-line under the label
+(`sm:hidden`). Row actions fold under the label too, or into the expanded row, so
+there is no action column. Ingredients, Packaging, Batch Log and the two adjustment
+logs in Production are the references. A `min-w-[Npx]` is only allowed from `sm:`.
+
 **Wide tables: fixed columns plus more columns than the screen holds.** A matrix
 (label, a few summaries, then a column per week or month) cannot be folded into a
 drawer, so sideways scroll is legitimate. What is not is spending the first screen
@@ -525,6 +532,8 @@ Anything more pushes the content off the first screen (Items was five rows).
   chips on `desk:` and one native `<select>` otherwise. Use it whenever a toolbar has
   more than one group or a group has more than three options. A lone group of three
   or fewer stays chips.
+- A single-select `<FilterChips>` does the same below `sm` on its own; nothing to
+  pass. Multi-select chips stay chips.
 - A `<FilterSelect>` is capped at 9rem on a handheld so a long option cannot crush
   the search box.
 - The current value is the label. No "Group by:" prefix on a phone; the select reads
