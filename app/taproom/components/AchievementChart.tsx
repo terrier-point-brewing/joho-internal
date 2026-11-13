@@ -57,7 +57,7 @@ export default function AchievementChart({
       <LineChart data={chartData}
         margin={{ top: 8, right: 16, bottom: grain === "weekly" ? 30 : 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" vertical={false} />
-        <XAxis dataKey="name" interval={0}
+        <XAxis dataKey="name" interval={grain === "weekly" ? "preserveStartEnd" : 0} minTickGap={4}
           tick={grain === "weekly" ? { fill: "#a1a1aa", fontSize: 10, dy: 4 } : { fill: "#a1a1aa", fontSize: 11 }}
           angle={grain === "weekly" ? -45 : 0}
           textAnchor={grain === "weekly" ? "end" : "middle"}

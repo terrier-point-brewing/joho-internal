@@ -285,8 +285,10 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
   // Card height depends on how many tip rows are shown
   const cardH = hasCashTipRows ? "min-h-20" : hasTippedRows ? "min-h-16" : "min-h-10";
 
+  // Only the grid scrolls sideways. The banners above it stay at the page's
+  // width, so a phone reader is not scrolling a notice out of view.
   return (
-    <div className="overflow-x-auto">
+    <div>
       {overrideMode && (
         <Banner tone="info" className="mb-3">
           Card tips rebalance within {data.tip_buckets.length <= 1
@@ -339,10 +341,11 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
         </Banner>
       )}
       {saveError && <Banner tone="danger" className="mb-3">{saveError}</Banner>}
+      <div className="scroll-x">
       <table className="text-xs border-collapse">
         <thead>
           <tr>
-            <th className="sticky left-0 z-20 bg-canvas shadow-[1px_0_0_0_var(--color-line)] text-left py-2 pr-8 text-muted font-medium whitespace-nowrap">Employee</th>
+            <th className="sticky left-0 z-20 bg-canvas shadow-[1px_0_0_0_var(--color-line)] text-left py-2 pr-3 sm:pr-8 text-muted font-medium whitespace-nowrap">Employee</th>
             {weeks.map((week, wi) => (
               <Fragment key={wi}>
                 {week.map(d => (
@@ -369,7 +372,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
             const hasCash = row.daily_cash_tips_cents !== null;
             return (
               <tr key={row.employee_id} className={i > 0 ? "border-t border-transparent" : ""}>
-                <td className="sticky left-0 z-10 bg-canvas shadow-[1px_0_0_0_var(--color-line)] pr-8 py-1 text-body whitespace-nowrap font-medium align-middle">
+                <td className="sticky left-0 z-10 bg-canvas shadow-[1px_0_0_0_var(--color-line)] pr-3 sm:pr-8 py-1 text-body whitespace-nowrap font-medium align-middle">
                   {row.name}
                 </td>
 
@@ -514,7 +517,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-line-strong">
-            <td className="sticky left-0 z-20 bg-canvas shadow-[1px_0_0_0_var(--color-line)] pr-8 py-2 text-muted font-medium text-xs whitespace-nowrap align-middle">Total</td>
+            <td className="sticky left-0 z-20 bg-canvas shadow-[1px_0_0_0_var(--color-line)] pr-3 sm:pr-8 py-2 text-muted font-medium text-xs whitespace-nowrap align-middle">Total</td>
             {weeks.map((week, wi) => {
               const wkTotalHours    = week.reduce((s, d) =>
                 s + rows.reduce((rs, r) => rs + (r.daily_hours[d] ?? 0), 0), 0);
@@ -605,6 +608,7 @@ export function ShiftTimeline({ periodId, overrideMode }: { periodId: string; ov
           </tr>
         </tfoot>
       </table>
+      </div>
 
       {excludeDay && (
         <Modal title={`Exclude ${dayLabel(excludeDay)} card tips from payroll?`} onClose={() => setExcludeDay(null)}>

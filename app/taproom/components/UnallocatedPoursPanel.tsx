@@ -45,11 +45,17 @@ export default function UnallocatedPoursPanel({
   const clusters = data?.clusters ?? [];
   const totalGross = clusters.reduce((s, c) => s + c.gross_cents - c.discount_cents, 0);
 
+  // Nothing to fix is one quiet line, not a card: on a phone the full panel
+  // pushed the first event off the screen to say there was nothing to do.
+  const clear = !isFetching && !error && clusters.length === 0;
+
   return (
-    <div className={`rounded-lg border p-4 ${clusters.length ? "border-accent-border/40 bg-accent-muted/10" : "border-line bg-surface/30"}`}>
+    <div className={`rounded-lg border ${clear ? "px-4 py-2" : "p-4"} ${clusters.length ? "border-accent-border/40 bg-accent-muted/10" : "border-line bg-surface/30"}`}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-accent">Unallocated event pours</p>
+          {clear
+            ? <p className="text-xs text-faint">No unallocated event pours</p>
+            : <p className="text-xs font-semibold uppercase tracking-wide text-accent">Unallocated event pours</p>}
           {!isFetching && clusters.length > 0 && (
             <Badge tone="accent">{clusters.length} {clusters.length === 1 ? "group" : "groups"} · {formatCurrencyCents(totalGross)} net</Badge>
           )}
@@ -66,9 +72,7 @@ export default function UnallocatedPoursPanel({
         <p className="text-xs text-faint py-3 text-center">Scanning Square for Event Pours outside every event window…</p>
       ) : error ? (
         <p className="text-xs text-danger mt-2">{error instanceof Error ? error.message : "Failed to scan"}</p>
-      ) : clusters.length === 0 ? (
-        <p className="text-xs text-faint italic mt-2">Every Event Pour rung in the last {days} days is covered by an event. Nothing to fix.</p>
-      ) : (
+      ) : clusters.length === 0 ? null : (
         <div className="mt-3 space-y-2">
           {clusters.map((c) => (
             <div key={c.first_closed_at} className="rounded-md border border-line bg-surface px-3 py-2.5">
@@ -88,7 +92,7 @@ export default function UnallocatedPoursPanel({
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-1">
                   {c.nearest_event && (
                     <button
                       type="button"

@@ -475,7 +475,7 @@ Sideways scroll is the fallback, not the design. `app/components/ui/Table.tsx`
 - Charts render `height="100%"` inside a `chart-box` wrapper (phone / desktop /
   landscape heights); `ChartSkeleton` with no `height` is the same box.
 - A wide editable grid becomes **one card per row below `md`** (Catalog's
-  `MappingGrid` is the reference).
+  `MappingGrid` and Target Setting's quarter cards are the references).
 
 **Wide tables: fixed columns plus more columns than the screen holds.** A matrix
 (label, a few summaries, then a column per week or month) cannot be folded into a
@@ -497,6 +497,8 @@ The test at 390px wide, before any scrolling: **the label, the headline and at l
 two series columns are in view**. If they are not, a column has the wrong role.
 
 - Pin one column, never two. A second pinned column is a describer or a headline.
+  Inventory pins Total on the right on desktop; on a handheld it moves up beside the
+  label instead (`desk:hidden` / `handheld:hidden` twins of the same cell).
 - A row has one gesture, a tap. Nothing hangs off a double-click or a hover.
 - The records behind a row open in `<Modal>` (a bottom sheet on a phone), not in a
   panel elsewhere on the page that the reader has to scroll to find.

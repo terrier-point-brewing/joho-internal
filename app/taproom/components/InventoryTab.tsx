@@ -35,6 +35,10 @@ const INVENTORY_CONTROLS: ControlsConfig<InventoryRow> = {
   filters: [{ param: "partner", accessor: (r) => r.recipePartnerName ?? "House" }],
 };
 
+// The grid needs a fixed layout and two-axis pinning on desktop, which
+// <Table pin> does not do, so the label cell is pinned here by the same rule.
+const PIN = "sticky left-0";
+
 // ── formatting ────────────────────────────────────────────────────────────────
 
 const fmtBbl = (n: number) => n.toFixed(2);
@@ -196,8 +200,8 @@ export default function InventoryTab() {
         </span>
       </div>
 
-      <div className="mb-2 flex items-center gap-2">
-        <FilterBar activeCount={activeCount} onClear={reset}>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <FilterBar className="max-sm:w-full" activeCount={activeCount} onClear={reset}>
           <SearchInput
             value={search.q ?? ""}
             onChange={(v) => setSearch("q", v)}
@@ -217,29 +221,28 @@ export default function InventoryTab() {
         )}
       </div>
 
-      <div className="overflow-auto max-h-[calc(100vh-290px)] rounded-lg border border-line">
+      {/* Desktop: a two-axis scroller with the header, footer and Total pinned.
+          Handheld (§7 A/B): the pane scrolls, only Recipe is pinned (40vw), and
+          Total moves up beside it so the headline is on the first screen. */}
+      <div className="scroll-x -mx-4 sm:mx-0 border-y sm:border sm:rounded-lg border-line desk:overflow-auto desk:max-h-[calc(100vh-290px)]">
         <table className="text-xs border-collapse" style={{ tableLayout: "fixed", width: "max-content" }}>
-          <colgroup>
-            <col style={{ width: 170 }} />
-            {columns.map((col) => (
-              <col key={col.key} style={{ width: 108 }} />
-            ))}
-            <col style={{ width: 76 }} />
-          </colgroup>
           <thead>
             <tr className="border-b border-line">
-              <th className="sticky left-0 top-0 z-30 bg-surface px-3 py-2 text-left font-semibold text-secondary whitespace-nowrap">
+              <th className={`${PIN} top-0 z-30 bg-surface w-[40vw] sm:w-[170px] px-2 sm:px-3 py-2 text-left font-semibold text-secondary whitespace-nowrap`}>
                 Recipe
+              </th>
+              <th className="desk:hidden w-[68px] bg-surface px-2 py-2 text-right font-semibold text-secondary leading-tight">
+                Total (BBL)
               </th>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="sticky top-0 z-20 bg-surface px-2 py-2 text-left font-medium text-secondary leading-tight"
+                  className="sticky top-0 z-20 bg-surface w-[108px] px-2 py-2 text-left font-medium text-secondary leading-tight"
                 >
                   {col.label}
                 </th>
               ))}
-              <th className="sticky right-0 top-0 z-30 bg-surface px-2 py-2 text-right font-semibold text-secondary leading-tight border-l border-line/40">
+              <th className="handheld:hidden sticky right-0 top-0 z-30 bg-surface w-[76px] px-2 py-2 text-right font-semibold text-secondary leading-tight border-l border-line/40">
                 Total (BBL)
               </th>
             </tr>
@@ -247,7 +250,7 @@ export default function InventoryTab() {
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={columns.length + 2} className="px-4 py-8 text-center text-muted">
+                <td colSpan={columns.length + 3} className="px-4 py-8 text-center text-muted">
                   {search.q ? `No recipes match “${search.q}”.` : "No recipes match the current filters."}
                 </td>
               </tr>
@@ -257,10 +260,10 @@ export default function InventoryTab() {
               const header = showHeader ? (
                 <tr key={`group-${row.recipePartnerName ?? "house"}`}>
                   <td
-                    colSpan={columns.length + 2}
-                    className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-faint bg-surface/40 border-b border-line/40"
+                    colSpan={columns.length + 3}
+                    className="px-2 sm:px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-faint bg-surface/40 border-b border-line/40"
                   >
-                    {row.recipePartnerName ?? "House"}
+                    <span className="sticky left-2 sm:left-4">{row.recipePartnerName ?? "House"}</span>
                   </td>
                 </tr>
               ) : null;
@@ -270,14 +273,17 @@ export default function InventoryTab() {
               return [
                 header,
                 <tr key={row.recipeId} className="border-b border-line/40 hover:bg-surface/20 transition-colors">
-                  <td className="sticky left-0 z-10 bg-canvas px-3 py-1.5 font-medium text-strong whitespace-nowrap border-r border-line/40 overflow-hidden text-ellipsis">
-                    {row.recipeName}
+                  <td className={`${PIN} z-10 bg-canvas px-2 sm:px-3 py-1.5 font-medium text-strong border-r border-line/40`}>
+                    <div className="max-sm:line-clamp-2 sm:truncate">{row.recipeName}</div>
+                  </td>
+                  <td className={`desk:hidden px-2 py-1.5 text-right font-semibold tabular-nums ${empty ? "text-faint" : "text-strong"}`}>
+                    {fmtBbl(row.totalBbl)}
                   </td>
                   {columns.map((col) => (
                     <Cell key={col.key} cell={row.cells[col.key]} col={col} />
                   ))}
                   <td
-                    className={`sticky right-0 z-10 bg-canvas px-2 py-1.5 text-right font-semibold tabular-nums border-l border-line/40 ${
+                    className={`handheld:hidden sticky right-0 z-10 bg-canvas px-2 py-1.5 text-right font-semibold tabular-nums border-l border-line/40 ${
                       empty ? "text-faint" : "text-strong"
                     }`}
                   >
@@ -289,15 +295,16 @@ export default function InventoryTab() {
           </tbody>
           <tfoot>
             <tr className="border-t border-line-strong bg-surface sticky bottom-0 z-20">
-              <td className="sticky left-0 z-30 bg-surface px-3 py-2 text-left font-semibold text-secondary whitespace-nowrap border-r border-line/40">
+              <td className={`${PIN} z-30 bg-surface px-2 sm:px-3 py-2 text-left font-semibold text-secondary whitespace-nowrap border-r border-line/40`}>
                 Total (BBL)
               </td>
+              <td className="desk:hidden px-2 py-2 text-right font-bold text-accent-emphasis tabular-nums">{fmtBbl(grandTotalBbl)}</td>
               {columns.map((col) => (
                 <td key={col.key} className="px-2 py-2 text-left font-semibold text-body tabular-nums">
                   {fmtBbl(columnTotals[col.key] ?? 0)}
                 </td>
               ))}
-              <td className="sticky right-0 z-30 bg-surface px-2 py-2 text-right font-bold text-accent-emphasis tabular-nums border-l border-line/40">
+              <td className="handheld:hidden sticky right-0 z-30 bg-surface px-2 py-2 text-right font-bold text-accent-emphasis tabular-nums border-l border-line/40">
                 {fmtBbl(grandTotalBbl)}
               </td>
             </tr>

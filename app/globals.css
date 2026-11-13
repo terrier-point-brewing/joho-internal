@@ -427,7 +427,8 @@ body {
   position: sticky;
   left: 0;
   z-index: 10;
-  background: var(--color-surface);
+  /* A table sitting on the page rather than in a Card sets --tbl-pin-bg. */
+  background: var(--tbl-pin-bg, var(--color-surface));
   /* The hairline travels with the pinned cell, so the scroll edge still reads
      once the collapsed table border has scrolled away. */
   box-shadow: inset -1px 0 0 var(--color-line);

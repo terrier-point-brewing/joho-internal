@@ -675,7 +675,9 @@ export default function DraftStatsTab() {
       {view !== "taps" ? null : isPending ? (
         <p className="text-faint text-sm py-10 text-center">Loading tap data from Square…</p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-8">
+        // Two cards across on a phone: eight taps were ~1,500px of scrolling one
+        // per row. Editing needs the width for its selects, so it stays one-up.
+        <div className={`grid ${editingTaps ? "grid-cols-1" : "grid-cols-2 max-sm:gap-2"} sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-8`}>
           {tapsToRender.map((tapNum) => {
             const tap = stats?.taps.find((t) => t.tap_number === tapNum);
             const edit = getTapEdit(tapNum);
@@ -709,10 +711,10 @@ export default function DraftStatsTab() {
             return (
               <div
                 key={tapNum}
-                className={`rounded-lg border p-3 flex flex-col gap-2 transition-colors ${cardCls[urgency]}`}
+                className={`rounded-lg border p-2.5 sm:p-3 flex flex-col gap-2 min-w-0 transition-colors ${cardCls[urgency]}`}
               >
                 {/* Tap number + urgency badge */}
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-1">
                   <span className="text-xs font-semibold text-muted uppercase tracking-wider flex items-center gap-1">
                     Tap {tapNum}
                     {!editingTaps && restockMappedTaps.has(tapNum) && (
