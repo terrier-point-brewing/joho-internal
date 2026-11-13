@@ -231,7 +231,7 @@ export default function BatchLogTab() {
 
   return (
     <>
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput
             value={search.q ?? ""}
@@ -1080,19 +1080,19 @@ function BatchTable({
 
   return (
     <div className="overflow-x-auto rounded-lg border border-line">
-      <table className="w-full text-sm min-w-[700px]">
+      <table className="w-full text-sm sm:min-w-[700px] max-sm:[&_td]:px-2 max-sm:[&_th]:px-2">
         <thead>
           <tr className="border-b border-line text-left bg-surface/50">
             <th className="px-3 py-2.5 text-xs font-medium text-muted w-6"></th>
-            <SortableTh label="Batch #" sortKey="batch_number" sort={sort} onSort={onSort} className="whitespace-nowrap min-w-[110px]" />
+            <SortableTh label="Batch #" sortKey="batch_number" sort={sort} onSort={onSort} hide="sm" className="whitespace-nowrap min-w-[110px]" />
             <SortableTh label="Beer" sortKey="beer_name" sort={sort} onSort={onSort} />
-            <SortableTh label="Planned Brew Date" sortKey="planned_brew_date" sort={sort} onSort={onSort} />
-            <SortableTh label="Expected Delivery" sortKey="expected_delivery_date" sort={sort} onSort={onSort} />
-            <SortableTh label="Volume" sortKey="volume_bbl" sort={sort} onSort={onSort} align="right" />
-            <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Available</th>
-            <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Turns</th>
+            <SortableTh label="Planned Brew Date" sortKey="planned_brew_date" sort={sort} onSort={onSort} hide="sm" />
+            <SortableTh label="Expected Delivery" sortKey="expected_delivery_date" sort={sort} onSort={onSort} hide="sm" />
+            <SortableTh label="Volume" sortKey="volume_bbl" sort={sort} onSort={onSort} align="right" hide="sm" />
+            <th className="px-4 py-2.5 text-xs font-medium text-muted text-right max-sm:hidden">Available</th>
+            <th className="px-4 py-2.5 text-xs font-medium text-muted text-right max-sm:hidden">Turns</th>
             <SortableTh label="Status" sortKey="status" sort={sort} onSort={onSort} />
-            <th className="px-4 py-2.5 text-xs font-medium text-muted"></th>
+            <th className="px-4 py-2.5 text-xs font-medium text-muted max-sm:hidden"></th>
           </tr>
         </thead>
         <tbody>
@@ -1109,21 +1109,9 @@ function BatchTable({
             // Delivery: use stored field if set (brew_time_weeks removed from recipes schema)
             const deliveryDate = b.expected_delivery_date ?? null;
 
-            return (
-              <React.Fragment key={b.id}>
-                <tr className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""} ${isExpanded ? "border-b-0" : ""}`}>
-                  <td className="px-3 py-2.5">
-                    <button
-                      onClick={() => onToggle(b.id)}
-                      className="text-faint hover:text-secondary transition-colors text-xs"
-                      title="Show details"
-                    >
-                      {isExpanded ? "▼" : "▶"}
-                    </button>
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-secondary whitespace-nowrap min-w-[110px]">
-                    <span className="flex items-center gap-1.5">
-                      {b.batch_number ?? "—"}
+            // Rendered twice: in their own columns from `sm`, and folded under
+            // the beer (badges) or into the expanded row (actions) on a phone.
+            const badges = (<>
                       {/* Warning dots stack 2-per-row (auto tracks so 1 dot doesn't reserve a phantom column); empty:hidden drops the gap when a batch is clean. */}
                       <span className="grid grid-cols-[auto_auto] gap-0.5 empty:hidden">
                         {scheduleMissing && b.status !== "complete" && (
@@ -1137,6 +1125,35 @@ function BatchTable({
                         <AllocationBadge batchId={b.id} batchVol={Number(b.volume_bbl)} status={b.status} />
                         <DepositInvoiceBadge batchId={b.id} status={b.status} />
                       </span>
+            </>);
+            const rowActions = (<>
+                      <button onClick={() => onEdit(b)} className="btn-secondary btn-xxs">Edit</button>
+                      {b.status !== "complete" && (
+                        <button onClick={() => onComplete(b.id, b.beer_name)} className="btn-secondary btn-xxs">Complete</button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => onDelete(b.id, b.beer_name)} className="btn-danger btn-xxs">Delete</button>
+                      )}
+            </>);
+
+            return (
+              <React.Fragment key={b.id}>
+                <tr className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""} ${isExpanded ? "border-b-0" : ""}`}>
+                  <td className="px-3 py-2.5">
+                    <button
+                      onClick={() => onToggle(b.id)}
+                      className="text-faint hover:text-secondary transition-colors text-xs"
+                      title="Show details"
+                      aria-label={isExpanded ? "Hide details" : "Show details"}
+                      aria-expanded={isExpanded}
+                    >
+                      {isExpanded ? "▼" : "▶"}
+                    </button>
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-secondary whitespace-nowrap min-w-[110px] max-sm:hidden">
+                    <span className="flex items-center gap-1.5">
+                      {b.batch_number ?? "—"}
+                      {badges}
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-primary font-medium">
@@ -1150,13 +1167,20 @@ function BatchTable({
                       </span>
                     )}
                     <ShortfallBadge batchId={b.id} status={b.status} batchLabel={`${b.batch_number ?? "?"} · ${b.beer_name}`} />
+                    {/* Phone: batch #, warnings, brew date and volume fold
+                        under the beer (docs/UI_STANDARD.md §7 B). */}
+                    <span className="sm:hidden mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs font-normal text-muted">
+                      <span className="font-mono">{b.batch_number ?? "—"}</span>
+                      {badges}
+                      <span className="basis-full">{fmtDate(b.planned_brew_date)} · {Number(b.volume_bbl).toFixed(2)} BBL</span>
+                    </span>
                   </td>
-                  <td className="px-4 py-2.5 text-secondary">{fmtDate(b.planned_brew_date)}</td>
-                  <td className="px-4 py-2.5 text-secondary">
+                  <td className="px-4 py-2.5 text-secondary max-sm:hidden">{fmtDate(b.planned_brew_date)}</td>
+                  <td className="px-4 py-2.5 text-secondary max-sm:hidden">
                     {deliveryDate ? fmtDate(deliveryDate) : <span className="text-disabled">—</span>}
                   </td>
-                  <td className="px-4 py-2.5 text-body text-right tabular-nums">{Number(b.volume_bbl).toFixed(2)} BBL</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">
+                  <td className="px-4 py-2.5 text-body text-right tabular-nums max-sm:hidden">{Number(b.volume_bbl).toFixed(2)} BBL</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums max-sm:hidden">
                     {b.status === "planning" ? <span className="text-disabled">—</span> : (() => {
                       const bd = computeLocationBreakdown(b.id, Number(b.volume_bbl), transfers, tankTypeById, assignedBatchIds.has(b.id));
                       const hasTransfers = transfers.some((t) => t.batch_id === b.id);
@@ -1171,24 +1195,17 @@ function BatchTable({
                       return <span className={avail >= 0.005 ? "text-success" : "text-disabled"}>{avail.toFixed(2)} BBL</span>;
                     })()}
                   </td>
-                  <td className="px-4 py-2.5 text-secondary text-right">{b.turns}</td>
+                  <td className="px-4 py-2.5 text-secondary text-right max-sm:hidden">{b.turns}</td>
                   <td className="px-4 py-2.5"><StatusBadge status={b.status} /></td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex gap-1 justify-end">
-                      <button onClick={() => onEdit(b)} className="btn-secondary btn-xxs">Edit</button>
-                      {b.status !== "complete" && (
-                        <button onClick={() => onComplete(b.id, b.beer_name)} className="btn-secondary btn-xxs">Complete</button>
-                      )}
-                      {isAdmin && (
-                        <button onClick={() => onDelete(b.id, b.beer_name)} className="btn-danger btn-xxs">Delete</button>
-                      )}
-                    </div>
+                  <td className="px-4 py-2.5 max-sm:hidden">
+                    <div className="flex gap-1 justify-end">{rowActions}</div>
                   </td>
                 </tr>
 
                 {isExpanded && (
                   <tr className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
-                    <td colSpan={10} className="px-6 pb-6 pt-3">
+                    <td colSpan={10} className="px-3 sm:px-6 pb-6 pt-3">
+                      <div className="sm:hidden flex flex-wrap gap-1.5 pb-3 mb-3 border-b border-line/60">{rowActions}</div>
                       {/* Brew stats row */}
                       {(b.ibu != null || b.color_srm != null || b.original_gravity != null || b.final_gravity != null || b.dissolved_oxygen_ppb != null) && (
                         <div className="flex gap-6 pb-4 mb-4 border-b border-line/60">

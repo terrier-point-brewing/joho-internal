@@ -362,6 +362,9 @@ function fmtValue(v: number | null | undefined) {
   return formatCurrency(v);
 }
 
+const TABLE_WIDE = "table-fixed min-w-[780px]";
+const TABLE_PHONE = "sm:table-fixed sm:min-w-[780px]";
+
 export default function IngredientsTab() {
   const qc = useQueryClient();
   const { can } = usePermissions();
@@ -594,6 +597,10 @@ export default function IngredientsTab() {
     : currentCost;
   const newValue = newCostPerUnit != null ? newStock * newCostPerUnit : null;
 
+  // Bulk edit puts inputs in the cost column, so it keeps the full-width grid
+  // (and its sideways scroll) on a phone; the read view is three columns.
+  const H = bulkEditMode ? "" : "max-sm:hidden";
+
   return (
     <>
       {/* Search + category filter + action buttons inline */}
@@ -611,7 +618,7 @@ export default function IngredientsTab() {
             onChange={(v) => setFilter("category", v)}
           />
         </FilterBar>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex flex-wrap gap-2">
           {bulkEditMode ? (
             <>
               <button onClick={() => setBulkEditMode(false)} className="btn-secondary" disabled={bulkSaving}>Cancel</button>
@@ -671,8 +678,8 @@ export default function IngredientsTab() {
                   {/* Shared fixed column widths — identical across all category tables so
                       columns align vertically when tables are stacked. Specialty columns
                       (AA%, °L) are appended after Total Value only for relevant categories. */}
-                  <table className="w-full text-sm table-fixed min-w-[780px]">
-                    <colgroup>
+                  <table className={`w-full text-sm ${bulkEditMode ? TABLE_WIDE : TABLE_PHONE}`}>
+                    <colgroup className={H}>
                       <col style={{ width: "18%" }} />{/* Name */}
                       <col style={{ width: "12%" }} />{/* Supplier */}
                       <col style={{ width: "11%" }} />{/* Partner */}
@@ -686,16 +693,16 @@ export default function IngredientsTab() {
                     <thead>
                       <tr className="border-b border-line bg-surface/50 text-left">
                         <th className="px-3 py-2.5 text-xs font-medium text-muted">Name</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted">Supplier</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted">Partner</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">
+                        <th className={`px-3 py-2.5 text-xs font-medium text-muted ${H}`}>Supplier</th>
+                        <th className={`px-3 py-2.5 text-xs font-medium text-muted ${H}`}>Partner</th>
+                        <th className={`px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap ${H}`}>
                           {showAlphaAcid ? "AA%" : showColorLovibond ? "°L" : ""}
                         </th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted">Unit</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Cost / Unit</th>
+                        <th className={`px-3 py-2.5 text-xs font-medium text-muted ${H}`}>Unit</th>
+                        <th className={`px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap ${H}`}>Cost / Unit</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-muted text-right">Stock</th>
                         <th className="px-3 py-2.5 text-xs font-medium text-muted text-right whitespace-nowrap">Total Value</th>
-                        <th className="px-3 py-2.5 text-xs font-medium text-muted"></th>
+                        <th className={`px-3 py-2.5 text-xs font-medium text-muted ${H}`}></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -729,20 +736,38 @@ export default function IngredientsTab() {
                             </tr>
                           );
                         }
+                        const rowActions = (<>
+                                {canOperate && (
+                                <button onClick={() => openAdj(ing)} className="btn-primary btn-xxs whitespace-nowrap">Adjust</button>
+                                )}
+                                {canEditMaster && (<>
+                                <button onClick={() => openEdit(ing)} className="btn-secondary btn-xxs whitespace-nowrap">Edit</button>
+                                <button onClick={() => handleDelete(ing.id, ing.name)} className="btn-danger btn-xxs whitespace-nowrap">Del</button>
+                                </>)}
+                        </>);
                         return (
                           <tr key={ing.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
-                            <td className="px-3 py-2.5 text-primary font-medium truncate">{ing.name}</td>
-                            <td className="px-3 py-2.5 text-secondary truncate">{ing.suppliers?.company_name ?? "—"}</td>
-                            <td className="px-3 py-2.5 text-secondary truncate">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
-                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-secondary">
+                            {/* On a phone the row is Name, Stock and Total Value. Supplier and
+                                cost fold under the name, and so do the actions,
+                                so there is no action column (§7 B). */}
+                            <td className="px-3 py-2.5 text-primary font-medium sm:truncate">
+                              {ing.name}
+                              <div className="sm:hidden text-xs font-normal text-muted">
+                                {[ing.suppliers?.company_name, ing.cost_per_unit_usd != null ? `${formatCurrency(Number(ing.cost_per_unit_usd))} / ${ing.unit}` : null].filter(Boolean).join(" · ")}
+                              </div>
+                              <div className="sm:hidden mt-1.5 flex flex-wrap gap-1.5 empty:hidden">{rowActions}</div>
+                            </td>
+                            <td className="px-3 py-2.5 text-secondary truncate max-sm:hidden">{ing.suppliers?.company_name ?? "—"}</td>
+                            <td className="px-3 py-2.5 text-secondary truncate max-sm:hidden">{ing.contract_brewing_partners?.company_name ?? "—"}</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-secondary max-sm:hidden">
                               {showAlphaAcid
                                 ? (ing.alpha_acid != null ? `${ing.alpha_acid}%` : "—")
                                 : showColorLovibond
                                   ? (ing.color_lovibond != null ? `${ing.color_lovibond}°L` : "—")
                                   : ""}
                             </td>
-                            <td className="px-3 py-2.5 text-secondary whitespace-nowrap">{ing.unit}</td>
-                            <td className="px-3 py-2.5 text-body text-right tabular-nums whitespace-nowrap">
+                            <td className="px-3 py-2.5 text-secondary whitespace-nowrap max-sm:hidden">{ing.unit}</td>
+                            <td className="px-3 py-2.5 text-body text-right tabular-nums whitespace-nowrap max-sm:hidden">
                               {ing.cost_per_unit_usd != null ? formatCurrency(Number(ing.cost_per_unit_usd)) : "—"}
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">
@@ -751,16 +776,8 @@ export default function IngredientsTab() {
                               </span>
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-body whitespace-nowrap">{fmtValue(totalValue)}</td>
-                            <td className="px-3 py-2.5">
-                              <div className="flex gap-1 justify-end w-full">
-                                {canOperate && (
-                                <button onClick={() => openAdj(ing)} className="btn-primary btn-xxs whitespace-nowrap">Adjust</button>
-                                )}
-                                {canEditMaster && (<>
-                                <button onClick={() => openEdit(ing)} className="btn-secondary btn-xxs whitespace-nowrap">Edit</button>
-                                <button onClick={() => handleDelete(ing.id, ing.name)} className="btn-danger btn-xxs whitespace-nowrap">Del</button>
-                                </>)}
-                              </div>
+                            <td className="px-3 py-2.5 max-sm:hidden">
+                              <div className="flex gap-1 justify-end w-full">{rowActions}</div>
                             </td>
                           </tr>
                         );

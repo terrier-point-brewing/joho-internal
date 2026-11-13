@@ -35,22 +35,44 @@ export default function FilterChips({
     onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
   }
 
+  // Below `sm` a single-select group is one native select (docs/UI_STANDARD.md
+  // §7 E): a row of chips beside the search box wraps into two or three
+  // toolbar rows on a phone. Multi-select keeps its chips, which a select
+  // cannot express.
+  const asSelect = !multiple;
   return (
-    <div className={`flex items-center gap-1.5 flex-wrap ${className}`.trim()}>
-      <span className="text-xs text-muted mr-0.5">{label}:</span>
-      <ToggleChip active={isAll} onClick={() => onChange([])}>
-        {allLabel}
-      </ToggleChip>
-      {options.map((o) => (
-        <ToggleChip
-          key={o.value}
-          active={value.includes(o.value)}
-          onClick={() => pick(o.value)}
-          className={o.className ?? ""}
-        >
-          {o.label}
+    <>
+      <div className={`flex items-center gap-1.5 flex-wrap ${asSelect ? "max-sm:hidden" : ""} ${className}`.replace(/\s+/g, " ").trim()}>
+        <span className="text-xs text-muted mr-0.5">{label}:</span>
+        <ToggleChip active={isAll} onClick={() => onChange([])}>
+          {allLabel}
         </ToggleChip>
-      ))}
-    </div>
+        {options.map((o) => (
+          <ToggleChip
+            key={o.value}
+            active={value.includes(o.value)}
+            onClick={() => pick(o.value)}
+            className={o.className ?? ""}
+          >
+            {o.label}
+          </ToggleChip>
+        ))}
+      </div>
+      {asSelect && (
+        <label className="sm:hidden inline-flex items-center gap-1.5">
+          <span className="text-xs text-muted">{label}:</span>
+          <select
+            value={value[0] ?? ""}
+            onChange={(e) => onChange(e.target.value ? [e.target.value] : [])}
+            className="inp-sm w-auto max-w-36"
+          >
+            <option value="">{allLabel}</option>
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </label>
+      )}
+    </>
   );
 }

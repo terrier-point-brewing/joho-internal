@@ -109,7 +109,7 @@ export default function ColdStorageAdjustmentsTab() {
           />
         </FilterBar>
 
-        <div className="ml-auto flex items-center gap-3 shrink-0">
+        <div className="sm:ml-auto flex items-center gap-3 shrink-0">
           {totalShrinkageBbl > 0.0001 && (
             <span className="text-xs text-accent-emphasis/80 tabular-nums">
               {totalShrinkageBbl.toFixed(2)} bbl shrinkage
@@ -127,36 +127,44 @@ export default function ColdStorageAdjustmentsTab() {
         <p className="text-faint text-sm">No cold storage adjustments recorded.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm max-sm:[&_td]:px-2 max-sm:[&_th]:px-2">
             <thead>
               <tr className="border-b border-line bg-surface/50 text-left">
                 <SortableTh label="Date" sortKey="date" sort={sort} onSort={toggleSort} />
-                <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Type</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap max-sm:hidden">Type</th>
                 <th className="px-3 py-2.5 text-xs font-medium text-muted">Beer</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Batch</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">From</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">To</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap max-sm:hidden">Batch</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted max-sm:hidden">From</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted max-sm:hidden">To</th>
                 <SortableTh label="Shrinkage" sortKey="shrinkage" sort={sort} onSort={toggleSort} align="right" />
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Note</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">By</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted max-sm:hidden">Note</th>
+                <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap max-sm:hidden">By</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((r, i) => (
                 <tr key={r.id} className={`border-b border-line/60 last:border-0 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
-                  <td className="px-3 py-2 text-muted text-xs whitespace-nowrap">{fmtDate(r.occurred_at)}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 text-muted text-xs sm:whitespace-nowrap max-sm:w-16">{fmtDate(r.occurred_at)}</td>
+                  <td className="px-3 py-2 max-sm:hidden">
                     <span className={`text-xs px-1.5 py-px rounded border whitespace-nowrap ${KIND_COLORS[r.kind]}`}>
                       {KIND_LABELS[r.kind]}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-body font-medium max-w-[180px] truncate">{r.beer_name ?? EM_DASH}</td>
-                  <td className="px-3 py-2 text-faint text-xs font-mono whitespace-nowrap">{r.batch_number ?? EM_DASH}</td>
-                  <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap">
+                  {/* On a phone the row is Date, Beer and Shrinkage; what moved
+                      folds under the beer (docs/UI_STANDARD.md §7 B). */}
+                  <td className="px-3 py-2 text-body font-medium sm:max-w-[180px] sm:truncate">
+                    {r.beer_name ?? EM_DASH}
+                    <div className="sm:hidden text-xs font-normal text-muted">
+                      {KIND_LABELS[r.kind]} · {fmtUnits(r.from_units)}× {r.from_variation_name ?? EM_DASH} → {fmtUnits(r.to_units)}× {r.to_variation_name ?? EM_DASH}
+                    </div>
+                    {r.note && <div className="sm:hidden text-xs font-normal text-faint">{r.note}</div>}
+                  </td>
+                  <td className="px-3 py-2 text-faint text-xs font-mono whitespace-nowrap max-sm:hidden">{r.batch_number ?? EM_DASH}</td>
+                  <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap max-sm:hidden">
                     <span className="text-danger font-mono tabular-nums">{fmtUnits(r.from_units)}×</span>{" "}
                     {r.from_variation_name ?? EM_DASH}
                   </td>
-                  <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap">
+                  <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap max-sm:hidden">
                     <span className="text-success font-mono tabular-nums">{fmtUnits(r.to_units)}×</span>{" "}
                     {r.to_variation_name ?? EM_DASH}
                   </td>
@@ -171,8 +179,8 @@ export default function ColdStorageAdjustmentsTab() {
                       <span className="text-faint">{EM_DASH}</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-muted text-xs max-w-[160px] truncate">{r.note ?? EM_DASH}</td>
-                  <td className="px-3 py-2 text-faint text-xs whitespace-nowrap">{actorLabel(r)}</td>
+                  <td className="px-3 py-2 text-muted text-xs max-w-[160px] truncate max-sm:hidden">{r.note ?? EM_DASH}</td>
+                  <td className="px-3 py-2 text-faint text-xs whitespace-nowrap max-sm:hidden">{actorLabel(r)}</td>
                 </tr>
               ))}
             </tbody>
