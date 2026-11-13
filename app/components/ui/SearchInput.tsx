@@ -66,7 +66,8 @@ export default function SearchInput({
   // intrinsic width, then the input renders wider and forces the sibling filters
   // onto a second line. `w-64` pins a real basis; `max-w-full` still lets the
   // box shrink inside narrow containers like modals. Below `sm` the FilterBar
-  // is a one-column grid, so the box simply fills its row.
+  // gives the box a flex-1 wrapper, so it fills what the row has left. A
+  // landscape phone (`short:`) gets a narrower box so a toolbar stays one row.
   return (
     <input
       type="search"
@@ -75,7 +76,7 @@ export default function SearchInput({
       placeholder={placeholder}
       aria-label={ariaLabel ?? placeholder}
       autoFocus={autoFocus}
-      className={`inp-sm w-full sm:w-64 max-w-full ${className}`.trim()}
+      className={`inp-sm w-full sm:w-64 short:w-44 max-w-full ${className}`.trim()}
     />
   );
 }

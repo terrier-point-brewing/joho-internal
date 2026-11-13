@@ -452,7 +452,7 @@ export default function AchievementTab() {
             Actual Net Sales
             <Info text={`On pace = sales so far are at or above target × ${pct(elapsedFrac * 100, 0)} elapsed.`} />
           </div>
-          <div className="text-xl font-semibold text-primary">{currency(actualCents)}</div>
+          <div className="text-base sm:text-xl font-semibold text-primary">{currency(actualCents)}</div>
           {targetCents !== null && (
             <div className="text-xs text-muted mt-0.5">{pct((actualCents / targetCents) * 100)} of target</div>
           )}
@@ -591,14 +591,14 @@ export default function AchievementTab() {
 
       {/* Period table */}
       <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-      <table className="w-full text-sm border-collapse min-w-[460px]">
+      <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="text-xs text-secondary uppercase border-b border-line">
             <th className="text-left py-2 pr-3 sm:pr-6">Period</th>
             <th className="text-right py-2 pr-3 sm:pr-6">Net Sales</th>
             {targetCents !== null && (
               <>
-                <th className="text-right py-2 pr-2 sm:pr-4">% of Target</th>
+                <th className="text-right py-2 pr-2 sm:pr-4 whitespace-nowrap">% of Target</th>
                 <th className="text-right py-2 whitespace-nowrap">vs. Pace</th>
               </>
             )}

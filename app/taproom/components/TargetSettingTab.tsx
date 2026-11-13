@@ -26,10 +26,16 @@ const TIERS: { value: Tier; label: string; color: string; description: string }[
   { value: "stretch",  label: "Stretch",  color: "text-success", description: "Ambitious upside" },
 ];
 
+// Below `md` the grid is one card per quarter (docs/UI_STANDARD.md §7 B): the
+// tiers sit two-up under the quarter and each carries its own label, so the
+// column header row is desktop-only and nothing scrolls sideways.
+const ROW = "grid grid-cols-2 md:grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-line last:border-0";
+const Q_CELL = "col-span-2 md:col-span-1 px-3 md:px-4 pt-3 md:py-4 flex items-center";
+
 // Shared column header block (module-scoped so it isn't recreated each render).
 function ColHeaders() {
   return (
-    <div className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-line bg-surface/60">
+    <div className="max-md:hidden grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-line bg-surface/60">
       <div className="px-4 py-3" />
       {TIERS.map((t) => (
         <div key={t.value} className="px-3 py-3 text-center">
@@ -218,21 +224,22 @@ export default function TargetSettingTab() {
         {loading ? (
           <p className="text-sm text-muted">Loading…</p>
         ) : (
-          <div className="bg-surface border border-line rounded-lg overflow-hidden overflow-x-auto">
-            <div className="min-w-[480px]">
+          <div className="bg-surface border border-line rounded-lg overflow-hidden">
+            <div>
             <ColHeaders />
             {[1, 2, 3, 4].map((q) => (
               <div
                 key={q}
-                className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-line last:border-0"
+                className={ROW}
               >
-                <div className="px-4 py-4 flex items-center">
+                <div className={Q_CELL}>
                   <span className="text-sm font-semibold text-strong">Q{q}</span>
                 </div>
-                {TIERS.map(({ value: tier }) => {
+                {TIERS.map(({ value: tier, label, color }) => {
                   const val = savedValues[q][tier];
                   return (
-                    <div key={tier} className="px-3 py-4 text-right">
+                    <div key={tier} className="px-3 py-2 md:py-4 md:text-right">
+                      <div className={`md:hidden text-xs ${color}`}>{label}</div>
                       {val !== null ? (
                         <span className="text-sm font-mono text-primary">{currency(val)}</span>
                       ) : (
@@ -268,7 +275,7 @@ export default function TargetSettingTab() {
   // ---------------------------------------------------------------------------
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-faint">Editing {year} · blank cells are skipped on save</p>
         <div className="flex items-center gap-3">
           <button onClick={handleCancel} className="btn-secondary">
@@ -298,18 +305,18 @@ export default function TargetSettingTab() {
         </select>
       </div>
 
-      <div className="bg-surface border border-line rounded-lg overflow-hidden overflow-x-auto">
-        <div className="min-w-[480px]">
+      <div className="bg-surface border border-line rounded-lg overflow-hidden">
+        <div>
         <ColHeaders />
         {[1, 2, 3, 4].map((q) => (
           <div
             key={q}
-            className="grid grid-cols-[80px_1fr_1fr_1fr_1fr] border-b border-line last:border-0 hover:bg-surface-mid/20 transition-colors"
+            className={`${ROW} hover:bg-surface-mid/20 transition-colors`}
           >
-            <div className="px-4 py-3 flex items-center">
+            <div className={Q_CELL}>
               <span className="text-sm font-semibold text-strong">Q{q}</span>
             </div>
-            {TIERS.map(({ value: tier }) => {
+            {TIERS.map(({ value: tier, label, color }) => {
               const isDirty     = dirty.has(`${q}-${tier}`);
               const savedVal    = savedValues[q][tier];
               const inputVal    = grid[q][tier];
@@ -317,7 +324,8 @@ export default function TargetSettingTab() {
               const unchanged   = savedVal !== null && parsedCents !== null && parsedCents === savedVal;
 
               return (
-                <div key={tier} className="px-3 py-2.5">
+                <div key={tier} className="px-3 py-2 md:py-2.5">
+                  <div className={`md:hidden text-xs mb-1 ${color}`}>{label}</div>
                   <div className={`relative ${isDirty && !unchanged ? "ring-1 ring-accent-border/50 rounded" : ""}`}>
                     <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted text-sm pointer-events-none select-none">
                       $

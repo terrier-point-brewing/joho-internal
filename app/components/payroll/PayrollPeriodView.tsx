@@ -312,7 +312,10 @@ export function PayrollPeriodView({ periodId, editable, activeTab }: Props) {
             </p>
           )}
           {/* Bartender table */}
-          <div className="scroll-x"><table className="w-full text-sm">
+          {/* The name stays in view while the figures scroll (§7 B). Every
+              column is kept: each is editable in override mode and the Total is
+              their sum, so hiding one would leave the total unexplained. */}
+          <div className="scroll-x"><table className="w-full text-sm tbl-pin [--tbl-pin-bg:var(--color-canvas)] max-sm:[&_td]:px-2 max-sm:[&_th]:px-2">
             <thead>
               <tr className="border-b border-line-strong">
                 <th className="text-left py-2 px-3 text-muted font-medium">Bartender</th>

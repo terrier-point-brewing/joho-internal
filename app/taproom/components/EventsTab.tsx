@@ -71,6 +71,15 @@ function fmtDisplay(iso: string) {
   });
 }
 
+/** A window on one day reads "Nov 13, 2026 · 5:00 PM – 9:00 PM": one line on a phone. */
+function fmtRange(startIso: string, endIso: string) {
+  const a = new Date(startIso), b = new Date(endIso);
+  if (a.toDateString() !== b.toDateString()) return `${fmtDisplay(startIso)} – ${fmtDisplay(endIso)}`;
+  const day = a.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const time = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${day} · ${time(a)} – ${time(b)}`;
+}
+
 const EMPTY_FORM: EventFormState = {
   event_name: "", event_start: "", event_end: "", event_host: "", notes: "",
 };
@@ -189,7 +198,7 @@ function PourTable({ eventId }: { eventId: string }) {
     <div className="space-y-3">
       {/* Summary stat strip */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-        <div className="rounded-md bg-surface border border-line px-3 py-2.5">
+        <div className="max-sm:col-span-2 rounded-md bg-surface border border-line px-3 py-2.5">
           <p className="text-xs text-muted uppercase tracking-wide mb-0.5">Net Sales</p>
           <p className="text-sm font-semibold text-accent">{fmtUsd(netSales)}</p>
         </div>
@@ -503,9 +512,11 @@ export default function EventsTab() {
             return (
               <div key={ev.id} className="rounded-lg border border-line bg-surface/30">
                 {/* Event header row */}
-                <div className="flex items-start gap-3 px-4 py-3">
+                {/* On a phone the actions take their own line under the name
+                    instead of squeezing it (§7 C). */}
+                <div className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3">
                   <button
-                    className="flex-1 text-left min-w-0"
+                    className="flex-1 text-left min-w-0 max-sm:basis-full"
                     onClick={() => { if (!isEditing) setExpandedId(isExpanded ? null : ev.id); }}
                   >
                     <div className="flex items-center gap-2 flex-wrap">
@@ -518,13 +529,13 @@ export default function EventsTab() {
                       ) : null}
                     </div>
                     <p className="text-xs text-muted mt-0.5">
-                      {fmtDisplay(ev.event_start)} – {fmtDisplay(ev.event_end)}
+                      {fmtRange(ev.event_start, ev.event_end)}
                     </p>
                     {ev.notes && <p className="text-xs text-faint mt-0.5 truncate">{ev.notes}</p>}
                     <EventCardStats eventId={ev.id} />
                   </button>
 
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-1 shrink-0">
                     {ended && !closed && !isEditing && (
                       <button onClick={() => setKegsFor(ev)} className="btn-primary btn-xxs">
                         Close out

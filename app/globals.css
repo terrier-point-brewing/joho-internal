@@ -11,7 +11,12 @@
    narrower or shorter is `handheld:` and gets one scroller: the app pane.
    See docs/UI_STANDARD.md §7. */
 @custom-variant desk (@media (min-width: 48rem) and (min-height: 30.01rem));
-@custom-variant handheld (@media (max-width: 47.99rem), (max-height: 30rem));
+/* Block form, one @slot per query: the shorthand with a comma-separated
+   media list compiles to an empty selector and breaks the build. */
+@custom-variant handheld {
+  @media (max-width: 47.99rem) { @slot; }
+  @media (max-height: 30rem) { @slot; }
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Design tokens — see docs/UI_STANDARD.md
@@ -422,7 +427,15 @@ body {
   position: sticky;
   left: 0;
   z-index: 10;
-  background: var(--color-surface);
+  /* A table sitting on the page rather than in a Card sets --tbl-pin-bg. */
+  background: var(--tbl-pin-bg, var(--color-surface));
+  /* The hairline travels with the pinned cell, so the scroll edge still reads
+     once the collapsed table border has scrolled away. */
+  box-shadow: inset -1px 0 0 var(--color-line);
+}
+/* A highlighted row keeps its tint under the (opaque) pinned cell. */
+.tbl-pin tr[data-active="true"] > :first-child {
+  background: color-mix(in srgb, var(--color-accent-muted) 20%, var(--color-surface));
 }
 
 /* ── Touch input size ───────────────────────────────────────────────────────

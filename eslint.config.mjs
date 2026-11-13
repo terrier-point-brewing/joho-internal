@@ -87,6 +87,11 @@ const eslintConfig = defineConfig([
             "A 400px+ min-width forces sideways scroll on every phone. Hide secondary columns below sm instead (<Th hide>/<Td hide>, pattern B) and let the table fit.",
         },
         {
+          selector: 'JSXOpeningElement[name.name=/^t[dh]$/] > JSXAttribute[name.name="className"] > Literal[value=/\\bsticky left-0\\b/]',
+          message:
+            "Pattern B: don't hand-pin a cell. Use <Table pin> with <CellLabel> in the first cell, which caps the pinned column at 40% of a phone's width.",
+        },
+        {
           selector: 'JSXAttribute[name.name="onDoubleClick"]',
           message:
             "Double-click is double-tap-to-zoom on touch. Give the action a visible button (≥44px on a coarse pointer) instead.",
