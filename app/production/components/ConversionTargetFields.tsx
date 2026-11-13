@@ -69,6 +69,7 @@ export default function ConversionTargetFields({
   newModeHint,
   newOnly = false,
   hideDelivery = false,
+  lockedVolumeBbl,
 }: {
   sourceBeerName: string;
   /** Recipe of the batch being drawn from — the base a target may be linked to. */
@@ -86,6 +87,11 @@ export default function ConversionTargetFields({
   newOnly?: boolean;
   /** Delivery IS the conversion day (in-keg/in-can): don't ask for it. */
   hideDelivery?: boolean;
+  /**
+   * The volume is not the operator's to choose — an in-place conversion is the
+   * whole tank. Shown read-only in place of the input.
+   */
+  lockedVolumeBbl?: number;
 }) {
   // The last delivery date this component derived on its own. While the field
   // still holds that value the operator hasn't touched it, so recipe/date
@@ -196,9 +202,17 @@ export default function ConversionTargetFields({
       <div className={`grid gap-3 ${hideDelivery ? "grid-cols-2" : "grid-cols-3"}`}>
         <div>
           <label className="block text-xs mb-1 text-muted">Volume (BBL) <span className="text-danger">*</span></label>
-          <input type="number" step="0.001" min="0.001" {...(volumeMax != null ? { max: volumeMax } : {})}
-            className="inp text-xs w-full" placeholder="0.000"
-            value={value.volumeBbl} onChange={e => update({ volumeBbl: e.target.value })} />
+          {lockedVolumeBbl != null ? (
+            <>
+              <input type="text" className="inp text-xs w-full" readOnly disabled
+                aria-label="Volume (BBL)" value={lockedVolumeBbl.toFixed(3)} />
+              <p className="text-[10px] text-faint mt-0.5">Whole tank</p>
+            </>
+          ) : (
+            <input type="number" step="0.001" min="0.001" {...(volumeMax != null ? { max: volumeMax } : {})}
+              className="inp text-xs w-full" placeholder="0.000"
+              value={value.volumeBbl} onChange={e => update({ volumeBbl: e.target.value })} />
+          )}
         </div>
         <div>
           <label className="block text-xs mb-1 text-muted">Conversion Date</label>

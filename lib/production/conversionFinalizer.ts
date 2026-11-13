@@ -624,6 +624,12 @@ export interface FinalizeConversionArgs {
   toTankId: string | null;
   volumeBbl: number;
   today: string; // 'YYYY-MM-DD'
+  /**
+   * The conversion happened in the tank the source was already in (fromTankId
+   * === toTankId). The source's stay there ENDED — it is closed, not cancelled
+   * as a booking that never happened.
+   */
+  inPlace?: boolean;
 }
 
 /**
@@ -634,7 +640,7 @@ export interface FinalizeConversionArgs {
  */
 export async function finalizeConversion(
   supabase: SupabaseClient,
-  { sourceBatchId, targetBatchId, toTankId, volumeBbl, today }: FinalizeConversionArgs,
+  { sourceBatchId, targetBatchId, toTankId, volumeBbl, today, inPlace }: FinalizeConversionArgs,
 ): Promise<void> {
   if (toTankId) {
     const { data: destEq } = await supabase
@@ -648,6 +654,29 @@ export async function finalizeConversion(
       .from("batch_tank_assignments")
       .update({ released_at: new Date().toISOString() })
       .eq("batch_id", sourceBatchId).eq("tank_id", toTankId).is("released_at", null);
+
+    // 2b. In place, the source really was in this tank until today. Close the
+    //     entry it was occupying with what passed through it, so step 3 below
+    //     only cancels bookings that never started (the Equipment Schedule
+    //     would otherwise lose the source's whole stay in the tank).
+    if (inPlace) {
+      const { data: leftRows } = await supabase
+        .from("batch_transfers")
+        .select("volume_bbl, shrinkage_bbl, to_tank_id, to_batch_id")
+        .eq("batch_id", sourceBatchId).eq("from_tank_id", toTankId);
+      const departed = ((leftRows ?? []) as Array<{
+        volume_bbl: number | null; shrinkage_bbl: number | null; to_tank_id: string | null; to_batch_id: string | null;
+      }>)
+        // A same-tank row with no target batch is an in-place stage switch — nothing left.
+        .filter((t) => t.to_tank_id !== toTankId || !!t.to_batch_id)
+        .reduce((s, t) => s + Number(t.volume_bbl ?? 0) + Number(t.shrinkage_bbl ?? 0), 0);
+      await supabase
+        .from("batch_schedule_entries")
+        .update({ actual_end: today, ...(departed > 0.001 ? { volume_bbl: departed } : {}) })
+        .eq("batch_id", sourceBatchId).eq("equipment_id", toTankId)
+        .is("cancelled_at", null).is("actual_end", null)
+        .not("actual_start", "is", null);
+    }
 
     // 3. Cancel the source's spurious open schedule entry on the destination tank.
     await supabase
