@@ -48,7 +48,7 @@ export function RefundAdjustmentModal({
           <div className="space-y-1">
             <label className="text-xs text-secondary">New allocation percentage (currently {currentPercentage.toFixed(1)}%)</label>
             <div className="flex items-center gap-1">
-              <input type="number" step="0.1" min="0.1" max={currentPercentage} className="inp-sm w-24 text-right tabular-nums"
+              <input type="number" inputMode="decimal" step="0.1" min="0.1" max={currentPercentage} className="inp-sm w-24 text-right tabular-nums"
                 value={Number.isFinite(newPercentage) ? newPercentage : ""}
                 onChange={(e) => onChangePercentage(parseFloat(e.target.value))} />
               <span className="text-xs text-muted">%</span>

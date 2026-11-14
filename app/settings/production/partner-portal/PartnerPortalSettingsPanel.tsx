@@ -49,7 +49,7 @@ export default function PartnerPortalSettingsPanel() {
         <p className="text-xs text-faint mb-2">Share of every batch never offered to partners.</p>
         <div className="flex items-center gap-2">
           <input
-            type="number" min={0} max={100} step={1}
+            type="number" inputMode="numeric" min={0} max={100} step={1}
             value={draft !== "" ? draft : pct}
             onChange={(e) => setDraft(e.target.value)}
             className="inp-sm w-20"

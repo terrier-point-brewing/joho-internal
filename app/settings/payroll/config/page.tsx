@@ -238,7 +238,7 @@ export default function PayrollSettingsPage() {
           <label className="block">
             <span className="block text-xs text-secondary">Payroll Due (days after period end)</span>
             <input
-              type="number"
+              type="number" inputMode="numeric"
               min="0"
               max="30"
               step="1"
@@ -257,7 +257,7 @@ export default function PayrollSettingsPage() {
           <label className="block">
             <span className="block text-xs text-secondary">Base Rate ($/hr)</span>
             <input
-              type="number" step="0.01" min="0"
+              type="number" inputMode="decimal" step="0.01" min="0"
               value={baseRate}
               onChange={e => setBaseRate(e.target.value)}
               className="inp mt-1 w-full"
@@ -266,7 +266,7 @@ export default function PayrollSettingsPage() {
           <label className="block">
             <span className="block text-xs text-secondary">Guaranteed Rate ($/hr)</span>
             <input
-              type="number" step="0.01" min="0"
+              type="number" inputMode="decimal" step="0.01" min="0"
               value={guaranteedRate}
               onChange={e => setGuaranteedRate(e.target.value)}
               className="inp mt-1 w-full"
@@ -275,7 +275,7 @@ export default function PayrollSettingsPage() {
           <label className="block">
             <span className="block text-xs text-secondary">Reported cash tips ratio (N:1)</span>
             <input
-              type="number" step="1" min="1"
+              type="number" inputMode="numeric" step="1" min="1"
               value={reportedDivisor}
               onChange={e => setReportedDivisor(e.target.value)}
               className="inp mt-1 w-full"

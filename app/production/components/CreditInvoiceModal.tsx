@@ -255,7 +255,7 @@ export function CreditInvoiceModal({
                     <td className="py-1.5 text-right">
                       {l.basis === "per_unit" && (
                         <input
-                          type="number"
+                          type="number" inputMode="numeric"
                           min="0"
                           max={l.quantity}
                           step="1"

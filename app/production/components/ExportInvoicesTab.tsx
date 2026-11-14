@@ -1,5 +1,6 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { invoiceDisplayStatus } from "@/lib/finance/invoiceStatus";
 import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -412,7 +413,7 @@ function InvoiceExpandedPanel({
                     </td>
                     <td className="py-1 text-right">
                       <input
-                        type="number" min="1"
+                        type="number" inputMode="decimal" min="1"
                         value={editQty}
                         onChange={(e) => setEditQty(e.target.value)}
                         className={`${inpCls} w-14 text-right`}
@@ -421,7 +422,7 @@ function InvoiceExpandedPanel({
                     </td>
                     <td className="py-1 text-right">
                       <input
-                        type="number" min="0" step="0.01"
+                        type="number" inputMode="decimal" min="0" step="0.01"
                         value={editPrice}
                         onChange={(e) => setEditPrice(e.target.value)}
                         className={`${inpCls} w-20 text-right`}
@@ -477,7 +478,7 @@ function InvoiceExpandedPanel({
                         className="btn-secondary btn-xxs mr-1.5"
                         aria-label="Edit line item"
                       >
-                        ✎
+                        <Pencil aria-hidden className="size-3" />
                       </button>
                       <button
                         onClick={() => removeLineItem(li.id)}
@@ -559,7 +560,7 @@ function InvoiceExpandedPanel({
                   <label htmlFor="add-qty" className="sr-only">Quantity</label>
                   <input
                     id="add-qty"
-                    type="number"
+                    type="number" inputMode="decimal"
                     placeholder="Qty"
                     value={addQty}
                     min="1"
@@ -569,7 +570,7 @@ function InvoiceExpandedPanel({
                   <label htmlFor="add-price" className="sr-only">Unit price</label>
                   <input
                     id="add-price"
-                    type="number"
+                    type="number" inputMode="decimal"
                     placeholder="Unit price ($)"
                     value={addPrice}
                     min="0"

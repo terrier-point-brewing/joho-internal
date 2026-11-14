@@ -177,7 +177,7 @@ export default function ColdStorageTransformModal({
               half keg or the other way round. */}
           <Field label="Units used" required hint={lot ? `${lot.quantity_on_hand} on hand` : undefined}>
             <input
-              type="number"
+              type="number" inputMode="numeric"
               min="1"
               step="1"
               className="inp w-full"
@@ -191,7 +191,7 @@ export default function ColdStorageTransformModal({
             hint={preview && preview.maxToUnits > 0 ? `max ${preview.maxToUnits}` : undefined}
           >
             <input
-              type="number"
+              type="number" inputMode="numeric"
               min="1"
               step="1"
               className="inp w-full"

@@ -108,7 +108,7 @@ export function AddStagePanel({
         </div>
         <div>
           <label className="block text-[10px] mb-0.5 text-muted">BBL</label>
-          <input type="number" step="0.01" min="0" placeholder="e.g. 3.5" className="inp text-xs w-full"
+          <input type="number" inputMode="decimal" step="0.01" min="0" placeholder="e.g. 3.5" className="inp text-xs w-full"
             value={volBbl} onChange={e => setVolBbl(e.target.value)} />
         </div>
       </FieldGrid>

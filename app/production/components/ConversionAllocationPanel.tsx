@@ -161,7 +161,7 @@ export default function ConversionAllocationPanel({
                   <span className="text-xs text-body flex-1 truncate">{rowLabel(a.channel, a.partner_name)}</span>
                   <span className={`text-[10px] ${badge.cls}`}>{badge.label}</span>
                   <input
-                    type="number" step="0.01" min="0" max="100"
+                    type="number" inputMode="decimal" step="0.01" min="0" max="100"
                     className="inp text-xs w-20 text-right"
                     value={editStrings[a.id] ?? String(a.percentage)}
                     onChange={(e) => setEditStrings((p) => ({ ...p, [a.id]: e.target.value }))}
@@ -191,7 +191,7 @@ export default function ConversionAllocationPanel({
             <div key={i} className="flex items-center gap-2">
               <span className="text-xs text-body flex-1 truncate">{rowLabel(d.channel, d.partner_name)}</span>
               <input
-                type="number" step="0.01" min="0" max="100"
+                type="number" inputMode="decimal" step="0.01" min="0" max="100"
                 className="inp text-xs w-20 text-right"
                 value={draftStrings[i] ?? String(d.percentage)}
                 onChange={(e) => setDraftStrings((p) => ({ ...p, [i]: e.target.value }))}

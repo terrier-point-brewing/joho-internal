@@ -144,7 +144,7 @@ export function DepositInvoiceModal({
                 <div className="space-y-1">
                   <label className="text-xs text-secondary">Amount ($) <span className="text-danger">*</span></label>
                   <input
-                    type="number"
+                    type="number" inputMode="decimal"
                     min="0.01"
                     step="0.01"
                     value={mpAmount}

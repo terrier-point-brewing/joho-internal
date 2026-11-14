@@ -335,7 +335,7 @@ export default function BatchLogTab() {
             </div>
             {editingBatch?.converted_from_batch_id ? (
               <Field label="Volume (BBL)" required>
-                <input type="number" min="0" step="0.01" className="inp" value={form.volume_override} required
+                <input type="number" inputMode="decimal" min="0" step="0.01" className="inp" value={form.volume_override} required
                   onChange={(e) => setForm((f) => ({ ...f, volume_override: e.target.value }))} />
                 <p className="text-xs text-muted mt-1">
                   This batch was created from a conversion, so its volume is set directly rather than from brewhouse turns.
@@ -343,7 +343,7 @@ export default function BatchLogTab() {
               </Field>
             ) : editingId ? (
               <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
-                <input type="number" min="1" step="1" className="inp" value={form.turns} required
+                <input type="number" inputMode="numeric" min="1" step="1" className="inp" value={form.turns} required
                   onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))} />
                 <p className="text-xs text-muted mt-1">
                   Brew volume: <span className="text-body font-medium">{computedVolume} BBL</span>
@@ -364,23 +364,23 @@ export default function BatchLogTab() {
                 <p className="text-xs text-secondary mb-2">Brew Stats</p>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <Field label="IBU">
-                    <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 45"
+                    <input type="number" inputMode="decimal" step="0.1" min="0" className="inp" placeholder="e.g. 45"
                       value={form.ibu} onChange={(e) => setForm((f) => ({ ...f, ibu: e.target.value }))} />
                   </Field>
                   <Field label="Color (SRM)">
-                    <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 8"
+                    <input type="number" inputMode="decimal" step="0.1" min="0" className="inp" placeholder="e.g. 8"
                       value={form.color_srm} onChange={(e) => setForm((f) => ({ ...f, color_srm: e.target.value }))} />
                   </Field>
                   <Field label="OG">
-                    <input type="number" step="0.001" min="0" className="inp" placeholder="e.g. 1.065"
+                    <input type="number" inputMode="decimal" step="0.001" min="0" className="inp" placeholder="e.g. 1.065"
                       value={form.original_gravity} onChange={(e) => setForm((f) => ({ ...f, original_gravity: e.target.value }))} />
                   </Field>
                   <Field label="FG">
-                    <input type="number" step="0.001" min="0" className="inp" placeholder="e.g. 1.012"
+                    <input type="number" inputMode="decimal" step="0.001" min="0" className="inp" placeholder="e.g. 1.012"
                       value={form.final_gravity} onChange={(e) => setForm((f) => ({ ...f, final_gravity: e.target.value }))} />
                   </Field>
                   <Field label="DO (ppb)">
-                    <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 50"
+                    <input type="number" inputMode="decimal" step="0.1" min="0" className="inp" placeholder="e.g. 50"
                       value={form.dissolved_oxygen_ppb} onChange={(e) => setForm((f) => ({ ...f, dissolved_oxygen_ppb: e.target.value }))} />
                   </Field>
                 </div>
@@ -819,7 +819,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     {/* Inline % */}
                     <div className="flex items-center gap-1">
                       <input
-                        type="number" step="0.1" min="0" max="100"
+                        type="number" inputMode="decimal" step="0.1" min="0" max="100"
                         className="inp-sm w-16 text-right tabular-nums"
                         value={pctVal}
                         readOnly={!!a.invoice_paid_at}
@@ -988,7 +988,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
             <div className="flex-none">
               <label className="block text-xs text-muted mb-1">Allocation %</label>
               <div className="flex items-center gap-1">
-                <input type="number" step="0.1" min="0.1" max="100" className="inp-sm w-24 text-right"
+                <input type="number" inputMode="decimal" step="0.1" min="0.1" max="100" className="inp-sm w-24 text-right"
                   placeholder="0.0" value={newPct} onChange={e => setNewPct(e.target.value)} />
                 <span className="text-xs text-muted">%</span>
               </div>
@@ -1441,11 +1441,11 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
                       onChange={(e) => markDirty(i, "time_label", e.target.value)} />
                   </td>
                   <td className="px-3 py-1.5">
-                    <input type="number" step="0.1" className="inp-sm text-right" value={r.temp}
+                    <input type="number" inputMode="decimal" step="0.1" className="inp-sm text-right" value={r.temp}
                       onChange={(e) => markDirty(i, "temp", e.target.value)} />
                   </td>
                   <td className="px-3 py-1.5">
-                    <input type="number" step="0.01" className="inp-sm text-right" value={r.amount}
+                    <input type="number" inputMode="decimal" step="0.01" className="inp-sm text-right" value={r.amount}
                       onChange={(e) => markDirty(i, "amount", e.target.value)} />
                   </td>
                   <td className="px-3 py-1.5 text-center">
@@ -1473,12 +1473,12 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
         </div>
         <div className="w-24">
           <label className="block text-xs text-muted mb-1">Temp (°F)</label>
-          <input type="number" step="0.1" className="inp-sm text-right" placeholder="152" value={newRow.temp}
+          <input type="number" inputMode="decimal" step="0.1" className="inp-sm text-right" placeholder="152" value={newRow.temp}
             onChange={(e) => setNewRow((r) => ({ ...r, temp: e.target.value }))} />
         </div>
         <div className="w-24">
           <label className="block text-xs text-muted mb-1">Amount</label>
-          <input type="number" step="0.01" className="inp-sm text-right" placeholder="0" value={newRow.amount}
+          <input type="number" inputMode="decimal" step="0.01" className="inp-sm text-right" placeholder="0" value={newRow.amount}
             onChange={(e) => setNewRow((r) => ({ ...r, amount: e.target.value }))} />
         </div>
         <button type="button" onClick={addRow} disabled={saving || !newRow.activity.trim()}

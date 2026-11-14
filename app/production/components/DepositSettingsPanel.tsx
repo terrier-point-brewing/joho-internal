@@ -171,7 +171,7 @@ function PackagingYieldSection() {
       <p className="text-xs text-faint mb-2">Used to estimate finished volume for deposits. Set to what you actually get.</p>
       <div className="flex items-center gap-2">
         <input
-          type="number"
+          type="number" inputMode="decimal"
           min={50}
           max={100}
           step={0.5}

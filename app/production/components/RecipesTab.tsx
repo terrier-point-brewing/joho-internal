@@ -931,7 +931,7 @@ export default function RecipesTab() {
                   onChange={(e) => setForm((f) => ({ ...f, style: e.target.value }))} />
               </Field>
               <Field label="ABV (%)">
-                <input type="number" step="0.1" min="0" max="99.9" className="inp" placeholder="e.g. 5.2"
+                <input type="number" inputMode="decimal" step="0.1" min="0" max="99.9" className="inp" placeholder="e.g. 5.2"
                   value={form.abv}
                   onChange={(e) => setForm((f) => ({ ...f, abv: e.target.value }))} />
               </Field>
@@ -939,7 +939,7 @@ export default function RecipesTab() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="IBU" hint="bitterness, as a whole number">
-                <input type="number" step="1" min="0" max="200" className="inp" placeholder="e.g. 45"
+                <input type="number" inputMode="numeric" step="1" min="0" max="200" className="inp" placeholder="e.g. 45"
                   value={form.ibu}
                   onChange={(e) => setForm((f) => ({ ...f, ibu: e.target.value }))} />
               </Field>
@@ -948,7 +948,7 @@ export default function RecipesTab() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Expected Yield / Turn (BBL)" hint="for a 20 BBL brewhouse">
                 <input
-                  type="number" step="0.01" min="0" className="inp" placeholder="e.g. 18.5"
+                  type="number" inputMode="decimal" step="0.01" min="0" className="inp" placeholder="e.g. 18.5"
                   value={form.expected_yield_bbl}
                   onChange={(e) => setForm((f) => ({ ...f, expected_yield_bbl: e.target.value }))}
                 />
@@ -967,17 +967,17 @@ export default function RecipesTab() {
               <p className="text-xs text-secondary mb-2">Stage Duration (days)</p>
               <FieldGrid cols={3} phone={3}>
                 <Field label={<span className={`px-1.5 py-px rounded border text-xs ${STAGE_BADGES.brewhouse.badge}`}>{STAGE_BADGES.brewhouse.label}</span>}>
-                  <input type="number" step="1" min="0" className="inp" placeholder="e.g. 1"
+                  <input type="number" inputMode="numeric" step="1" min="0" className="inp" placeholder="e.g. 1"
                     value={form.days_brewhouse}
                     onChange={(e) => setForm((f) => ({ ...f, days_brewhouse: e.target.value }))} />
                 </Field>
                 <Field label={<span className={`px-1.5 py-px rounded border text-xs ${STAGE_BADGES.fermenter.badge}`}>{STAGE_BADGES.fermenter.label}</span>}>
-                  <input type="number" step="1" min="0" className="inp" placeholder="e.g. 14"
+                  <input type="number" inputMode="numeric" step="1" min="0" className="inp" placeholder="e.g. 14"
                     value={form.days_fermenter}
                     onChange={(e) => setForm((f) => ({ ...f, days_fermenter: e.target.value }))} />
                 </Field>
                 <Field label={<span className={`px-1.5 py-px rounded border text-xs ${STAGE_BADGES.brite.badge}`}>{STAGE_BADGES.brite.label}</span>}>
-                  <input type="number" step="1" min="0" className="inp" placeholder="e.g. 7"
+                  <input type="number" inputMode="numeric" step="1" min="0" className="inp" placeholder="e.g. 7"
                     value={form.days_brite}
                     onChange={(e) => setForm((f) => ({ ...f, days_brite: e.target.value }))} />
                 </Field>

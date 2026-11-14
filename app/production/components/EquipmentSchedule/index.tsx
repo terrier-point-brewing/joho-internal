@@ -480,7 +480,7 @@ export function EquipmentScheduleSection({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-muted mb-1">Volume (BBL)</label>
-              <input type="number" step="0.01" min="0" className="inp text-xs" value={editForm.volume_bbl}
+              <input type="number" inputMode="decimal" step="0.01" min="0" className="inp text-xs" value={editForm.volume_bbl}
                 onChange={e => f("volume_bbl", e.target.value)} placeholder="e.g. 30.00" />
             </div>
             <div>

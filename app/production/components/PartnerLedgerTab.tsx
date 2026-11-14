@@ -144,7 +144,7 @@ function RecordPaidAmount({ allocationId, onDone }: { allocationId: string; onDo
   }
   return (
     <form onSubmit={save} onClick={(e) => e.stopPropagation()} className="flex flex-wrap items-center gap-1.5 text-xs">
-      <input className="inp-sm w-24" type="number" step="0.01" min="0.01" placeholder="$ paid" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+      <input className="inp-sm w-24" type="number" inputMode="decimal" step="0.01" min="0.01" placeholder="$ paid" value={amount} onChange={(e) => setAmount(e.target.value)} required />
       <input className="inp-sm w-40" placeholder="invoice / payment ref" value={ref} onChange={(e) => setRef(e.target.value)} required />
       <button type="submit" className="btn-primary btn-xxs" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
       <button type="button" className="btn-secondary btn-xxs" onClick={() => setOpen(false)}>Cancel</button>

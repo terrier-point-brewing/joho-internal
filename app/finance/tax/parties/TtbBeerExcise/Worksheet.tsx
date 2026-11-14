@@ -31,6 +31,7 @@
  * forces every manual field to render display-only and makes `updateField` a
  * no-op — a submitted filing's figures can no longer be edited.
  */
+import { Square, SquareCheck } from "lucide-react";
 import { useState } from "react";
 import { fmtCents } from "@/lib/utils/formatting";
 import { formatNumber } from "@/lib/format";
@@ -494,7 +495,7 @@ function TaxTierRow({
       </div>
       {note && (
         <p className="text-xs text-faint mt-0.5">
-          {eligible ? "☑" : "☐"} {note}
+          {eligible ? <SquareCheck aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> : <Square aria-hidden className="inline size-[1.1em] align-[-0.15em]" />} {note}
         </p>
       )}
     </div>
