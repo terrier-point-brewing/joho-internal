@@ -621,8 +621,8 @@ export default function BalanceSheetAccountsPage() {
         />
       </div>
 
-      <div className="flex items-start justify-between gap-4 px-4 sm:px-6 pt-3">
-        <p className="text-sm text-muted">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-4 sm:px-6 pt-3">
+        <p className="text-sm text-muted min-w-0 flex-1 max-sm:basis-full">
           {accounts.length > 0
             ? `${calculating} of ${relevantAccounts.length} balance-sheet accounts are calculating` +
               (unfinished > 0 ? ` · ${unfinished} chosen but not finished` : "") +
@@ -661,8 +661,10 @@ export default function BalanceSheetAccountsPage() {
       ) : (
         <div className="pane px-4 sm:px-6 py-4">
           <div className="bg-surface border border-line rounded-lg overflow-hidden">
-            <table className="w-full text-xs border-collapse">
-              <thead>
+            {/* One DOM, restyled: a table from md, one card per account on a phone
+                (account and method across the card, the two balances side by side). */}
+            <table className="w-full text-xs border-collapse max-md:block">
+              <thead className="max-md:hidden">
                 <tr className="border-b border-line">
                   <th className="px-4 py-2 text-left text-muted font-medium">Account</th>
                   <th className="px-4 py-2 text-left text-muted font-medium">How it is calculated</th>
@@ -670,7 +672,7 @@ export default function BalanceSheetAccountsPage() {
                   <th className="px-4 py-2 text-right text-muted font-medium">Last closed month</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block">
                 {orderedAccounts.map(({ account, depth }) => {
                   const addable = account.availableMethodKeys.filter(
                     (key) => !account.sources.some((s) => s.methodKey === key),
@@ -694,13 +696,13 @@ export default function BalanceSheetAccountsPage() {
                   const canExclude = parentIds.has(account.id);
 
                   return (
-                    <tr key={account.id} className="border-t border-line/40 align-top hover:bg-surface-mid/20">
-                      <td className="px-4 py-3">
+                    <tr key={account.id} className="border-t border-line/40 align-top hover:bg-surface-mid/20 max-md:grid max-md:grid-cols-2 max-md:gap-x-3 max-md:gap-y-2 max-md:p-3 max-md:first:border-t-0">
+                      <td className="px-4 py-3 max-md:block max-md:p-0 max-md:col-span-2">
                         <div className="flex items-center gap-2 flex-wrap" style={depth > 0 ? { paddingLeft: `${depth * 1.25}rem` } : undefined}>
                           {depth > 0 && (
                             <span className="text-disabled shrink-0 font-mono text-2xs">{"·".repeat(depth)}└</span>
                           )}
-                          <span className="text-body">{accountLabel(account)}</span>
+                          <span className="text-body min-w-0 flex-1 md:flex-none">{accountLabel(account)}</span>
                           {canExclude && (
                             <ToggleChip active={account.excluded} onClick={() => handleSetExcluded(account, !account.excluded)}>
                               {account.excluded ? "Excluded" : "Exclude"}
@@ -709,7 +711,7 @@ export default function BalanceSheetAccountsPage() {
                         </div>
                       </td>
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 max-md:block max-md:p-0 max-md:col-span-2">
                         {account.excluded ? (
                           <span className="text-2xs text-faint" title="This account was marked excluded — its balance comes only from summing its sub-accounts">
                             Excluded — calculated by summing its sub-accounts
@@ -808,7 +810,8 @@ export default function BalanceSheetAccountsPage() {
                           checked-and-empty account read as an unsourced one — the
                           "null, not zero" rule failing at the display instead of in
                           the data. Same reasoning for every figure on this screen. */}
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 md:text-right max-md:block max-md:p-0">
+                        <span className="md:hidden block text-2xs text-muted mb-0.5">Right now</span>
                         {account.liveBalance ? (
                           <span className="font-mono text-sm tabular-nums text-strong">
                             {formatBalanceCents(account.liveBalance.cents)}
@@ -818,9 +821,10 @@ export default function BalanceSheetAccountsPage() {
                         )}
                       </td>
 
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 md:text-right max-md:block max-md:p-0">
+                        <span className="md:hidden block text-2xs text-muted mb-0.5">Last closed month</span>
                         {account.currentBalance ? (
-                          <div className="flex flex-col gap-0.5 items-end">
+                          <div className="flex flex-col gap-0.5 md:items-end">
                             <span className="font-mono text-sm tabular-nums text-body">
                               {formatBalanceCents(account.currentBalance.cents)}
                             </span>

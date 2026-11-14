@@ -17,6 +17,8 @@
  * history" option, because that is error-correction territory and would
  * silently rewrite closed months.
  */
+import ListTable from "@/app/components/ui/ListTable";
+import Card from "@/app/components/ui/Card";
 import { useCallback, useEffect, useState } from "react";
 import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import SettingsHeader from "@/app/settings/SettingsHeader";
@@ -151,7 +153,7 @@ export default function DepreciationSettingsPage() {
         />
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 flex flex-col gap-4">
+      <div className="pane px-4 sm:px-6 py-4 flex flex-col gap-4">
         {error && <Banner>{error}</Banner>}
 
         {loading ? (
@@ -165,153 +167,159 @@ export default function DepreciationSettingsPage() {
               </p>
             )}
 
-            <div className="overflow-x-auto rounded border border-line/60">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-2xs uppercase tracking-wider text-faint">
-                    <th className="px-4 py-2">Asset account</th>
-                    <th className="px-4 py-2">Life (months)</th>
-                    <th className="px-4 py-2">Expensed to</th>
-                    <th className="px-4 py-2 text-right">Basis</th>
-                    <th className="px-4 py-2 text-right">Accumulated</th>
-                    <th className="px-4 py-2 text-right">This month</th>
-                    <th className="px-4 py-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 && !draft && (
-                    <tr className="border-t border-line/40">
-                      <td colSpan={7} className="px-4 py-6 text-center text-secondary">
-                        No accounts depreciate yet. Add one to start charging its additions to the P&amp;L, straight-line, from the month they were coded.
-                      </td>
-                    </tr>
-                  )}
-                  {rows.map((r) => (
-                    <tr key={r.id} className={`border-t border-line/40 ${r.ended_month ? "opacity-60" : ""}`}>
-                      <td className="px-4 py-2 text-body">
-                        {accountLabel(accounts, r.asset_chart_of_accounts_id)}
-                        {r.first_addition_month && (
-                          <span className="block text-2xs text-faint">in service {fmtMonth(r.first_addition_month)}</span>
-                        )}
-                        {r.ended_month && <Badge tone="neutral">ended {fmtMonth(r.ended_month)}</Badge>}
-                      </td>
-                      <td className="px-4 py-2">
+            <ListTable<(typeof rows)[number]>
+              rows={rows}
+              rowKey={(r) => r.id}
+              foldBelow="lg"
+              zebra={false}
+              rowClassName={(r) => (r.ended_month ? "opacity-60" : "")}
+              empty={draft ? undefined : "No accounts depreciate yet. Add one to start charging its additions to the P&L, straight-line, from the month they were coded."}
+              cols={[
+                {
+                  key: "asset", header: "Asset account", role: "label", className: "!font-normal text-body",
+                  cell: (r) => (
+                    <>
+                      {accountLabel(accounts, r.asset_chart_of_accounts_id)}
+                      {r.first_addition_month && (
+                        <span className="block text-2xs text-faint">in service {fmtMonth(r.first_addition_month)}</span>
+                      )}
+                      {r.ended_month && <Badge tone="neutral">ended {fmtMonth(r.ended_month)}</Badge>}
+                    </>
+                  ),
+                },
+                {
+                  key: "life", header: "Life (months)", foldBlock: true, foldLabel: "Life (months)",
+                  cell: (r) => (
+                    <div className="max-lg:mt-1">
                         <div className="flex items-center gap-1.5">
-                          <input
-                            className="inp-sm w-20 text-right font-mono tabular-nums"
-                            value={lifeDrafts[r.id] ?? String(r.life_months ?? "")}
-                            onChange={(ev) => setLifeDrafts((d) => ({ ...d, [r.id]: ev.target.value }))}
-                            onBlur={(ev) => {
-                              const life = Number(ev.target.value);
-                              if (Number.isInteger(life) && life > 0 && life !== r.life_months) {
-                                patch(r.id, { life_months: life }, "Could not change the life");
-                              } else {
-                                setLifeDrafts((d) => Object.fromEntries(Object.entries(d).filter(([key]) => key !== r.id)));
-                              }
-                            }}
-                            inputMode="numeric"
-                            disabled={!!r.ended_month}
-                            aria-label={`Useful life for ${accountLabel(accounts, r.asset_chart_of_accounts_id)}`}
-                          />
-                          <SaveHint saving={savingId === r.id} />
-                        </div>
-                        {r.revisions.length > 1 && (
-                          <span className="block text-2xs text-faint mt-0.5">
-                            {r.revisions
-                              .map((rev) => `${rev.lifeMonths}mo ${rev.effectiveMonth ? `from ${fmtMonth(rev.effectiveMonth)}` : "at start"}`)
-                              .join(" → ")}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2">
-                        <AccountSelect
-                          value={r.expense_chart_of_accounts_id}
-                          onChange={(coaId) => { if (coaId) patch(r.id, { expense_chart_of_accounts_id: coaId }, "Could not move the expense account"); }}
-                          accounts={accounts}
-                          placeholder="— expense account —"
-                          shortLabel
-                          className="w-full max-w-[240px]"
-                        />
-                      </td>
-                      <td className="px-4 py-2 text-right font-mono tabular-nums text-body">{formatCurrencyCents(r.basis_cents)}</td>
-                      <td className="px-4 py-2 text-right font-mono tabular-nums text-body">{formatCurrencyCents(r.accumulated_cents)}</td>
-                      <td className="px-4 py-2 text-right font-mono tabular-nums text-body">{formatCurrencyCents(r.current_month_expense_cents)}</td>
-                      <td className="px-4 py-2 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() => patch(r.id, { ended: !r.ended_month }, "Could not change the schedule")}
-                          disabled={savingId === r.id}
-                        >
-                          {r.ended_month ? "Resume" : "Stop"}
-                        </button>{" "}
-                        <button
-                          type="button"
-                          className="btn-danger"
-                          onClick={() => remove(r.id)}
-                          disabled={savingId === r.id}
-                          title="Only a schedule added this month can be deleted; older ones are stopped instead, so past months keep what they reported."
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {draft && (
-                    <tr className="border-t border-line/40 bg-surface-mid/20">
-                      <td className="px-4 py-2">
-                        <AccountSelect
-                          value={draft.assetCoaId || null}
-                          onChange={(coaId) => setDraft({ ...draft, assetCoaId: coaId ?? "" })}
-                          accounts={fixedAssetAccounts}
-                          placeholder="— fixed-asset account —"
-                          shortLabel
-                          className="w-full max-w-[240px]"
-                        />
-                      </td>
-                      <td className="px-4 py-2">
                         <input
                           className="inp-sm w-20 text-right font-mono tabular-nums"
-                          value={draft.lifeMonthsRaw}
-                          onChange={(ev) => setDraft({ ...draft, lifeMonthsRaw: ev.target.value })}
+                          value={lifeDrafts[r.id] ?? String(r.life_months ?? "")}
+                          onChange={(ev) => setLifeDrafts((d) => ({ ...d, [r.id]: ev.target.value }))}
+                          onBlur={(ev) => {
+                            const life = Number(ev.target.value);
+                            if (Number.isInteger(life) && life > 0 && life !== r.life_months) {
+                              patch(r.id, { life_months: life }, "Could not change the life");
+                            } else {
+                              setLifeDrafts((d) => Object.fromEntries(Object.entries(d).filter(([key]) => key !== r.id)));
+                            }
+                          }}
                           inputMode="numeric"
-                          placeholder="84"
-                          aria-label="Useful life in months"
+                          disabled={!!r.ended_month}
+                          aria-label={`Useful life for ${accountLabel(accounts, r.asset_chart_of_accounts_id)}`}
                         />
-                      </td>
-                      <td className="px-4 py-2">
-                        <AccountSelect
-                          value={draft.expenseCoaId || null}
-                          onChange={(coaId) => setDraft({ ...draft, expenseCoaId: coaId ?? "" })}
-                          accounts={accounts}
-                          placeholder="— expense account —"
-                          shortLabel
-                          className="w-full max-w-[240px]"
-                        />
-                      </td>
-                      <td className="px-4 py-2" colSpan={2}>
-                        <AccountSelect
-                          value={draft.contraCoaId || null}
-                          onChange={(coaId) => setDraft({ ...draft, contraCoaId: coaId ?? "" })}
-                          accounts={accounts}
-                          placeholder="— accumulated depreciation account —"
-                          shortLabel
-                          className="w-full max-w-[260px]"
-                        />
-                      </td>
-                      <td className="px-4 py-2" />
-                      <td className="px-4 py-2 text-right whitespace-nowrap">
-                        <button type="button" className="btn-secondary" onClick={() => setDraft(null)}>Cancel</button>{" "}
-                        <button type="button" className="btn-primary" onClick={() => draftValid && create(draft)} disabled={!draftValid || savingId === "new"}>
-                          Add
-                        </button>
-                        <SaveHint saving={savingId === "new"} />
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                        <SaveHint saving={savingId === r.id} />
+                      </div>
+                      {r.revisions.length > 1 && (
+                        <span className="block text-2xs text-faint mt-0.5">
+                          {r.revisions
+                            .map((rev) => `${rev.lifeMonths}mo ${rev.effectiveMonth ? `from ${fmtMonth(rev.effectiveMonth)}` : "at start"}`)
+                            .join(" → ")}
+                        </span>
+                      )}
+                    </div>
+                  ),
+                },
+                {
+                  key: "expense", header: "Expensed to", foldBlock: true, foldLabel: "Expensed to",
+                  cell: (r) => (
+                    <AccountSelect
+                      value={r.expense_chart_of_accounts_id}
+                      onChange={(coaId) => { if (coaId) patch(r.id, { expense_chart_of_accounts_id: coaId }, "Could not move the expense account"); }}
+                      accounts={accounts}
+                      placeholder="— expense account —"
+                      shortLabel
+                      className="max-lg:w-0 max-lg:min-w-full lg:w-full lg:max-w-[240px] max-lg:mt-1"
+                    />
+                  ),
+                },
+                { key: "basis", header: "Basis", align: "right", foldLabel: "Basis", className: "font-mono tabular-nums text-body", cell: (r) => formatCurrencyCents(r.basis_cents) },
+                { key: "accumulated", header: "Accumulated", align: "right", foldLabel: "Accumulated", className: "font-mono tabular-nums text-body", cell: (r) => formatCurrencyCents(r.accumulated_cents) },
+                { key: "month", header: "This month", role: "headline", align: "right", className: "font-mono tabular-nums text-body", cell: (r) => formatCurrencyCents(r.current_month_expense_cents) },
+                {
+                  key: "actions", role: "action",
+                  cell: (r) => (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => patch(r.id, { ended: !r.ended_month }, "Could not change the schedule")}
+                        disabled={savingId === r.id}
+                      >
+                        {r.ended_month ? "Resume" : "Stop"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-danger"
+                        onClick={() => remove(r.id)}
+                        disabled={savingId === r.id}
+                        title="Only a schedule added this month can be deleted; older ones are stopped instead, so past months keep what they reported."
+                      >
+                        Delete
+                      </button>
+                    </>
+                  ),
+                },
+              ]}
+            />
+
+            {draft && (
+              <Card>
+                <h3 className="text-sm font-semibold text-strong mb-3">Add an account</h3>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <label className="block text-xs text-muted">
+                    <span className="block mb-1">Fixed-asset account</span>
+                    <AccountSelect
+                      value={draft.assetCoaId || null}
+                      onChange={(coaId) => setDraft({ ...draft, assetCoaId: coaId ?? "" })}
+                      accounts={fixedAssetAccounts}
+                      placeholder="— fixed-asset account —"
+                      shortLabel
+                      className="w-full"
+                    />
+                  </label>
+                  <label className="block text-xs text-muted">
+                    <span className="block mb-1">Life (months)</span>
+                    <input
+                      className="inp-sm w-full sm:w-24 text-right font-mono tabular-nums"
+                      value={draft.lifeMonthsRaw}
+                      onChange={(ev) => setDraft({ ...draft, lifeMonthsRaw: ev.target.value })}
+                      inputMode="numeric"
+                      placeholder="84"
+                    />
+                  </label>
+                  <label className="block text-xs text-muted">
+                    <span className="block mb-1">Expensed to</span>
+                    <AccountSelect
+                      value={draft.expenseCoaId || null}
+                      onChange={(coaId) => setDraft({ ...draft, expenseCoaId: coaId ?? "" })}
+                      accounts={accounts}
+                      placeholder="— expense account —"
+                      shortLabel
+                      className="w-full"
+                    />
+                  </label>
+                  <label className="block text-xs text-muted">
+                    <span className="block mb-1">Accumulated depreciation</span>
+                    <AccountSelect
+                      value={draft.contraCoaId || null}
+                      onChange={(coaId) => setDraft({ ...draft, contraCoaId: coaId ?? "" })}
+                      accounts={accounts}
+                      placeholder="— accumulated depreciation account —"
+                      shortLabel
+                      className="w-full"
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <SaveHint saving={savingId === "new"} />
+                  <button type="button" className="btn-secondary" onClick={() => setDraft(null)}>Cancel</button>
+                  <button type="button" className="btn-primary" onClick={() => draftValid && create(draft)} disabled={!draftValid || savingId === "new"}>
+                    Add
+                  </button>
+                </div>
+              </Card>
+            )}
 
             {!draft && (
               <button

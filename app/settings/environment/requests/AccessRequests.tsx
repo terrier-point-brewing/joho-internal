@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
-import Card from "@/app/components/ui/Card";
+import ListTable from "@/app/components/ui/ListTable";
 import Badge from "@/app/components/ui/Badge";
 import type { Tone } from "@/app/components/ui/tone";
 import { useAccessRequests, type AccessRequest } from "@/lib/hooks/useAccessRequests";
@@ -47,62 +47,33 @@ export default function AccessRequests() {
       )}
 
       {!isLoading && (
-        <Card padding="" className="overflow-hidden mt-4">
-          <div className="scroll-x"><table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-muted text-xs uppercase tracking-wide">
-                <th className="text-left px-4 py-3 font-medium">Name</th>
-                <th className="text-left px-4 py-3 font-medium">Email</th>
-                <th className="text-left px-4 py-3 font-medium">Reason</th>
-                <th className="text-left px-4 py-3 font-medium">Requested</th>
-                <th className="text-left px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {requests.map((r) => (
-                <tr key={r.id} className="border-b border-line/50 last:border-0">
-                  <td className="px-4 py-3 text-strong">{r.name}</td>
-                  <td className="px-4 py-3 text-secondary">{r.email}</td>
-                  <td className="px-4 py-3 text-muted max-w-xs truncate">{r.reason ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted">
-                    {new Date(r.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {r.status === "pending" && (
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => action.mutate({ id: r.id, status: "approved" })}
-                          disabled={action.isPending}
-                          className="btn-primary btn-xxs"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => action.mutate({ id: r.id, status: "denied" })}
-                          disabled={action.isPending}
-                          className="btn-danger btn-xxs"
-                        >
-                          Deny
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {requests.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-faint text-sm">
-                    No access requests
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table></div>
-        </Card>
+        <ListTable<AccessRequest>
+          className="mt-4"
+          rows={requests}
+          rowKey={(r) => r.id}
+          foldBelow="md"
+          empty="No access requests"
+          cols={[
+            { key: "name", header: "Name", role: "label", cell: (r) => r.name },
+            { key: "email", header: "Email", className: "text-secondary", cell: (r) => <span className="break-all">{r.email}</span> },
+            { key: "reason", header: "Reason", foldBlock: true, className: "text-muted", cell: (r) => r.reason },
+            { key: "requested", header: "Requested", className: "text-muted whitespace-nowrap", cell: (r) => new Date(r.created_at).toLocaleDateString() },
+            { key: "status", header: "Status", role: "headline", cell: (r) => <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge> },
+            {
+              key: "actions", role: "action",
+              cell: (r) => r.status === "pending" && (
+                <>
+                  <button onClick={() => action.mutate({ id: r.id, status: "approved" })} disabled={action.isPending} className="btn-primary">
+                    Approve
+                  </button>
+                  <button onClick={() => action.mutate({ id: r.id, status: "denied" })} disabled={action.isPending} className="btn-danger">
+                    Deny
+                  </button>
+                </>
+              ),
+            },
+          ]}
+        />
       )}
       </div>
     </div>
