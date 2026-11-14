@@ -14,12 +14,16 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
+import { BrewStepsEditor, BrewStepsTable } from "./BrewSteps";
+import EditGrid from "@/app/components/ui/EditGrid";
+import ListTable from "@/app/components/ui/ListTable";
 import RecipeVariationPicker from "./RecipeVariationPicker";
 import ProductCodeInput from "./ProductCodeInput";
-import { baseMapOf, lineageAncestors, lineageDescendants, splitBillAgainstBase } from "@/lib/production/recipeLineage";
-import type { ControlsConfig } from "@/lib/table/types";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
+import { baseMapOf, lineageAncestors, lineageDescendants, splitBillAgainstBase } from "@/lib/production/recipeLineage";
+import type { ControlsConfig } from "@/lib/table/types";
+import FieldGrid from "@/app/components/ui/FieldGrid";
 
 interface BrewStepTemplateData {
   id: string;
@@ -222,6 +226,14 @@ export default function RecipesTab() {
   function addIngredientLine() {
     setLines((l) => [...l, { ingredient_id: "", quantity_per_turn: "", category: "" }]);
   }
+
+  const lineIngredient = (line: RecipeFormLine) => ingredients.find((ing) => ing.id === line.ingredient_id);
+  const lineCostPerTurn = (line: RecipeFormLine) => {
+    const ing = lineIngredient(line);
+    return ing?.cost_per_unit_usd != null && line.quantity_per_turn
+      ? ing.cost_per_unit_usd * parseFloat(line.quantity_per_turn.replace(/,/g, ""))
+      : null;
+  };
 
   function removeIngredientLine(i: number) {
     setLines((l) => l.filter((_, idx) => idx !== i));
@@ -601,15 +613,15 @@ export default function RecipesTab() {
                       * of the card sits two screens from the name it belongs to. Delete is
                       * pushed to the far edge so it is not a slip away from Clone. */}
                     {canOperate && (
-                      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-line bg-surface/30">
-                        <button onClick={() => openEdit(r)} className="btn-secondary">Edit recipe</button>
-                        <button onClick={() => openClone(r)} className="btn-secondary">Clone</button>
-                        <button onClick={() => setManagingFor(r.id)} className="btn-secondary">Manage variations</button>
-                        {baseRecipe && (
-                          <button onClick={() => breakBaseLink(r)} className="btn-secondary">Break link</button>
-                        )}
-                        <button onClick={() => handleDelete(r.id, r.beer_name)} className="btn-danger ml-auto">Delete</button>
-                      </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 border-b border-line bg-surface/30">
+                      <button onClick={() => openEdit(r)} className="btn-secondary">Edit recipe</button>
+                      <button onClick={() => openClone(r)} className="btn-secondary">Clone</button>
+                      <button onClick={() => setManagingFor(r.id)} className="btn-secondary">Manage variations</button>
+                      {baseRecipe && (
+                        <button onClick={() => breakBaseLink(r)} className="btn-secondary">Break link</button>
+                      )}
+                      <button onClick={() => handleDelete(r.id, r.beer_name)} className="btn-danger ml-auto">Delete</button>
+                    </div>
                     )}
 
                     {/* Two columns from lg up: what the beer is made of on the left, how
@@ -664,71 +676,52 @@ export default function RecipesTab() {
                             [...items].sort((x, y) => x.ingredients.name.localeCompare(y.ingredients.name)),
                           ] as const);
                         return (
-                          <div className="overflow-x-auto rounded-lg border border-line">
-                          <table className="w-full text-sm min-w-[360px]">
-                            <thead>
-                              <tr className="border-b border-line bg-surface/50 text-left">
-                                <th className="px-3 py-2 text-xs font-medium text-muted">Ingredient</th>
-                                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Cost / Unit</th>
-                                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">Qty / Turn</th>
-                                <th className="px-3 py-2 text-xs font-medium text-muted text-right whitespace-nowrap">$ / Turn</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {groups.map(([cat, items]) => (
-                                <Fragment key={cat}>
-                                  <tr className="border-b border-line/40 bg-surface/60">
-                                    <td colSpan={4} className="px-3 py-1 text-xs font-semibold text-muted uppercase tracking-wider">{cat}</td>
-                                  </tr>
-                                  {items.map((ri, idx) => {
-                                    const ing = ri.ingredients;
-                                    const qtyPerTurn = ri.quantity_per_turn;
-                                    const costPerLine = qtyPerTurn * (ing.cost_per_unit_usd ?? 0);
-                                    return (
-                                      <tr key={ri.id} className={`border-b border-line/40 ${idx % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                                        <td className="px-3 py-2 text-strong pl-6">
-                                          {ing.name}
-                                          {addedIds.has(ri.id) && (
-                                            <span className="ml-2 text-xs text-secondary">+ added</span>
-                                          )}
-                                        </td>
-                                        <td className="px-3 py-2 text-muted text-right tabular-nums">
-                                          {ing.cost_per_unit_usd != null
-                                            ? `${formatCurrency(Number(ing.cost_per_unit_usd))} / ${ing.unit}`
-                                            : "—"}
-                                        </td>
-                                        <td className="px-3 py-2 text-secondary text-right tabular-nums">
-                                          {qtyPerTurn.toLocaleString(undefined, { maximumFractionDigits: 6 })} {ing.unit}
-                                        </td>
-                                        <td className="px-3 py-2 text-body text-right tabular-nums">
-                                          {ing.cost_per_unit_usd != null
-                                            ? formatCurrency(costPerLine)
-                                            : "—"}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </Fragment>
-                              ))}
-                              {costPerTurn > 0 && (
-                                <tr className="border-t border-line-strong bg-surface/50">
-                                  <td className="px-3 py-2 text-xs font-medium text-secondary" colSpan={3}>Total cost / turn</td>
-                                  <td className="px-3 py-2 text-right text-strong font-medium tabular-nums">
-                                    {formatCurrency(costPerTurn)}
-                                  </td>
-                                </tr>
-                              )}
-                              {costPerBblYield != null && costPerTurn > 0 && (
-                                <tr className="bg-surface/30">
-                                  <td className="px-3 py-2 text-xs font-medium text-muted" colSpan={3}>Cost / BBL yield</td>
-                                  <td className="px-3 py-2 text-right text-secondary tabular-nums text-xs">
-                                    {formatCurrency(costPerBblYield)}
-                                  </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                          </div>
+                          <ListTable<(typeof r.recipe_ingredients)[number]>
+                            dense
+                            rowKey={(ri) => ri.id}
+                            groups={groups.map(([cat, items]) => ({
+                              key: cat,
+                              rows: items,
+                              header: <span className="text-xs font-semibold text-muted uppercase tracking-wider">{cat}</span>,
+                            }))}
+                            cols={[
+                              {
+                                key: "name", header: "Ingredient", role: "label", className: "!font-normal !text-strong sm:!pl-6",
+                                cell: (ri) => (
+                                  <>
+                                    {ri.ingredients.name}
+                                    {addedIds.has(ri.id) && <span className="ml-2 text-xs text-secondary">+ added</span>}
+                                  </>
+                                ),
+                              },
+                              {
+                                key: "cost", header: "Cost / Unit", align: "right", className: "text-muted tabular-nums",
+                                cell: (ri) => ri.ingredients.cost_per_unit_usd != null && `${formatCurrency(Number(ri.ingredients.cost_per_unit_usd))} / ${ri.ingredients.unit}`,
+                              },
+                              {
+                                key: "qty", header: "Qty / Turn", align: "right", className: "text-secondary tabular-nums",
+                                cell: (ri) => `${ri.quantity_per_turn.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${ri.ingredients.unit}`,
+                              },
+                              {
+                                key: "total", header: "$ / Turn", role: "headline", align: "right", className: "text-body tabular-nums",
+                                cell: (ri) => ri.ingredients.cost_per_unit_usd != null && formatCurrency(ri.quantity_per_turn * (ri.ingredients.cost_per_unit_usd ?? 0)),
+                              },
+                            ]}
+                            footer={costPerTurn > 0 && (
+                              <>
+                                <div className="flex items-center justify-between gap-3 px-2 sm:px-3 py-2 bg-surface/50">
+                                  <span className="text-xs font-medium text-secondary">Total cost / turn</span>
+                                  <span className="text-sm text-strong font-medium tabular-nums">{formatCurrency(costPerTurn)}</span>
+                                </div>
+                                {costPerBblYield != null && (
+                                  <div className="flex items-center justify-between gap-3 px-2 sm:px-3 py-2 bg-surface/30">
+                                    <span className="text-xs font-medium text-muted">Cost / BBL yield</span>
+                                    <span className="text-xs text-secondary tabular-nums">{formatCurrency(costPerBblYield)}</span>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          />
                         );
                       })() : (
                         <p className="text-xs text-faint">No ingredients on this recipe.</p>
@@ -740,35 +733,7 @@ export default function RecipesTab() {
                       <div className="px-4 py-3 border-t border-line">
                         <p className="text-xs font-medium text-muted uppercase tracking-wider mb-2">Brew Steps</p>
                         {r.recipe_brew_activity_templates && r.recipe_brew_activity_templates.length > 0 ? (
-                          <div className="overflow-x-auto rounded-lg border border-line">
-                            <table className="w-full text-xs">
-                              <thead>
-                                <tr className="border-b border-line bg-surface/50 text-left">
-                                  <th className="px-3 py-2 font-medium text-muted">#</th>
-                                  <th className="px-3 py-2 font-medium text-muted">Activity</th>
-                                  <th className="px-3 py-2 font-medium text-muted text-right">Time (min)</th>
-                                  <th className="px-3 py-2 font-medium text-muted text-right">Temp</th>
-                                  <th className="px-3 py-2 font-medium text-muted text-right">Amount</th>
-                                  <th className="px-3 py-2 font-medium text-muted text-right">VSP</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {[...r.recipe_brew_activity_templates].sort((a, b) => a.sort_order - b.sort_order).map((t, i) => {
-                                  const tAny = t as RecipeBrewActivityTemplate & { vsp?: number | null };
-                                  return (
-                                  <tr key={t.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                                    <td className="px-3 py-2 text-faint tabular-nums">{i + 1}</td>
-                                    <td className="px-3 py-2 text-body">{t.activity}</td>
-                                    <td className="px-3 py-2 text-muted text-right tabular-nums">{t.time_label ?? "—"}</td>
-                                    <td className="px-3 py-2 text-muted text-right tabular-nums">{t.temp != null ? `${t.temp}°F` : "—"}</td>
-                                    <td className="px-3 py-2 text-muted text-right tabular-nums">{t.amount != null ? t.amount.toLocaleString() : "—"}</td>
-                                    <td className="px-3 py-2 text-muted text-right tabular-nums">{tAny.vsp != null ? tAny.vsp : "—"}</td>
-                                  </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
+                          <BrewStepsTable steps={[...r.recipe_brew_activity_templates].sort((a, b) => a.sort_order - b.sort_order)} />
                         ) : (
                           <p className="text-xs text-faint">No brew steps on this recipe — add them under <span className="text-muted">Edit recipe</span>.</p>
                         )}
@@ -1019,7 +984,7 @@ export default function RecipesTab() {
 
             <div>
               <p className="text-xs text-secondary mb-2">Stage Duration (days)</p>
-              <div className="grid grid-cols-3 gap-3">
+              <FieldGrid cols={3} phone={3}>
                 <Field label={<span className={`px-1.5 py-px rounded border text-xs ${STAGE_BADGES.brewhouse.badge}`}>{STAGE_BADGES.brewhouse.label}</span>}>
                   <input type="number" step="1" min="0" className="inp" placeholder="e.g. 1"
                     value={form.days_brewhouse}
@@ -1035,7 +1000,7 @@ export default function RecipesTab() {
                     value={form.days_brite}
                     onChange={(e) => setForm((f) => ({ ...f, days_brite: e.target.value }))} />
                 </Field>
-              </div>
+              </FieldGrid>
             </div>
 
             {/* Ingredient bill */}
@@ -1054,182 +1019,97 @@ export default function RecipesTab() {
                 <p className="text-xs text-faint mt-1">Add ingredients in the Ingredients tab first.</p>
               )}
               {lines.length > 0 && (
-                <div className="space-y-2 sm:space-y-0">
-                  {/* Mobile: stacked card layout */}
-                  <div className="sm:hidden space-y-2">
-                    {lines.map((line, i) => {
-                      const filteredIngs = line.category
-                        ? ingredients.filter((ing) => ing.category === line.category)
-                        : [];
-                      const ing = ingredients.find((ing) => ing.id === line.ingredient_id);
-                      const costPerTurnLine =
-                        ing?.cost_per_unit_usd != null && line.quantity_per_turn
-                          ? ing.cost_per_unit_usd * parseFloat(line.quantity_per_turn.replace(/,/g, ""))
-                          : null;
-                      return (
-                        <div key={i} className="rounded border border-line p-3 space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs text-muted font-medium">Ingredient {i + 1}</span>
-                            <button type="button" onClick={() => removeIngredientLine(i)}
-                              className="btn-danger btn-xxs">× Remove</button>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted mb-1 block">Category</label>
-                            <select className="inp-sm" value={line.category}
-                              onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i
-                                ? { ...l, category: e.target.value as IngredientCategory | "", ingredient_id: "" }
-                                : l))}>
-                              <option value="">— select —</option>
-                              {INGREDIENT_CATEGORIES.map((cat) => (
-                                <option key={cat} value={cat}>{cat}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted mb-1 block">Ingredient</label>
-                            <select className="inp" value={line.ingredient_id} disabled={!line.category}
-                              onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, ingredient_id: e.target.value } : l))}>
-                              <option value="">{line.category ? "— select —" : "— pick category first —"}</option>
-                              {filteredIngs.map((ing) => (
-                                <option key={ing.id} value={ing.id}>{ing.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="flex gap-2 items-end">
-                            <div className="flex-1">
-                              <label className="text-xs text-muted mb-1 block">
-                                Qty / Turn{ing ? ` (${ing.unit})` : ""}
-                              </label>
-                              <input
-                                type="text" inputMode="decimal" placeholder="qty/turn"
-                                className="inp text-right w-full"
-                                value={line.quantity_per_turn}
-                                onChange={(e) => {
-                                  const raw = e.target.value.replace(/,/g, "");
-                                  setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
-                                }}
-                                onBlur={(e) => {
-                                  const num = parseFloat(e.target.value.replace(/,/g, ""));
-                                  if (!isNaN(num)) {
-                                    setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: num.toLocaleString(undefined, { maximumFractionDigits: 20 }) } : l));
-                                  }
-                                }}
-                                onFocus={(e) => {
-                                  const raw = e.target.value.replace(/,/g, "");
-                                  setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
-                                }}
-                              />
-                            </div>
-                            {costPerTurnLine != null && (
-                              <div className="text-right shrink-0 pb-1.5">
-                                <span className="text-xs text-muted">$ / turn</span>
-                                <p className="text-sm text-body tabular-nums">
-                                  {formatCurrency(costPerTurnLine)}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {/* Desktop: table layout */}
-                  <div className="hidden sm:block rounded border border-line overflow-x-auto">
-                  <table className="w-full text-sm min-w-[520px]">
-                    <thead>
-                      <tr className="border-b border-line bg-surface/50">
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-left">Category</th>
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-left">Ingredient</th>
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-right">Cost / Unit</th>
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-right">Qty / Turn</th>
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-right">$ / Turn</th>
-                        <th className="px-3 py-2 w-6"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.map((line, i) => {
-                        const filteredIngs = line.category
-                          ? ingredients.filter((ing) => ing.category === line.category)
-                          : [];
-                        const ing = ingredients.find((ing) => ing.id === line.ingredient_id);
-                        const costPerTurnLine =
-                          ing?.cost_per_unit_usd != null && line.quantity_per_turn
-                            ? ing.cost_per_unit_usd * parseFloat(line.quantity_per_turn.replace(/,/g, ""))
-                            : null;
+                <EditGrid<RecipeFormLine>
+                  rows={lines}
+                  onRemove={removeIngredientLine}
+                  itemLabel="Ingredient"
+                  cols={[
+                    {
+                      key: "category", header: "Category", wide: true,
+                      cell: (line, i) => (
+                        <select className="inp-sm max-sm:w-full" value={line.category}
+                          onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i
+                            ? { ...l, category: e.target.value as IngredientCategory | "", ingredient_id: "" }
+                            : l))}>
+                          <option value="">— select —</option>
+                          {INGREDIENT_CATEGORIES.map((cat) => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
+                      ),
+                    },
+                    {
+                      key: "ingredient", header: "Ingredient", wide: true, width: "sm:w-64",
+                      cell: (line, i) => (
+                        <select className="inp-sm w-full" value={line.ingredient_id} disabled={!line.category}
+                          onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, ingredient_id: e.target.value } : l))}>
+                          <option value="">{line.category ? "— select —" : "— pick category first —"}</option>
+                          {ingredients.filter((ing) => line.category && ing.category === line.category).map((ing) => (
+                            <option key={ing.id} value={ing.id}>{ing.name}</option>
+                          ))}
+                        </select>
+                      ),
+                    },
+                    {
+                      key: "cost", header: "Cost / Unit", align: "right",
+                      hideIfEmpty: (line) => lineIngredient(line)?.cost_per_unit_usd == null,
+                      cell: (line) => {
+                        const ing = lineIngredient(line);
                         return (
-                          <tr key={i} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                            <td className="px-3 py-1.5">
-                              <select className="inp-sm" value={line.category}
-                                onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i
-                                  ? { ...l, category: e.target.value as IngredientCategory | "", ingredient_id: "" }
-                                  : l))}>
-                                <option value="">— select —</option>
-                                {INGREDIENT_CATEGORIES.map((cat) => (
-                                  <option key={cat} value={cat}>{cat}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="px-3 py-1.5 w-64">
-                              <select className="inp-sm w-full" value={line.ingredient_id} disabled={!line.category}
-                                onChange={(e) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, ingredient_id: e.target.value } : l))}>
-                                <option value="">{line.category ? "— select —" : "— pick category first —"}</option>
-                                {filteredIngs.map((ing) => (
-                                  <option key={ing.id} value={ing.id}>{ing.name}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="px-3 py-1.5 text-right text-xs text-muted tabular-nums whitespace-nowrap">
-                              {ing?.cost_per_unit_usd != null
-                                ? `${formatCurrency(Number(ing.cost_per_unit_usd))} / ${ing.unit}`
-                                : "—"}
-                            </td>
-                            <td className="px-3 py-1.5 w-32">
-                              <div className="flex items-stretch">
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                placeholder="qty/turn"
-                                className="inp-sm text-right w-full rounded-r-none border-r-0"
-                                value={line.quantity_per_turn}
-                                onChange={(e) => {
-                                  const raw = e.target.value.replace(/,/g, "");
-                                  setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
-                                }}
-                                onBlur={(e) => {
-                                  const num = parseFloat(e.target.value.replace(/,/g, ""));
-                                  if (!isNaN(num)) {
-                                    setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: num.toLocaleString(undefined, { maximumFractionDigits: 20 }) } : l));
-                                  }
-                                }}
-                                onFocus={(e) => {
-                                  const raw = e.target.value.replace(/,/g, "");
-                                  setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
-                                }}
-                              />
-                              {/* The unit belongs against the number, not two
-                                  columns away in "Cost / Unit" — which is also
-                                  blank whenever an ingredient has no cost. */}
-                              <span className="inp-sm flex items-center rounded-l-none border-l text-xs text-secondary bg-surface/60 whitespace-nowrap">
-                                {ing?.unit ?? "—"}
-                              </span>
-                              </div>
-                            </td>
-                            <td className="px-3 py-1.5 text-right text-xs tabular-nums whitespace-nowrap">
-                              {costPerTurnLine != null
-                                ? <span className="text-body">{formatCurrency(costPerTurnLine)}</span>
-                                : <span className="text-faint">—</span>}
-                            </td>
-                            <td className="px-3 py-1.5 text-center">
-                              <button type="button" onClick={() => removeIngredientLine(i)}
-                                className="btn-danger btn-xxs">×</button>
-                            </td>
-                          </tr>
+                          <span className="text-xs text-muted tabular-nums whitespace-nowrap">
+                            {ing?.cost_per_unit_usd != null ? `${formatCurrency(Number(ing.cost_per_unit_usd))} / ${ing.unit}` : "—"}
+                          </span>
                         );
-                      })}
-                    </tbody>
-                  </table>
-                  </div>
-                </div>
+                      },
+                    },
+                    {
+                      key: "qty", header: "Qty / Turn", align: "right", width: "sm:w-32",
+                      cell: (line, i) => (
+                        <div className="flex items-stretch">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="qty/turn"
+                            className="inp-sm text-right w-full rounded-r-none border-r-0"
+                            value={line.quantity_per_turn}
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/,/g, "");
+                              setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
+                            }}
+                            onBlur={(e) => {
+                              const num = parseFloat(e.target.value.replace(/,/g, ""));
+                              if (!isNaN(num)) {
+                                setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: num.toLocaleString(undefined, { maximumFractionDigits: 20 }) } : l));
+                              }
+                            }}
+                            onFocus={(e) => {
+                              const raw = e.target.value.replace(/,/g, "");
+                              setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity_per_turn: raw } : l));
+                            }}
+                          />
+                          {/* The unit belongs against the number, not two
+                              columns away in "Cost / Unit" — which is also
+                              blank whenever an ingredient has no cost. */}
+                          <span className="inp-sm flex items-center rounded-l-none border-l text-xs text-secondary bg-surface/60 whitespace-nowrap">
+                            {lineIngredient(line)?.unit ?? "—"}
+                          </span>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: "total", header: "$ / Turn", align: "right",
+                      hideIfEmpty: (line) => lineCostPerTurn(line) == null,
+                      cell: (line) => {
+                        const cost = lineCostPerTurn(line);
+                        return (
+                          <span className="text-xs tabular-nums whitespace-nowrap">
+                            {cost != null ? <span className="text-body">{formatCurrency(cost)}</span> : <span className="text-faint">—</span>}
+                          </span>
+                        );
+                      },
+                    },
+                  ]}
+                />
               )}
             </div>
 
@@ -1260,52 +1140,11 @@ export default function RecipesTab() {
               </div>
               <p className="text-xs text-faint mb-2">Copied into each new batch&apos;s log.</p>
               {activityLines.length > 0 && (
-                <div className="rounded border border-line overflow-x-auto">
-                  <table className="w-full text-sm min-w-[480px]">
-                    <thead>
-                      <tr className="border-b border-line bg-surface/50">
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-left">Activity</th>
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-right w-20">Time (min)</th>
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-right w-20">Temp (°F)</th>
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-right w-20">Amount</th>
-                        <th className="px-3 py-2 text-xs font-medium text-muted text-right w-20">VSP</th>
-                        <th className="px-3 py-2 w-6"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activityLines.map((al, i) => (
-                        <tr key={i} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                          <td className="px-3 py-1.5">
-                            <input className="inp-sm w-full" placeholder="e.g. Mash in" value={al.activity}
-                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, activity: e.target.value } : l))} />
-                          </td>
-                          <td className="px-2 py-1.5 w-20">
-                            <input type="number" step="1" className="inp-sm text-right w-full" placeholder="0" value={al.time_label}
-                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, time_label: e.target.value } : l))} />
-                          </td>
-                          <td className="px-2 py-1.5 w-20">
-                            <input type="number" step="0.1" className="inp-sm text-right w-full" placeholder="152" value={al.temp}
-                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, temp: e.target.value } : l))} />
-                          </td>
-                          <td className="px-2 py-1.5 w-20">
-                            <input type="number" step="0.01" className="inp-sm text-right w-full" placeholder="0" value={al.amount}
-                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, amount: e.target.value } : l))} />
-                          </td>
-                          <td className="px-2 py-1.5 w-20">
-                            <input type="number" step="0.1" className="inp-sm text-right w-full" placeholder="0" value={al.vsp}
-                              onChange={(e) => setActivityLines((ls) => ls.map((l, idx) => idx === i ? { ...l, vsp: e.target.value } : l))} />
-                          </td>
-                          <td className="px-3 py-1.5 text-center">
-                            {canOperateBrewing && (
-                              <button type="button" onClick={() => removeActivityLine(i)}
-                                className="btn-danger btn-xxs">×</button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <BrewStepsEditor
+                  steps={activityLines}
+                  onChange={(i, step) => setActivityLines((ls) => ls.map((l, idx) => (idx === i ? step : l)))}
+                  onRemove={canOperateBrewing ? removeActivityLine : undefined}
+                />
               )}
             </div>
 

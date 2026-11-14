@@ -26,6 +26,7 @@ import type { CommitmentStage } from "@/lib/production/commitmentStage";
 import { fmtUsd } from "@/lib/utils/formatting";
 import { fmtDate } from "@/lib/utils/formatting";
 import FilterBar from "@/app/components/ui/FilterBar";
+import ListTable from "@/app/components/ui/ListTable";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import Banner from "@/app/components/ui/Banner";
@@ -208,7 +209,7 @@ function DeliveryCell({ c }: { c: LedgerCommitment }) {
   const w = (v: number) => `${Math.max(0, Math.min(100, (v / scale) * 100))}%`;
   const packagedUnshipped = Math.max(0, toGo - inTank);
   return (
-    <div className="min-w-[150px]">
+    <div className="lg:min-w-[150px]">
       <div className="text-xs tabular-nums font-mono">
         <span className={over ? "text-[var(--cat-amber-fg)] font-medium" : "text-body"}>{bbl(t.shipped_bbl)}</span>
         <span className="text-faint"> / </span>
@@ -402,7 +403,7 @@ function ShipmentRows({ shipments, onOpenInvoice, onRehome }: { shipments: Ledge
 
 function CommitmentPanel({ c, onOpenInvoice, onChanged, canOperate }: { c: LedgerCommitment; onOpenInvoice: (id: string) => void; onChanged: () => void; canOperate: boolean }) {
   return (
-    <div className="px-6 py-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+    <div className="px-3 sm:px-6 py-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="space-y-4">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1.5">Allocation</div>
@@ -465,7 +466,6 @@ function CommitmentPanel({ c, onOpenInvoice, onChanged, canOperate }: { c: Ledge
 
 type View = "attention" | "open" | "all";
 
-const COLUMNS = 8; // expand, beer, stage, attention, delivery, deposit, invoiced, due
 
 const LEDGER_RECIPE_SEARCH: ControlsConfig<LedgerCommitment> = {
   search: [{ param: "q", accessor: (c) => c.recipe_name ?? "" }],
@@ -583,117 +583,85 @@ export default function PartnerLedgerTab({ onNavigateToInvoice, focusCommitmentI
           {isPending ? "Loading the ledger…" : view === "attention" ? "Nothing needs attention." : "No commitments match the current filters."}
         </p>
       ) : (
-        <div className="rounded-lg border border-line overflow-x-auto">
-          <table className="w-full text-sm">
-            <colgroup>
-              <col className="w-8" />
-              <col className="w-[18%]" />
-              <col className="w-[10%]" />
-              <col className="w-[20%]" />
-              <col className="w-[16%]" />
-              <col className="w-[13%]" />
-              <col className="w-[13%]" />
-              <col className="w-[8%]" />
-            </colgroup>
-            <thead>
-              <tr className="border-b border-line bg-surface/50 text-left">
-                <th className="px-3 py-2" aria-label="Expand" />
-                <th className="px-3 py-2 text-xs font-medium text-muted">Beer</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted">Stage</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted">Needs</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted">Shipped / owed</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted">Deposit</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted">Invoiced</th>
-                <th className="px-3 py-2 text-xs font-medium text-muted">Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map(({ partner: p, rows }) => (
-                <React.Fragment key={p.partner_id}>
-                  <tr className="bg-surface/40 border-b border-line">
-                    <td colSpan={COLUMNS} className="px-3 py-2">
-                      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                        <h3 className="text-sm font-semibold text-strong">{p.company_name}</h3>
-                        <span className="text-xs text-muted tabular-nums">
-                          {bbl(p.totals.shipped_bbl)} / {bbl(p.totals.owed_bbl)} bbl shipped
-                          {p.totals.remaining_bbl > 0.005 && <> · {bbl(p.totals.remaining_bbl)} to go</>}
-                          {p.unallocated_bbl > 0.005 && <> · <span className="text-[var(--cat-amber-fg)]">{bbl(p.unallocated_bbl)} shipped without a commitment</span></>}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                  {rows.map(({ c, flags }) => {
-                    const open = expandedId === c.id;
-                    return (
-                      <React.Fragment key={c.id}>
-                        <tr
-                          ref={c.id === focusCommitmentId ? (el) => { if (el && !scrolledToFocus.current) { scrolledToFocus.current = true; el.scrollIntoView({ block: "center" }); } } : undefined}
-                          className="border-b border-line/60 hover:bg-surface/30 cursor-pointer transition-colors align-top" onClick={() => setExpandedId(open ? null : c.id)}>
-                          <td className="px-3 py-2.5 text-muted text-xs">{open ? "▾" : "▸"}</td>
-                          <td className="px-3 py-2.5">
-                            <div className="text-primary font-medium">{c.recipe_name ?? "—"}{c.is_split && <span className="ml-1.5 text-xs text-muted font-normal">split</span>}</div>
-                            <div className="mt-0.5"><ChannelBadge channel={c.channel} /></div>
-                          </td>
-                          <td className="px-3 py-2.5"><StageBadge stage={c.stage} /></td>
-                          <td className="px-3 py-2.5"><AttentionChips flags={flags} /></td>
-                          <td className="px-3 py-2.5"><DeliveryCell c={c} /></td>
-                          <td className="px-3 py-2.5"><DepositCell c={c} /></td>
-                          <td className="px-3 py-2.5 text-xs leading-4">
-                            {c.export_invoices.length === 0 && c.totals.uninvoiced_bbl <= 0.005
-                              ? <span className="text-faint">—</span>
-                              : (
-                                <>
-                                  <div className="tabular-nums">
-                                    <span className={c.totals.export_paid_cents >= c.totals.export_billed_cents ? "text-success" : "text-body"}>{fmtUsd(c.totals.export_paid_cents / 100)}</span>
-                                    {c.totals.export_billed_cents > c.totals.export_paid_cents && <span className="text-muted"> of {fmtUsd(c.totals.export_billed_cents / 100)}</span>}
-                                  </div>
-                                  {canOperate && (c.totals.uninvoiced_transaction_ids?.length ?? 0) > 0
-                                    ? (
-                                      <button type="button" className="btn-primary btn-xxs mt-0.5"
-                                        onClick={(e) => { e.stopPropagation(); setInvoiceFor(c.totals.uninvoiced_transaction_ids ?? []); }}>
-                                        Generate invoice
-                                      </button>
-                                    )
-                                    : <div className="text-muted">{c.export_invoices.length} invoice{c.export_invoices.length !== 1 ? "s" : ""}</div>}
-                                </>
-                              )}
-                          </td>
-                          <td className="px-3 py-2.5 text-xs text-muted whitespace-nowrap">{c.desired_delivery_date ? fmtDate(c.desired_delivery_date) : "—"}</td>
-                        </tr>
-                        {open && (
-                          <tr className="border-b border-line bg-surface/20">
-                            <td colSpan={COLUMNS} className="p-0"><CommitmentPanel c={c} onOpenInvoice={onNavigateToInvoice} onChanged={refresh} canOperate={canOperate} /></td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                  {view !== "open" && p.unallocated_bbl > 0.0001 && (
-                    <tr className="border-b border-line bg-surface/20">
-                      <td colSpan={COLUMNS} className="px-4 py-3">
-                        <div className="flex items-center gap-3 mb-1.5">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--cat-amber-fg)]">
-                            Shipped without a commitment <span className="font-normal normal-case tracking-normal text-muted">— {bbl(p.unallocated_bbl)} bbl that needs a home</span>
-                          </div>
-                          {canOperate && p.unallocated_uninvoiced_transaction_ids.length > 0 && (
-                            <button type="button" className="btn-primary btn-xxs" onClick={() => setInvoiceFor(p.unallocated_uninvoiced_transaction_ids)}>
-                              Generate invoice
-                            </button>
-                          )}
-                        </div>
-                        <ShipmentRows
-                          shipments={p.unallocated}
-                          onOpenInvoice={onNavigateToInvoice}
-                          onRehome={canOperate ? (shipment) => setRehome({ partner: p, shipment }) : undefined}
-                        />
-                      </td>
-                    </tr>
+        <ListTable<(typeof groups)[number]["rows"][number]>
+          dense
+          zebra={false}
+          foldBelow="lg"
+          rowKey={({ c }) => c.id}
+          rowClassName={() => "align-top"}
+          rowRef={({ c }) => (c.id === focusCommitmentId ? (el) => { if (el && !scrolledToFocus.current) { scrolledToFocus.current = true; el.scrollIntoView({ block: "center" }); } } : undefined)}
+          onRowClick={({ c }) => setExpandedId(expandedId === c.id ? null : c.id)}
+          isOpen={({ c }) => expandedId === c.id}
+          drawer={({ c }) => <CommitmentPanel c={c} onOpenInvoice={onNavigateToInvoice} onChanged={refresh} canOperate={canOperate} />}
+          groups={groups.map(({ partner: p, rows }) => ({
+            key: p.partner_id,
+            rows,
+            header: (
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                <h3 className="text-sm font-semibold text-strong">{p.company_name}</h3>
+                <span className="text-xs text-muted tabular-nums">
+                  {bbl(p.totals.shipped_bbl)} / {bbl(p.totals.owed_bbl)} bbl shipped
+                  {p.totals.remaining_bbl > 0.005 && <> · {bbl(p.totals.remaining_bbl)} to go</>}
+                  {p.unallocated_bbl > 0.005 && <> · <span className="text-[var(--cat-amber-fg)]">{bbl(p.unallocated_bbl)} shipped without a commitment</span></>}
+                </span>
+              </div>
+            ),
+            footer: view !== "open" && p.unallocated_bbl > 0.0001 && (
+              <div className="px-3 sm:px-4 py-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[var(--cat-amber-fg)]">
+                    Shipped without a commitment <span className="font-normal normal-case tracking-normal text-muted">— {bbl(p.unallocated_bbl)} bbl that needs a home</span>
+                  </div>
+                  {canOperate && p.unallocated_uninvoiced_transaction_ids.length > 0 && (
+                    <button type="button" className="btn-primary btn-xxs" onClick={() => setInvoiceFor(p.unallocated_uninvoiced_transaction_ids)}>
+                      Generate invoice
+                    </button>
                   )}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                </div>
+                <ShipmentRows
+                  shipments={p.unallocated}
+                  onOpenInvoice={onNavigateToInvoice}
+                  onRehome={canOperate ? (shipment) => setRehome({ partner: p, shipment }) : undefined}
+                />
+              </div>
+            ),
+          }))}
+          cols={[
+            {
+              key: "beer", header: "Beer", role: "label", width: "w-[19%]",
+              cell: ({ c }) => (
+                <>
+                  <div>{c.recipe_name ?? "—"}{c.is_split && <span className="ml-1.5 text-xs text-muted font-normal">split</span>}</div>
+                  <div className="mt-0.5"><ChannelBadge channel={c.channel} /></div>
+                </>
+              ),
+            },
+            { key: "stage", header: "Stage", role: "headline", width: "w-[10%]", cell: ({ c }) => <StageBadge stage={c.stage} /> },
+            { key: "needs", header: "Needs", width: "w-[20%]", foldBlock: true, cell: ({ flags }) => flags.length > 0 && <AttentionChips flags={flags} /> },
+            { key: "delivery", header: "Shipped / owed", width: "w-[17%]", foldBlock: true, cell: ({ c }) => <DeliveryCell c={c} /> },
+            { key: "deposit", header: "Deposit", width: "w-[13%]", foldBlock: true, foldLabel: "Deposit", cell: ({ c }) => <DepositCell c={c} /> },
+            {
+              key: "invoiced", header: "Invoiced", width: "w-[13%]", className: "text-xs leading-4", foldBlock: true, foldLabel: "Invoiced",
+              cell: ({ c }) => (c.export_invoices.length === 0 && c.totals.uninvoiced_bbl <= 0.005 ? null : (
+                <>
+                  <div className="tabular-nums">
+                    <span className={c.totals.export_paid_cents >= c.totals.export_billed_cents ? "text-success" : "text-body"}>{fmtUsd(c.totals.export_paid_cents / 100)}</span>
+                    {c.totals.export_billed_cents > c.totals.export_paid_cents && <span className="text-muted"> of {fmtUsd(c.totals.export_billed_cents / 100)}</span>}
+                  </div>
+                  {canOperate && (c.totals.uninvoiced_transaction_ids?.length ?? 0) > 0
+                    ? (
+                      <button type="button" className="btn-primary btn-xxs mt-0.5"
+                        onClick={(e) => { e.stopPropagation(); setInvoiceFor(c.totals.uninvoiced_transaction_ids ?? []); }}>
+                        Generate invoice
+                      </button>
+                    )
+                    : <div className="text-muted">{c.export_invoices.length} invoice{c.export_invoices.length !== 1 ? "s" : ""}</div>}
+                </>
+              )),
+            },
+            { key: "due", header: "Due", width: "w-[8%]", className: "text-xs text-muted whitespace-nowrap", foldLabel: "Due", cell: ({ c }) => c.desired_delivery_date && fmtDate(c.desired_delivery_date) },
+          ]}
+        />
       )}
     </div>
   );

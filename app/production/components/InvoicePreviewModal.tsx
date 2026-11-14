@@ -15,6 +15,7 @@ import { fmtUsd } from "@/lib/utils/formatting";
 import { isIngredientDepositLine } from "@/lib/production/depositLine";
 import { diffInvoiceLines, summarizeLineEdits } from "@/lib/production/invoiceLineEdits";
 import { crossesExciseTreatmentBoundary } from "@/lib/tax/parties/ncDorBeerExcise/rates";
+import FieldGrid from "@/app/components/ui/FieldGrid";
 
 // Channels an export invoice can be billed under (taproom is not invoiceable
 // here). Used by the "Bill as" override selector.
@@ -673,7 +674,7 @@ export default function InvoicePreviewModal({
 
           {/* ── Manual-only fields ──────────────────────────────────────────── */}
           {invoiceMode === "manual" && (
-            <div className="rounded-lg bg-surface border border-line p-3 grid grid-cols-3 gap-3">
+            <FieldGrid cols={3} phone={1} className="rounded-lg bg-surface border border-line p-3">
               <div className="space-y-1">
                 <label className="text-xs text-secondary">Source</label>
                 <select
@@ -706,7 +707,7 @@ export default function InvoicePreviewModal({
                   className="inp w-full"
                 />
               </div>
-            </div>
+            </FieldGrid>
           )}
 
           {/* ── Bulk-discount banner (distribution / wholesale, Square mode) ──── */}

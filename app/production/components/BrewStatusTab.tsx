@@ -28,6 +28,7 @@ import { isInPlaceConditioning } from "@/lib/production/inPlaceConditioning";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import ScheduleBatchModal from "./intake/ScheduleBatchModal";
 import ReceiveBeerModal from "./ReceiveBeerModal";
+import FieldGrid from "@/app/components/ui/FieldGrid";
 
 
 const TANK_TYPES = new Set(["fermenter", "brite", "brewhouse"]);
@@ -1244,7 +1245,7 @@ export default function BrewStatusTab() {
                 onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, name: e.target.value }))} />
             </Field>
             <Field label="Type" required>
-              <div className="grid grid-cols-3 gap-2">
+              <FieldGrid cols={3} gap={2}>
                 {EQ_TYPES.map(([type, meta]) => (
                   <ToggleChip
                     key={type}
@@ -1259,7 +1260,7 @@ export default function BrewStatusTab() {
                     {meta.label}
                   </ToggleChip>
                 ))}
-              </div>
+              </FieldGrid>
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Capacity (BBL)">

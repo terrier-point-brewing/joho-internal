@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { isValidNetTermsDays, netTermsLabel, MAX_NET_TERMS_DAYS, MIN_NET_TERMS_DAYS } from "@/lib/production/invoiceTerms";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
@@ -571,27 +571,31 @@ function ServiceMappingGrid() {
   return (
     <section>
       <h3 className="text-sm font-medium text-strong mb-3">Service Mappings &amp; Discounts</h3>
-      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)] rounded-lg border border-line">
+      {/* A wide table (docs/UI_STANDARD.md §7 B): the charge is the one pinned
+          column, capped at 40vw on a phone so two partner columns are in view
+          before any scrolling. The height cap is desk-only; on a handheld the
+          app pane is the scroller. */}
+      <div className="scroll-x desk:overflow-y-auto desk:max-h-[calc(100vh-300px)] rounded-lg border border-line [--tbl-pin-bg:var(--color-canvas)]">
         <table
-          className="text-xs border-collapse w-full"
+          className="tbl-pin text-xs border-collapse w-full min-w-[calc(40vw+var(--cols)*8.5rem)] sm:min-w-[calc(20rem+var(--cols)*12.5rem)]"
           // Partner columns share whatever is left after the label column, so a
           // two-partner brewery fills the page instead of stranding half of it,
           // and a tenth partner still scrolls rather than crushing the others.
-          style={{ tableLayout: "fixed", minWidth: 320 + columns.length * 200 }}
+          style={{ tableLayout: "fixed", "--cols": columns.length } as CSSProperties}
         >
           <colgroup>
-            <col style={{ width: 320 }} />
+            <col className="w-[40vw] sm:w-80" />
             {columns.map((_, i) => <col key={i} style={{ width: `${100 / columns.length}%` }} />)}
           </colgroup>
           <thead>
             <tr className="border-b border-line">
-              <th className="sticky left-0 top-0 z-30 bg-surface px-4 py-2.5 text-left font-semibold text-secondary whitespace-nowrap">
-                Charge <span className="text-faint font-normal">· billed to →</span>
+              <th className="desk:top-0 !z-30 !bg-surface px-2 sm:px-4 py-2.5 text-left font-semibold text-secondary sm:whitespace-nowrap">
+                Charge <span className="text-faint font-normal max-sm:hidden">· billed to →</span>
               </th>
               {columns.map((col) => (
                 <th
                   key={col.partnerId ?? "default"}
-                  className="sticky top-0 z-20 bg-surface px-3 py-2.5 text-left font-medium text-secondary whitespace-nowrap"
+                  className="desk:sticky desk:top-0 z-20 bg-surface px-3 py-2.5 text-left font-medium text-secondary whitespace-nowrap"
                   title={
                     col.partnerId === null
                       ? "Packaging fees here price the unprinted container for every partner."
@@ -609,7 +613,7 @@ function ServiceMappingGrid() {
                 <tr key={entry.key}>
                   <td
                     colSpan={columns.length + 1}
-                    className="px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-faint bg-surface/40 border-b border-line/40"
+                    className="px-2 sm:px-4 py-1 text-[10px] font-semibold uppercase tracking-widest text-faint !bg-surface/40 !shadow-none border-b border-line/40"
                   >
                     {entry.label}
                   </td>
@@ -617,10 +621,10 @@ function ServiceMappingGrid() {
               ) : (
                 <tr key={entry.key} className="border-b border-line/40 hover:bg-surface/20 transition-colors">
                   <td
-                    className="sticky left-0 z-10 bg-canvas px-4 py-2.5 font-medium text-strong whitespace-nowrap overflow-hidden text-ellipsis border-r border-line/40"
+                    className="px-2 sm:px-4 py-2.5 font-medium text-strong sm:whitespace-nowrap overflow-hidden text-ellipsis"
                     title={entry.rowLabel}
                   >
-                    {entry.rowLabel}
+                    <span className="max-sm:line-clamp-2">{entry.rowLabel}</span>
                   </td>
                   {columns.map((col) => {
                     const cell = entry.getCell(col.partnerId);

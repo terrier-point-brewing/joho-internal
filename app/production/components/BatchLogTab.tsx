@@ -802,7 +802,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
             return (
               <div key={a.id} className="px-3 py-2.5 hover:bg-surface/40 transition-colors">
                 {/* Top line: channel badge + partner/commitment + right-side controls */}
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
                     <ChannelBadge channel={a.channel as AllocationChannel} />
                     {partner && (
@@ -819,7 +819,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                   </div>
 
                   {/* Controls: % input + BBL + invoice + status + delete */}
-                  <div className="grid grid-cols-[88px_64px_150px_90px_20px] items-center gap-2 flex-none">
+                  <div className="flex flex-wrap items-center gap-2 max-sm:w-full sm:grid sm:grid-cols-[88px_64px_150px_90px_20px] sm:flex-none">
                     {/* Inline % */}
                     <div className="flex items-center gap-1">
                       <input

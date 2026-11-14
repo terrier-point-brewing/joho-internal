@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import SubNav from "@/app/components/SubNav";
 import { PRODUCTION_NAV, BREWING_NAV } from "@/app/production/nav-config";
@@ -10,6 +10,7 @@ import { TRANSFER_TYPE_BADGE } from "@/app/production/lib/categoryColors";
 import PageHeader from "@/app/components/PageHeader";
 import StickyHeader from "@/app/components/StickyHeader";
 import FilterBar from "@/app/components/ui/FilterBar";
+import ListTable from "@/app/components/ui/ListTable";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import SearchInput from "@/app/components/ui/SearchInput";
 import { useTableControls } from "@/app/components/ui/useTableControls";
@@ -147,89 +148,58 @@ export default function TransferLogPage() {
           <p className="text-danger text-sm">Failed to load transfer log.</p>
         )}
 
-        <div className="overflow-x-auto rounded border border-line">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-left">
-                <th className="px-3 py-2 text-xs text-muted font-medium whitespace-nowrap">Date / Time</th>
-                <th className="px-3 py-2 text-xs text-muted font-medium">Type</th>
-                <th className="px-3 py-2 text-xs text-muted font-medium">Batch</th>
-                <th className="px-3 py-2 text-xs text-muted font-medium">From</th>
-                <th className="px-3 py-2 text-xs text-muted font-medium">To</th>
-                <th className="px-3 py-2 text-xs text-muted font-medium text-right">Volume</th>
-                <th className="px-3 py-2 text-xs text-muted font-medium text-right">Shrinkage</th>
-                <th className="px-3 py-2 text-xs text-muted font-medium">Output</th>
-                <th className="px-3 py-2 text-xs text-muted font-medium">Actor</th>
-                <th className="px-3 py-2 text-xs text-muted font-medium">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && !isLoading && (
-                <tr>
-                  <td colSpan={10} className="px-3 py-6 text-center text-faint text-sm">
-                    No transfers found.
-                  </td>
-                </tr>
-              )}
-              {rows.map((row) => (
-                <tr key={row.id} className="border-b border-line/60 hover:bg-surface-mid/30 transition-colors">
-                  <td className="px-3 py-2 text-secondary whitespace-nowrap font-mono text-xs">
-                    {fmtDateTime(row.transferred_at)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <TypeBadge type={row.transfer_type} />
-                  </td>
-                  <td className="px-3 py-2">
-                    <p className="text-primary font-medium leading-tight">{row.batch?.beer_name ?? "—"}</p>
-                    {row.batch?.batch_number && (
-                      <p className="text-muted font-mono text-xs">{row.batch.batch_number}</p>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-body whitespace-nowrap">
-                    {row.from_tank?.name ?? <span className="text-faint">—</span>}
-                    {row.from_tank?.type && (
-                      <span className="text-faint text-xs ml-1">({row.from_tank.type})</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {row.to_batch_id ? (
-                      <span className="text-accent-soft">
-                        {row.to_batch?.beer_name ?? "child batch"}
-                        {row.to_batch?.batch_number && (
-                          <span className="text-muted font-mono text-xs ml-1">{row.to_batch.batch_number}</span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="text-body">
-                        {row.to_tank?.name ?? <span className="text-faint">—</span>}
-                        {row.to_tank?.type && (
-                          <span className="text-faint text-xs ml-1">({row.to_tank.type})</span>
-                        )}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right text-strong font-mono tabular-nums whitespace-nowrap">
-                    {fmtBbl2(row.volume_bbl)}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums whitespace-nowrap">
-                    {row.shrinkage_bbl > 0
-                      ? <span className="text-danger">{fmtBbl2(row.shrinkage_bbl)}</span>
-                      : <span className="text-disabled">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap">
-                    {outputLabel(row) ?? <span className="text-disabled">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-secondary text-xs whitespace-nowrap">
-                    {row.created_by_profile?.email ?? <span className="text-faint">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-muted text-xs max-w-48 truncate">
-                    {row.notes ?? ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ListTable<TransferLogRow>
+          rows={isLoading ? [] : rows}
+          rowKey={(row) => row.id}
+          dense
+          zebra={false}
+          foldBelow="md"
+          empty={isLoading ? "Loading…" : "No transfers found."}
+          cols={[
+            { key: "date", header: "Date / Time", className: "text-secondary whitespace-nowrap font-mono text-xs", cell: (row) => fmtDateTime(row.transferred_at) },
+            { key: "type", header: "Type", cell: (row) => <TypeBadge type={row.transfer_type} /> },
+            {
+              key: "batch", header: "Batch", role: "label",
+              cell: (row) => (
+                <>
+                  <p className="leading-tight">{row.batch?.beer_name ?? "—"}</p>
+                  {row.batch?.batch_number && <p className="text-muted font-mono text-xs font-normal">{row.batch.batch_number}</p>}
+                </>
+              ),
+            },
+            {
+              key: "from", header: "From", className: "text-body whitespace-nowrap", foldLabel: "From",
+              cell: (row) => row.from_tank?.name && (
+                <>
+                  {row.from_tank.name}
+                  {row.from_tank.type && <span className="text-faint text-xs ml-1">({row.from_tank.type})</span>}
+                </>
+              ),
+            },
+            {
+              key: "to", header: "To", className: "whitespace-nowrap", foldLabel: "To",
+              cell: (row) => row.to_batch_id ? (
+                <span className="text-accent-soft">
+                  {row.to_batch?.beer_name ?? "child batch"}
+                  {row.to_batch?.batch_number && <span className="text-muted font-mono text-xs ml-1">{row.to_batch.batch_number}</span>}
+                </span>
+              ) : row.to_tank?.name && (
+                <span className="text-body">
+                  {row.to_tank.name}
+                  {row.to_tank.type && <span className="text-faint text-xs ml-1">({row.to_tank.type})</span>}
+                </span>
+              ),
+            },
+            { key: "volume", header: "Volume", role: "headline", align: "right", className: "text-strong font-mono tabular-nums", cell: (row) => fmtBbl2(row.volume_bbl) },
+            {
+              key: "shrinkage", header: "Shrinkage", align: "right", className: "font-mono tabular-nums whitespace-nowrap", foldLabel: "Shrinkage",
+              cell: (row) => row.shrinkage_bbl > 0 && <span className="text-danger">{fmtBbl2(row.shrinkage_bbl)}</span>,
+            },
+            { key: "output", header: "Output", className: "text-secondary text-xs whitespace-nowrap", cell: (row) => outputLabel(row) },
+            { key: "actor", header: "Actor", className: "text-secondary text-xs whitespace-nowrap", cell: (row) => row.created_by_profile?.email },
+            { key: "notes", header: "Notes", className: "text-muted text-xs max-w-48 truncate", foldBlock: true, cell: (row) => row.notes },
+          ]}
+        />
       </div>
     </main>
   );

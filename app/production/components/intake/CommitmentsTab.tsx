@@ -19,8 +19,8 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
+import ListTable from "@/app/components/ui/ListTable";
 import SearchInput from "@/app/components/ui/SearchInput";
-import SortableTh from "@/app/components/ui/SortableTh";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig } from "@/lib/table/types";
 import { usePermissions } from "@/lib/hooks/useUserRole";
@@ -516,7 +516,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
     <div>
       <h2 className="text-sm font-semibold text-primary mb-1">Commitments</h2>
       <p className="text-sm text-muted mb-3">Beer promised to partners.</p>
-      <div className="flex items-start gap-3 mb-4">
+      <div className="flex flex-wrap items-start gap-3 mb-4">
         <FilterBar activeCount={activeCount} onClear={reset}>
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search recipes…" />
           <FilterChips label="Channel" options={CHANNEL_OPTIONS}
@@ -537,89 +537,103 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
       ) : displayRows.length === 0 ? (
         <p className="text-faint text-sm py-10 text-center">{rows.length === 0 ? "No commitments recorded yet." : "No commitments match these filters."}</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface/50 text-left">
-                <SortableTh label="Beer" sortKey="recipe_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3" />
-                <SortableTh label="Partner" sortKey="partner_name" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3" />
-                <SortableTh label="Channel" sortKey="channel" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3 whitespace-nowrap" />
-                <SortableTh label="Booked" sortKey="volume_bbl" sort={sort} onSort={toggleSort} align="right" className="text-xs !text-muted !py-2.5 !px-3 whitespace-nowrap" />
-                <SortableTh label="Shipped / Owed" sortKey="progress" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3 whitespace-nowrap" />
-                <SortableTh label="Delivery" sortKey="schedule_sort" sort={sort} onSort={toggleSort} className="text-xs !text-muted !py-2.5 !px-3" />
-                <th className="px-3 py-2.5 text-xs font-medium text-muted whitespace-nowrap">Deposit</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted" />
-              </tr>
-            </thead>
-            <tbody>
-              {displayRows.map((q, i) => {
+        <ListTable<(typeof displayRows)[number]>
+          rows={displayRows}
+          rowKey={(q) => q.id}
+          dense
+          foldBelow="lg"
+          sort={sort}
+          onSort={toggleSort}
+          rowClassName={(q) => `align-top ${stageOf(q) === "cancelled" ? "opacity-60" : ""}`}
+          cols={[
+            {
+              // Beer: name, plus the things that need a glance — stage when it
+              // isn't simply open, the Export Bay flag, and the note.
+              key: "beer", header: "Beer", role: "label", sortKey: "recipe_name", className: "lg:min-w-[190px] lg:max-w-[260px]",
+              cell: (q) => {
                 const stage = stageOf(q);
-                const partner = q.contract_brewing_partners?.company_name ?? "—";
                 return (
-                <tr key={q.id} className={`border-b border-line/60 align-top ${i % 2 !== 0 ? "bg-surface/30" : ""} ${stage === "cancelled" ? "opacity-60" : ""}`}>
-                  {/* Beer: name, plus the things that need a glance — stage when it
-                      isn't simply open, the Export Bay flag, and the note. */}
-                  <td className="px-3 py-2.5 min-w-[190px] max-w-[260px]">
-                    <div className="flex items-center gap-2">
-                      <span className="text-primary font-medium">{q.recipe_name || "—"}</span>
+                  <>
+                    <div className="flex flex-wrap items-center gap-x-2">
+                      <span>{q.recipe_name || "—"}</span>
                       {stage !== "open" && <StageBadge stage={stage} />}
                     </div>
                     {q.review_needed_at && (
-                      <div className="text-xs text-accent-soft whitespace-nowrap" title="Booked at the Export Bay as the beer shipped. Check the price and terms, then Confirm.">
+                      <div className="text-xs font-normal text-accent-soft" title="Booked at the Export Bay as the beer shipped. Check the price and terms, then Confirm.">
                         Booked at the Export Bay
                       </div>
                     )}
-                    {q.notes && <div className="text-xs text-muted leading-snug">{q.notes}</div>}
-                  </td>
-                  <td className="px-3 py-2.5 text-body">
-                    <div className="min-w-[120px] max-w-[190px] leading-snug">{partner}</div>
-                  </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap"><ChannelBadge channel={q.channel} /></td>
-                  <td className="px-3 py-2.5 text-body tabular-nums text-right whitespace-nowrap">{Number(q.volume_bbl)} <span className="text-faint text-xs">bbl</span></td>
-                  <td className="px-3 py-2.5">
-                    <ProgressCell q={q} />
-                    {uncoveredBbl(q) >= 0.1 && (
-                      <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap">
-                        <span className="text-xs text-accent-soft">{uncoveredBbl(q).toFixed(1)} bbl needs a batch</span>
-                        {canBrewingOperate && onSchedule && q.recipe_id && (
-                          <button onClick={() => onSchedule(q.recipe_id!)} className="btn-primary btn-xxs">Schedule</button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-xs whitespace-nowrap">
-                    <div className="text-secondary">{scheduleLabel(q)}</div>
-                    <div className="text-muted">
-                      Received {q.received_on ? fmtDateLong(q.received_on) : "—"}
-                      {q.locked_on && <span className="text-faint" title={`Locked ${fmtDateLong(q.locked_on)} — deposit paid`}> · locked</span>}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 min-w-[150px]">
-                    <InvoicingCell
-                      commitment={q}
-                      onPreview={invoice.openPreview}
-                      onViewInSquare={invoice.viewInSquare}
-                      actionLoading={invoice.actionLoading}
-                      onSend={invoice.send}
-                      onDelete={invoice.remove}
-                      canInvoice={canExportOperate}
-                    />
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-                      {/* Every drop, invoice and share for this deal lives in the ledger — linked, not rebuilt here. */}
-                      {q.partner_id && <Link href={`/production/export?commitment=${q.id}`} className="btn-secondary btn-xxs">History</Link>}
-                      {canPartnersOperate && q.review_needed_at && <button onClick={() => handleConfirm(q)} className="btn-primary btn-xxs">Confirm</button>}
-                      {canPartnersOperate && <button onClick={() => setEditing(q)} className="btn-secondary btn-xxs">Edit</button>}
-                      {canPartnersOperate && <button onClick={() => handleDelete(q)} className="btn-danger btn-xxs">Delete</button>}
-                    </div>
-                  </td>
-                </tr>
+                    {q.notes && <div className="text-xs font-normal text-muted leading-snug">{q.notes}</div>}
+                  </>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
+              },
+            },
+            {
+              key: "partner", header: "Partner", sortKey: "partner_name", className: "text-body",
+              cell: (q) => <div className="lg:min-w-[120px] lg:max-w-[190px] leading-snug">{q.contract_brewing_partners?.company_name ?? "—"}</div>,
+              fold: (q) => q.contract_brewing_partners?.company_name,
+            },
+            { key: "channel", header: "Channel", sortKey: "channel", className: "whitespace-nowrap", cell: (q) => <ChannelBadge channel={q.channel} /> },
+            {
+              key: "booked", header: "Booked", role: "headline", sortKey: "volume_bbl", align: "right", className: "text-body tabular-nums",
+              cell: (q) => <>{Number(q.volume_bbl)} <span className="text-faint text-xs">bbl</span></>,
+            },
+            {
+              key: "progress", header: "Shipped / Owed", sortKey: "progress", foldBlock: true,
+              cell: (q) => (
+                <>
+                  <ProgressCell q={q} />
+                  {uncoveredBbl(q) >= 0.1 && (
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs text-accent-soft">{uncoveredBbl(q).toFixed(1)} bbl needs a batch</span>
+                      {canBrewingOperate && onSchedule && q.recipe_id && (
+                        <button onClick={() => onSchedule(q.recipe_id!)} className="btn-primary btn-xxs">Schedule</button>
+                      )}
+                    </div>
+                  )}
+                </>
+              ),
+            },
+            {
+              key: "delivery", header: "Delivery", sortKey: "schedule_sort", className: "text-xs whitespace-nowrap", foldBlock: true,
+              cell: (q) => (
+                <>
+                  <div className="text-secondary">{scheduleLabel(q)}</div>
+                  <div className="text-muted">
+                    Received {q.received_on ? fmtDateLong(q.received_on) : "—"}
+                    {q.locked_on && <span className="text-faint" title={`Locked ${fmtDateLong(q.locked_on)} — deposit paid`}> · locked</span>}
+                  </div>
+                </>
+              ),
+            },
+            {
+              key: "deposit", header: "Deposit", className: "lg:min-w-[150px]", foldBlock: true,
+              cell: (q) => (
+                <InvoicingCell
+                  commitment={q}
+                  onPreview={invoice.openPreview}
+                  onViewInSquare={invoice.viewInSquare}
+                  actionLoading={invoice.actionLoading}
+                  onSend={invoice.send}
+                  onDelete={invoice.remove}
+                  canInvoice={canExportOperate}
+                />
+              ),
+            },
+            {
+              key: "actions", role: "action",
+              cell: (q) => (
+                <>
+                  {/* Every drop, invoice and share for this deal lives in the ledger — linked, not rebuilt here. */}
+                  {q.partner_id && <Link href={`/production/export?commitment=${q.id}`} className="btn-secondary btn-xxs">History</Link>}
+                  {canPartnersOperate && q.review_needed_at && <button onClick={() => handleConfirm(q)} className="btn-primary btn-xxs">Confirm</button>}
+                  {canPartnersOperate && <button onClick={() => setEditing(q)} className="btn-secondary btn-xxs">Edit</button>}
+                  {canPartnersOperate && <button onClick={() => handleDelete(q)} className="btn-danger btn-xxs">Delete</button>}
+                </>
+              ),
+            },
+          ]}
+        />
       )}
 
       {showModal && <CommitmentModal recipes={recipes} partners={partners} onClose={() => setShowModal(false)} onDone={load} />}

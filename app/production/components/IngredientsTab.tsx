@@ -16,6 +16,7 @@ import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
 import type { ControlsConfig } from "@/lib/table/types";
+import FieldGrid from "@/app/components/ui/FieldGrid";
 
 const INGREDIENT_CATEGORY_META: Record<IngredientCategory, { color: string }> = {
   "Malts":        { color: "border-accent-border bg-accent-muted/30 text-accent-soft" },
@@ -924,7 +925,7 @@ export default function IngredientsTab() {
         <Modal title={`Adjust Stock — ${adjIngredient.name}`} onClose={() => setShowAdjModal(false)}>
           <form onSubmit={handleAdjSubmit} className="space-y-4">
             {/* Current state summary */}
-            <div className="p-3 bg-surface-mid/50 rounded text-sm grid grid-cols-3 gap-4">
+            <FieldGrid cols={3} phone={3} gap={4} className="p-3 bg-surface-mid/50 rounded text-sm">
               <div>
                 <p className="text-xs text-muted mb-0.5">Current stock</p>
                 <p className="text-primary font-medium">
@@ -941,7 +942,7 @@ export default function IngredientsTab() {
                 <p className="text-xs text-muted mb-0.5">Total value</p>
                 <p className="text-primary font-medium">{fmtValue(currentValue)}</p>
               </div>
-            </div>
+            </FieldGrid>
 
             <Field label="Adjustment Type" required>
               <div className="grid grid-cols-2 gap-2">

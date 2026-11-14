@@ -12,6 +12,8 @@ import type { SchedulerRecommendation, SchedulerResponse } from "@/app/api/produ
 import Banner from "@/app/components/ui/Banner";
 import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
 import { batchFillBbl } from "@/lib/production/batchVolume";
+import FieldGrid from "@/app/components/ui/FieldGrid";
+import EditGrid from "@/app/components/ui/EditGrid";
 
 interface PendingAllocation {
   id: string; // local key only
@@ -302,7 +304,7 @@ function EquipmentSection({
                         className="btn-danger btn-xxs">Remove</button>
                     )}
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <FieldGrid cols={3} gap={2}>
                     <Field label="Tank">
                       <select className="inp" value={slot.equipment_id}
                         onChange={(e) => updateSlotAt(stage, slotIdx, { equipment_id: e.target.value })}>
@@ -325,7 +327,7 @@ function EquipmentSection({
                       <input type="date" className="inp" value={slot.scheduled_end}
                         onChange={(e) => updateSlotAt(stage, slotIdx, { scheduled_end: e.target.value })} />
                     </Field>
-                  </div>
+                  </FieldGrid>
                 </div>
               );
             })}
@@ -360,7 +362,6 @@ const CHANNEL_OPTIONS: { value: AllocationChannel; label: string }[] = [
 ];
 
 // 25/10/25/10/10/10/10 proportions via fr units; ✕ gets a fixed 20px
-const ALLOC_COLS = "25fr 10fr 25fr 10fr 10fr 10fr 10fr 20px";
 
 function AllocationPlanSection({
   row,
@@ -396,6 +397,9 @@ function AllocationPlanSection({
     setAlloc(id, { contract_request_id: commitmentId, partner_id: c?.partner_id ?? "" });
   }
 
+  const isTaproomAlloc = (a: (typeof allocs)[number]) => a.channel === "taproom" || a.channel === "safety_stock";
+  const allocCommitment = (a: (typeof allocs)[number]) => (isTaproomAlloc(a) ? null : commitments.find((c) => c.id === a.contract_request_id) ?? null);
+
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between">
@@ -419,99 +423,110 @@ function AllocationPlanSection({
         </div>
       </div>
 
-      <div className="rounded border border-line overflow-x-auto">
-        {/* Column headers */}
-        <div className="grid gap-2 px-3 py-1.5 bg-surface/60 border-b border-line text-[10px] font-medium text-faint uppercase tracking-wide"
-          style={{ gridTemplateColumns: ALLOC_COLS }}>
-          <span>Channel</span>
-          <span>Commitment</span>
-          <span>Partner</span>
-          <span>Submitted On</span>
-          <span>Due</span>
-          <span className="text-right">%</span>
-          <span className="text-right">BBLs</span>
-          <span />
-        </div>
-
-        {allocs.length === 0 ? (
-          <p className="text-xs text-disabled px-3 py-3">No allocations yet.</p>
-        ) : allocs.map((a, idx) => {
-          const isTaproom = a.channel === "taproom" || a.channel === "safety_stock";
-          const channelCommitments = recipeCommitments.filter((c) => c.channel === a.channel);
-          const sel = isTaproom ? null : commitments.find((c) => c.id === a.contract_request_id);
-          const pct = parseFloat(a.percentage) || 0;
-          const allocBbl = row.volume_bbl > 0 ? (pct / 100) * row.volume_bbl : 0;
-          const rowBg = idx % 2 !== 0 ? "bg-surface/25" : "";
-
-          return (
-            <div key={a.id} className={`grid gap-2 items-center px-3 py-2 border-b border-line/40 last:border-b-0 ${rowBg}`}
-              style={{ gridTemplateColumns: ALLOC_COLS }}>
-              {/* Channel */}
-              <select className="inp-sm" value={a.channel}
-                onChange={(e) => setAlloc(a.id, { channel: e.target.value as AllocationChannel, contract_request_id: "", partner_id: "" })}>
-                {CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-
-              {/* Commitment selector */}
-              {isTaproom ? (
-                <span className="text-xs text-faint italic px-1 truncate">— taproom stock —</span>
-              ) : (
-                <select className="inp-sm min-w-0" value={a.contract_request_id}
-                  onChange={(e) => handleCommitmentChange(a.id, e.target.value)}>
-                  <option value="">— select —</option>
-                  {channelCommitments.length === 0
-                    ? <option disabled value="">No open commitments</option>
-                    : channelCommitments.map((c) => {
-                        const who = c.contract_brewing_partners?.company_name ?? "No partner";
-                        const due = c.desired_delivery_date ? ` · due ${fmtDateLong(c.desired_delivery_date)}` : " · ASAP";
-                        return <option key={c.id} value={c.id}>{who} · {uncoveredBbl(c).toFixed(1)} of {Number(c.volume_bbl)} BBL{due}</option>;
-                      })}
+      {allocs.length === 0 ? (
+        <p className="text-xs text-disabled px-3 py-3 rounded border border-line">No allocations yet.</p>
+      ) : (
+        <EditGrid<(typeof allocs)[number]>
+          rows={allocs}
+          rowKey={(a) => a.id}
+          itemLabel="Allocation"
+          onRemove={(i) => removeAlloc(allocs[i].id)}
+          cols={[
+            {
+              key: "channel", header: "Channel", wide: true, width: "sm:w-[22%]",
+              cell: (a) => (
+                <select className="inp-sm w-full" value={a.channel}
+                  onChange={(e) => setAlloc(a.id, { channel: e.target.value as AllocationChannel, contract_request_id: "", partner_id: "" })}>
+                  {CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
-              )}
-
-              {/* Partner — read-only from selected commitment */}
-              <span className={`text-xs truncate ${sel?.contract_brewing_partners ? "text-body" : "text-disabled"}`}>
-                {sel?.contract_brewing_partners?.company_name ?? (isTaproom ? "" : "—")}
-                {a.channel === "contract_brewing" && sel?.contract_brewing_partners && (
-                  <span className="ml-1 text-[10px] text-accent-emphasis" title="A deposit invoice will need to be generated for this allocation after the batch is committed.">
-                    · deposit req&apos;d
+              ),
+            },
+            {
+              key: "commitment", header: "Commitment", wide: true, width: "sm:w-[24%]",
+              cell: (a) => {
+                if (isTaproomAlloc(a)) return <span className="text-xs text-faint italic px-1">— taproom stock —</span>;
+                const channelCommitments = recipeCommitments.filter((c) => c.channel === a.channel);
+                return (
+                  <select className="inp-sm w-full min-w-0" value={a.contract_request_id}
+                    onChange={(e) => handleCommitmentChange(a.id, e.target.value)}>
+                    <option value="">— select —</option>
+                    {channelCommitments.length === 0
+                      ? <option disabled value="">No open commitments</option>
+                      : channelCommitments.map((c) => {
+                          const who = c.contract_brewing_partners?.company_name ?? "No partner";
+                          const due = c.desired_delivery_date ? ` · due ${fmtDateLong(c.desired_delivery_date)}` : " · ASAP";
+                          return <option key={c.id} value={c.id}>{who} · {uncoveredBbl(c).toFixed(1)} of {Number(c.volume_bbl)} BBL{due}</option>;
+                        })}
+                  </select>
+                );
+              },
+            },
+            {
+              // Read-only from the selected commitment, as are the two dates.
+              key: "partner", header: "Partner", wide: true, hideIfEmpty: (a) => !allocCommitment(a)?.contract_brewing_partners,
+              cell: (a) => {
+                const sel = allocCommitment(a);
+                return (
+                  <span className={`text-xs ${sel?.contract_brewing_partners ? "text-body" : "text-disabled"}`}>
+                    {sel?.contract_brewing_partners?.company_name ?? (isTaproomAlloc(a) ? "" : "—")}
+                    {a.channel === "contract_brewing" && sel?.contract_brewing_partners && (
+                      <span className="ml-1 text-[10px] text-accent-emphasis" title="A deposit invoice will need to be generated for this allocation after the batch is committed.">
+                        · deposit req&apos;d
+                      </span>
+                    )}
                   </span>
-                )}
-              </span>
-
-              {/* Submitted On — read-only from selected commitment */}
-              <span className={`text-xs truncate tabular-nums ${sel ? "text-secondary" : "text-disabled"}`}>
-                {sel
-                  ? fmtDateLong((sel.received_on ?? sel.created_at).slice(0, 10))
-                  : (isTaproom ? "" : "—")}
-              </span>
-
-              {/* Due date — read-only from selected commitment */}
-              <span className={`text-xs truncate ${sel?.desired_delivery_date ? "text-secondary" : "text-disabled"}`}>
-                {sel?.desired_delivery_date ? fmtDateLong(sel.desired_delivery_date) : (isTaproom ? "" : "—")}
-              </span>
-
-              {/* Percentage input */}
-              <div className="flex items-center gap-0.5">
-                <input type="number" step="0.1" min="0" max="100"
-                  className="inp-sm w-full text-right"
-                  placeholder="0" value={a.percentage}
-                  onChange={(e) => setAlloc(a.id, { percentage: e.target.value })} />
-                <span className="text-[10px] text-faint shrink-0">%</span>
-              </div>
-
-              {/* BBLs — computed from % × batch volume */}
-              <span className={`text-xs text-right tabular-nums pr-1 ${pct > 0 ? "text-body" : "text-disabled"}`}>
-                {pct > 0 && row.volume_bbl > 0 ? `${allocBbl.toFixed(1)}` : "—"}
-              </span>
-
-              {/* Remove */}
-              <button onClick={() => removeAlloc(a.id)}
-                className="btn-danger btn-xxs justify-self-center">✕</button>
-            </div>
-          );
-        })}
-      </div>
+                );
+              },
+            },
+            {
+              key: "submitted", header: "Submitted On", hideIfEmpty: (a) => !allocCommitment(a),
+              cell: (a) => {
+                const sel = allocCommitment(a);
+                return (
+                  <span className={`text-xs tabular-nums whitespace-nowrap ${sel ? "text-secondary" : "text-disabled"}`}>
+                    {sel ? fmtDateLong((sel.received_on ?? sel.created_at).slice(0, 10)) : (isTaproomAlloc(a) ? "" : "—")}
+                  </span>
+                );
+              },
+            },
+            {
+              key: "due", header: "Due", hideIfEmpty: (a) => !allocCommitment(a)?.desired_delivery_date,
+              cell: (a) => {
+                const sel = allocCommitment(a);
+                return (
+                  <span className={`text-xs whitespace-nowrap ${sel?.desired_delivery_date ? "text-secondary" : "text-disabled"}`}>
+                    {sel?.desired_delivery_date ? fmtDateLong(sel.desired_delivery_date) : (isTaproomAlloc(a) ? "" : "—")}
+                  </span>
+                );
+              },
+            },
+            {
+              key: "pct", header: "%", align: "right", width: "sm:w-24",
+              cell: (a) => (
+                <div className="flex items-center gap-0.5">
+                  <input type="number" inputMode="decimal" step="0.1" min="0" max="100"
+                    className="inp-sm w-full text-right"
+                    placeholder="0" value={a.percentage}
+                    onChange={(e) => setAlloc(a.id, { percentage: e.target.value })} />
+                  <span className="text-[10px] text-faint shrink-0">%</span>
+                </div>
+              ),
+            },
+            {
+              // Computed from % × batch volume.
+              key: "bbl", header: "BBLs", align: "right", width: "sm:w-16",
+              cell: (a) => {
+                const pct = parseFloat(a.percentage) || 0;
+                return (
+                  <span className={`text-xs tabular-nums ${pct > 0 ? "text-body" : "text-disabled"}`}>
+                    {pct > 0 && row.volume_bbl > 0 ? ((pct / 100) * row.volume_bbl).toFixed(1) : "—"}
+                  </span>
+                );
+              },
+            },
+          ]}
+        />
+      )}
 
       {/* A deal this batch only partly covers — said out loud, so the rest is a
           decision (second batch, or resize the deal) and not a surprise later. */}
@@ -818,7 +833,7 @@ export default function ScheduleBatchForm({
             {/* Configuration */}
             <div>
               <p className="text-xs font-medium text-muted mb-3">Batch Configuration</p>
-              <div className="grid grid-cols-4 gap-3">
+              <FieldGrid cols={4}>
                 {activeRow.isManual && (
                   <Field label="Recipe" required>
                     <select
@@ -881,7 +896,7 @@ export default function ScheduleBatchForm({
                   <input className="inp" value={activeRow.notes}
                     onChange={(e) => updateRow({ ...activeRow, notes: e.target.value })} />
                 </Field>
-              </div>
+              </FieldGrid>
               {activeRow.isManual && activeRow.recipe_id && (
                 <button
                   onClick={() => suggestEquipment(activeRow)}

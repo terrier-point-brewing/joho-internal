@@ -10,7 +10,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
-import SortableTh from "@/app/components/ui/SortableTh";
+import ListTable from "@/app/components/ui/ListTable";
 import type { ControlsConfig } from "@/lib/table/types";
 import { CreditInvoiceModal } from "./CreditInvoiceModal";
 import CancelInvoiceModal from "./CancelInvoiceModal";
@@ -843,7 +843,7 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
       </FilterBar>
 
       {/* Summary strip */}
-      <div className="flex items-center gap-6 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
         <span className="text-secondary">{filtered.length} invoice{filtered.length !== 1 ? "s" : ""}</span>
         <span className="text-muted">|</span>
         <span className="text-secondary">
@@ -859,59 +859,30 @@ export default function ExportInvoicesTab({ highlightInvoiceId }: ExportInvoices
       {filtered.length === 0 ? (
         <p className="text-sm text-faint">No invoices match the current filters.</p>
       ) : (
-        <div className="rounded-lg border border-line overflow-hidden">
-          <div className="scroll-x"><table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface/50 text-left">
-                <th className="px-4 py-2.5 w-6" aria-label="Expand" />
-                <SortableTh label="Invoice #" sortKey="invoice_number" sort={sort} onSort={toggleSort} />
-                <SortableTh label="Date" sortKey="invoice_date" sort={sort} onSort={toggleSort} />
-                <SortableTh label="Customer" sortKey="customer" sort={sort} onSort={toggleSort} />
-                <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
-                <SortableTh label="Total" sortKey="total" sort={sort} onSort={toggleSort} align="right" />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((inv) => {
-                const isExpanded = expandedId === inv.id;
-                return (
-                  <React.Fragment key={inv.id}>
-                    <tr
-                      className="border-b border-line hover:bg-surface/30 cursor-pointer transition-colors"
-                      onClick={() => setExpandedId(isExpanded ? null : inv.id)}
-                    >
-                      <td className="px-4 py-2.5 text-muted text-xs">{isExpanded ? "▾" : "▸"}</td>
-                      <td className="px-4 py-2.5 text-strong font-mono">
-                        {inv.invoice_number ? `#${inv.invoice_number}` : <span className="text-faint">—</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-secondary whitespace-nowrap">
-                        {inv.invoice_date ? fmt(inv.invoice_date) : "—"}
-                      </td>
-                      <td className="px-4 py-2.5 text-body">
-                        {inv.partner_name ?? inv.customer_name ?? "—"}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[invoiceDisplayStatus(inv.status, inv.square_status)]}`}>
-                          {STATUS_LABEL[invoiceDisplayStatus(inv.status, inv.square_status)] ?? inv.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-strong font-medium tabular-nums">
-                        {fmtUsd(inv.total_cents / 100)}
-                      </td>
-                    </tr>
-                    {isExpanded && (
-                      <tr className="border-b border-line bg-surface/20">
-                        <td colSpan={6} className="p-0">
-                          <InvoiceExpandedPanel invoice={inv} onRefresh={refresh} canOperate={canOperate} />
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table></div>
-        </div>
+        <ListTable<(typeof filtered)[number]>
+          rows={filtered}
+          rowKey={(inv) => inv.id}
+          zebra={false}
+          sort={sort}
+          onSort={toggleSort}
+          onRowClick={(inv) => setExpandedId(expandedId === inv.id ? null : inv.id)}
+          isOpen={(inv) => expandedId === inv.id}
+          drawer={(inv) => <InvoiceExpandedPanel invoice={inv} onRefresh={refresh} canOperate={canOperate} />}
+          cols={[
+            { key: "number", header: "Invoice #", role: "label", sortKey: "invoice_number", className: "!text-strong font-mono", cell: (inv) => (inv.invoice_number ? `#${inv.invoice_number}` : "—") },
+            { key: "date", header: "Date", sortKey: "invoice_date", className: "text-secondary whitespace-nowrap", cell: (inv) => inv.invoice_date && fmt(inv.invoice_date) },
+            { key: "customer", header: "Customer", sortKey: "customer", className: "text-body", cell: (inv) => inv.partner_name ?? inv.customer_name },
+            {
+              key: "status", header: "Status", sortKey: "status",
+              cell: (inv) => (
+                <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[invoiceDisplayStatus(inv.status, inv.square_status)]}`}>
+                  {STATUS_LABEL[invoiceDisplayStatus(inv.status, inv.square_status)] ?? inv.status}
+                </span>
+              ),
+            },
+            { key: "total", header: "Total", role: "headline", sortKey: "total", align: "right", className: "text-strong font-medium tabular-nums", cell: (inv) => fmtUsd(inv.total_cents / 100) },
+          ]}
+        />
       )}
     </div>
   );

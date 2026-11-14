@@ -8,6 +8,7 @@ import { CAP } from "@/lib/auth/capabilities";
 import { ContractBrewingPartner, Supplier } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
 import SearchInput from "@/app/components/ui/SearchInput";
+import ListTable, { type ListCol } from "@/app/components/ui/ListTable";
 import { useContractPartnersQuery, useSuppliersQuery, productionKeys } from "../hooks/queries";
 import type { PartnerKind } from "../partners/page";
 
@@ -316,7 +317,7 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
   return (
     <>
       {/* Action buttons */}
-      <div className="flex justify-end gap-2 mb-4">
+      <div className="flex flex-wrap justify-end gap-2 mb-4">
         {kind === "contract" && (
           <button onClick={openSquareImport} className="btn-secondary">
             ↓ Import from Square
@@ -329,105 +330,79 @@ export default function PartnersTab({ kind, setKind }: { kind: PartnerKind; setK
       {records.length === 0 ? (
         <p className="text-faint text-sm">No {kindLabel.toLowerCase()}s yet.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface/50 text-left">
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Company</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Contact</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Email</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Phone</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Address</th>
-                {kind === "contract" && (
-                  <>
-                    <th className="px-4 py-2.5 text-xs font-medium text-muted">Square</th>
-                    <th className="px-4 py-2.5 text-xs font-medium text-muted">Partner portal</th>
-                  </>
-                )}
-                <th className="px-4 py-2.5 text-xs font-medium text-muted"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {records.map((p, i) => {
+        <ListTable<ContractBrewingPartner | Supplier>
+          rows={records}
+          rowKey={(p) => p.id}
+          foldBelow="md"
+          cols={[
+            { key: "company", header: "Company", role: "label", cell: (p) => p.company_name },
+            { key: "contact", header: "Contact", className: "text-secondary", cell: (p) => [p.first_name, p.last_name].filter(Boolean).join(" ") },
+            {
+              key: "email", header: "Email", className: "text-secondary",
+              cell: (p) => p.email && <a href={`mailto:${p.email}`} className="hover:text-strong transition-colors break-all">{p.email}</a>,
+            },
+            { key: "phone", header: "Phone", className: "text-secondary", cell: (p) => p.phone && <a href={`tel:${p.phone}`}>{p.phone}</a> },
+            { key: "address", header: "Address", className: "text-secondary max-w-[200px] truncate", foldBlock: true, cell: (p) => p.address },
+            ...(kind === "contract" ? [
+              {
+                key: "square", header: "Square",
+                cell: (p) => (p as ContractBrewingPartner).square_customer_id && (
+                  <span
+                    title={`Square ID: ${(p as ContractBrewingPartner).square_customer_id}`}
+                    className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-success-surface/40 text-success border border-success-border/50"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-success-emphasis inline-block" />
+                    Linked
+                  </span>
+                ),
+              },
+              {
+                key: "portal", header: "Partner portal", foldBlock: true,
+                cell: (p) => {
+                  const cp = p as ContractBrewingPartner;
+                  return (
+                    <div className="flex flex-wrap items-center gap-3">
+                      {canPreviewPortal && (
+                        <Link href={`/partner?as=${p.id}`} className="btn-secondary btn-xxs" title="See the partner portal exactly as this company sees it (read-only)">
+                          Preview
+                        </Link>
+                      )}
+                      <label className="flex items-center gap-1.5 text-xs text-secondary whitespace-nowrap" title="Batches of this partner's recipes are never offered to other partners in the portal">
+                        <input type="checkbox" checked={!!cp.recipes_exclusive} disabled={!canManage}
+                          onChange={(e) => setExclusive(cp, e.target.checked)} />
+                        Beer is exclusive
+                      </label>
+                    </div>
+                  );
+                },
+              },
+            ] satisfies ListCol<ContractBrewingPartner | Supplier>[] : []),
+            {
+              key: "actions", role: "action",
+              cell: (p) => {
                 const isContract = kind === "contract";
                 const cp = p as ContractBrewingPartner;
                 return (
-                  <tr key={p.id} className={`border-b border-line/60 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}>
-                    <td className="px-4 py-2.5 text-primary font-medium">{p.company_name}</td>
-                    <td className="px-4 py-2.5 text-secondary">
-                      {[p.first_name, p.last_name].filter(Boolean).join(" ") || <span className="text-disabled">—</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-secondary">
-                      {p.email ? <a href={`mailto:${p.email}`} className="hover:text-strong transition-colors">{p.email}</a> : <span className="text-disabled">—</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-secondary">{p.phone ?? <span className="text-disabled">—</span>}</td>
-                    <td className="px-4 py-2.5 text-secondary max-w-[200px] truncate">{p.address ?? <span className="text-disabled">—</span>}</td>
+                  <>
                     {isContract && (
-                      <td className="px-4 py-2.5">
-                        {cp.square_customer_id ? (
-                          <span
-                            title={`Square ID: ${cp.square_customer_id}`}
-                            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-success-surface/40 text-success border border-success-border/50"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-success-emphasis inline-block" />
-                            Linked
-                          </span>
-                        ) : (
-                          <span className="text-disabled text-xs">—</span>
-                        )}
-                      </td>
+                      cp.square_customer_id ? (
+                        <button onClick={() => handleUnlinkSquare(cp)} className="btn-secondary btn-xxs" title="Unlink Square contact">Unlink</button>
+                      ) : (
+                        <button onClick={() => openSquareLink(cp)} className="btn-secondary btn-xxs" title="Link a Square contact">Link Square</button>
+                      )
                     )}
-                    {isContract && (
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-3">
-                          {canPreviewPortal && (
-                            <Link href={`/partner?as=${p.id}`} className="btn-secondary btn-xxs" title="See the partner portal exactly as this company sees it (read-only)">
-                              Preview
-                            </Link>
-                          )}
-                          <label className="flex items-center gap-1.5 text-xs text-secondary whitespace-nowrap" title="Batches of this partner's recipes are never offered to other partners in the portal">
-                            <input type="checkbox" checked={!!cp.recipes_exclusive} disabled={!canManage}
-                              onChange={(e) => setExclusive(cp, e.target.checked)} />
-                            Beer is exclusive
-                          </label>
-                        </div>
-                      </td>
+                    {isContract && cp.square_customer_id ? (
+                      <button type="button" disabled className="btn-secondary btn-xxs" title="Unlink from Square to edit manually">Edit</button>
+                    ) : (
+                      <button onClick={() => openEdit(p)} className="btn-secondary btn-xxs">Edit</button>
                     )}
-                    <td className="px-4 py-2.5">
-                      <div className="flex gap-1 justify-end items-center">
-                        {isContract && (
-                          cp.square_customer_id ? (
-                            <button
-                              onClick={() => handleUnlinkSquare(cp)}
-                              className="btn-secondary btn-xxs"
-                              title="Unlink Square contact"
-                            >
-                              Unlink
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => openSquareLink(cp)}
-                              className="btn-secondary btn-xxs"
-                              title="Link a Square contact"
-                            >
-                              Link Square
-                            </button>
-                          )
-                        )}
-                        {isContract && cp.square_customer_id ? (
-                          <button type="button" disabled className="btn-secondary btn-xxs" title="Unlink from Square to edit manually">Edit</button>
-                        ) : (
-                          <button onClick={() => openEdit(p)} className="btn-secondary btn-xxs">Edit</button>
-                        )}
-                        <button onClick={() => handleDelete(p.id, p.company_name)} className="btn-danger btn-xxs">Delete</button>
-                      </div>
-                    </td>
-                  </tr>
+                    <button onClick={() => handleDelete(p.id, p.company_name)} className="btn-danger btn-xxs">Delete</button>
+                  </>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
+              },
+            },
+          ]}
+        />
       )}
 
       {/* Edit / New partner modal */}

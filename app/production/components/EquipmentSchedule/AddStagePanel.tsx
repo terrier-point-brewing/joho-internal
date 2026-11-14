@@ -7,6 +7,7 @@ import {
   findEquipmentConflict, conflictBatchLabel, suggestAlternativeEquipment,
 } from "./constants";
 import type { ScheduleEntry } from "../../hooks/queries";
+import FieldGrid from "@/app/components/ui/FieldGrid";
 
 export function AddStagePanel({
   batchId,
@@ -77,7 +78,7 @@ export function AddStagePanel({
         </span>
         <button type="button" onClick={onClose} className="text-xs text-faint hover:text-secondary">✕</button>
       </div>
-      <div className="grid gap-2 grid-cols-5">
+      <FieldGrid cols={5} gap={2}>
         <div>
           <label className="block text-[10px] mb-0.5 text-muted">Stage</label>
           <select className="inp text-xs w-full" value={stage}
@@ -109,7 +110,7 @@ export function AddStagePanel({
           <input type="number" step="0.01" min="0" placeholder="e.g. 3.5" className="inp text-xs w-full"
             value={volBbl} onChange={e => setVolBbl(e.target.value)} />
         </div>
-      </div>
+      </FieldGrid>
       {conflict && (
         <div className="px-3 py-2 rounded border border-danger-border/50 bg-danger-surface/30 text-xs text-danger leading-relaxed">
           <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.

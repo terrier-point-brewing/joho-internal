@@ -478,11 +478,33 @@ Sideways scroll is the fallback, not the design. `app/components/ui/Table.tsx`
   `MappingGrid` and Target Setting's quarter cards are the references).
 
 **List and log tables** (one row per thing, mostly text) do not scroll sideways on a
-phone at all. Keep the label and one or two numbers as columns; every other column
-takes `max-sm:hidden` and is repeated in a muted sub-line under the label
-(`sm:hidden`). Row actions fold under the label too, or into the expanded row, so
-there is no action column. Ingredients, Packaging, Batch Log and the two adjustment
-logs in Production are the references. A `min-w-[Npx]` is only allowed from `sm:`.
+phone at all, and no page writes its own fold. Use `<ListTable>`
+(`app/components/ui/ListTable.tsx`): describe the columns once and give each a role.
+
+| `role` | From the fold breakpoint | Below it |
+|---|---|---|
+| `label` | A column (any position) | The first column; carries everything folded |
+| `headline` | A column | A column. One or two: the number or status the reader came for, or a checkbox |
+| `detail` (default) | A column | Joined into a muted sub-line under the label. `foldLabel` prefixes a bare number, `foldBlock` gives a note or a bar its own line, `fold` swaps the content, `fold: false` drops it |
+| `action` | A right-aligned column | A wrapping row of buttons under the label |
+
+- A `cell` that returns nothing is the standard dash on desktop and is left out of
+  the sub-line. Do not render your own dash.
+- `foldBelow` is `sm` by default; use `md` or `lg` for a table too wide for a tablet.
+- `drawer` + `isOpen` add the expanded row (viewport width, chevron in the first
+  cell). `groups` puts rows under full-width headings with an optional footer
+  (Partner Ledger, Shipments, a recipe's ingredient bill). `footer` is for totals.
+- Intake Plan and Commitments, Transfers, Partners, Packaging Variations, Shipments,
+  the Partner Ledger and both invoice lists are the references. Ingredients,
+  Packaging, Batch Log and the two adjustment logs predate it and still fold by hand
+  (`max-sm:hidden` + a `sm:hidden` sub-line); move them over when next touched.
+- A `min-w-[Npx]` is only allowed from `sm:`.
+
+**Editable grids** (a row of inputs per item) use `<EditGrid>`
+(`app/components/ui/EditGrid.tsx`): a table from `sm`, one card per row on a phone
+with each control under its label, from a single set of columns. Never keep a second
+hand-written phone copy of a form. Brew steps (`BrewStepsEditor`), a recipe's
+ingredient bill and Schedule Batch allocations are the references.
 
 **Wide tables: fixed columns plus more columns than the screen holds.** A matrix
 (label, a few summaries, then a column per week or month) cannot be folded into a
@@ -517,6 +539,9 @@ two series columns are in view**. If they are not, a column has the wrong role.
 control on a phone, so the control gets the full row. `<TitleRow title actions>` lets
 an action cluster wrap under the title instead of crushing it. Never pair a fixed
 `w-*` label or a `shrink-0` button cluster with a `flex-1` control in a bare flex row.
+`<FieldGrid cols phone>` is a row of short fields or stats: `cols` across from `sm`,
+two across on a phone (1 for long controls, 3 for bare numbers). Never write an
+unprefixed `grid-cols-3+`.
 
 ### E. Toolbars: filters and view controls
 The controls above a table or chart get **two rows on a phone and one in landscape**.

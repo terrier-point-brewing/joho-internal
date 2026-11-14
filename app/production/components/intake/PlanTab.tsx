@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { queryKeys } from "@/lib/query-keys";
@@ -8,6 +8,7 @@ import { fmtDateLong } from "@/lib/utils/formatting";
 import { fetchJson } from "../../hooks/queries";
 import Banner from "@/app/components/ui/Banner";
 import Badge from "@/app/components/ui/Badge";
+import ListTable from "@/app/components/ui/ListTable";
 import ButtonGroup from "@/app/components/ButtonGroup";
 import type { Tone } from "@/app/components/ui/tone";
 import type { PlanRow } from "@/lib/production/intakeDemand.server";
@@ -149,68 +150,53 @@ export default function PlanTab({ onSchedule }: { onSchedule: (recipeId: string 
           {view === "action" ? "Nothing needs brewing right now." : "No beers with stock, sales or commitments yet."}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface/50 text-left text-xs text-muted">
-                <th className="px-4 py-2.5 font-medium">Beer</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium text-right whitespace-nowrap">On hand (bbl)</th>
-                <th className="px-4 py-2.5 font-medium text-right whitespace-nowrap">Taproom / wk</th>
-                <th className="px-4 py-2.5 font-medium text-right whitespace-nowrap">Owed to partners</th>
-                <th className="px-4 py-2.5 font-medium whitespace-nowrap">Runs out</th>
-                <th className="px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((row, i) => {
-                const v = verdict(row);
-                const isOpen = open === row.recipe_id;
-                return (
-                  <React.Fragment key={row.recipe_id}>
-                    <tr
-                      className={`border-b border-line/60 cursor-pointer hover:bg-surface/40 ${i % 2 !== 0 ? "bg-surface/30" : ""}`}
-                      onClick={() => setOpen(isOpen ? null : row.recipe_id)}
-                    >
-                      <td className="px-4 py-2.5 font-medium text-primary">
-                        <span className={`inline-block text-faint text-[10px] mr-2 transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
-                        {row.style}
-                      </td>
-                      <td className="px-4 py-2.5"><Badge tone={v.tone}>{v.label}</Badge></td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-body">{row.current_bbl.toFixed(1)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-body">{bbl(row.taproom_bbl_per_week)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-body">
-                        {bbl(row.owed_bbl)}
-                        {row.uncovered_bbl >= 0.1 && <span className="block text-xs text-accent-soft">{row.uncovered_bbl.toFixed(1)} not on any batch</span>}
-                      </td>
-                      <td className="px-4 py-2.5 whitespace-nowrap"><RunsOut row={row} /></td>
-                      <td className="px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                        {canBrewingOperate && !row.is_retired && (
-                          <button onClick={() => onSchedule(row.recipe_id)} className={v.needsBatch ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}>
-                            Schedule batch
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                    {isOpen && (
-                      <tr className="border-b border-line/60 bg-surface/40">
-                        <td colSpan={7} className="px-4 py-3">
-                          <WeekDetail row={row} />
-                          <div className="flex items-center justify-between mt-2 text-xs text-faint">
-                            <span>Lead time {row.lead_time_days > 0 ? `${row.lead_time_days} days` : "not set on the recipe"}.</span>
-                            <button onClick={() => toggleRetire(row)} disabled={retiring === row.recipe_id} className="btn-secondary btn-xxs">
-                              {retiring === row.recipe_id ? "…" : row.is_retired ? "Bring back" : "Retire — stop planning this beer"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <ListTable<PlanRow>
+          rows={shown}
+          rowKey={(row) => row.recipe_id}
+          onRowClick={(row) => setOpen(open === row.recipe_id ? null : row.recipe_id)}
+          isOpen={(row) => open === row.recipe_id}
+          drawer={(row) => (
+            <div className="px-3 sm:px-4 py-3">
+              <WeekDetail row={row} />
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-2 text-xs text-faint">
+                <span>Lead time {row.lead_time_days > 0 ? `${row.lead_time_days} days` : "not set on the recipe"}.</span>
+                <button onClick={() => toggleRetire(row)} disabled={retiring === row.recipe_id} className="btn-secondary btn-xxs">
+                  {retiring === row.recipe_id ? "…" : row.is_retired ? "Bring back" : "Retire — stop planning this beer"}
+                </button>
+              </div>
+            </div>
+          )}
+          cols={[
+            { key: "beer", header: "Beer", role: "label", cell: (row) => row.style },
+            { key: "status", header: "Status", role: "headline", cell: (row) => { const v = verdict(row); return <Badge tone={v.tone}>{v.label}</Badge>; } },
+            { key: "onhand", header: "On hand (bbl)", align: "right", className: "tabular-nums text-body", foldLabel: "On hand", cell: (row) => row.current_bbl.toFixed(1) },
+            { key: "taproom", header: "Taproom / wk", align: "right", className: "tabular-nums text-body", foldLabel: "Taproom / wk", cell: (row) => bbl(row.taproom_bbl_per_week) },
+            {
+              key: "owed", header: "Owed to partners", align: "right", className: "tabular-nums text-body", foldLabel: "Owed",
+              cell: (row) => (
+                <>
+                  {bbl(row.owed_bbl)}
+                  {row.uncovered_bbl >= 0.1 && <span className="block text-xs text-accent-soft">{row.uncovered_bbl.toFixed(1)} not on any batch</span>}
+                </>
+              ),
+              fold: (row) => row.owed_bbl > 0 && (
+                <>
+                  {bbl(row.owed_bbl)}
+                  {row.uncovered_bbl >= 0.1 && <span className="text-accent-soft">({row.uncovered_bbl.toFixed(1)} not on any batch)</span>}
+                </>
+              ),
+            },
+            { key: "runsout", header: "Runs out", className: "whitespace-nowrap", foldBlock: true, fold: (row) => (row.is_retired ? null : <RunsOut row={row} />), cell: (row) => <RunsOut row={row} /> },
+            {
+              key: "actions", role: "action",
+              cell: (row) => canBrewingOperate && !row.is_retired && (
+                <button onClick={() => onSchedule(row.recipe_id)} className={verdict(row).needsBatch ? "btn-primary btn-xxs" : "btn-secondary btn-xxs"}>
+                  Schedule batch
+                </button>
+              ),
+            },
+          ]}
+        />
       )}
     </div>
   );
@@ -220,7 +206,7 @@ export default function PlanTab({ onSchedule }: { onSchedule: (recipeId: string 
 function WeekDetail({ row }: { row: PlanRow }) {
   const channels = CHANNELS.filter((c) => row.weeks.some((w) => w[c.key] > 0));
   return (
-    <div className="overflow-x-auto">
+    <div className="scroll-x">
       <table className="text-xs w-full">
         <thead>
           <tr className="text-muted">
