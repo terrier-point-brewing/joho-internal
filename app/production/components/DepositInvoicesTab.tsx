@@ -9,6 +9,7 @@ import { fmtUsd } from "@/lib/utils/formatting";
 import { FULFILLMENT_TOLERANCE_BBL } from "@/lib/production/commitmentFulfillment";
 import Banner from "@/app/components/ui/Banner";
 import FilterBar from "@/app/components/ui/FilterBar";
+import ListTable from "@/app/components/ui/ListTable";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import SearchInput from "@/app/components/ui/SearchInput";
 import { useTableControls } from "@/app/components/ui/useTableControls";
@@ -250,7 +251,7 @@ export default function DepositInvoicesTab() {
         />
       </FilterBar>
 
-      <div className="flex items-center gap-6 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2 bg-surface/60 border border-line rounded text-xs">
         <span className="text-secondary">{filtered.length} invoice{filtered.length !== 1 ? "s" : ""}</span>
         <span className="text-muted">|</span>
         <span className="text-secondary"><span className="text-accent-soft font-medium">{fmtUsd(openTotal / 100)}</span> open</span>
@@ -265,62 +266,51 @@ export default function DepositInvoicesTab() {
           {isPending ? "Loading deposit invoices…" : "No deposit invoices match the current filters."}
         </p>
       ) : (
-        <div className="rounded-lg border border-line overflow-hidden">
-          <div className="scroll-x"><table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface/50 text-left">
-                <th className="px-4 py-2.5 w-6" aria-label="Expand" />
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Invoice #</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Date</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Customer</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Batch</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted">Status</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Fulfilled</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-muted text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((inv) => {
-                const isExpanded = expandedId === inv.id;
-                return (
-                  <React.Fragment key={inv.id}>
-                    <tr className="border-b border-line hover:bg-surface/30 cursor-pointer transition-colors" onClick={() => setExpandedId(isExpanded ? null : inv.id)}>
-                      <td className="px-4 py-2.5 text-muted text-xs">{isExpanded ? "▾" : "▸"}</td>
-                      <td className="px-4 py-2.5 text-strong font-mono">{inv.invoice_number ? `#${inv.invoice_number}` : <span className="text-faint">—</span>}</td>
-                      <td className="px-4 py-2.5 text-secondary whitespace-nowrap">{inv.invoice_date ? fmt(inv.invoice_date) : "—"}</td>
-                      <td className="px-4 py-2.5 text-body">{inv.partner_name ?? inv.customer_name ?? "—"}</td>
-                      <td className="px-4 py-2.5 text-body">{inv.beer_name ?? "—"}</td>
-                      <td className="px-4 py-2.5">
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[invoiceDisplayStatus(inv.status, inv.square_status)] ?? STATUS_BADGE.unknown}`}>{STATUS_LABEL[invoiceDisplayStatus(inv.status, inv.square_status)] ?? inv.status}</span>
-                        {(inv.refund_amount_cents ?? 0) > 0 && (
-                          <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded bg-danger-surface/40 text-danger">Partial Refund</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-secondary tabular-nums whitespace-nowrap">
-                        {(inv.status === "paid" || inv.status === "partial") && inv.fulfilled_bbl != null && inv.guaranteed_bbl != null && inv.guaranteed_bbl > 0 ? (
-                          <span className={inv.fulfilled_bbl >= inv.guaranteed_bbl - FULFILLMENT_TOLERANCE_BBL ? "text-success" : undefined}>
-                            {inv.fulfilled_bbl.toFixed(1)} / {inv.guaranteed_bbl.toFixed(1)} bbl
-                          </span>
-                        ) : <span className="text-faint">—</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-strong font-medium tabular-nums">
-                        {fmtUsd(inv.total_cents / 100)}
-                        {(inv.refund_amount_cents ?? 0) > 0 && (
-                          <span className="block text-xs text-danger font-normal">−{fmtUsd((inv.refund_amount_cents ?? 0) / 100)} refunded</span>
-                        )}
-                      </td>
-                    </tr>
-                    {isExpanded && (
-                      <tr className="border-b border-line bg-surface/20">
-                        <td colSpan={8} className="p-0"><ExpandedPanel invoice={inv} /></td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table></div>
-        </div>
+        <ListTable<(typeof filtered)[number]>
+          rows={filtered}
+          rowKey={(inv) => inv.id}
+          zebra={false}
+          foldBelow="md"
+          onRowClick={(inv) => setExpandedId(expandedId === inv.id ? null : inv.id)}
+          isOpen={(inv) => expandedId === inv.id}
+          drawer={(inv) => <ExpandedPanel invoice={inv} />}
+          cols={[
+            { key: "number", header: "Invoice #", role: "label", className: "!text-strong font-mono", cell: (inv) => (inv.invoice_number ? `#${inv.invoice_number}` : "—") },
+            { key: "date", header: "Date", className: "text-secondary whitespace-nowrap", cell: (inv) => inv.invoice_date && fmt(inv.invoice_date) },
+            { key: "customer", header: "Customer", className: "text-body", cell: (inv) => inv.partner_name ?? inv.customer_name },
+            { key: "batch", header: "Batch", className: "text-body", cell: (inv) => inv.beer_name },
+            {
+              key: "status", header: "Status",
+              cell: (inv) => (
+                <span className="inline-flex flex-wrap gap-1.5">
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_BADGE[invoiceDisplayStatus(inv.status, inv.square_status)] ?? STATUS_BADGE.unknown}`}>{STATUS_LABEL[invoiceDisplayStatus(inv.status, inv.square_status)] ?? inv.status}</span>
+                  {(inv.refund_amount_cents ?? 0) > 0 && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-danger-surface/40 text-danger">Partial Refund</span>
+                  )}
+                </span>
+              ),
+            },
+            {
+              key: "fulfilled", header: "Fulfilled", align: "right", className: "text-secondary tabular-nums whitespace-nowrap", foldLabel: "Fulfilled",
+              cell: (inv) => (inv.status === "paid" || inv.status === "partial") && inv.fulfilled_bbl != null && inv.guaranteed_bbl != null && inv.guaranteed_bbl > 0 && (
+                <span className={inv.fulfilled_bbl >= inv.guaranteed_bbl - FULFILLMENT_TOLERANCE_BBL ? "text-success" : undefined}>
+                  {inv.fulfilled_bbl.toFixed(1)} / {inv.guaranteed_bbl.toFixed(1)} bbl
+                </span>
+              ),
+            },
+            {
+              key: "total", header: "Total", role: "headline", align: "right", className: "text-strong font-medium tabular-nums",
+              cell: (inv) => (
+                <>
+                  {fmtUsd(inv.total_cents / 100)}
+                  {(inv.refund_amount_cents ?? 0) > 0 && (
+                    <span className="block text-xs text-danger font-normal">−{fmtUsd((inv.refund_amount_cents ?? 0) / 100)} refunded</span>
+                  )}
+                </>
+              ),
+            },
+          ]}
+        />
       )}
     </div>
   );

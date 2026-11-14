@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { Recipe } from "../types";
+import { BrewStepsEditor, BrewStepsTable } from "./BrewSteps";
 import { Modal, Field, ModalActions } from "./shared";
 import { fetchJson, useRecipesQuery } from "../hooks/queries";
 
@@ -33,49 +34,6 @@ const EMPTY_STEP = (): TemplateStep => ({
   sort_order: 0, activity: "", time_label: "", temp: "", temp_unit: "F",
   amount: "", amount_unit: "", vsp: "",
 });
-
-// ─── Step Editor Row ──────────────────────────────────────────────────────────
-
-function StepRow({
-  step, index, onChange, onRemove,
-}: {
-  step: TemplateStep;
-  index: number;
-  onChange: (s: TemplateStep) => void;
-  onRemove: () => void;
-}) {
-  function set(field: keyof TemplateStep, val: string) {
-    onChange({ ...step, [field]: val });
-  }
-  return (
-    <tr className={`border-b border-line/60 ${index % 2 !== 0 ? "bg-surface/20" : ""}`}>
-      <td className="px-3 py-1.5">
-        <input className="inp-sm w-full" placeholder="e.g. Mash in" value={step.activity}
-          onChange={(e) => set("activity", e.target.value)} />
-      </td>
-      <td className="px-2 py-1.5 w-20">
-        <input type="number" step="1" className="inp-sm text-right w-full" placeholder="0"
-          value={step.time_label} onChange={(e) => set("time_label", e.target.value)} />
-      </td>
-      <td className="px-2 py-1.5 w-20">
-        <input type="number" step="0.1" className="inp-sm text-right w-full" placeholder="152"
-          value={step.temp} onChange={(e) => set("temp", e.target.value)} />
-      </td>
-      <td className="px-2 py-1.5 w-20">
-        <input type="number" step="0.01" className="inp-sm text-right w-full" placeholder="0"
-          value={step.amount} onChange={(e) => set("amount", e.target.value)} />
-      </td>
-      <td className="px-2 py-1.5 w-20">
-        <input type="number" step="0.1" className="inp-sm text-right w-full" placeholder="0"
-          value={step.vsp} onChange={(e) => set("vsp", e.target.value)} />
-      </td>
-      <td className="px-3 py-1.5 text-center">
-        <button type="button" onClick={onRemove}
-          className="btn-danger btn-xxs">×</button>
-      </td>
-    </tr>
-  );
-}
 
 // ─── Template Modal ───────────────────────────────────────────────────────────
 
@@ -174,27 +132,7 @@ function TemplateModal({
             <button type="button" onClick={addStep}
               className="btn-secondary">+ Add step</button>
           </div>
-          <div className="rounded border border-line overflow-x-auto">
-            <table className="w-full text-sm min-w-[480px]">
-              <thead>
-                <tr className="border-b border-line bg-surface/50">
-                  <th className="px-3 py-2 text-xs font-medium text-muted text-left">Activity</th>
-                  <th className="px-3 py-2 text-xs font-medium text-muted text-right w-20">Time (min)</th>
-                  <th className="px-3 py-2 text-xs font-medium text-muted text-right w-20">Temp (°F)</th>
-                  <th className="px-3 py-2 text-xs font-medium text-muted text-right w-20">Amount</th>
-                  <th className="px-3 py-2 text-xs font-medium text-muted text-right w-20">VSP</th>
-                  <th className="px-3 py-2 w-6"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {(steps as TemplateStep[]).map((s: TemplateStep, i: number) => (
-                  <StepRow key={i} step={s} index={i}
-                    onChange={(ns) => updateStep(i, ns)}
-                    onRemove={() => removeStep(i)} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <BrewStepsEditor steps={steps as TemplateStep[]} onChange={updateStep} onRemove={removeStep} />
           {steps.filter((s) => s.activity.trim()).length === 0 && (
             <p className="text-xs text-faint mt-1">At least one step required.</p>
           )}
@@ -356,40 +294,7 @@ export default function BrewStepTemplatesTab() {
                 {isOpen && (
                   <div className="border-t border-line">
                     {t.brew_step_template_steps.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm min-w-[480px]">
-                          <thead>
-                            <tr className="border-b border-line bg-surface/50 text-left">
-                              <th className="px-4 py-2 text-xs font-medium text-muted">#</th>
-                              <th className="px-4 py-2 text-xs font-medium text-muted">Activity</th>
-                              <th className="px-4 py-2 text-xs font-medium text-muted text-right">Time (min)</th>
-                              <th className="px-4 py-2 text-xs font-medium text-muted text-right">Temp</th>
-                              <th className="px-4 py-2 text-xs font-medium text-muted text-right">Amount</th>
-                              <th className="px-4 py-2 text-xs font-medium text-muted text-right">VSP</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {t.brew_step_template_steps.map((s, i) => (
-                              <tr key={i} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                                <td className="px-4 py-1.5 text-xs text-faint">{i + 1}</td>
-                                <td className="px-4 py-1.5 text-body">{s.activity}</td>
-                                <td className="px-4 py-1.5 text-right text-xs text-muted tabular-nums">
-                                  {s.time_label || "—"}
-                                </td>
-                                <td className="px-4 py-1.5 text-right text-xs text-muted tabular-nums">
-                                  {s.temp != null ? `${s.temp}°${s.temp_unit ?? "F"}` : "—"}
-                                </td>
-                                <td className="px-4 py-1.5 text-right text-xs text-muted tabular-nums">
-                                  {s.amount != null ? `${s.amount}${s.amount_unit ? ` ${s.amount_unit}` : ""}` : "—"}
-                                </td>
-                                <td className="px-4 py-1.5 text-right text-xs text-muted tabular-nums">
-                                  {s.vsp != null ? String(s.vsp) : "—"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      <BrewStepsTable steps={t.brew_step_template_steps} className="!rounded-none !border-0" />
                     ) : (
                       <p className="px-4 py-3 text-xs text-faint">No steps defined.</p>
                     )}

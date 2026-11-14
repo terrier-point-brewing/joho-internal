@@ -813,7 +813,7 @@ export default function ExportBayTab() {
       )}
 
       {/* Sticky column labels */}
-      <div className="sticky top-0 z-10 bg-canvas grid grid-cols-1 md:grid-cols-2 gap-6 py-2 border-b border-line/60">
+      <div className="max-md:hidden desk:sticky desk:top-0 z-10 bg-canvas grid grid-cols-2 gap-6 py-2 border-b border-line/60">
         <h3 className="text-sm font-medium text-body">Available</h3>
         <h3 className="text-sm font-medium text-body">Shares</h3>
       </div>
@@ -920,6 +920,8 @@ export default function ExportBayTab() {
 
                   {/* Right: Allocations */}
                   <div className="rounded-lg border border-line overflow-hidden flex flex-col">
+                    {/* Stacked under In Stock on a phone, so the card names itself. */}
+                    <div className="md:hidden px-3 py-2 bg-surface/60 border-b border-line text-xs font-medium text-muted uppercase tracking-wide">Shares</div>
                     {!rg ? (
                       <div className="px-3 py-3 text-xs text-faint italic flex-1">
                         No active allocations

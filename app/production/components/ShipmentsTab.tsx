@@ -22,6 +22,7 @@ import FilterChips from "@/app/components/ui/FilterChips";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import FilterBar from "@/app/components/ui/FilterBar";
+import ListTable from "@/app/components/ui/ListTable";
 import type { ControlsConfig } from "@/lib/table/types";
 
 interface ShipmentRow {
@@ -129,6 +130,9 @@ interface InvoiceGroup {
   rows: ShipmentRow[];
 }
 
+/** One product line as the list renders it: the product, plus the card it sits in. */
+type ShipmentListRow = GroupProductRow & { group: InvoiceGroup; rowKey: string };
+
 const DRAFT_RECOUNT_PREFIX = "sqtransfer:";
 
 function isDraftRecountRef(sourceRef: string | null): boolean {
@@ -203,7 +207,6 @@ const PKG_FORMAT_ORDER: Record<string, number> = {
 
 // Shared grid template so the column header and every product row stay aligned.
 // checkbox | date | channel | category | recipe | variation | qty | bbl | tax | chevron
-const ROW_GRID_COLS = "20px 84px 80px 92px minmax(110px,1fr) minmax(150px,1.5fr) 48px 72px 60px 20px";
 
 function getPackagingCategory(row: ShipmentRow): { label: string; sortKey: [number, number, number] } {
   const type = row.packaging_item_type;
@@ -579,7 +582,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
 
       {/* Summary stats */}
       {filtered.length > 0 && (
-        <div className="flex items-center gap-4 px-4 py-2 bg-surface/30 border border-line rounded-lg text-xs">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 bg-surface/30 border border-line rounded-lg text-xs">
           <span className="text-muted">
             Showing <span className="tabular-nums">{formatNumber(filtered.length)}</span> shipment{filtered.length !== 1 ? "s" : ""}
           </span>
@@ -600,251 +603,194 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
       {filtered.length === 0 ? (
         <p className="text-sm text-faint">No shipments match the current filters.</p>
       ) : (
-        <div className="space-y-3">
-          {/* Column header — aligned to the product-row grid */}
-          <div
-            className="grid items-center gap-3 px-4 text-[10px] font-medium uppercase tracking-wide text-faint"
-            style={{ gridTemplateColumns: ROW_GRID_COLS }}
-          >
-            <span />
-            <span>Date</span>
-            <span>Channel</span>
-            <span>Category</span>
-            <span>Recipe</span>
-            <span>Variation</span>
-            <span className="text-right">Qty</span>
-            <span className="text-right">BBL</span>
-            <span className="text-right">Tax</span>
-            <span />
-          </div>
-
-          {filtered.map((group) => {
+        <ListTable<ShipmentListRow>
+          dense
+          zebra={false}
+          foldBelow="lg"
+          rowKey={(product) => product.rowKey}
+          onRowClick={(product) => toggleExpand(product.rowKey)}
+          isOpen={(product) => expandedProducts.has(product.rowKey)}
+          drawer={(product) => (
+            <div className="pl-8 lg:pl-[4.5rem] pr-4 py-2.5 space-y-1">
+              {product.allocations.map((alloc) => (
+                <div key={alloc.id} className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                  <span className="text-disabled">└</span>
+                  <span className="font-mono text-secondary">#{alloc.batch_number}</span>
+                  <span className="text-disabled">·</span>
+                  <span className="tabular-nums">{fmtQty(alloc.quantity)} {product.unit_label}</span>
+                  <span className="text-disabled">·</span>
+                  <span className="tabular-nums">{alloc.volume_bbl.toFixed(4)} bbl</span>
+                </div>
+              ))}
+            </div>
+          )}
+          groups={filtered.map((group) => {
             const isLocked = !!lockedCustomerId && group.recipient_id !== lockedCustomerId;
             const partnerName = group.recipient_id
               ? (partnerNameById.get(group.recipient_id) ?? group.recipient_name ?? "Unknown")
               : "—";
-
-            return (
-              <div
-                key={group.key}
-                className={`border border-line rounded-lg overflow-hidden transition-opacity ${isLocked ? "opacity-40" : ""}`}
-              >
-                {/* Group header: invoice#/day + customer + status */}
-                <div className="flex items-center gap-3 px-4 py-2.5 bg-surface/50 border-b border-line text-xs">
-                  {group.isTaproom ? (
-                    <>
-                      <span className={`px-1.5 py-0.5 rounded whitespace-nowrap ${CHANNEL_BADGE.taproom ?? "bg-surface-mid text-secondary"}`}>
-                        Taproom
+            return {
+              key: group.key,
+              className: isLocked ? "opacity-40" : "",
+              rows: group.products.map((product) => ({
+                ...product,
+                group,
+                rowKey: `${group.key}:${product.recipe_id ?? ""}:${product.variant_label}`,
+              })),
+              // Group header: invoice#/day + customer + status
+              header: (
+                <>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+                    {group.isTaproom ? (
+                      <>
+                        <span className={`px-1.5 py-0.5 rounded whitespace-nowrap ${CHANNEL_BADGE.taproom ?? "bg-surface-mid text-secondary"}`}>
+                          Taproom
+                        </span>
+                        <span className="text-strong font-medium">{group.day ? fmtDateLong(group.day) : "—"}</span>
+                      </>
+                    ) : (
+                      <>
+                        {group.invoice_id ? (
+                          <button
+                            onClick={() => onNavigateToInvoice?.(group.invoice_id!)}
+                            className="font-mono font-medium text-accent hover:text-accent-soft underline"
+                          >
+                            {group.invoice_number ? `#${group.invoice_number}` : "View invoice"}
+                          </button>
+                        ) : (
+                          <span className="text-faint italic">No invoice</span>
+                        )}
+                        <span className="text-strong font-medium">{partnerName}</span>
+                      </>
+                    )}
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-surface-mid text-secondary"}`}>
+                        {STATUS_LABELS[group.status] ?? group.status}
                       </span>
-                      <span className="text-strong font-medium">{group.day ? fmtDateLong(group.day) : "—"}</span>
-                    </>
-                  ) : (
-                    <>
-                      {group.invoice_id ? (
+                      {group.status === "draft" && group.invoice_id && (
                         <button
-                          onClick={() => onNavigateToInvoice?.(group.invoice_id!)}
-                          className="font-mono font-medium text-accent hover:text-accent-soft underline"
+                          onClick={() => handleSendInvoice(group)}
+                          disabled={sendingKey !== null}
+                          className="btn-primary"
                         >
-                          {group.invoice_number ? `#${group.invoice_number}` : "View invoice"}
+                          {sendingKey === group.key ? "Sending…" : "Send Invoice"}
                         </button>
-                      ) : (
-                        <span className="text-faint italic">No invoice</span>
                       )}
-                      <span className="text-strong font-medium">{partnerName}</span>
-                    </>
-                  )}
-                  <div className="ml-auto flex items-center gap-2">
-                    <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-surface-mid text-secondary"}`}>
-                      {STATUS_LABELS[group.status] ?? group.status}
-                    </span>
-                    {group.status === "draft" && group.invoice_id && (
-                      <button
-                        onClick={() => handleSendInvoice(group)}
-                        disabled={sendingKey !== null}
-                        className="btn-primary"
-                      >
-                        {sendingKey === group.key ? "Sending…" : "Send Invoice"}
-                      </button>
-                    )}
-                    {isShipmentEditable(group.rows) && (
-                      <button
-                        onClick={() => setEditing(group)}
-                        className="btn-secondary"
-                      >
-                        Edit
-                      </button>
-                    )}
-                    {/* Revise is offered only for a single-shipment group. A
-                        group can span several shipment_ids (they were invoiced
-                        together), and a revision is scoped to ONE shipment
-                        because the unship + rebook has to reverse a coherent
-                        physical drop. */}
-                    {(() => {
-                      const shipmentIds = [...new Set(group.rows.map((r) => r.shipment_id))];
-                      if (shipmentIds.length !== 1) return null;
-                      if (!isShipmentRevisable(group.rows)) return null;
-                      return (
+                      {isShipmentEditable(group.rows) && (
                         <button
-                          onClick={() => setRevising(shipmentIds[0])}
+                          onClick={() => setEditing(group)}
                           className="btn-secondary"
                         >
-                          Revise
+                          Edit
                         </button>
-                      );
-                    })()}
-                  </div>
-                </div>
-
-                {sendMessage?.key === group.key && (
-                  <div className={`px-4 py-2 text-xs border-b border-line ${sendMessage.isError ? "text-danger" : "text-secondary"}`}>
-                    {sendMessage.text}
-                  </div>
-                )}
-
-                {/* Product rows — each shows date, channel, beer, packaging, qty */}
-                {group.products.map((product, pi) => {
-                  const isLastProduct = pi === group.products.length - 1;
-                  const checked = isProductChecked(product);
-                  const canCheck = canProductCheck(product, group);
-                  const productKey = `${group.key}:${product.recipe_id ?? ""}:${product.variant_label}`;
-                  const isExpanded = expandedProducts.has(productKey);
-
-                  return (
-                    <div
-                      key={`${product.recipe_id ?? ""}:${product.variant_label}`}
-                      className={!isLastProduct ? "border-b border-line" : undefined}
-                    >
-                      {/* Grid columns: checkbox | date | channel | category | recipe | variation | qty | bbl | tax | chevron */}
-                      <div
-                        className="grid items-center gap-3 px-4 py-2.5"
-                        style={{ gridTemplateColumns: ROW_GRID_COLS }}
-                      >
-                        <div className="flex items-center justify-center">
-                          {canCheck ? (
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleProduct(product, group.recipient_id)}
-                              className="accent-amber-500"
-                              aria-label={`Select ${product.beer_name}`}
-                            />
-                          ) : null}
-                        </div>
-
-                        {/* Date */}
-                        <span className="text-xs text-muted whitespace-nowrap">
-                          {fmtDateLong(product.created_at)}
-                        </span>
-
-                        {/* Channel badge */}
-                        <span className={`text-xs px-1.5 py-0.5 rounded whitespace-nowrap ${CHANNEL_BADGE[product.channel] ?? "bg-surface-mid text-secondary"}`}>
-                          {CHANNEL_LABELS[product.channel] ?? product.channel}
-                        </span>
-
-                        {/* Packaging category */}
-                        <span
-                          className="text-xs px-1.5 py-0.5 rounded bg-surface-mid text-body whitespace-nowrap overflow-hidden text-ellipsis"
-                          title={product.packaging_category}
-                        >
-                          {product.packaging_category}
-                        </span>
-
-                        {/* Recipe */}
-                        <span className="text-sm text-strong truncate" title={product.beer_name}>
-                          {product.beer_name}
-                        </span>
-
-                        {/* Packaging variation (actual variation shipped) */}
-                        <span className="flex items-center gap-1.5 min-w-0">
-                          <span className="text-xs text-secondary truncate" title={product.variant_label}>
-                            {product.variant_label}
-                          </span>
-                          {product.isDraftRecount && (
-                            <span
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-info-surface/50 text-info whitespace-nowrap shrink-0"
-                              title="Keg drained by a draft line restock (recount swap), not a partner shipment"
-                            >
-                              Draft recount
-                            </span>
-                          )}
-                          {product.isAdHoc && (
-                            <span
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-accent-muted/40 text-accent-soft whitespace-nowrap shrink-0"
-                              title="Shipped ad-hoc from the Export Bay — no commitment behind it, so no ingredient deposit was collected up front."
-                            >
-                              Ad-hoc
-                            </span>
-                          )}
-                          {product.reconcileState === "unreconciled" && (
-                            <span
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-danger-surface/50 text-danger whitespace-nowrap shrink-0"
-                              title="Barrel excise was booked with no cold-storage keg to deduct. Resolve or dismiss it under Export Bay."
-                            >
-                              Unreconciled
-                            </span>
-                          )}
-                          {product.reconcileState === "no_stock" && (
-                            <span
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-surface-mid text-muted whitespace-nowrap shrink-0"
-                              title="Reviewed under Export Bay and dismissed — there was no cold-storage keg to draw down, so this recount stays batchless by design."
-                            >
-                              No stock
-                            </span>
-                          )}
-                        </span>
-
-                        {/* Qty */}
-                        <span className="text-sm text-strong tabular-nums text-right">
-                          {fmtQty(product.total_quantity)}
-                        </span>
-
-                        {/* BBL */}
-                        <span className="text-xs text-muted tabular-nums text-right">
-                          {product.total_volume_bbl.toFixed(2)}<span className="text-disabled ml-0.5">bbl</span>
-                        </span>
-
-                        {/* Excise tax */}
-                        <span className="text-xs text-muted tabular-nums text-right">
-                          ${product.total_excise_tax_usd.toFixed(2)}
-                        </span>
-
-                        {/* Expand chevron */}
-                        <button
-                          onClick={() => toggleExpand(productKey)}
-                          className="text-faint hover:text-secondary transition-colors flex justify-center"
-                          aria-label={isExpanded ? "Collapse allocation detail" : "Expand allocation detail"}
-                        >
-                          <svg
-                            className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
-                      </div>
-
-                      {/* Allocation sub-rows */}
-                      {isExpanded && (
-                        <div className="pl-[4.5rem] pr-4 pb-2.5 space-y-1">
-                          {product.allocations.map((alloc) => (
-                            <div key={alloc.id} className="flex items-center gap-2 text-xs text-muted">
-                              <span className="text-disabled">└</span>
-                              <span className="font-mono text-secondary">#{alloc.batch_number}</span>
-                              <span className="text-disabled">·</span>
-                              <span className="tabular-nums">{fmtQty(alloc.quantity)} {product.unit_label}</span>
-                              <span className="text-disabled">·</span>
-                              <span className="tabular-nums">{alloc.volume_bbl.toFixed(4)} bbl</span>
-                            </div>
-                          ))}
-                        </div>
                       )}
+                      {/* Revise is offered only for a single-shipment group. A
+                          group can span several shipment_ids (they were invoiced
+                          together), and a revision is scoped to ONE shipment
+                          because the unship + rebook has to reverse a coherent
+                          physical drop. */}
+                      {(() => {
+                        const shipmentIds = [...new Set(group.rows.map((r) => r.shipment_id))];
+                        if (shipmentIds.length !== 1) return null;
+                        if (!isShipmentRevisable(group.rows)) return null;
+                        return (
+                          <button
+                            onClick={() => setRevising(shipmentIds[0])}
+                            className="btn-secondary"
+                          >
+                            Revise
+                          </button>
+                        );
+                      })()}
                     </div>
-                  );
-                })}
-              </div>
-            );
+                  </div>
+                  {sendMessage?.key === group.key && (
+                    <div className={`mt-2 text-xs ${sendMessage.isError ? "text-danger" : "text-secondary"}`}>
+                      {sendMessage.text}
+                    </div>
+                  )}
+                </>
+              ),
+            };
           })}
-        </div>
+          cols={[
+            {
+              key: "select", role: "headline", className: "w-5 !whitespace-normal",
+              cell: (product) => canProductCheck(product, product.group) && (
+                <input
+                  type="checkbox"
+                  checked={isProductChecked(product)}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() => toggleProduct(product, product.group.recipient_id)}
+                  className="accent-amber-500"
+                  aria-label={`Select ${product.beer_name}`}
+                />
+              ),
+            },
+            { key: "date", header: "Date", className: "text-xs text-muted whitespace-nowrap", cell: (product) => fmtDateLong(product.created_at) },
+            {
+              key: "channel", header: "Channel",
+              cell: (product) => (
+                <span className={`text-xs px-1.5 py-0.5 rounded whitespace-nowrap ${CHANNEL_BADGE[product.channel] ?? "bg-surface-mid text-secondary"}`}>
+                  {CHANNEL_LABELS[product.channel] ?? product.channel}
+                </span>
+              ),
+            },
+            {
+              key: "category", header: "Category",
+              cell: (product) => <span className="text-xs px-1.5 py-0.5 rounded bg-surface-mid text-body whitespace-nowrap">{product.packaging_category}</span>,
+            },
+            { key: "recipe", header: "Recipe", role: "label", className: "!font-normal !text-strong", cell: (product) => product.beer_name },
+            {
+              key: "variation", header: "Variation", foldBlock: true,
+              cell: (product) => (
+                <span className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  <span className="text-xs text-secondary truncate" title={product.variant_label}>
+                    {product.variant_label}
+                  </span>
+                  {product.isDraftRecount && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-info-surface/50 text-info whitespace-nowrap shrink-0"
+                      title="Keg drained by a draft line restock (recount swap), not a partner shipment"
+                    >
+                      Draft recount
+                    </span>
+                  )}
+                  {product.isAdHoc && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-accent-muted/40 text-accent-soft whitespace-nowrap shrink-0"
+                      title="Shipped ad-hoc from the Export Bay — no commitment behind it, so no ingredient deposit was collected up front."
+                    >
+                      Ad-hoc
+                    </span>
+                  )}
+                  {product.reconcileState === "unreconciled" && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-danger-surface/50 text-danger whitespace-nowrap shrink-0"
+                      title="Barrel excise was booked with no cold-storage keg to deduct. Resolve or dismiss it under Export Bay."
+                    >
+                      Unreconciled
+                    </span>
+                  )}
+                  {product.reconcileState === "no_stock" && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-surface-mid text-muted whitespace-nowrap shrink-0"
+                      title="Reviewed under Export Bay and dismissed — there was no cold-storage keg to draw down, so this recount stays batchless by design."
+                    >
+                      No stock
+                    </span>
+                  )}
+                </span>
+              ),
+            },
+            { key: "qty", header: "Qty", role: "headline", align: "right", className: "text-strong tabular-nums", cell: (product) => fmtQty(product.total_quantity) },
+            {
+              key: "bbl", header: "BBL", align: "right", className: "text-xs text-muted tabular-nums whitespace-nowrap",
+              cell: (product) => <>{product.total_volume_bbl.toFixed(2)}<span className="text-disabled ml-0.5">bbl</span></>,
+            },
+            { key: "tax", header: "Tax", align: "right", foldLabel: "Tax", className: "text-xs text-muted tabular-nums", cell: (product) => `$${product.total_excise_tax_usd.toFixed(2)}` },
+          ]}
+        />
       )}
 
       {/* Sticky action bar */}
