@@ -1,5 +1,6 @@
 "use client";
 
+import WarnIcon from "@/app/components/ui/WarnIcon";
 import { useState, useEffect, type CSSProperties } from "react";
 import { isValidNetTermsDays, netTermsLabel, MAX_NET_TERMS_DAYS, MIN_NET_TERMS_DAYS } from "@/lib/production/invoiceTerms";
 import { useQueryClient } from "@tanstack/react-query";
@@ -151,7 +152,7 @@ function SaveIndicator({ status }: { status: SaveStatus }) {
   const text =
     status.state === "saving" ? "Saving…"
     : status.state === "saved" ? "Saved"
-    : `⚠ ${status.message ?? "Save failed"}`;
+    : <><WarnIcon /> {status.message ?? "Save failed"}</>;
   const color =
     status.state === "error" ? "text-danger"
     : status.state === "saved" ? "text-success"

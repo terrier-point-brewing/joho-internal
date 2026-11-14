@@ -24,6 +24,7 @@ import type { SquareTaxReference } from "@/lib/tax/squareTaxUsage";
 import MappingFrame from "./MappingFrame";
 import { isOrphanedFiling } from "./salesTaxFilings";
 import { useMappingData } from "./useMappingData";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 const TAXES_URL = "/api/finance/settings/sales-tax-accounts";
 const TAX_FILING_HREF = "/settings/tax/filing";
@@ -61,7 +62,7 @@ function FilingsCell({ row }: { row: TaxRow }) {
         ? `${detail}\n\nThis tax is excluded or unmapped, so its collections never reach the balance sheet — but the filings above still compute tax owed from it.`
         : detail}
     >
-      {broken && "⚠ "}
+      {broken && <><WarnIcon /> </>}
       {count}
     </span>
   );

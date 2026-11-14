@@ -5,6 +5,7 @@ import type { Employee, PayrollEntryMerged } from "@/lib/payroll/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fmtCents, fmtUsd } from "@/lib/utils/formatting";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 interface Props {
   entry: PayrollEntryMerged;
@@ -132,7 +133,7 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
             className="ml-1.5 text-danger text-xs"
             title="A period-level override masks a day override on the Shifts tab for this employee"
           >
-            ⚠
+            <WarnIcon />
           </span>
         )}
       </td>

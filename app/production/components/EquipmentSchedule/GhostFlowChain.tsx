@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 interface GhostCardProps {
   label: string;
@@ -27,7 +28,7 @@ function GhostCard({ label, stage, isRequired, onClick }: GhostCardProps) {
           {isRequired ? "Not scheduled" : `+ Add ${label.toLowerCase()}`}
         </span>
         {isRequired && (
-          <span className="text-[10px] text-[var(--cat-amber-fg)]/60 mt-0.5">⚠ Schedule needed</span>
+          <span className="text-[10px] text-[var(--cat-amber-fg)]/60 mt-0.5"><WarnIcon /> Schedule needed</span>
         )}
       </div>
     </div>

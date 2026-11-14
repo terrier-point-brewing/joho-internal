@@ -7,6 +7,7 @@ import {
   STAGE_LABELS, STAGE_TO_EQ_TYPES, PACKAGING_PIPELINE, REQUIRED_PIPELINE,
   findEquipmentConflict, conflictBatchLabel, suggestAlternativeEquipment,
 } from "./constants";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 const FULL_PIPELINE = [...REQUIRED_PIPELINE, ...PACKAGING_PIPELINE].map(s => s.dbStage);
 
@@ -188,7 +189,7 @@ export function SplitPanel({
 
       {conflict && (
         <div className="px-3 py-2 rounded border border-danger-border/50 bg-danger-surface/30 text-xs text-danger leading-relaxed">
-          <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.
+          <span className="font-semibold"><WarnIcon /> Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.
           {suggestion && (
             <> Try <button type="button" onClick={() => setTankId(suggestion.id)} className="underline underline-offset-2 hover:text-danger">{suggestion.name}</button> instead.</>
           )}

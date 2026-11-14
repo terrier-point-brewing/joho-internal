@@ -8,6 +8,7 @@ import {
 } from "./constants";
 import type { ScheduleEntry } from "../../hooks/queries";
 import FieldGrid from "@/app/components/ui/FieldGrid";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 export function AddStagePanel({
   batchId,
@@ -113,7 +114,7 @@ export function AddStagePanel({
       </FieldGrid>
       {conflict && (
         <div className="px-3 py-2 rounded border border-danger-border/50 bg-danger-surface/30 text-xs text-danger leading-relaxed">
-          <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.
+          <span className="font-semibold"><WarnIcon /> Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.
           {suggestion && (
             <> Try <button type="button" onClick={() => setEquipmentId(suggestion.id)} className="underline underline-offset-2 hover:text-danger">{suggestion.name}</button> instead.</>
           )}

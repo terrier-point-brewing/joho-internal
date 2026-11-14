@@ -1,5 +1,6 @@
 "use client";
 
+import { Lock } from "lucide-react";
 import { useState, useRef } from "react";
 import { formatCurrency, formatUnitCost } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
@@ -874,7 +875,7 @@ export default function IngredientsTab() {
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="inp flex items-center gap-1.5 text-secondary bg-surface/60 cursor-not-allowed">
-                      <span aria-hidden="true">🔒</span>{ingForm.unit}
+                      <Lock aria-hidden className="size-3" />{ingForm.unit}
                     </div>
                   </div>
                 )}

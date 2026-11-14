@@ -570,6 +570,14 @@ bottom nav slides away while scrolling down and returns on the first upward scro
 (`useHideOnScroll`), and the desktop sidebar starts collapsed. `.inp`/`.inp-sm` are
 16px under a coarse pointer so iOS does not zoom on focus.
 
+### F. Icons are drawn, never typed
+An icon is a `lucide-react` component, sized by the text around it. Do not type
+`⚠ ▶ ⬇ ↩ 🔒 📋` or any other pictograph into the UI: a phone swaps them for colour
+emoji that ignore the text colour. `<WarnIcon />` is the inline warning mark; a
+row's expand arrow is `ChevronRight` rotated when open. A toolbar with more than
+two actions keeps the primary one on a phone and folds the rest behind `More`
+(Export Bay is the reference).
+
 ESLint (`eslint.config.mjs`) warns on the hand-written forms of A and B, including a
 hand-pinned `sticky left-0` cell.
 

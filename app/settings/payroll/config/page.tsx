@@ -9,6 +9,7 @@ import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
 import SettingsHeader from "@/app/settings/SettingsHeader";
 import { queryKeys } from "@/lib/query-keys";
 import type { Employee, PayrollConfig } from "@/lib/payroll/types";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 type PayPeriodFrequency = "weekly" | "biweekly";
 type TipPoolFrequency = "daily" | "weekly" | "biweekly";
@@ -446,7 +447,7 @@ export default function PayrollSettingsPage() {
                       <>
                         No
                         {emp.square_team_member_id && (
-                          <span className="ml-1 text-accent-border" title="Square tips excluded from pool">⚠</span>
+                          <span className="ml-1 text-accent-border" title="Square tips excluded from pool"><WarnIcon /></span>
                         )}
                       </>
                     )}
@@ -523,7 +524,7 @@ export default function PayrollSettingsPage() {
                         </label>
                         {editDraft.square_team_member_id && !editDraft.receives_tips && (
                           <Banner tone="accent" className="mt-2 flex items-start gap-2">
-                            <span className="mt-0.5 shrink-0">⚠</span>
+                            <span className="mt-0.5 shrink-0"><WarnIcon /></span>
                             <span>This employee has a Square Team Member ID. Any tips credited to their shifts in Square will be <strong>excluded</strong> from the shared tip pool — they won&apos;t flow into other employees&apos; calculations.</span>
                           </Banner>
                         )}
