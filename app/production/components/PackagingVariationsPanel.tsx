@@ -10,6 +10,7 @@ import { useTableControls } from "@/app/components/ui/useTableControls";
 import SearchInput from "@/app/components/ui/SearchInput";
 import FilterChips from "@/app/components/ui/FilterChips";
 import FilterBar from "@/app/components/ui/FilterBar";
+import ListTable from "@/app/components/ui/ListTable";
 import {
   FORMATS,
   needsPaktech, needsTray, needsBreaksInto, findLooseSibling,
@@ -217,7 +218,7 @@ export default function PackagingVariationsPanel() {
 
       {/* Search + filters */}
       <div className="mb-3 space-y-2">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <FilterBar activeCount={activeCount} onClear={reset}>
             <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search variations…" />
             <FilterChips label="Type" options={TYPE_OPTIONS} value={filters.type ?? []} onChange={(v) => setFilter("type", v)} />
@@ -253,67 +254,57 @@ export default function PackagingVariationsPanel() {
       ) : displayed.length === 0 ? (
         <p className="text-faint text-sm">No variations match the current filters.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface/50 text-left">
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Container</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Name</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Format</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Lid</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">PakTech</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Tray</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Label</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Breaks Into</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted">Partner</th>
-                <th className="px-3 py-2.5 text-xs font-medium text-muted"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayed.map((v, i) => {
-                const vIsKeg = v.container?.type === "keg";
-                const formatLabel = vIsKeg ? "Keg" : (FORMATS.find((f) => f.value === v.format)?.label ?? v.format);
+        <ListTable<(typeof displayed)[number]>
+          rows={displayed}
+          rowKey={(v) => v.id}
+          dense
+          foldBelow="lg"
+          rowClassName={(v) => (v.is_active ? "" : "opacity-50")}
+          cols={[
+            {
+              key: "container", header: "Container",
+              cell: (v) => (
+                <div className="flex items-center gap-1.5">
+                  {v.container?.type === "keg" ? (
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${KEG_TAG_BADGE} font-medium uppercase shrink-0`}>Keg</span>
+                  ) : (
+                    <span className="text-xs px-1.5 py-0.5 rounded border border-info-border bg-info-surface/30 text-info font-medium uppercase shrink-0">Can</span>
+                  )}
+                  <span className="text-secondary text-xs">{v.container?.name ?? "—"}</span>
+                </div>
+              ),
+            },
+            { key: "name", header: "Name", role: "label", className: "!text-strong text-xs", cell: (v) => v.name },
+            {
+              key: "format", header: "Format", className: "text-secondary text-xs",
+              cell: (v) => (v.container?.type === "keg" ? "Keg" : (FORMATS.find((f) => f.value === v.format)?.label ?? v.format)),
+            },
+            { key: "lid", header: "Lid", cell: (v) => v.lid && <ComponentPill name={v.lid.name} type="lid" /> },
+            { key: "paktech", header: "PakTech", cell: (v) => v.paktech && <ComponentPill name={v.paktech.name} type="paktech" /> },
+            { key: "tray", header: "Tray", cell: (v) => v.tray && <ComponentPill name={v.tray.name} type="tray" /> },
+            { key: "label", header: "Label", cell: (v) => v.label && <ComponentPill name={v.label.name} type="label" /> },
+            {
+              key: "breaks", header: "Breaks Into",
+              cell: (v) => {
                 // Cases store their target; packs derive it (always the family's loose can).
                 const breaksIntoName = v.breaks_into_variation_id
                   ? nameById.get(v.breaks_into_variation_id) ?? null
                   : findLooseSibling(v, variations)?.name ?? null;
-                return (
-                  <tr
-                    key={v.id}
-                    className={`border-b border-line/60 ${
-                      !v.is_active ? "opacity-50" : i % 2 !== 0 ? "bg-surface/30" : ""
-                    }`}
-                  >
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        {vIsKeg ? (
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${KEG_TAG_BADGE} font-medium uppercase shrink-0`}>Keg</span>
-                        ) : (
-                          <span className="text-xs px-1.5 py-0.5 rounded border border-info-border bg-info-surface/30 text-info font-medium uppercase shrink-0">Can</span>
-                        )}
-                        <span className="text-secondary text-xs">{v.container?.name ?? "—"}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-strong font-medium text-xs">{v.name}</td>
-                    <td className="px-3 py-2.5 text-secondary text-xs">{formatLabel}</td>
-                    <td className="px-3 py-2.5">{v.lid     ? <ComponentPill name={v.lid.name}     type="lid" />        : <span className="text-faint">—</span>}</td>
-                    <td className="px-3 py-2.5">{v.paktech ? <ComponentPill name={v.paktech.name} type="paktech" />    : <span className="text-faint">—</span>}</td>
-                    <td className="px-3 py-2.5">{v.tray    ? <ComponentPill name={v.tray.name}    type="tray" />       : <span className="text-faint">—</span>}</td>
-                    <td className="px-3 py-2.5">{v.label   ? <ComponentPill name={v.label.name}   type="label" />      : <span className="text-faint">—</span>}</td>
-                    <td className="px-3 py-2.5">{breaksIntoName ? <ComponentPill name={`→ ${breaksIntoName}`} type="breaksInto" /> : <span className="text-faint">—</span>}</td>
-                    <td className="px-3 py-2.5 text-secondary text-xs">{v.contract_brewing_partners?.company_name ?? "Generic"}</td>
-                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                      <div className="flex gap-1 justify-end">
-                        <button onClick={() => openEdit(v)} className="btn-secondary btn-xxs">Edit</button>
-                        <button onClick={() => handleDelete(v)} aria-label="Delete variation" className="btn-danger btn-xxs">Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                return breaksIntoName && <ComponentPill name={`→ ${breaksIntoName}`} type="breaksInto" />;
+              },
+            },
+            { key: "partner", header: "Partner", className: "text-secondary text-xs", cell: (v) => v.contract_brewing_partners?.company_name ?? "Generic" },
+            {
+              key: "actions", role: "action",
+              cell: (v) => (
+                <>
+                  <button onClick={() => openEdit(v)} className="btn-secondary btn-xxs">Edit</button>
+                  <button onClick={() => handleDelete(v)} aria-label="Delete variation" className="btn-danger btn-xxs">Delete</button>
+                </>
+              ),
+            },
+          ]}
+        />
       )}
 
       {showModal && (
