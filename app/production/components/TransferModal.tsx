@@ -1,5 +1,6 @@
 "use client";
 
+import { ClipboardList } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { Equipment, BrewBatch, PackagingVariation, Recipe, RecipePackagingVariation, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
@@ -15,6 +16,7 @@ import ConversionAllocationPanel, { type ConversionAllocationPlanState } from ".
 import { classifySourceEdit, DEFAULT_CONVERSION_ALLOCATION_NOTE } from "@/lib/production/conversionAllocationPlan";
 import { fmtUsd } from "@/lib/utils/formatting";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 /**
  * Execute the reconciliation the operator defined in the allocation panel,
@@ -611,7 +613,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               {/* Planned booking pill (stage-move transfers only — not packaging) */}
               {showPlannedEntry && (
                 <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded bg-surface-mid/60 border border-line-strong text-xs text-secondary">
-                  <span>📋 Planned:</span>
+                  <span><ClipboardList aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Planned:</span>
                   <span className="text-strong font-medium">{plannedEntry.equipment?.name ?? "Unknown"}</span>
                   <span className="text-muted">
                     {format(parseISO(plannedEntry.planned_start), "MMM d")}–{format(parseISO(plannedEntry.planned_end), "MMM d")}
@@ -708,7 +710,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
              column heights stay in sync regardless of which warnings show ── */}
         {showPlannedEntry && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
           <div className="px-3 py-2 rounded border border-accent-border/60 bg-accent-muted/40 text-xs text-accent-soft">
-            ⚠ Planned for <span className="font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span> — proceeding cancels that booking.
+            <WarnIcon /> Planned for <span className="font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span> — proceeding cancels that booking.
           </div>
         )}
         {inPlaceConvert && (

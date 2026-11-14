@@ -1,5 +1,6 @@
 "use client";
 
+import { ClipboardList, Lock, LockOpen } from "lucide-react";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Equipment, BrewBatch, BatchTankAssignment, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
@@ -416,7 +417,7 @@ export default function BrewStatusTab() {
       {/* Deviation toast */}
       {deviationToast && (
         <div className="fixed bottom-[calc(1.5rem+var(--mobile-nav-space))] right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-lg border border-accent-border/60 bg-accent-muted shadow-xl text-sm text-accent-soft max-w-sm">
-          <span className="text-lg leading-none">📋</span>
+          <ClipboardList aria-hidden className="size-5" />
           <div className="flex-1">
             <p className="font-semibold text-accent-soft">Schedule updated</p>
             <p className="text-xs text-accent mt-0.5">
@@ -518,7 +519,7 @@ export default function BrewStatusTab() {
                 {canEditEquipment && (
                   <>
                     <button onClick={() => setEditMode((v) => !v)} aria-pressed={editMode} className="btn-secondary">
-                      {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
+                      {editMode ? <><LockOpen aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Editing Layout</> : <><Lock aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Edit Layout</>}
                     </button>
                     {editMode && <button onClick={eqCrud.openNew} className="btn-primary">+ Add Equipment</button>}
                   </>

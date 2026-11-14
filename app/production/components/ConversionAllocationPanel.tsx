@@ -15,6 +15,8 @@
  * transfers its coverage with no money moving.
  */
 
+import { Lock } from "lucide-react";
+import type { ReactNode } from "react";
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
@@ -31,6 +33,7 @@ import {
   type PlanValidation,
   type SourceAllocationInput,
 } from "@/lib/production/conversionAllocationPlan";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 export interface ConversionAllocationPlanState {
   sourceAllocations: SourceAllocationInput[];
@@ -59,11 +62,11 @@ function toInput(a: BatchAllocation): SourceAllocationInput {
   };
 }
 
-const INVOICE_BADGE: Record<string, { label: string; cls: string }> = {
+const INVOICE_BADGE: Record<string, { label: ReactNode; cls: string }> = {
   none:      { label: "no invoice", cls: "text-faint" },
   generated: { label: "draft invoice", cls: "text-secondary" },
   sent:      { label: "invoice sent", cls: "text-secondary" },
-  paid:      { label: "PAID 🔒", cls: "text-[var(--cat-amber-fg)] font-medium" },
+  paid:      { label: <>PAID <Lock aria-hidden className="inline size-[1.1em] align-[-0.15em]" /></>, cls: "text-[var(--cat-amber-fg)] font-medium" },
 };
 
 export default function ConversionAllocationPanel({
@@ -167,7 +170,7 @@ export default function ConversionAllocationPanel({
                 </div>
                 {consequence.kind === "refund" && (
                   <p className="text-[11px] text-[var(--cat-amber-fg)]">
-                    ⚠ {fmtUsd(consequence.refundCents / 100)} will be refunded to {a.partner_name ?? "the partner"} at submit.
+                    <WarnIcon /> {fmtUsd(consequence.refundCents / 100)} will be refunded to {a.partner_name ?? "the partner"} at submit.
                   </p>
                 )}
                 {consequence.kind === "patch_and_revise" && (
@@ -204,7 +207,7 @@ export default function ConversionAllocationPanel({
       <div className="border-t border-line pt-2 space-y-1">
         {tie.map((row) => (
           <div key={row.key} className="flex items-center gap-2 text-[11px]">
-            <span className={row.dropped ? "text-[var(--cat-amber-fg)]" : "text-emerald-500"}>{row.dropped ? "⚠" : "✓"}</span>
+            <span className={row.dropped ? "text-[var(--cat-amber-fg)]" : "text-emerald-500"}>{row.dropped ? <WarnIcon /> : "✓"}</span>
             <span className="text-body flex-1 truncate">{row.label}</span>
             <span className="tabular-nums text-muted">{row.beforeBbl.toFixed(2)} → {row.afterBbl.toFixed(2)} BBL</span>
           </div>

@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import type { SortState } from "@/lib/table/types";
 import SortableTh from "./SortableTh";
@@ -123,7 +124,7 @@ export default function ListTable<T>({
   const first = cols[0];
   const chevronIn: "label" | "first" | "both" = first.key === labelKey ? "label" : stays(first) ? "first" : "both";
   const chevron = (row: T) => (
-    <span aria-hidden className={`inline-block mt-1 text-faint text-[10px] leading-none transition-transform ${isOpen?.(row) ? "rotate-90" : ""}`}>▶</span>
+    <ChevronRight aria-hidden className={`mt-0.5 size-3.5 shrink-0 text-faint transition-transform ${isOpen?.(row) ? "rotate-90" : ""}`} />
   );
 
   const foldValue = (c: ListCol<T>, row: T, i: number) => (c.fold ? c.fold(row, i) : c.cell(row, i));

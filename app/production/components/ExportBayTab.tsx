@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowLeftRight, ChevronDown, Download, Flag, FlaskConical, Plus, RefreshCw } from "lucide-react";
+import Popover from "@/app/components/ui/Popover";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRecipesQuery, useContractPartnersQuery, fetchJson } from "../hooks/queries";
@@ -342,21 +344,21 @@ function PhantomAlertsPanel({
   // failed fetch as reconciled is how a tab full of unresolved draft recounts
   // came to sit behind a clean bill of health.
   if (status === "pending") {
-    return <span className="text-xs text-faint whitespace-nowrap">⚑ Checking reconciliation…</span>;
+    return <span className="text-xs text-faint "><Flag aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Checking reconciliation…</span>;
   }
   if (status === "error") {
     return (
       <span
-        className="text-xs text-danger whitespace-nowrap"
+        className="text-xs text-danger"
         title={loadError ?? "The reconciliation check could not be loaded."}
       >
-        ⚑ Reconciliation status unavailable
+        <Flag aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Reconciliation status unavailable
       </span>
     );
   }
 
   if (alerts.length === 0) {
-    return <span className="text-xs text-faint whitespace-nowrap">⚑ All reconciled</span>;
+    return <span className="text-xs text-faint "><Flag aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> All reconciled</span>;
   }
 
   async function handleResolve(alert: PhantomAlert) {
@@ -417,10 +419,10 @@ function PhantomAlertsPanel({
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="btn-secondary whitespace-nowrap">
-        ⚑ {alerts.length} booked without cold-storage stock
+      <button type="button" onClick={() => setOpen(true)} className="btn-secondary text-left">
+        <Flag aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> {alerts.length} booked without cold-storage stock
         {swaps.length > 0 && sales.length > 0 && (
-          <span className="text-muted font-normal"> ({swaps.length} swap{swaps.length !== 1 ? "s" : ""}, {sales.length} sale{sales.length !== 1 ? "s" : ""})</span>
+          <span className="text-muted font-normal max-sm:hidden"> ({swaps.length} swap{swaps.length !== 1 ? "s" : ""}, {sales.length} sale{sales.length !== 1 ? "s" : ""})</span>
         )}
       </button>
       {open && (
@@ -691,6 +693,17 @@ export default function ExportBayTab() {
     );
   }
 
+  const stockActions = [
+    { label: "Sync Taproom", Icon: RefreshCw, run: () => setShowSync(true),
+      title: "Reconcile taproom pours from Square into cold-storage draws" },
+    { label: "Transform Stock", Icon: ArrowLeftRight, run: () => setShowTransform(true),
+      title: "Repackage cold-storage stock into a different size — a 1/2 keg into sixtels, or sixtels into a 1/2 keg" },
+    { label: "Convert Recipe", Icon: FlaskConical, run: () => setShowConvert(true),
+      title: "Re-dose kegs already in cold storage into a different beer — the stock moves to a conversion batch of that recipe" },
+    { label: "Receive Beer", Icon: Download, run: () => setShowReceive(true),
+      title: "Book beer bought from another brewery as on hand — never a brew, never on the excise record" },
+  ];
+
   function afterShip() {
     qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() });
     qc.invalidateQueries({ queryKey: queryKeys.production.allocations() });
@@ -711,51 +724,46 @@ export default function ExportBayTab() {
   return (
     <div className="space-y-3">
 
-      {/* Actions */}
-      <div className="flex items-center justify-between gap-2">
-        <PhantomAlertsPanel
-          alerts={phantomAlerts}
-          status={phantomAlertsStatus}
-          loadError={phantomAlertsError instanceof Error ? phantomAlertsError.message : null}
-        />
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowSync(true)}
-            title="Reconcile taproom pours from Square into cold-storage draws"
-            className="btn-secondary"
-          >
-            ↻ Sync Taproom
-          </button>
-          <button
-            onClick={() => setShowTransform(true)}
-            title="Repackage cold-storage stock into a different size — a 1/2 keg into sixtels, or sixtels into a 1/2 keg"
-            className="btn-secondary"
-          >
-            ⇄ Transform Stock
-          </button>
-          <button
-            onClick={() => setShowConvert(true)}
-            title="Re-dose kegs already in cold storage into a different beer — the stock moves to a conversion batch of that recipe"
-            className="btn-secondary"
-          >
-            ⚗ Convert Recipe
-          </button>
-          <button
-            onClick={() => setShowReceive(true)}
-            title="Book beer bought from another brewery as on hand — never a brew, never on the excise record"
-            className="btn-secondary"
-          >
-            ⬇ Receive Beer
-          </button>
-          <button
-            onClick={() => setShowAdHoc(true)}
-            disabled={inventory.length === 0}
-            title={inventory.length === 0 ? "No packaged inventory available" : undefined}
-            className="btn-primary"
-          >
-            + Ad-Hoc Export
-          </button>
+      {/* Actions. The reconciliation flag takes the slack; on a phone it gets
+          its own line and the four stock actions fold behind "More", so the
+          row is the primary action plus one menu instead of five buttons
+          running off the screen. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-0 flex-1 max-sm:basis-full">
+          <PhantomAlertsPanel
+            alerts={phantomAlerts}
+            status={phantomAlertsStatus}
+            loadError={phantomAlertsError instanceof Error ? phantomAlertsError.message : null}
+          />
         </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 max-sm:hidden">
+          {stockActions.map((a) => (
+            <button key={a.label} onClick={a.run} title={a.title} className="btn-secondary inline-flex items-center gap-1.5">
+              <a.Icon aria-hidden className="size-3.5" /> {a.label}
+            </button>
+          ))}
+        </div>
+        <Popover label={<>More <ChevronDown aria-hidden className="inline size-[1.1em] align-[-0.15em]" /></>} align="right" className="sm:hidden max-sm:order-last">
+          <div className="-m-1 flex flex-col">
+            {stockActions.map((a) => (
+              <button
+                key={a.label}
+                onClick={(e) => { e.currentTarget.closest("details")?.removeAttribute("open"); a.run(); }}
+                className="flex items-center gap-2 rounded px-2 py-2.5 text-left text-sm text-body hover:bg-surface-mid"
+              >
+                <a.Icon aria-hidden className="size-4 text-muted" /> {a.label}
+              </button>
+            ))}
+          </div>
+        </Popover>
+        <button
+          onClick={() => setShowAdHoc(true)}
+          disabled={inventory.length === 0}
+          title={inventory.length === 0 ? "No packaged inventory available" : undefined}
+          className="btn-primary inline-flex items-center justify-center gap-1.5 max-sm:flex-1"
+        >
+          <Plus aria-hidden className="size-3.5" /> Ad-Hoc Export
+        </button>
       </div>
 
       {/* Search + filter + sort */}

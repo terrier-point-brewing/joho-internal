@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import React, { useState } from "react";
 import dynamic from "next/dynamic";
 import { addDays, parseISO } from "date-fns";
@@ -33,6 +34,7 @@ import DepositCoverageLine from "./DepositCoverageLine";
 import { useDepositInvoiceActions } from "./useDepositInvoiceActions";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig, SortState } from "@/lib/table/types";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 const EquipmentScheduleSection = dynamic(
   () => import("./EquipmentSchedule").then((m) => m.EquipmentScheduleSection),
@@ -274,7 +276,7 @@ export default function BatchLogTab() {
             Deposit invoice sent, unpaid
           </span>
           <span className="flex items-center gap-1">
-            <span className="text-danger">⚠</span>
+            <span className="text-danger"><WarnIcon /></span>
             Ingredient shortfall
           </span>
         </div>
@@ -392,7 +394,7 @@ export default function BatchLogTab() {
             )}
             {editingBatch && (
               <p className="text-xs text-muted">
-                Shares and the equipment schedule are managed from the batch row — expand it with ▶ on the Batch Log table.
+                Shares and the equipment schedule are managed from the batch row — expand it with the arrow on the Batch Log table.
               </p>
             )}
 
@@ -744,7 +746,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
             </div>
             <span className={`text-xs tabular-nums whitespace-nowrap ${overAllocated ? "text-danger" : "text-muted"}`}>
               {totalPct.toFixed(1)}% · {((totalPct / 100) * batchVol).toFixed(1)} BBL
-              {overAllocated && <span className="ml-1">⚠ over 100%</span>}
+              {overAllocated && <span className="ml-1"><WarnIcon /> over 100%</span>}
               {!overAllocated && remaining > 0.1 && <span className="ml-1 text-faint">({remaining.toFixed(1)}% open)</span>}
             </span>
           </div>
@@ -754,7 +756,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
       {/* Allocation incomplete banner */}
       {remaining > 0.1 && (
         <div className="px-3 py-2 rounded border border-info-border/50 bg-info-surface/20 text-xs text-info leading-relaxed">
-          <span className="font-semibold">⚠ {remaining.toFixed(1)}% of this batch ({((remaining / 100) * batchVol).toFixed(2)} BBL) has no home yet</span>
+          <span className="font-semibold"><WarnIcon /> {remaining.toFixed(1)}% of this batch ({((remaining / 100) * batchVol).toFixed(2)} BBL) has no home yet</span>
         </div>
       )}
 
@@ -772,7 +774,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
         ].filter(Boolean).join(", ");
         return (
           <div className="px-3 py-2 rounded border border-orange-700/50 bg-orange-950/20 text-orange-400 text-xs leading-relaxed">
-            <span className="font-semibold">⚠ {unpaid.length} unpaid contract {label}</span>
+            <span className="font-semibold"><WarnIcon /> {unpaid.length} unpaid contract {label}</span>
             {detail ? <span> — {detail}</span> : null}
           </div>
         );
@@ -1147,7 +1149,7 @@ function BatchTable({
                       aria-label={isExpanded ? "Hide details" : "Show details"}
                       aria-expanded={isExpanded}
                     >
-                      {isExpanded ? "▼" : "▶"}
+                      <ChevronRight aria-hidden className={`size-3.5 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                     </button>
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-secondary whitespace-nowrap min-w-[110px] max-sm:hidden">
@@ -1532,7 +1534,7 @@ function BatchVolumeBreakdown({
             <span className="text-sm font-semibold text-success tabular-nums">{fmtBbl2(available)}</span>
           )}
           <span className="text-xs text-muted">
-            {batch.status !== "planning" ? "available of " : ""}{fmtBbl2(originalVol)} total{!balanced && <span className="text-danger ml-1">⚠ unbalanced</span>}
+            {batch.status !== "planning" ? "available of " : ""}{fmtBbl2(originalVol)} total{!balanced && <span className="text-danger ml-1"><WarnIcon /> unbalanced</span>}
           </span>
           {bd.converted > 0 && <span className="text-xs text-violet-400/80 ml-auto">{fmtBbl2(bd.converted)} converted</span>}
           {bd.exported > 0 && <span className="text-xs text-muted">{fmtBbl2(bd.exported)} exported</span>}
@@ -1639,7 +1641,7 @@ function ShortfallBadge({ batchId, status, batchLabel }: { batchId: string; stat
         title="View what's missing"
         className="btn-danger btn-xxs ml-1.5 whitespace-nowrap"
       >
-        ⚠ {shortfalls.length} ingredient{shortfalls.length > 1 ? "s" : ""} short
+        <WarnIcon /> {shortfalls.length} ingredient{shortfalls.length > 1 ? "s" : ""} short
       </button>
       {open && (
         <IngredientShortfallModal

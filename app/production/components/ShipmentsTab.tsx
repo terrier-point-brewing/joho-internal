@@ -663,7 +663,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                         <span className="text-strong font-medium">{partnerName}</span>
                       </>
                     )}
-                    <div className="ml-auto flex items-center gap-2">
+                    <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                       <span className={`px-1.5 py-0.5 rounded ${STATUS_BADGE[group.status] ?? "bg-surface-mid text-secondary"}`}>
                         {STATUS_LABELS[group.status] ?? group.status}
                       </span>
@@ -745,7 +745,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
               key: "variation", header: "Variation", foldBlock: true,
               cell: (product) => (
                 <span className="flex flex-wrap items-center gap-1.5 min-w-0">
-                  <span className="text-xs text-secondary truncate" title={product.variant_label}>
+                  <span className="text-xs text-secondary min-w-0 break-words lg:truncate" title={product.variant_label}>
                     {product.variant_label}
                   </span>
                   {product.isDraftRecount && (
