@@ -1,5 +1,7 @@
 "use client";
 
+import EditGrid from "@/app/components/ui/EditGrid";
+import ListTable from "@/app/components/ui/ListTable";
 import { ChevronRight } from "lucide-react";
 import React, { useState } from "react";
 import dynamic from "next/dynamic";
@@ -1276,30 +1278,19 @@ function BrewActivityLogDisplay({ entries }: { entries: BrewActivityEntry[] }) {
   return (
     <div>
       <p className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">Brew Activity Log</p>
-      <div className="overflow-x-auto rounded border border-line/60">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-line bg-surface/40 text-left">
-              <th className="px-3 py-2 font-medium text-muted w-8">#</th>
-              <th className="px-3 py-2 font-medium text-muted">Activity</th>
-              <th className="px-3 py-2 font-medium text-muted">Time</th>
-              <th className="px-3 py-2 font-medium text-muted text-right">Temp (°F)</th>
-              <th className="px-3 py-2 font-medium text-muted text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((e, i) => (
-              <tr key={e.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                <td className="px-3 py-2 text-faint tabular-nums">{i + 1}</td>
-                <td className="px-3 py-2 text-body">{e.activity}</td>
-                <td className="px-3 py-2 text-muted">{e.time_label ?? "—"}</td>
-                <td className="px-3 py-2 text-muted text-right tabular-nums">{e.temp != null ? `${e.temp}` : "—"}</td>
-                <td className="px-3 py-2 text-muted text-right tabular-nums">{e.amount != null ? Number(e.amount).toLocaleString() : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ListTable<BrewActivityEntry>
+        dense
+        className="text-xs"
+        rows={sorted}
+        rowKey={(e) => e.id}
+        cols={[
+          { key: "n", header: "#", fold: false, className: "text-xs text-faint tabular-nums w-8", cell: (_, i) => i + 1 },
+          { key: "activity", header: "Activity", role: "label", className: "!font-normal !text-body text-xs", cell: (e) => e.activity },
+          { key: "time", header: "Time", foldLabel: "Time", className: "text-xs text-muted", cell: (e) => e.time_label },
+          { key: "temp", header: "Temp (°F)", align: "right", className: "text-xs text-muted tabular-nums", cell: (e) => (e.temp != null ? `${e.temp}` : null), fold: (e) => (e.temp != null ? `${e.temp}°F` : null) },
+          { key: "amount", header: "Amount", align: "right", foldLabel: "Amount", className: "text-xs text-muted tabular-nums", cell: (e) => (e.amount != null ? Number(e.amount).toLocaleString() : null) },
+        ]}
+      />
     </div>
   );
 }
@@ -1416,47 +1407,20 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
       </div>
 
       {rows.length > 0 && (
-        <div className="overflow-x-auto rounded border border-line/60 mb-3">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-line bg-surface/40 text-left">
-                <th className="px-3 py-2 font-medium text-muted">#</th>
-                <th className="px-3 py-2 font-medium text-muted">Activity</th>
-                <th className="px-3 py-2 font-medium text-muted">Time</th>
-                <th className="px-3 py-2 font-medium text-muted text-right">Temp (°F)</th>
-                <th className="px-3 py-2 font-medium text-muted text-right">Amount</th>
-                <th className="px-3 py-2 w-6"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""} ${r.dirty ? "bg-accent-muted/10" : ""}`}>
-                  <td className="px-3 py-1.5 text-faint tabular-nums">{i + 1}</td>
-                  <td className="px-3 py-1.5">
-                    <input className="inp-sm" value={r.activity}
-                      onChange={(e) => markDirty(i, "activity", e.target.value)} />
-                  </td>
-                  <td className="px-3 py-1.5">
-                    <input className="inp-sm" placeholder="e.g. 0:00" value={r.time_label}
-                      onChange={(e) => markDirty(i, "time_label", e.target.value)} />
-                  </td>
-                  <td className="px-3 py-1.5">
-                    <input type="number" inputMode="decimal" step="0.1" className="inp-sm text-right" value={r.temp}
-                      onChange={(e) => markDirty(i, "temp", e.target.value)} />
-                  </td>
-                  <td className="px-3 py-1.5">
-                    <input type="number" inputMode="decimal" step="0.01" className="inp-sm text-right" value={r.amount}
-                      onChange={(e) => markDirty(i, "amount", e.target.value)} />
-                  </td>
-                  <td className="px-3 py-1.5 text-center">
-                    <button type="button" onClick={() => deleteRow(r.id)}
-                      className="btn-danger btn-xxs">×</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <EditGrid<ActivityEditRow>
+          className="mb-3"
+          rows={rows}
+          rowKey={(r) => r.id}
+          itemLabel="Step"
+          onRemove={(i) => deleteRow(rows[i].id)}
+          rowClassName={(r) => (r.dirty ? "bg-accent-muted/10" : "")}
+          cols={[
+            { key: "activity", header: "Activity", wide: true, cell: (r, i) => <input className="inp-sm w-full" value={r.activity} onChange={(e) => markDirty(i, "activity", e.target.value)} /> },
+            { key: "time", header: "Time", width: "sm:w-24", cell: (r, i) => <input className="inp-sm w-full" placeholder="e.g. 0:00" value={r.time_label} onChange={(e) => markDirty(i, "time_label", e.target.value)} /> },
+            { key: "temp", header: "Temp (°F)", align: "right", width: "sm:w-24", cell: (r, i) => <input type="number" inputMode="decimal" step="0.1" className="inp-sm w-full text-right" value={r.temp} onChange={(e) => markDirty(i, "temp", e.target.value)} /> },
+            { key: "amount", header: "Amount", align: "right", width: "sm:w-24", cell: (r, i) => <input type="number" inputMode="decimal" step="0.01" className="inp-sm w-full text-right" value={r.amount} onChange={(e) => markDirty(i, "amount", e.target.value)} /> },
+          ]}
+        />
       )}
 
       {/* Add new row */}
