@@ -1,4 +1,5 @@
 "use client";
+import ListTable from "@/app/components/ui/ListTable";
 import { useState, useEffect, useCallback, useRef } from "react";
 import Banner from "@/app/components/ui/Banner";
 import Badge from "@/app/components/ui/Badge";
@@ -262,56 +263,35 @@ export function GustoUploadPanel({ periodId, appTaproomWagesCents = null, appSta
 
           <div>
             <h3 className="text-sm font-semibold text-strong mb-2">Parsed employees</h3>
-            <div className="scroll-x"><table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line-strong">
-                  <th className="text-left py-2 px-3 text-muted font-medium">Employee</th>
-                  <th className="text-left py-2 px-3 text-muted font-medium">Department</th>
-                  <th className="text-right py-2 px-3 text-muted font-medium">Gross</th>
-                  <th className="text-right py-2 px-3 text-muted font-medium">Employer tax</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((e) => (
-                  <tr key={e.id} className="border-b border-line">
-                    <td className="py-2 px-3 text-body">{e.first_name} {e.last_name}</td>
-                    <td className="py-2 px-3 text-secondary">{e.department}</td>
-                    <td className="py-2 px-3 text-right font-mono text-body">{fmtCents(e.gross_amount_cents)}</td>
-                    <td className="py-2 px-3 text-right font-mono text-body">{fmtCents(e.employer_tax_cents)}</td>
-                  </tr>
-                ))}
-                {employees.length === 0 && (
-                  <tr><td colSpan={4} className="py-4 text-center text-faint text-xs">No employees parsed.</td></tr>
-                )}
-              </tbody>
-            </table></div>
+            <ListTable<(typeof employees)[number]>
+              zebra={false}
+              rows={employees}
+              rowKey={(e) => e.id}
+              empty="No employees parsed."
+              cols={[
+                { key: "name", header: "Employee", role: "label", className: "!font-normal text-body", cell: (e) => `${e.first_name} ${e.last_name}` },
+                { key: "dept", header: "Department", className: "text-secondary", cell: (e) => e.department },
+                { key: "gross", header: "Gross", role: "headline", align: "right", className: "font-mono text-body", cell: (e) => fmtCents(e.gross_amount_cents) },
+                { key: "tax", header: "Employer tax", align: "right", foldLabel: "Employer tax", className: "font-mono text-body", cell: (e) => fmtCents(e.employer_tax_cents) },
+              ]}
+            />
           </div>
         </>
       )}
 
       <div>
         <h3 className="text-sm font-semibold text-strong mb-2">Matched transactions</h3>
-        <div className="scroll-x"><table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-line-strong">
-              <th className="text-left py-2 px-3 text-muted font-medium">Date</th>
-              <th className="text-left py-2 px-3 text-muted font-medium">Merchant</th>
-              <th className="text-right py-2 px-3 text-muted font-medium">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {matchedExpenses.map((e) => (
-              <tr key={e.expenseId} className="border-b border-line">
-                <td className="py-2 px-3 text-secondary">{e.accountingDate ?? "—"}</td>
-                <td className="py-2 px-3 text-body">{e.merchantName ?? "—"}</td>
-                <td className="py-2 px-3 text-right font-mono text-body">{fmtCents(e.amountCents)}</td>
-              </tr>
-            ))}
-            {matchedExpenses.length === 0 && (
-              <tr><td colSpan={3} className="py-4 text-center text-faint text-xs">No transactions matched to this period yet.</td></tr>
-            )}
-          </tbody>
-        </table></div>
+        <ListTable<(typeof matchedExpenses)[number]>
+          zebra={false}
+          rows={matchedExpenses}
+          rowKey={(e) => e.expenseId}
+          empty="No transactions matched to this period yet."
+          cols={[
+            { key: "date", header: "Date", className: "text-secondary whitespace-nowrap", cell: (e) => e.accountingDate },
+            { key: "merchant", header: "Merchant", role: "label", className: "!font-normal text-body", cell: (e) => e.merchantName ?? "—" },
+            { key: "amount", header: "Amount", role: "headline", align: "right", className: "font-mono text-body", cell: (e) => fmtCents(e.amountCents) },
+          ]}
+        />
 
         {hasReconciliation && (
           <div className="mt-2 flex items-center gap-2 text-xs">
