@@ -912,7 +912,7 @@ export default function ShipmentsTab({ onNavigateToInvoice }: ShipmentsTabProps)
                   </label>
                   <input
                     id="mp-amount"
-                    type="number"
+                    type="number" inputMode="decimal"
                     min="0.01"
                     step="0.01"
                     value={mpAmount}

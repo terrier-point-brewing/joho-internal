@@ -51,7 +51,7 @@ export function BrewStepsEditor<T extends BrewStepDraft>({
 }) {
   const num = (field: "time_label" | "temp" | "amount" | "vsp", step: string, placeholder: string) => ({
     cell: (s: T, i: number) => (
-      <input type="number" step={step} className="inp-sm text-right w-full" placeholder={placeholder}
+      <input type="number" inputMode="decimal" step={step} className="inp-sm text-right w-full" placeholder={placeholder}
         value={s[field]} onChange={(e) => onChange(i, { ...s, [field]: e.target.value })} />
     ),
   });

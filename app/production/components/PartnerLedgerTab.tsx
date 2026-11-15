@@ -144,7 +144,7 @@ function RecordPaidAmount({ allocationId, onDone }: { allocationId: string; onDo
   }
   return (
     <form onSubmit={save} onClick={(e) => e.stopPropagation()} className="flex flex-wrap items-center gap-1.5 text-xs">
-      <input className="inp-sm w-24" type="number" step="0.01" min="0.01" placeholder="$ paid" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+      <input className="inp-sm w-24" type="number" inputMode="decimal" step="0.01" min="0.01" placeholder="$ paid" value={amount} onChange={(e) => setAmount(e.target.value)} required />
       <input className="inp-sm w-40" placeholder="invoice / payment ref" value={ref} onChange={(e) => setRef(e.target.value)} required />
       <button type="submit" className="btn-primary btn-xxs" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
       <button type="button" className="btn-secondary btn-xxs" onClick={() => setOpen(false)}>Cancel</button>
@@ -353,25 +353,27 @@ function ShareExplainer({ a, booked, channel }: { a: LedgerAllocation; booked: n
 function ShipmentRows({ shipments, onOpenInvoice, onRehome }: { shipments: LedgerShipment[]; onOpenInvoice: (id: string) => void; onRehome?: (s: LedgerShipment) => void }) {
   if (shipments.length === 0) return <p className="text-xs text-faint">Nothing shipped yet.</p>;
   return (
-    <table className="w-full text-xs">
-      <thead>
-        <tr className="text-left text-muted">
-          <th className="pb-1 font-medium">Date</th>
-          <th className="pb-1 font-medium">Batch</th>
-          <th className="pb-1 font-medium">What</th>
-          <th className="pb-1 pr-3 font-medium text-right">BBL</th>
-          <th className="pb-1 font-medium">Invoice</th>
-        </tr>
-      </thead>
-      <tbody>
-        {shipments.map((s, i) => (
-          <tr key={s.shipment_id ?? i} className="border-t border-line/60 align-top">
-            <td className="py-1 pr-3 whitespace-nowrap text-secondary">
+    <ListTable<LedgerShipment>
+      dense
+      zebra={false}
+      className="text-xs"
+      rows={shipments}
+      rowKey={(s, i) => s.shipment_id ?? i}
+      cols={[
+        {
+          key: "date", header: "Date", className: "text-xs text-secondary whitespace-nowrap",
+          cell: (s) => (
+            <span>
               {fmtDate(s.date)}
               {s.kind !== "shipment" && <span className="ml-1 text-muted">({s.kind})</span>}
-            </td>
-            <td className="py-1 pr-3 text-secondary whitespace-nowrap">{s.batch_number ? `#${s.batch_number}` : "—"}</td>
-            <td className="py-1 pr-3 text-body">
+            </span>
+          ),
+        },
+        { key: "batch", header: "Batch", className: "text-xs text-secondary whitespace-nowrap", cell: (s) => s.batch_number && `#${s.batch_number}` },
+        {
+          key: "what", header: "What", role: "label", className: "!font-normal !text-body text-xs",
+          cell: (s) => (
+            <>
               {s.lines.map((l, j) => (
                 <div key={j}>
                   {l.quantity} × {l.variant_label ?? "—"}
@@ -380,22 +382,25 @@ function ShipmentRows({ shipments, onOpenInvoice, onRehome }: { shipments: Ledge
                   {l.shipped_before_deposit && <span className="ml-1 text-[var(--cat-amber-fg)]" title="The deposit was unpaid when this left; it back-charges on the export invoice">before deposit</span>}
                 </div>
               ))}
-            </td>
-            <td className="py-1 pr-3 text-right font-mono tabular-nums text-body">{bbl(s.volume_bbl)}</td>
-            <td className="py-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {s.invoice
-                  ? <InvoiceChip inv={s.invoice} onOpen={onOpenInvoice} />
-                  : <span className="text-[var(--cat-amber-fg)]">not invoiced</span>}
-                {onRehome && s.volume_bbl > 0.0001 && (
-                  <button type="button" className="btn-primary btn-xxs" onClick={(e) => { e.stopPropagation(); onRehome(s); }}>Give it a home</button>
-                )}
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+            </>
+          ),
+        },
+        { key: "bbl", header: "BBL", role: "headline", align: "right", className: "text-xs font-mono tabular-nums text-body", cell: (s) => bbl(s.volume_bbl) },
+        {
+          key: "invoice", header: "Invoice", foldBlock: true, className: "text-xs",
+          cell: (s) => (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {s.invoice
+                ? <InvoiceChip inv={s.invoice} onOpen={onOpenInvoice} />
+                : <span className="text-[var(--cat-amber-fg)]">not invoiced</span>}
+              {onRehome && s.volume_bbl > 0.0001 && (
+                <button type="button" className="btn-primary btn-xxs" onClick={(e) => { e.stopPropagation(); onRehome(s); }}>Give it a home</button>
+              )}
+            </div>
+          ),
+        },
+      ]}
+    />
   );
 }
 

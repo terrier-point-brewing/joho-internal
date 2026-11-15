@@ -1,5 +1,6 @@
 "use client";
 
+import ListTable from "@/app/components/ui/ListTable";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
@@ -157,54 +158,54 @@ export default function EventTipsPanel({
           {ended ? "No payouts recorded yet." : "Payouts are recorded after the event ends."}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-line bg-surface/60">
-                <th className="text-left px-3 py-2 text-muted font-medium">Who</th>
-                <th className="text-left px-3 py-2 text-muted font-medium">How</th>
-                <th className="text-right px-3 py-2 text-muted font-medium">Amount</th>
-                <th className="text-left px-3 py-2 text-muted font-medium">Note</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line/60">
-              {data!.payouts.map((p) => (
-                <tr key={p.id}>
-                  <td className="px-3 py-2 text-strong">
-                    {p.payee_name}
-                    <span className="text-faint"> · {p.payee_kind === "volunteer" ? "volunteer" : "employee"}</span>
-                  </td>
-                  <td className="px-3 py-2 text-body">
-                    {METHOD_LABEL[p.method]}
-                    {p.method === "payroll" && p.pay_period && (
-                      <span className="text-faint"> · {p.pay_period.start_date} – {p.pay_period.end_date}{p.pay_period.status === "locked" ? " (locked)" : ""}</span>
-                    )}
-                    {p.method !== "payroll" && p.settled_on && <span className="text-faint"> · {p.settled_on}</span>}
-                    {p.method === "comp" && p.manual_entry_id && <span className="text-faint"> · booked as event revenue</span>}
-                    {(p.event_hours ?? 0) > 0 && <span className="text-faint"> · {p.event_hours!.toFixed(2)}h at the event</span>}
-                  </td>
-                  <td className="px-3 py-2 text-right text-body font-mono">{fmtUsd(p.amount_cents)}</td>
-                  <td className="px-3 py-2 text-muted">{p.note ?? "—"}</td>
-                  <td className="px-3 py-2 text-right">
-                    {!(p.pay_period?.status === "locked") && (
-                      <button type="button" onClick={() => removeMutation.mutate(p.id)} className="btn-secondary btn-xxs" disabled={removeMutation.isPending}>
-                        Remove
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-line-strong bg-surface/60 font-semibold">
-                <td className="px-3 py-2 text-body" colSpan={2}>Settled</td>
-                <td className="px-3 py-2 text-right text-strong font-mono">{fmtUsd(paid)}</td>
-                <td colSpan={2} />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+        <ListTable<NonNullable<typeof data>["payouts"][number]>
+          className="text-xs"
+          dense
+          zebra={false}
+          rows={data!.payouts}
+          rowKey={(p) => p.id}
+          footer={
+            <div className="flex items-center justify-between gap-3 bg-surface/60 px-2 sm:px-3 py-2 text-xs font-semibold">
+              <span className="text-body">Settled</span>
+              <span className="text-strong font-mono">{fmtUsd(paid)}</span>
+            </div>
+          }
+          cols={[
+            {
+              key: "who", header: "Who", role: "label", className: "!font-normal !text-strong text-xs",
+              cell: (p) => (
+                <>
+                  {p.payee_name}
+                  <span className="text-faint"> · {p.payee_kind === "volunteer" ? "volunteer" : "employee"}</span>
+                </>
+              ),
+            },
+            {
+              key: "how", header: "How", foldBlock: true, className: "text-body text-xs",
+              cell: (p) => (
+                <span>
+                  {METHOD_LABEL[p.method]}
+                  {p.method === "payroll" && p.pay_period && (
+                    <span className="text-faint"> · {p.pay_period.start_date} – {p.pay_period.end_date}{p.pay_period.status === "locked" ? " (locked)" : ""}</span>
+                  )}
+                  {p.method !== "payroll" && p.settled_on && <span className="text-faint"> · {p.settled_on}</span>}
+                  {p.method === "comp" && p.manual_entry_id && <span className="text-faint"> · booked as event revenue</span>}
+                  {(p.event_hours ?? 0) > 0 && <span className="text-faint"> · {p.event_hours!.toFixed(2)}h at the event</span>}
+                </span>
+              ),
+            },
+            { key: "amount", header: "Amount", role: "headline", align: "right", className: "text-body text-xs font-mono", cell: (p) => fmtUsd(p.amount_cents) },
+            { key: "note", header: "Note", foldBlock: true, className: "text-muted text-xs", cell: (p) => p.note },
+            {
+              key: "remove", role: "action",
+              cell: (p) => !(p.pay_period?.status === "locked") && (
+                <button type="button" onClick={() => removeMutation.mutate(p.id)} className="btn-secondary btn-xxs" disabled={removeMutation.isPending}>
+                  Remove
+                </button>
+              ),
+            },
+          ]}
+        />
       )}
 
       {adding && (

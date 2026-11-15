@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
+import ListTable from "@/app/components/ui/ListTable";
 import Banner from "@/app/components/ui/Banner";
 import Badge from "@/app/components/ui/Badge";
 import ToggleChip from "@/app/components/ui/ToggleChip";
@@ -69,6 +70,10 @@ export default function PayrollSettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<Employee>>({});
   const [deactivating, setDeactivating] = useState<Employee | null>(null);
+
+  function toggleEdit(emp: Employee) {
+    if (editingId === emp.id) setEditingId(null); else startEdit(emp);
+  }
 
   function startEdit(emp: Employee) {
     setEditingId(emp.id);
@@ -233,7 +238,7 @@ export default function PayrollSettingsPage() {
           <label className="block">
             <span className="block text-xs text-secondary">Payroll Due (days after period end)</span>
             <input
-              type="number"
+              type="number" inputMode="numeric"
               min="0"
               max="30"
               step="1"
@@ -252,7 +257,7 @@ export default function PayrollSettingsPage() {
           <label className="block">
             <span className="block text-xs text-secondary">Base Rate ($/hr)</span>
             <input
-              type="number" step="0.01" min="0"
+              type="number" inputMode="decimal" step="0.01" min="0"
               value={baseRate}
               onChange={e => setBaseRate(e.target.value)}
               className="inp mt-1 w-full"
@@ -261,7 +266,7 @@ export default function PayrollSettingsPage() {
           <label className="block">
             <span className="block text-xs text-secondary">Guaranteed Rate ($/hr)</span>
             <input
-              type="number" step="0.01" min="0"
+              type="number" inputMode="decimal" step="0.01" min="0"
               value={guaranteedRate}
               onChange={e => setGuaranteedRate(e.target.value)}
               className="inp mt-1 w-full"
@@ -270,7 +275,7 @@ export default function PayrollSettingsPage() {
           <label className="block">
             <span className="block text-xs text-secondary">Reported cash tips ratio (N:1)</span>
             <input
-              type="number" step="1" min="1"
+              type="number" inputMode="numeric" step="1" min="1"
               value={reportedDivisor}
               onChange={e => setReportedDivisor(e.target.value)}
               className="inp mt-1 w-full"
@@ -328,9 +333,9 @@ export default function PayrollSettingsPage() {
 
       {/* ── Employees ────────────────────────────────────────────────────── */}
       <section>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <h3 className="text-sm font-semibold text-strong">Employees</h3>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {syncMsg && <span className="text-xs text-success">{syncMsg}</span>}
             <button
               onClick={() => syncSquare.mutate()}
@@ -351,7 +356,7 @@ export default function PayrollSettingsPage() {
         {/* Add employee inline form */}
         {showAddForm && (
           <div className="mb-4 p-4 bg-surface border border-line-strong rounded-lg">
-            <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <label className="block">
                 <span className="block text-xs text-secondary">First Name *</span>
                 <input value={newFirst} onChange={e => setNewFirst(e.target.value)} className="inp mt-1 w-full" />
@@ -423,138 +428,123 @@ export default function PayrollSettingsPage() {
           </div>
         )}
 
-        <div className="scroll-x"><table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-line-strong">
-              <th className="text-left py-2 px-3 text-muted">Name</th>
-              <th className="text-left py-2 px-3 text-muted">Title</th>
-              <th className="text-left py-2 px-3 text-muted">Type</th>
-              <th className="text-left py-2 px-3 text-muted">Tips</th>
-              <th className="text-left py-2 px-3 text-muted">Square ID</th>
-              <th className="py-2 px-3 text-muted">Active</th>
-              <th className="py-2 px-3 text-muted"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {(employees ?? []).map(emp => (
-              <Fragment key={emp.id}>
-                <tr className="border-b border-line">
-                  <td className="py-2 px-3 text-strong">{emp.first_name} {emp.last_name}</td>
-                  <td className="py-2 px-3 text-secondary text-xs">{emp.job_title}</td>
-                  <td className="py-2 px-3 text-secondary text-xs">{EMP_TYPE_LABELS[emp.employment_type] ?? emp.employment_type}</td>
-                  <td className="py-2 px-3 text-secondary text-xs">
-                    {emp.receives_tips ? "Yes" : (
-                      <>
-                        No
-                        {emp.square_team_member_id && (
-                          <span className="ml-1 text-accent-border" title="Square tips excluded from pool"><WarnIcon /></span>
-                        )}
-                      </>
-                    )}
-                  </td>
-                  <td className="py-2 px-3 text-faint text-xs font-mono">
-                    {emp.square_team_member_id?.slice(0, 12) ?? "—"}
-                  </td>
-                  <td className="py-2 px-3 text-center">
-                    <ToggleChip
-                      active={emp.active}
-                      onClick={() => emp.active ? setDeactivating(emp) : toggleEmployee.mutate({ id: emp.id, active: true })}
-                    >
-                      {emp.active ? "Active" : "Inactive"}
-                    </ToggleChip>
-                  </td>
-                  <td className="py-2 px-3 text-center">
-                    <button
-                      onClick={() => editingId === emp.id ? setEditingId(null) : startEdit(emp)}
-                      className="btn-secondary btn-xxs"
-                    >
-                      {editingId === emp.id ? "Cancel" : "Edit"}
-                    </button>
-                  </td>
-                </tr>
-                {editingId === emp.id && (
-                  <tr key={`${emp.id}-edit`} className="border-b border-line-strong bg-surface/50">
-                    <td colSpan={7} className="px-3 py-4">
-                      <div className="grid grid-cols-2 gap-3 mb-3">
-                        <label className="block">
-                          <span className="block text-xs text-secondary">First Name</span>
-                          <input value={editDraft.first_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, first_name: e.target.value }))} className="inp mt-1 w-full" />
-                        </label>
-                        <label className="block">
-                          <span className="block text-xs text-secondary">Last Name</span>
-                          <input value={editDraft.last_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, last_name: e.target.value }))} className="inp mt-1 w-full" />
-                        </label>
-                        <label className="block">
-                          <span className="block text-xs text-secondary">Email</span>
-                          <input type="email" value={editDraft.email ?? ""} onChange={e => setEditDraft(d => ({ ...d, email: e.target.value }))} className="inp mt-1 w-full" />
-                        </label>
-                        <label className="block">
-                          <span className="block text-xs text-secondary">Phone</span>
-                          <input type="tel" value={editDraft.phone_number ?? ""} onChange={e => setEditDraft(d => ({ ...d, phone_number: e.target.value }))} className="inp mt-1 w-full" />
-                        </label>
-                        <label className="block">
-                          <span className="block text-xs text-secondary">Job Title</span>
-                          <select value={editDraft.job_title ?? "Bartender"} onChange={e => setEditDraft(d => ({ ...d, job_title: e.target.value as JobTitle }))} className="inp mt-1 w-full">
-                            <option>Bartender</option>
-                            <option>Brewer</option>
-                            <option>Taproom Manager</option>
-                          </select>
-                        </label>
-                        <label className="block">
-                          <span className="block text-xs text-secondary">Employment Type</span>
-                          <select value={editDraft.employment_type ?? "hourly"} onChange={e => setEditDraft(d => ({ ...d, employment_type: e.target.value as EmploymentType }))} className="inp mt-1 w-full">
-                            <option value="hourly">Hourly</option>
-                            <option value="salary_no_overtime">Salary (no OT)</option>
-                            <option value="salary_overtime_eligible">Salary (OT eligible)</option>
-                          </select>
-                        </label>
-                        <label className="block">
-                          <span className="block text-xs text-secondary">Square Team Member ID</span>
-                          <input value={editDraft.square_team_member_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, square_team_member_id: e.target.value }))} className="inp mt-1 w-full" placeholder="optional" />
-                        </label>
-                        <label className="block">
-                          <span className="block text-xs text-secondary">Gusto Employee ID</span>
-                          <input value={editDraft.gusto_employee_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, gusto_employee_id: e.target.value }))} className="inp mt-1 w-full" placeholder="optional" />
-                        </label>
-                      </div>
-                      <div className="mb-3">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={editDraft.receives_tips ?? false} onChange={e => setEditDraft(d => ({ ...d, receives_tips: e.target.checked }))} className="accent-[var(--color-accent-emphasis)]" />
-                          <span className="text-secondary text-sm">Receives tips</span>
-                        </label>
-                        {editDraft.square_team_member_id && !editDraft.receives_tips && (
-                          <Banner tone="accent" className="mt-2 flex items-start gap-2">
-                            <span className="mt-0.5 shrink-0"><WarnIcon /></span>
-                            <span>This employee has a Square Team Member ID. Any tips credited to their shifts in Square will be <strong>excluded</strong> from the shared tip pool — they won&apos;t flow into other employees&apos; calculations.</span>
-                          </Banner>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => updateEmployee.mutate({ id: emp.id, patch: editDraft })}
-                          disabled={updateEmployee.isPending}
-                          className="btn-primary"
-                        >
-                          {updateEmployee.isPending ? "Saving…" : "Save"}
-                        </button>
-                        <button onClick={() => setEditingId(null)} className="btn-secondary">
-                          Cancel
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-            {(employees ?? []).length === 0 && (
-              <tr>
-                <td colSpan={7} className="py-6 text-center text-faint">
-                  No employees yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table></div>
+        <ListTable<Employee>
+          rows={employees ?? []}
+          rowKey={(emp) => emp.id}
+          foldBelow="md"
+          zebra={false}
+          empty="No employees yet."
+          onRowClick={toggleEdit}
+          isOpen={(emp) => editingId === emp.id}
+          drawer={(emp) => (
+            <div className="px-3 py-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <label className="block">
+                <span className="block text-xs text-secondary">First Name</span>
+                <input value={editDraft.first_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, first_name: e.target.value }))} className="inp mt-1 w-full" />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-secondary">Last Name</span>
+                <input value={editDraft.last_name ?? ""} onChange={e => setEditDraft(d => ({ ...d, last_name: e.target.value }))} className="inp mt-1 w-full" />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-secondary">Email</span>
+                <input type="email" value={editDraft.email ?? ""} onChange={e => setEditDraft(d => ({ ...d, email: e.target.value }))} className="inp mt-1 w-full" />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-secondary">Phone</span>
+                <input type="tel" value={editDraft.phone_number ?? ""} onChange={e => setEditDraft(d => ({ ...d, phone_number: e.target.value }))} className="inp mt-1 w-full" />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-secondary">Job Title</span>
+                <select value={editDraft.job_title ?? "Bartender"} onChange={e => setEditDraft(d => ({ ...d, job_title: e.target.value as JobTitle }))} className="inp mt-1 w-full">
+                  <option>Bartender</option>
+                  <option>Brewer</option>
+                  <option>Taproom Manager</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-xs text-secondary">Employment Type</span>
+                <select value={editDraft.employment_type ?? "hourly"} onChange={e => setEditDraft(d => ({ ...d, employment_type: e.target.value as EmploymentType }))} className="inp mt-1 w-full">
+                  <option value="hourly">Hourly</option>
+                  <option value="salary_no_overtime">Salary (no OT)</option>
+                  <option value="salary_overtime_eligible">Salary (OT eligible)</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-xs text-secondary">Square Team Member ID</span>
+                <input value={editDraft.square_team_member_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, square_team_member_id: e.target.value }))} className="inp mt-1 w-full" placeholder="optional" />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-secondary">Gusto Employee ID</span>
+                <input value={editDraft.gusto_employee_id ?? ""} onChange={e => setEditDraft(d => ({ ...d, gusto_employee_id: e.target.value }))} className="inp mt-1 w-full" placeholder="optional" />
+              </label>
+            </div>
+            <div className="mb-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={editDraft.receives_tips ?? false} onChange={e => setEditDraft(d => ({ ...d, receives_tips: e.target.checked }))} className="accent-[var(--color-accent-emphasis)]" />
+                <span className="text-secondary text-sm">Receives tips</span>
+              </label>
+              {editDraft.square_team_member_id && !editDraft.receives_tips && (
+                <Banner tone="accent" className="mt-2 flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0"><WarnIcon /></span>
+                  <span>This employee has a Square Team Member ID. Any tips credited to their shifts in Square will be <strong>excluded</strong> from the shared tip pool — they won&apos;t flow into other employees&apos; calculations.</span>
+                </Banner>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => updateEmployee.mutate({ id: emp.id, patch: editDraft })}
+                disabled={updateEmployee.isPending}
+                className="btn-primary"
+              >
+                {updateEmployee.isPending ? "Saving…" : "Save"}
+              </button>
+              <button onClick={() => setEditingId(null)} className="btn-secondary">
+                Cancel
+              </button>
+            </div>
+            </div>
+          )}
+          cols={[
+            { key: "name", header: "Name", role: "label", className: "!font-normal !text-strong", cell: (emp) => `${emp.first_name} ${emp.last_name}` },
+            { key: "title", header: "Title", className: "text-secondary text-xs", cell: (emp) => emp.job_title },
+            { key: "type", header: "Type", className: "text-secondary text-xs", cell: (emp) => EMP_TYPE_LABELS[emp.employment_type] ?? emp.employment_type },
+            {
+              key: "tips", header: "Tips", foldLabel: "Tips", className: "text-secondary text-xs",
+              cell: (emp) => emp.receives_tips ? "Yes" : (
+                <span>
+                  No
+                  {emp.square_team_member_id && (
+                    <span className="ml-1 text-accent-border" title="Square tips excluded from pool"><WarnIcon /></span>
+                  )}
+                </span>
+              ),
+            },
+            { key: "square", header: "Square ID", fold: false, className: "text-faint text-xs font-mono", cell: (emp) => emp.square_team_member_id?.slice(0, 12) },
+            {
+              key: "active", header: "Active", role: "headline", align: "center",
+              cell: (emp) => (
+                <span onClick={(e) => e.stopPropagation()}>
+                  <ToggleChip
+                    active={emp.active}
+                    onClick={() => emp.active ? setDeactivating(emp) : toggleEmployee.mutate({ id: emp.id, active: true })}
+                  >
+                    {emp.active ? "Active" : "Inactive"}
+                  </ToggleChip>
+                </span>
+              ),
+            },
+            {
+              key: "edit", role: "action",
+              cell: (emp) => (
+                <button onClick={() => toggleEdit(emp)} className="btn-secondary">
+                  {editingId === emp.id ? "Cancel" : "Edit"}
+                </button>
+              ),
+            },
+          ]}
+        />
       </section>
       </div>
       </div>

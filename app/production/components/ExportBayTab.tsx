@@ -1319,7 +1319,7 @@ function SyncConsumptionModal({ onClose, onRecorded }: { onClose: () => void; on
           <div>
             <label className="text-xs text-secondary block mb-1">Look-back (days)</label>
             <input
-              type="number" min="1" max="120" className="inp-sm w-24"
+              type="number" inputMode="decimal" min="1" max="120" className="inp-sm w-24"
               value={days} onChange={(e) => setDays(e.target.value)}
             />
           </div>
@@ -1592,7 +1592,7 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                           </option>
                         ))}
                       </select>
-                      <input type="number" min="0" step="1" className="inp-sm" placeholder="qty"
+                      <input type="number" inputMode="numeric" min="0" step="1" className="inp-sm" placeholder="qty"
                         value={line.quantity}
                         onChange={(e) => setShipLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
                       {shipLines.length > 1
@@ -1850,7 +1850,7 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
           </div>
           <div>
             <label className="text-xs text-secondary block mb-1">Quantity</label>
-            <input type="number" min="0" step="1" className="inp w-full" required value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+            <input type="number" inputMode="numeric" min="0" step="1" className="inp w-full" required value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           </div>
           <div>
             <label className="text-xs text-secondary block mb-1">Notes</label>

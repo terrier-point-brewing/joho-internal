@@ -209,7 +209,7 @@ export default function ConversionTargetFields({
               <p className="text-[10px] text-faint mt-0.5">Whole tank</p>
             </>
           ) : (
-            <input type="number" step="0.001" min="0.001" {...(volumeMax != null ? { max: volumeMax } : {})}
+            <input type="number" inputMode="decimal" step="0.001" min="0.001" {...(volumeMax != null ? { max: volumeMax } : {})}
               className="inp text-xs w-full" placeholder="0.000"
               value={value.volumeBbl} onChange={e => update({ volumeBbl: e.target.value })} />
           )}

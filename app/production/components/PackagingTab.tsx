@@ -1,5 +1,6 @@
 "use client";
 
+import { Star } from "lucide-react";
 import React, { useState } from "react";
 import { formatNumber, formatUnitCost } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
@@ -343,12 +344,12 @@ export default function PackagingTab() {
                             {canEditMaster ? (
                               <span title={item.is_default ? "Remove default" : "Set as default"}>
                                 <ToggleChip active={item.is_default} onClick={() => toggleDefault(item)}>
-                                  {item.is_default ? "★" : "☆"}
+                                  <Star aria-hidden className="size-3.5" fill={item.is_default ? "currentColor" : "none"} />
                                 </ToggleChip>
                               </span>
                             ) : (
                               <span className={`text-xs ${item.is_default ? "text-accent-soft" : "text-disabled"}`}>
-                                {item.is_default ? "★" : "☆"}
+                                <Star aria-hidden className="size-3.5" fill={item.is_default ? "currentColor" : "none"} />
                               </span>
                             )}
                           </td>
@@ -408,14 +409,14 @@ export default function PackagingTab() {
             </div>
 
             <Field label={<>Landed cost per unit ($) <span className="text-faint cursor-help" title="Includes freight and shipping. A Received stock adjustment recalculates it automatically.">ⓘ</span></>}>
-              <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000" value={form.unit_cost_usd}
+              <input type="number" inputMode="decimal" step="0.0001" min="0" className="inp" placeholder="0.0000" value={form.unit_cost_usd}
                 onChange={(e) => setForm((f) => ({ ...f, unit_cost_usd: e.target.value }))} />
             </Field>
 
             {needsVolume(form.type) && (
               <Field label="Volume (fl oz)" required>
                 <div className="flex items-center gap-2">
-                  <input type="number" step="0.1" min="0" className="inp w-40" placeholder="e.g. 1984" required value={form.volume_fl_oz}
+                  <input type="number" inputMode="decimal" step="0.1" min="0" className="inp w-40" placeholder="e.g. 1984" required value={form.volume_fl_oz}
                     onChange={(e) => setForm((f) => ({ ...f, volume_fl_oz: e.target.value }))} />
                   <span className="text-muted text-sm">fl oz</span>
                   {form.volume_fl_oz && (
@@ -431,7 +432,7 @@ export default function PackagingTab() {
             {needsCanCount(form.type) && (
               <Field label="Can count" required>
                 <div className="flex items-center gap-2">
-                  <input type="number" min="1" className="inp w-40" placeholder="e.g. 24" required value={form.can_count}
+                  <input type="number" inputMode="decimal" min="1" className="inp w-40" placeholder="e.g. 24" required value={form.can_count}
                     onChange={(e) => setForm((f) => ({ ...f, can_count: e.target.value }))} />
                   <span className="text-muted text-sm">cans</span>
                 </div>
@@ -440,7 +441,7 @@ export default function PackagingTab() {
 
             <Field label="Weight per piece (oz)" hint="only used to split freight across a receipt">
               <div className="flex items-center gap-2">
-                <input type="number" min="0" step="0.01" className="inp w-40" placeholder="e.g. 0.55"
+                <input type="number" inputMode="decimal" min="0" step="0.01" className="inp w-40" placeholder="e.g. 0.55"
                   value={form.unit_weight_oz}
                   onChange={(e) => setForm((f) => ({ ...f, unit_weight_oz: e.target.value }))} />
                 <span className="text-muted text-sm">oz</span>
@@ -500,18 +501,18 @@ export default function PackagingTab() {
             </Field>
 
             <Field label={adjType === "inventory_count" ? "New Total" : "Quantity"} required>
-              <input type="number" step="1" min="0" className="inp" placeholder={adjType === "inventory_count" ? "Enter new total" : "Enter quantity"}
+              <input type="number" inputMode="numeric" step="1" min="0" className="inp" placeholder={adjType === "inventory_count" ? "Enter new total" : "Enter quantity"}
                 value={adjQty} required onChange={(e) => setAdjQty(e.target.value)} />
             </Field>
 
             {adjType === "received" && (
               <>
                 <Field label="Purchase Cost ($ per unit)" required>
-                  <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
+                  <input type="number" inputMode="decimal" step="0.01" min="0" className="inp" placeholder="0.00"
                     required value={adjCost} onChange={(e) => setAdjCost(e.target.value)} />
                 </Field>
                 <Field label="Shipping Cost ($ total)" required>
-                  <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
+                  <input type="number" inputMode="decimal" step="0.01" min="0" className="inp" placeholder="0.00"
                     required value={adjShipping} onChange={(e) => setAdjShipping(e.target.value)} />
                 </Field>
               </>

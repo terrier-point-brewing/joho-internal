@@ -1,5 +1,6 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -215,7 +216,7 @@ export default function TargetSettingTab() {
             <>
               <div className="w-px h-5 bg-surface-high mx-1" />
               <button onClick={handleEnterEdit} className="btn-secondary">
-                <span>✎</span> Edit
+                <Pencil aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Edit
               </button>
             </>
           )}

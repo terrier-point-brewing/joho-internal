@@ -226,7 +226,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
           <Field label="Open task">
             <div className="flex items-center gap-2 text-sm text-body">
               <input
-                type="number"
+                type="number" inputMode="decimal"
                 min="0"
                 className="inp w-20"
                 value={leadDays}
@@ -285,7 +285,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
             ) : (
               <>
                 <input
-                  type="number"
+                  type="number" inputMode="decimal"
                   min="0"
                   max="12"
                   className="inp w-16"
@@ -299,7 +299,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
               </>
             )}
             <input
-              type="number"
+              type="number" inputMode="decimal"
               min="1"
               max="31"
               className="inp w-16"
@@ -354,7 +354,7 @@ export default function ScheduleEditor({ schedule, parties, onClose, onSaved }: 
                     {checked && (
                       <div className="flex items-center gap-1 shrink-0">
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           className="inp w-20"
                           min="0"
                           max="100"

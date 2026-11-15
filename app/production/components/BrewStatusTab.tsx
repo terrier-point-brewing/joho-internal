@@ -817,7 +817,7 @@ export default function BrewStatusTab() {
           <span className="font-medium text-secondary">Grid size:</span>
           <label className="flex items-center gap-1.5">
             Cols
-            <input type="number" min={16} max={80} value={gridCols}
+            <input type="number" inputMode="numeric" min={16} max={80} value={gridCols}
               onChange={(e) => {
                 const v = Math.max(16, Math.min(80, parseInt(e.target.value) || GRID_COLS));
                 setGridCols(v);
@@ -827,7 +827,7 @@ export default function BrewStatusTab() {
           </label>
           <label className="flex items-center gap-1.5">
             Rows
-            <input type="number" min={8} max={64} value={gridRows}
+            <input type="number" inputMode="numeric" min={8} max={64} value={gridRows}
               onChange={(e) => {
                 const v = Math.max(8, Math.min(64, parseInt(e.target.value) || GRID_ROWS));
                 setGridRows(v);
@@ -1266,7 +1266,7 @@ export default function BrewStatusTab() {
             <div className="grid grid-cols-2 gap-3">
               <Field label="Capacity (BBL)">
                 <input
-                  type="number" step="0.5" min="0" className="inp"
+                  type="number" inputMode="decimal" step="0.5" min="0" className="inp"
                   disabled={UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type)}
                   placeholder={UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type) ? "N/A" : ""}
                   value={eqCrud.eqForm.capacity_bbl}
@@ -1279,11 +1279,11 @@ export default function BrewStatusTab() {
               </Field>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Width (cells)">
-                  <input type="number" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_width}
+                  <input type="number" inputMode="decimal" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_width}
                     onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, grid_width: e.target.value }))} />
                 </Field>
                 <Field label="Height (cells)">
-                  <input type="number" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_height}
+                  <input type="number" inputMode="decimal" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_height}
                     onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, grid_height: e.target.value }))} />
                 </Field>
               </div>

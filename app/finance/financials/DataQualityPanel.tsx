@@ -12,6 +12,7 @@
 // with the dollar total (via <Badge>) and label the count "categories" so
 // nothing here implies "N transactions".
 
+import { Flag } from "lucide-react";
 import { useState } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import type { DataQualitySummary } from "@/lib/finance/financials/types";
@@ -80,13 +81,13 @@ export default function DataQualityPanel({
     (summary.unsourcedAccounts.count > 0 ? 1 : 0);
 
   if (issueBucketCount === 0) {
-    return <span className="text-xs text-faint whitespace-nowrap">⚑ All reconciled</span>;
+    return <span className="text-xs text-faint whitespace-nowrap"><Flag aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> All reconciled</span>;
   }
 
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className="btn-secondary whitespace-nowrap">
-        ⚑ {issueBucketCount} to review
+        <Flag aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> {issueBucketCount} to review
       </button>
       {open && (
         <Modal title="Data quality" onClose={() => setOpen(false)}>

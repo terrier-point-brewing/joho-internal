@@ -1,4 +1,5 @@
 "use client";
+import ListTable from "@/app/components/ui/ListTable";
 import { useState, useEffect, useCallback } from "react";
 import AccountSelect, { type CoARef } from "@/app/finance/AccountSelect";
 import Card from "@/app/components/ui/Card";
@@ -152,69 +153,65 @@ export default function PayrollDepartmentMappingsPage() {
         </div>
       ) : (
         <div className="pane px-4 sm:px-6 py-4 space-y-4">
-          <Card padding="">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-line">
-                  <th className="px-4 py-2 text-left text-muted font-medium">Department</th>
-                  <th className="px-4 py-2 text-left text-muted font-medium">Chart of Accounts</th>
-                  <th className="px-4 py-2 text-left text-muted font-medium w-16"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.departmentName} className="border-t border-line/40 hover:bg-surface-mid/20">
-                    <td className="px-4 py-2 text-body">{row.departmentName}</td>
-                    <td className="px-4 py-2">
-                      <AccountSelect
-                        value={row.chartOfAccountsId}
-                        onChange={(id) => handleSetAccount(row.departmentName, id)}
-                        accounts={accounts}
-                        placeholder="— map this department —"
-                        shortLabel
-                        className="w-full max-w-[360px]"
-                      />
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <button type="button" className="btn-danger btn-xxs" onClick={() => handleRemoveDepartment(row.departmentName)}>
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                <tr className="border-t border-line/40">
-                  <td className="px-4 py-2">
-                    <input
-                      type="text"
-                      className="inp-sm w-full"
-                      placeholder="New department name"
-                      value={newDepartmentName}
-                      onChange={(e) => setNewDepartmentName(e.target.value)}
-                    />
-                  </td>
-                  <td className="px-4 py-2">
-                    <AccountSelect
-                      value={newDepartmentAccountId}
-                      onChange={setNewDepartmentAccountId}
-                      accounts={accounts}
-                      placeholder="— select an account —"
-                      shortLabel
-                      className="w-full max-w-[360px]"
-                    />
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    <button
-                      type="button"
-                      className="btn-primary btn-xxs"
-                      disabled={!newDepartmentName.trim() || !newDepartmentAccountId}
-                      onClick={handleAddDepartment}
-                    >
-                      Add
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <ListTable<(typeof rows)[number]>
+            rows={rows}
+            rowKey={(row) => row.departmentName}
+            zebra={false}
+            empty="No departments mapped yet."
+            cols={[
+              { key: "name", header: "Department", role: "label", className: "!font-normal text-body", cell: (row) => row.departmentName },
+              {
+                key: "account", header: "Chart of Accounts", foldBlock: true,
+                cell: (row) => (
+                  <AccountSelect
+                    value={row.chartOfAccountsId}
+                    onChange={(id) => handleSetAccount(row.departmentName, id)}
+                    accounts={accounts}
+                    placeholder="— map this department —"
+                    shortLabel
+                    className="max-sm:w-0 max-sm:min-w-full sm:w-full sm:max-w-[360px]"
+                  />
+                ),
+              },
+              {
+                key: "remove", role: "action",
+                cell: (row) => (
+                  <button type="button" className="btn-danger" onClick={() => handleRemoveDepartment(row.departmentName)}>
+                    Remove
+                  </button>
+                ),
+              },
+            ]}
+          />
+
+          <Card>
+            <h3 className="text-sm font-semibold text-strong mb-2">Add a department</h3>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                type="text"
+                className="inp-sm w-full sm:w-56"
+                placeholder="New department name"
+                aria-label="New department name"
+                value={newDepartmentName}
+                onChange={(e) => setNewDepartmentName(e.target.value)}
+              />
+              <AccountSelect
+                value={newDepartmentAccountId}
+                onChange={setNewDepartmentAccountId}
+                accounts={accounts}
+                placeholder="— select an account —"
+                shortLabel
+                className="w-full sm:max-w-[360px]"
+              />
+              <button
+                type="button"
+                className="btn-primary sm:ml-auto"
+                disabled={!newDepartmentName.trim() || !newDepartmentAccountId}
+                onClick={handleAddDepartment}
+              >
+                Add
+              </button>
+            </div>
           </Card>
 
           <Card>

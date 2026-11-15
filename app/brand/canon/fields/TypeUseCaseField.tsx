@@ -77,7 +77,7 @@ export default function TypeUseCaseField({
               ))}
             </select>
             <input
-              type="number"
+              type="number" inputMode="numeric"
               className="inp-sm w-20 shrink-0"
               value={row.weight}
               onChange={(e) => update({ weight: Number(e.target.value) })}

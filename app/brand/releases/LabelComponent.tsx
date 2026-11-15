@@ -249,7 +249,7 @@ function LabelStages({ ctx, label }: { ctx: ReleaseComponentContext; label: Bran
             </Field>
             <Field label="Quantity">
               <input
-                type="number" min="0" step="1" className="inp"
+                type="number" inputMode="numeric" min="0" step="1" className="inp"
                 value={draft.print_order.quantity ?? ""}
                 onChange={(e) => setPrint({ quantity: e.target.value ? parseInt(e.target.value) : null })}
               />

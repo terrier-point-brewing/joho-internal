@@ -363,7 +363,7 @@ export function BuildSchedulePanel({
               </div>
               <div>
                 <label className="block text-[10px] mb-0.5 opacity-70">Planned BBL</label>
-                <input type="number" step="0.01" min="0" placeholder="e.g. 3.5" className="inp text-xs w-full"
+                <input type="number" inputMode="decimal" step="0.01" min="0" placeholder="e.g. 3.5" className="inp text-xs w-full"
                   value={slot.volume_bbl ?? ""}
                   onChange={e => setSlots(prev => prev.map((s, i) => i === idx ? { ...s, volume_bbl: e.target.value } : s))} />
               </div>

@@ -612,7 +612,7 @@ export default function DraftStatsTab() {
         <div className="mb-4 flex items-center gap-3 p-3 rounded-lg bg-surface border border-line-strong">
           <label className="text-xs text-secondary whitespace-nowrap">Number of taps:</label>
           <input
-            type="number" min="1" max="32" className="inp w-20 text-center"
+            type="number" inputMode="decimal" min="1" max="32" className="inp w-20 text-center"
             value={tapCountInput}
             onChange={(e) => setTapCountInput(e.target.value)}
           />

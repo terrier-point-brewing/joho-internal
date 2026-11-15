@@ -57,10 +57,16 @@ export type ListGroup<T> = {
   className?: string;
 };
 
+// `label`: below the fold the label cell takes whatever width the headline
+// columns leave (`w-full`) and its content cannot widen the table
+// (`max-w-0`), so one long unbreakable value (a 60-character variation name,
+// an email, a <select>'s longest option) wraps or shrinks instead of pushing
+// the whole table sideways. This is what makes "a list never scrolls
+// sideways on a phone" hold for every page, whatever a cell renders.
 const BP = {
-  sm: { col: "max-sm:hidden", fold: "sm:hidden", top: "max-sm:align-top" },
-  md: { col: "max-md:hidden", fold: "md:hidden", top: "max-md:align-top" },
-  lg: { col: "max-lg:hidden", fold: "lg:hidden", top: "max-lg:align-top" },
+  sm: { col: "max-sm:hidden", fold: "sm:hidden", top: "max-sm:align-top", label: "max-sm:w-full max-sm:max-w-0 max-sm:[overflow-wrap:anywhere]" },
+  md: { col: "max-md:hidden", fold: "md:hidden", top: "max-md:align-top", label: "max-md:w-full max-md:max-w-0 max-md:[overflow-wrap:anywhere]" },
+  lg: { col: "max-lg:hidden", fold: "lg:hidden", top: "max-lg:align-top", label: "max-lg:w-full max-lg:max-w-0 max-lg:[overflow-wrap:anywhere]" },
 } as const;
 
 const isBlank = (n: ReactNode) => n == null || n === false || n === "" || n === "—";
@@ -227,7 +233,7 @@ export default function ListTable<T>({
                       {cols.map((c) => {
                         const r = role(c);
                         if (c.key === labelKey) {
-                          return <td key={c.key} className={`${px} py-2.5 ${bp.top} font-medium text-primary ${c.className ?? ""}`}>{labelCell(c, row, i)}</td>;
+                          return <td key={c.key} className={`${px} py-2.5 ${bp.top} ${bp.label} font-medium text-primary ${c.className ?? ""}`}>{labelCell(c, row, i)}</td>;
                         }
                         const v = c.cell(row, i);
                         return (

@@ -215,7 +215,7 @@ export default function ReviseShipmentModal({ shipmentId, onClose, onSaved }: Re
               </label>
               <input
                 id={`rev-qty-${i}`}
-                type="number"
+                type="number" inputMode="decimal"
                 min="0"
                 className="inp-sm w-24"
                 value={line.quantity}

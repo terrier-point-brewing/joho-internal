@@ -1,4 +1,5 @@
 "use client";
+import { Pencil } from "lucide-react";
 import { Fragment, useState, useCallback, useEffect } from "react";
 import { type TabDef } from "@/app/components/TabBar";
 import ButtonGroup from "@/app/components/ButtonGroup";
@@ -259,7 +260,7 @@ function EditPanel({
             className="inp-sm w-full" />
         </div>
       </div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))}
@@ -271,7 +272,7 @@ function EditPanel({
             Delete
           </button>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           {error && <span className="text-xs text-danger self-center">{error}</span>}
           <button type="button" onClick={onClose}
             className="btn-secondary">
@@ -416,7 +417,7 @@ function AccountRow({
           {account.account_number && (
             <span className="text-faint font-mono text-xs shrink-0">{account.account_number}</span>
           )}
-          <span className="text-xs text-strong truncate">{account.account_name}</span>
+          <span className="text-xs text-strong min-w-0 break-words sm:truncate">{account.account_name}</span>
           {hasOverride && (
             <span className="text-2xs px-1 py-0.5 rounded bg-accent-muted/40 text-accent border border-accent-border/40 shrink-0">override</span>
           )}
@@ -426,7 +427,7 @@ function AccountRow({
           {account.detail_type && (
             <span className="text-2xs text-faint hidden sm:block truncate max-w-[120px]">{account.detail_type}</span>
           )}
-          <span className="text-faint text-xs">✎</span>
+          <Pencil aria-hidden className="size-3 text-faint" />
         </div>
       </button>
       {isEditing && (
@@ -495,7 +496,7 @@ function TypeViewTable({ accounts, allAccounts, editingId, onEdit, onSave, onClo
                         <td className="px-3 py-1.5 hidden sm:table-cell">
                           <span className={`text-2xs ${hasOverride ? "text-accent" : "text-faint"}`}>
                             {sec ? SECTION_LABELS[sec] : "Uncategorized"}
-                            {hasOverride && " ✎"}
+                            {hasOverride && <> <Pencil aria-hidden className="inline size-[1.1em] align-[-0.15em]" /></>}
                           </span>
                         </td>
                         <td className="px-3 py-1.5 text-muted hidden md:table-cell">{a.detail_type ?? "—"}</td>
@@ -667,14 +668,14 @@ export default function ChartOfAccountsPage() {
       <div className="pane px-4 sm:px-6 py-4 sm:py-6 space-y-6">
 
         {step === "idle" && (
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             {!loading && !error && accounts.length > 0 ? (
               <div className="flex items-center gap-3 flex-wrap">
                 <ButtonGroup tabs={CoA_VIEW_TABS} activeKey={viewMode} onSelect={setViewMode} />
                 <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search account # or name…" />
               </div>
             ) : <div />}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 ml-auto [&>*]:whitespace-nowrap">
               <button
                 onClick={() => { setShowAddForm((v) => !v); setAddError(null); setEditingId(null); }}
                 className="btn-secondary">
@@ -695,7 +696,7 @@ export default function ChartOfAccountsPage() {
         {/* Manual add form */}
         {showAddForm && step === "idle" && (
           <form onSubmit={handleAddAccount} className="bg-surface border border-line rounded-lg p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-strong">Add Account</h2>
+            <h3 className="text-sm font-semibold text-strong">Add Account</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-2xs uppercase tracking-wider text-muted">Account Name <span className="text-danger">*</span></label>
@@ -826,7 +827,7 @@ export default function ChartOfAccountsPage() {
           return (
             <div className="bg-surface border border-line rounded-lg p-5 space-y-4">
               <div>
-                <h2 className="text-sm font-semibold text-strong">Review before uploading</h2>
+                <h3 className="text-sm font-semibold text-strong">Review before uploading</h3>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
                   {newCount  > 0 && <span className="text-xs text-success"><span className="font-semibold">{newCount}</span> new</span>}
                   {updCount  > 0 && <span className="text-xs text-accent"><span className="font-semibold">{updCount}</span> updated</span>}
@@ -902,7 +903,7 @@ export default function ChartOfAccountsPage() {
           const parts: string[] = [];
           if (inserted > 0) parts.push(`${inserted} account${inserted !== 1 ? "s" : ""} saved`);
           return (
-            <div className="bg-surface border border-line rounded-lg p-5 flex items-center justify-between">
+            <div className="bg-surface border border-line rounded-lg p-5 flex items-center justify-between gap-3">
               <p className="text-sm text-success">{parts.join(" · ") || "Upload complete."}</p>
               <button onClick={() => setStep("idle")}
                 className="btn-secondary">

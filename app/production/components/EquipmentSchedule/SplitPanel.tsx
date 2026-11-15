@@ -165,12 +165,12 @@ export function SplitPanel({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-[10px] mb-1 text-muted">Main branch BBL</label>
-          <input type="number" step="0.01" min="0" className="inp text-xs w-full"
+          <input type="number" inputMode="decimal" step="0.01" min="0" className="inp text-xs w-full"
             value={mainBbl} onChange={e => onMainChange(e.target.value)} />
         </div>
         <div>
           <label className="block text-[10px] mb-1 text-muted">{branchName} BBL</label>
-          <input type="number" step="0.01" min="0" className="inp text-xs w-full"
+          <input type="number" inputMode="decimal" step="0.01" min="0" className="inp text-xs w-full"
             value={splitBbl} onChange={e => onSplitChange(e.target.value)} />
         </div>
       </div>

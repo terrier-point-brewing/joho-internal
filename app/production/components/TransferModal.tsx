@@ -654,7 +654,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 />
                 <Field label="Shrinkage (BBL)">
                   <div className="flex items-center gap-2">
-                    <input type="number" step="0.001" min="0" className="inp w-40"
+                    <input type="number" inputMode="decimal" step="0.001" min="0" className="inp w-40"
                       value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
                     <span className="text-muted text-sm">lost from {fromTank.name}</span>
                   </div>
@@ -675,7 +675,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 </div>
                 {volumeMode === "partial" && (
                   <div className="flex items-center gap-2">
-                    <input type="number" step="0.001" min="0" max={batchVol} className="inp w-40" placeholder="0.000"
+                    <input type="number" inputMode="decimal" step="0.001" min="0" max={batchVol} className="inp w-40" placeholder="0.000"
                       value={partialBbl} onChange={(e) => setPartialBbl(e.target.value)} />
                     <span className="text-muted text-sm">BBL</span>
                     {destCapacity != null && (
@@ -697,7 +697,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             {mode === "transfer" && !isPackagingForm && (
               <Field label="Shrinkage (BBL)">
                 <div className="flex items-center gap-2">
-                  <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
+                  <input type="number" inputMode="decimal" step="0.001" min="0" className="inp w-40" placeholder="0.000"
                     value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
                   <span className="text-muted text-sm">BBL lost</span>
                 </div>
@@ -802,7 +802,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                       <option key={v.id} value={v.id}>{v.name}</option>
                     ))}
                   </select>
-                  <input type="number" min="0" className="inp" placeholder="qty"
+                  <input type="number" inputMode="decimal" min="0" className="inp" placeholder="qty"
                     value={line.quantity}
                     onChange={(e) => setPackagingLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
                   {packagingLines.length > 1
@@ -818,7 +818,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             <div className="mt-3 pt-3 border-t border-line">
               <Field label="Packaging loss / heel (BBL)">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
+                  <input type="number" inputMode="decimal" step="0.001" min="0" className="inp w-40" placeholder="0.000"
                     value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
                   <span className="text-muted text-sm">BBL lost</span>
                   <button
@@ -835,7 +835,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               <div className="mt-3 pt-3 border-t border-line">
                 <Field label="Material loss (%)">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <input type="number" step="0.1" min="0" max="100" className="inp w-40" placeholder="5"
+                    <input type="number" inputMode="decimal" step="0.1" min="0" max="100" className="inp w-40" placeholder="5"
                       value={packagingLossPct} onChange={(e) => setPackagingLossPct(e.target.value)} />
                     <span className="text-muted text-sm">of cans, lids &amp; labels</span>
                   </div>

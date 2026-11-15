@@ -813,7 +813,7 @@ export default function InvoicePreviewModal({
                     <div className="space-y-1">
                       <label className="block text-[11px] uppercase tracking-wide text-muted">Qty</label>
                       <input
-                        type="number" min={0} step="1"
+                        type="number" inputMode="numeric" min={0} step="1"
                         className="inp-sm w-16 text-right"
                         value={li.quantity}
                         onChange={(e) => updateLine(li.id, { quantity: Number(e.target.value) })}
@@ -822,7 +822,7 @@ export default function InvoicePreviewModal({
                     <div className="space-y-1">
                       <label className="block text-[11px] uppercase tracking-wide text-muted">Unit price</label>
                       <input
-                        type="number" min={0} step="0.01"
+                        type="number" inputMode="decimal" min={0} step="0.01"
                         className="inp-sm w-24 text-right"
                         value={(li.unitPriceCents / 100).toFixed(2)}
                         onChange={(e) => updateLine(li.id, { unitPriceCents: Math.round(Number(e.target.value) * 100) })}

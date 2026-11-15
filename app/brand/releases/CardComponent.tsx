@@ -76,7 +76,7 @@ function CardEditor({ ctx }: { ctx: ReleaseComponentContext }) {
           </Field>
           <Field label="Episode">
             <input
-              type="number"
+              type="number" inputMode="numeric"
               min="1"
               step="1"
               className="inp"

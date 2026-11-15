@@ -856,7 +856,7 @@ export default function ScheduleBatchForm({
                 )}
                 <Field label="Turns (max 4)" required>
                   <input
-                    type="number" step="1" min="1" max="4" className="inp"
+                    type="number" inputMode="numeric" step="1" min="1" max="4" className="inp"
                     value={activeRow.turns}
                     onChange={(e) => {
                       const t = Math.min(4, Math.max(1, parseInt(e.target.value) || 1));

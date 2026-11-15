@@ -163,7 +163,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
                     </td>
                     <td className="px-2 py-1.5">
                       <input
-                        type="number" step="0.001" min="0" className="inp-sm w-full text-right tabular-nums"
+                        type="number" inputMode="decimal" step="0.001" min="0" className="inp-sm w-full text-right tabular-nums"
                         placeholder="0" value={row.quantity}
                         onChange={(e) => updateRow(idx, { quantity: e.target.value })}
                       />
@@ -177,7 +177,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
                     </td>
                     <td className="px-2 py-1.5">
                       <input
-                        type="number" step="0.01" min="0" className="inp-sm w-full text-right tabular-nums"
+                        type="number" inputMode="decimal" step="0.01" min="0" className="inp-sm w-full text-right tabular-nums"
                         placeholder="0.00" value={row.totalCost}
                         onChange={(e) => updateRow(idx, { totalCost: e.target.value })}
                       />
@@ -218,7 +218,7 @@ export default function BulkReceiveModal({ itemType, items, onClose, onDone }: B
 
         <Field label="Total Freight / Shared Charges ($)">
           <input
-            type="number" step="0.01" min="0" className="inp" placeholder="0.00"
+            type="number" inputMode="decimal" step="0.01" min="0" className="inp" placeholder="0.00"
             value={freightTotal} onChange={(e) => setFreightTotal(e.target.value)}
           />
           <p className="text-xs mt-1 text-muted">
