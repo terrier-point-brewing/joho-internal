@@ -1,5 +1,6 @@
 "use client";
 
+import ListTable from "@/app/components/ui/ListTable";
 import { Modal } from "./shared";
 import type { IngredientShortfall } from "@/lib/production/commitments";
 
@@ -40,38 +41,19 @@ export default function IngredientShortfallModal({
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted uppercase tracking-wide border-b border-line">
-                <th className="py-1.5 pr-3 font-semibold">Ingredient</th>
-                <th className="py-1.5 px-3 font-semibold text-right">Needed</th>
-                <th className="py-1.5 px-3 font-semibold text-right">On hand</th>
-                <th className="py-1.5 px-3 font-semibold text-right">Available</th>
-                <th className="py-1.5 pl-3 font-semibold text-right">Short by</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shortfalls.map((s) => (
-                <tr key={s.ingredient_id} className="border-b border-line-subtle last:border-0">
-                  <td className="py-1.5 pr-3 text-primary">{s.name}</td>
-                  <td className="py-1.5 px-3 text-right text-body tabular-nums">
-                    {fmtQty(s.this_batch_committed)} <span className="text-faint">{s.unit}</span>
-                  </td>
-                  <td className="py-1.5 px-3 text-right text-body tabular-nums">
-                    {fmtQty(s.stock_quantity)} <span className="text-faint">{s.unit}</span>
-                  </td>
-                  <td className="py-1.5 px-3 text-right text-secondary tabular-nums">
-                    {fmtQty(s.available_to_batch)} <span className="text-faint">{s.unit}</span>
-                  </td>
-                  <td className="py-1.5 pl-3 text-right text-danger font-medium tabular-nums">
-                    {fmtQty(s.shortfall)} <span className="text-danger/70">{s.unit}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ListTable<(typeof shortfalls)[number]>
+          dense
+          zebra={false}
+          rows={shortfalls}
+          rowKey={(s) => s.ingredient_id}
+          cols={[
+            { key: "name", header: "Ingredient", role: "label", className: "!font-normal", cell: (s) => s.name },
+            { key: "needed", header: "Needed", align: "right", foldLabel: "Needed", className: "text-body tabular-nums", cell: (s) => <span>{fmtQty(s.this_batch_committed)} <span className="text-faint">{s.unit}</span></span> },
+            { key: "onhand", header: "On hand", align: "right", foldLabel: "On hand", className: "text-body tabular-nums", cell: (s) => <span>{fmtQty(s.stock_quantity)} <span className="text-faint">{s.unit}</span></span> },
+            { key: "available", header: "Available", align: "right", foldLabel: "Available", className: "text-secondary tabular-nums", cell: (s) => <span>{fmtQty(s.available_to_batch)} <span className="text-faint">{s.unit}</span></span> },
+            { key: "short", header: "Short by", role: "headline", align: "right", className: "text-danger font-medium tabular-nums", cell: (s) => <span>{fmtQty(s.shortfall)} <span className="text-danger/70">{s.unit}</span></span> },
+          ]}
+        />
 
         {shortfalls.some((s) => s.available_to_batch < s.stock_quantity) && (
           <p className="text-xs text-faint">

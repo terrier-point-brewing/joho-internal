@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -222,7 +223,7 @@ export default function GrantMatrix({
                     onClick={() => toggleExpanded(section)}
                     className="flex items-center gap-1.5 text-sm text-body hover:text-strong transition-colors"
                   >
-                    <span className="text-faint text-xs w-3 inline-block">{isExpanded ? "▼" : "▶"}</span>
+                    <span className="text-faint text-xs w-3 inline-block"><ChevronRight aria-hidden className={`size-3 transition-transform ${isExpanded ? "rotate-90" : ""}`} /></span>
                     {SECTION_LABELS[section]}
                   </button>
                   <select

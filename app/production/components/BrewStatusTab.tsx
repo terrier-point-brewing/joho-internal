@@ -1,5 +1,6 @@
 "use client";
 
+import { ClipboardList, Lock, LockOpen } from "lucide-react";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Equipment, BrewBatch, BatchTankAssignment, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
@@ -416,7 +417,7 @@ export default function BrewStatusTab() {
       {/* Deviation toast */}
       {deviationToast && (
         <div className="fixed bottom-[calc(1.5rem+var(--mobile-nav-space))] right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-lg border border-accent-border/60 bg-accent-muted shadow-xl text-sm text-accent-soft max-w-sm">
-          <span className="text-lg leading-none">📋</span>
+          <ClipboardList aria-hidden className="size-5" />
           <div className="flex-1">
             <p className="font-semibold text-accent-soft">Schedule updated</p>
             <p className="text-xs text-accent mt-0.5">
@@ -518,7 +519,7 @@ export default function BrewStatusTab() {
                 {canEditEquipment && (
                   <>
                     <button onClick={() => setEditMode((v) => !v)} aria-pressed={editMode} className="btn-secondary">
-                      {editMode ? "🔓 Editing Layout" : "🔒 Edit Layout"}
+                      {editMode ? <><LockOpen aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Editing Layout</> : <><Lock aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Edit Layout</>}
                     </button>
                     {editMode && <button onClick={eqCrud.openNew} className="btn-primary">+ Add Equipment</button>}
                   </>
@@ -816,7 +817,7 @@ export default function BrewStatusTab() {
           <span className="font-medium text-secondary">Grid size:</span>
           <label className="flex items-center gap-1.5">
             Cols
-            <input type="number" min={16} max={80} value={gridCols}
+            <input type="number" inputMode="numeric" min={16} max={80} value={gridCols}
               onChange={(e) => {
                 const v = Math.max(16, Math.min(80, parseInt(e.target.value) || GRID_COLS));
                 setGridCols(v);
@@ -826,7 +827,7 @@ export default function BrewStatusTab() {
           </label>
           <label className="flex items-center gap-1.5">
             Rows
-            <input type="number" min={8} max={64} value={gridRows}
+            <input type="number" inputMode="numeric" min={8} max={64} value={gridRows}
               onChange={(e) => {
                 const v = Math.max(8, Math.min(64, parseInt(e.target.value) || GRID_ROWS));
                 setGridRows(v);
@@ -1265,7 +1266,7 @@ export default function BrewStatusTab() {
             <div className="grid grid-cols-2 gap-3">
               <Field label="Capacity (BBL)">
                 <input
-                  type="number" step="0.5" min="0" className="inp"
+                  type="number" inputMode="decimal" step="0.5" min="0" className="inp"
                   disabled={UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type)}
                   placeholder={UNCONSTRAINED_EQUIPMENT_TYPES.includes(eqCrud.eqForm.type) ? "N/A" : ""}
                   value={eqCrud.eqForm.capacity_bbl}
@@ -1278,11 +1279,11 @@ export default function BrewStatusTab() {
               </Field>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Width (cells)">
-                  <input type="number" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_width}
+                  <input type="number" inputMode="decimal" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_width}
                     onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, grid_width: e.target.value }))} />
                 </Field>
                 <Field label="Height (cells)">
-                  <input type="number" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_height}
+                  <input type="number" inputMode="decimal" min="1" max="20" className="inp" value={eqCrud.eqForm.grid_height}
                     onChange={(e) => eqCrud.setEqForm((f) => ({ ...f, grid_height: e.target.value }))} />
                 </Field>
               </div>

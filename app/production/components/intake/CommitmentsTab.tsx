@@ -356,7 +356,7 @@ function CommitmentModal({
         </Field>
 
         <Field label="Volume (BBL)" required>
-          <input type="number" step="0.01" min="0" className="inp" required
+          <input type="number" inputMode="decimal" step="0.01" min="0" className="inp" required
             value={form.volume_bbl} onChange={(e) => set("volume_bbl", e.target.value)} />
         </Field>
 

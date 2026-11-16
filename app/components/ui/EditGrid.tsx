@@ -31,6 +31,7 @@ export default function EditGrid<T>({
   onRemove,
   itemLabel = "Row",
   rowKey,
+  rowClassName,
   className = "",
 }: {
   rows: T[];
@@ -39,6 +40,8 @@ export default function EditGrid<T>({
   /** What one row is called on its phone card ("Step 3"). */
   itemLabel?: string;
   rowKey?: (row: T, index: number) => string | number;
+  /** Extra classes for one row (an unsaved-edit tint). */
+  rowClassName?: (row: T, index: number) => string;
   className?: string;
 }) {
   if (rows.length === 0) return null;
@@ -57,7 +60,7 @@ export default function EditGrid<T>({
           {rows.map((row, i) => (
             <tr
               key={rowKey ? rowKey(row, i) : i}
-              className={`max-sm:grid max-sm:grid-cols-2 max-sm:gap-x-2 max-sm:gap-y-2 max-sm:rounded max-sm:border max-sm:border-line max-sm:p-3 sm:border-b sm:border-line/60 sm:last:border-0 ${i % 2 !== 0 ? "sm:bg-surface/20" : ""}`}
+              className={`max-sm:grid max-sm:grid-cols-2 max-sm:gap-x-2 max-sm:gap-y-2 max-sm:rounded max-sm:border max-sm:border-line max-sm:p-3 sm:border-b sm:border-line/60 sm:last:border-0 ${i % 2 !== 0 ? "sm:bg-surface/20" : ""} ${rowClassName?.(row, i) ?? ""}`}
             >
               <td className="sm:hidden col-span-2 flex items-center justify-between gap-2">
                 <span className="text-xs text-muted font-medium">{itemLabel} {i + 1}</span>

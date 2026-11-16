@@ -1,5 +1,6 @@
 "use client";
 
+import ListTable from "@/app/components/ui/ListTable";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -215,62 +216,49 @@ export default function SquareDriftPanel() {
         {data.kegs.length === 0 ? (
           <p className="text-xs text-faint">No keg mappings could be compared.</p>
         ) : (
-          <div className="overflow-auto rounded-lg border border-line">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-line bg-surface">
-                  <th className="px-3 py-2 text-left font-semibold text-secondary">Recipe</th>
-                  <th className="px-3 py-2 text-left font-semibold text-secondary">Size</th>
-                  <th className="px-3 py-2 text-left font-semibold text-secondary">Cold storage breakdown</th>
-                  <th className="px-3 py-2 text-right font-semibold text-secondary">Kegs</th>
-                  <th
-                    className="px-3 py-2 text-right font-semibold text-secondary"
-                    title="On an unpaid invoice — Square still counts them"
-                  >
-                    Committed
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold text-secondary">Square</th>
-                  <th className="px-3 py-2 text-right font-semibold text-secondary">Drift</th>
-                </tr>
-              </thead>
-              <tbody>
-                {/* Drifting rows first — the reason anyone opens this view. */}
-                {[...driftingKegs, ...data.kegs.filter((k) => k.drift === 0)].map((k) => (
-                  <tr key={k.squareVariationId} className="border-b border-line/40">
-                    <td className="px-3 py-1.5 text-strong">
-                      {name(k.recipeId)}
-                      {holdByRecipe.get(k.recipeId) && <HeldBadge reason={holdByRecipe.get(k.recipeId)!.reason} />}
-                      {k.multiRecipe && (
-                        <span className="ml-1 text-[10px] text-danger">
-                          + {k.multiRecipe.length - 1} other recipe{k.multiRecipe.length > 2 ? "s" : ""}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-1.5 text-body">{k.variationName ?? "—"}</td>
-                    <td className="px-3 py-1.5 text-muted tabular-nums">
-                      {/* Only meaningful when several cold-storage variations feed
-                          one Square SKU — otherwise the total says it all. */}
-                      {k.components.length > 1
-                        ? k.components.map((c) => `${c.label ?? "?"} ${fmt(c.onHand)}`).join("  +  ")
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-1.5 text-right text-body tabular-nums">{fmt(k.coldStorageKegs)}</td>
-                    {/* Shown as a signed addition because that is what it is: the
-                        amount Square's count carries ON TOP of cold storage while
-                        an invoice is outstanding. Without it the Square column
-                        looks inflated for no visible reason. */}
-                    <td className="px-3 py-1.5 text-right tabular-nums">
-                      {k.committedKegs > 0
-                        ? <span className="text-info">+{fmt(k.committedKegs)}</span>
-                        : <span className="text-faint">—</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-right text-body tabular-nums">{fmt(k.squareKegs)}</td>
-                    <td className="px-3 py-1.5 text-right"><DriftCell drift={k.drift} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ListTable<(typeof data.kegs)[number]>
+            className="text-xs"
+            dense
+            zebra={false}
+            foldBelow="md"
+            // Drifting rows first — the reason anyone opens this view.
+            rows={[...driftingKegs, ...data.kegs.filter((k) => k.drift === 0)]}
+            rowKey={(k) => k.squareVariationId}
+            cols={[
+              {
+                key: "recipe", header: "Recipe", role: "label", className: "!font-normal !text-strong text-xs",
+                cell: (k) => (
+                  <>
+                    {name(k.recipeId)}
+                    {holdByRecipe.get(k.recipeId) && <HeldBadge reason={holdByRecipe.get(k.recipeId)!.reason} />}
+                    {k.multiRecipe && (
+                      <span className="ml-1 text-[10px] text-danger">
+                        + {k.multiRecipe.length - 1} other recipe{k.multiRecipe.length > 2 ? "s" : ""}
+                      </span>
+                    )}
+                  </>
+                ),
+              },
+              { key: "size", header: "Size", className: "text-body text-xs", cell: (k) => k.variationName },
+              {
+                // Only meaningful when several cold-storage variations feed one
+                // Square SKU — otherwise the total says it all.
+                key: "breakdown", header: "Cold storage breakdown", foldBlock: true, className: "text-muted text-xs tabular-nums",
+                cell: (k) => (k.components.length > 1 ? k.components.map((c) => `${c.label ?? "?"} ${fmt(c.onHand)}`).join("  +  ") : null),
+              },
+              { key: "kegs", header: "Kegs", align: "right", foldLabel: "Cold storage", className: "text-body text-xs tabular-nums", cell: (k) => fmt(k.coldStorageKegs) },
+              {
+                // A signed addition: what Square's count carries ON TOP of cold
+                // storage while an invoice is outstanding. Without it the Square
+                // column looks inflated for no visible reason.
+                key: "committed", header: <span title="On an unpaid invoice — Square still counts them">Committed</span>, align: "right", foldLabel: "Committed",
+                className: "text-xs tabular-nums",
+                cell: (k) => (k.committedKegs > 0 ? <span className="text-info">+{fmt(k.committedKegs)}</span> : null),
+              },
+              { key: "square", header: "Square", align: "right", foldLabel: "Square", className: "text-body text-xs tabular-nums", cell: (k) => fmt(k.squareKegs) },
+              { key: "drift", header: "Drift", role: "headline", align: "right", cell: (k) => <DriftCell drift={k.drift} /> },
+            ]}
+          />
         )}
       </div>
 
@@ -280,40 +268,33 @@ export default function SquareDriftPanel() {
         {data.cans.length === 0 ? (
           <p className="text-xs text-faint">No can families could be compared.</p>
         ) : (
-          <div className="overflow-auto rounded-lg border border-line">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-line bg-surface">
-                  <th className="px-3 py-2 text-left font-semibold text-secondary">Recipe</th>
-                  <th className="px-3 py-2 text-left font-semibold text-secondary">Family</th>
-                  <th className="px-3 py-2 text-left font-semibold text-secondary">Cold storage breakdown</th>
-                  <th className="px-3 py-2 text-right font-semibold text-secondary">Cans</th>
-                  <th className="px-3 py-2 text-right font-semibold text-secondary">Square</th>
-                  <th className="px-3 py-2 text-right font-semibold text-secondary">Drift</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...driftingCans, ...data.cans.filter((c) => c.drift === 0)].map((c) => (
-                  <tr key={c.baseSquareVariationId} className="border-b border-line/40">
-                    <td className="px-3 py-1.5 text-strong">
-                      {name(c.recipeId)}
-                      {holdByRecipe.get(c.recipeId) && <HeldBadge reason={holdByRecipe.get(c.recipeId)!.reason} />}
-                    </td>
-                    <td className="px-3 py-1.5 text-body">{c.baseVariationName ?? "—"}</td>
-                    <td className="px-3 py-1.5 text-muted tabular-nums">
-                      {c.components
-                        .filter((p) => p.onHand > 0)
-                        .map((p) => `${fmt(p.onHand)} × ${fmt(p.cansEach)}`)
-                        .join("  +  ") || "—"}
-                    </td>
-                    <td className="px-3 py-1.5 text-right text-body tabular-nums">{fmt(c.coldStorageCans)}</td>
-                    <td className="px-3 py-1.5 text-right text-body tabular-nums">{fmt(c.squareCans)}</td>
-                    <td className="px-3 py-1.5 text-right"><DriftCell drift={c.drift} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ListTable<(typeof data.cans)[number]>
+            className="text-xs"
+            dense
+            zebra={false}
+            foldBelow="md"
+            rows={[...driftingCans, ...data.cans.filter((c) => c.drift === 0)]}
+            rowKey={(c) => c.baseSquareVariationId}
+            cols={[
+              {
+                key: "recipe", header: "Recipe", role: "label", className: "!font-normal !text-strong text-xs",
+                cell: (c) => (
+                  <>
+                    {name(c.recipeId)}
+                    {holdByRecipe.get(c.recipeId) && <HeldBadge reason={holdByRecipe.get(c.recipeId)!.reason} />}
+                  </>
+                ),
+              },
+              { key: "family", header: "Family", className: "text-body text-xs", cell: (c) => c.baseVariationName },
+              {
+                key: "breakdown", header: "Cold storage breakdown", foldBlock: true, className: "text-muted text-xs tabular-nums",
+                cell: (c) => c.components.filter((p) => p.onHand > 0).map((p) => `${fmt(p.onHand)} × ${fmt(p.cansEach)}`).join("  +  ") || null,
+              },
+              { key: "cans", header: "Cans", align: "right", foldLabel: "Cold storage", className: "text-body text-xs tabular-nums", cell: (c) => fmt(c.coldStorageCans) },
+              { key: "square", header: "Square", align: "right", foldLabel: "Square", className: "text-body text-xs tabular-nums", cell: (c) => fmt(c.squareCans) },
+              { key: "drift", header: "Drift", role: "headline", align: "right", cell: (c) => <DriftCell drift={c.drift} /> },
+            ]}
+          />
         )}
       </div>
     </div>

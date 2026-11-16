@@ -7,6 +7,8 @@ import SettingsHeader from "@/app/settings/SettingsHeader";
 import Banner from "@/app/components/ui/Banner";
 import Badge from "@/app/components/ui/Badge";
 import Card from "@/app/components/ui/Card";
+import ListTable from "@/app/components/ui/ListTable";
+import { Plus, Trash2 } from "lucide-react";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import GrantMatrix from "./GrantMatrix";
 import type { UserRole } from "@/lib/auth";
@@ -195,129 +197,103 @@ export default function UserManagement() {
               onClick={() => setShowCreate(true)}
               className="btn-primary flex items-center gap-1.5"
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-              </svg>
+              <Plus aria-hidden className="size-3.5" />
               New user
             </button>
           </div>
 
-          <Card padding="" className="overflow-hidden">
-            <div className="scroll-x"><table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line text-muted text-xs uppercase tracking-wide">
-                  <th className="text-left px-4 py-3 font-medium">Email</th>
-                  <th className="text-left px-4 py-3 font-medium">Role</th>
-                  <th className="text-left px-4 py-3 font-medium">Confirmed</th>
-                  <th className="text-left px-4 py-3 font-medium" title="A morning email listing everything on the Home alert center this person can act on.">Alert emails</th>
-                  <th className="text-left px-4 py-3 font-medium">Joined</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-line/50 last:border-0">
-                    <td className="px-4 py-3 text-strong">{u.email}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <select
-                          value={awaitingCompany.has(u.id) ? "partner" : u.role}
-                          onChange={(e) => handleRoleChange(u.id, e.target.value as UserRole)}
-                          className="inp-sm w-auto"
-                        >
-                          {ROLES.map((r) => (
-                            <option key={r} value={r}>
-                              {r}
-                            </option>
-                          ))}
-                        </select>
-                        {(u.role === "partner" || awaitingCompany.has(u.id)) && (
-                          <select
-                            value={awaitingCompany.has(u.id) ? "" : (u.partner_id ?? "")}
-                            onChange={(e) => e.target.value && handleRoleChange(u.id, "partner", e.target.value)}
-                            className="inp-sm w-auto"
-                            aria-label="Partner company"
-                          >
-                            <option value="">Choose company…</option>
-                            {partners.map((p) => (
-                              <option key={p.id} value={p.id}>{p.company_name}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {u.email_confirmed ? (
-                        <Badge tone="success">Confirmed</Badge>
-                      ) : (
-                        <button
-                          onClick={() => handleConfirmEmail(u.id)}
-                          className="btn-primary btn-xxs"
-                        >
-                          Confirm
-                        </button>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {u.role === "partner" || awaitingCompany.has(u.id) ? (
-                        <span className="text-xs text-faint">—</span>
-                      ) : (
-                        <label className="inline-flex items-center gap-2 text-xs text-secondary cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={u.alert_emails_enabled}
-                            onChange={(e) => handleAlertEmails(u.id, e.target.checked)}
-                            className="accent-[var(--color-accent-emphasis)]"
-                            aria-label={`Alert emails for ${u.email}`}
-                          />
-                          {u.alert_emails_enabled ? "Daily" : "Off"}
-                        </label>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted">
-                      {new Date(u.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex gap-2 justify-end items-center">
-                        {u.role === "custom" && (
-                          <button
-                            onClick={() => setGrantsUserId(u.id)}
-                            className="btn-secondary btn-xxs"
-                            title="Edit grants"
-                          >
-                            Grants
-                          </button>
-                        )}
-                        <button
-                          onClick={() => { setPwUserId(u.id); setPwValue(""); setPwError(null); setApiError(null); }}
-                          className="btn-secondary btn-xxs"
-                          title="Set password"
-                        >
-                          Set pwd
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUser(u.id)}
-                          className="btn-danger btn-xxs"
-                          title="Delete user"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                            <path d="M2 4h10M5 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4M11 4l-.7 7.5a1 1 0 0 1-1 .9H4.7a1 1 0 0 1-1-.9L3 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {users.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-6 text-center text-faint text-sm">
-                      No users yet
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table></div>
-          </Card>
+          <ListTable<Profile>
+            rows={users}
+            rowKey={(u) => u.id}
+            foldBelow="lg"
+            zebra={false}
+            empty="No users yet"
+            cols={[
+              { key: "email", header: "Email", role: "label", className: "!font-normal !text-strong", cell: (u) => <span className="break-all">{u.email}</span> },
+              {
+                key: "role", header: "Role", foldBlock: true,
+                cell: (u) => (
+                  <div className="flex flex-wrap gap-2 items-center max-lg:mt-1.5">
+                    <select
+                      value={awaitingCompany.has(u.id) ? "partner" : u.role}
+                      onChange={(e) => handleRoleChange(u.id, e.target.value as UserRole)}
+                      className="inp-sm w-auto"
+                      aria-label={`Role for ${u.email}`}
+                    >
+                      {ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                    {(u.role === "partner" || awaitingCompany.has(u.id)) && (
+                      <select
+                        value={awaitingCompany.has(u.id) ? "" : (u.partner_id ?? "")}
+                        onChange={(e) => e.target.value && handleRoleChange(u.id, "partner", e.target.value)}
+                        className="inp-sm w-auto max-w-full"
+                        aria-label="Partner company"
+                      >
+                        <option value="">Choose company…</option>
+                        {partners.map((p) => (
+                          <option key={p.id} value={p.id}>{p.company_name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                key: "confirmed", header: "Confirmed",
+                cell: (u) => u.email_confirmed ? (
+                  <Badge tone="success">Confirmed</Badge>
+                ) : (
+                  <button onClick={() => handleConfirmEmail(u.id)} className="btn-primary btn-xxs">
+                    Confirm
+                  </button>
+                ),
+              },
+              {
+                key: "alerts",
+                header: <span title="A morning email listing everything on the Home alert center this person can act on.">Alert emails</span>,
+                foldLabel: "Alert emails",
+                cell: (u) => !(u.role === "partner" || awaitingCompany.has(u.id)) && (
+                  <label className="inline-flex items-center gap-2 text-xs text-secondary cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={u.alert_emails_enabled}
+                      onChange={(e) => handleAlertEmails(u.id, e.target.checked)}
+                      className="accent-[var(--color-accent-emphasis)]"
+                      aria-label={`Alert emails for ${u.email}`}
+                    />
+                    {u.alert_emails_enabled ? "Daily" : "Off"}
+                  </label>
+                ),
+              },
+              { key: "joined", header: "Joined", foldLabel: "Joined", className: "text-muted whitespace-nowrap", cell: (u) => new Date(u.created_at).toLocaleDateString() },
+              {
+                key: "actions", role: "action",
+                cell: (u) => (
+                  <>
+                    {u.role === "custom" && (
+                      <button onClick={() => setGrantsUserId(u.id)} className="btn-secondary" title="Edit grants">
+                        Grants
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setPwUserId(u.id); setPwValue(""); setPwError(null); setApiError(null); }}
+                      className="btn-secondary whitespace-nowrap"
+                    >
+                      Set password
+                    </button>
+                    <button onClick={() => handleDeleteUser(u.id)} className="btn-danger inline-flex items-center gap-1" title="Delete user" aria-label={`Delete ${u.email}`}>
+                      <Trash2 aria-hidden className="size-3.5" />
+                      <span className="lg:hidden">Delete</span>
+                    </button>
+                  </>
+                ),
+              },
+            ]}
+          />
 
           <Card className="mt-6">
             <h2 className="text-sm font-semibold text-strong">Preset roles</h2>

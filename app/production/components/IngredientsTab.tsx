@@ -1,5 +1,6 @@
 "use client";
 
+import { Lock } from "lucide-react";
 import { useState, useRef } from "react";
 import { formatCurrency, formatUnitCost } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
@@ -724,7 +725,7 @@ export default function IngredientsTab() {
                                 <span className="text-secondary">{ing.unit}</span>
                               </td>
                               <td className="px-2 py-1.5">
-                                <input type="number" step="0.0001" min="0" className="inp-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit_usd}
+                                <input type="number" inputMode="decimal" step="0.0001" min="0" className="inp-sm w-full text-right tabular-nums" placeholder="0.0000" value={bulkRow.cost_per_unit_usd}
                                   onChange={(e) => setBulkRows((rs) => rs.map((r) => r.id === ing.id ? { ...r, cost_per_unit_usd: e.target.value } : r))} />
                               </td>
                               <td className="px-4 py-2.5 text-right tabular-nums">
@@ -874,7 +875,7 @@ export default function IngredientsTab() {
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="inp flex items-center gap-1.5 text-secondary bg-surface/60 cursor-not-allowed">
-                      <span aria-hidden="true">🔒</span>{ingForm.unit}
+                      <Lock aria-hidden className="size-3" />{ingForm.unit}
                     </div>
                   </div>
                 )}
@@ -891,25 +892,25 @@ export default function IngredientsTab() {
                 )}
               </Field>
               <Field label={<>Landed cost per unit ($) <span className="text-faint cursor-help" title="Includes freight and shipping. A Received stock adjustment recalculates it automatically.">ⓘ</span></>}>
-                <input type="number" step="0.0001" min="0" className="inp" placeholder="0.0000"
+                <input type="number" inputMode="decimal" step="0.0001" min="0" className="inp" placeholder="0.0000"
                   value={ingForm.cost_per_unit_usd}
                   onChange={(e) => setIngForm((f) => ({ ...f, cost_per_unit_usd: e.target.value }))} />
               </Field>
             </div>
             <Field label="Starting Stock">
-              <input type="number" step="0.001" min="0" className="inp" value={ingForm.stock_quantity}
+              <input type="number" inputMode="decimal" step="0.001" min="0" className="inp" value={ingForm.stock_quantity}
                 onChange={(e) => setIngForm((f) => ({ ...f, stock_quantity: e.target.value }))} />
             </Field>
             {ingForm.category === "Hops" && (
               <Field label="Alpha Acid (%)">
-                <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 6.5"
+                <input type="number" inputMode="decimal" step="0.1" min="0" className="inp" placeholder="e.g. 6.5"
                   value={ingForm.alpha_acid}
                   onChange={(e) => setIngForm((f) => ({ ...f, alpha_acid: e.target.value }))} />
               </Field>
             )}
             {ingForm.category === "Malts" && (
               <Field label="Color (°L — Lovibond)">
-                <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 2.0"
+                <input type="number" inputMode="decimal" step="0.1" min="0" className="inp" placeholder="e.g. 2.0"
                   value={ingForm.color_lovibond}
                   onChange={(e) => setIngForm((f) => ({ ...f, color_lovibond: e.target.value }))} />
               </Field>
@@ -965,7 +966,7 @@ export default function IngredientsTab() {
               label={adjType === "inventory_count" ? `New Stock Total (${adjIngredient.unit})` : `Quantity (${adjIngredient.unit})`}
               required
             >
-              <input type="number" step="0.001" min="0" className="inp"
+              <input type="number" inputMode="decimal" step="0.001" min="0" className="inp"
                 placeholder={adjType === "inventory_count" ? "Enter new total" : "Enter quantity"}
                 value={adjQty} required onChange={(e) => setAdjQty(e.target.value)} />
               {adjQty && adjType !== "inventory_count" && (
@@ -988,11 +989,11 @@ export default function IngredientsTab() {
             {adjType === "received" && (
               <>
                 <Field label="Purchase Cost ($ per unit)" required>
-                  <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
+                  <input type="number" inputMode="decimal" step="0.01" min="0" className="inp" placeholder="0.00"
                     required value={adjPurchaseCost} onChange={(e) => setAdjPurchaseCost(e.target.value)} />
                 </Field>
                 <Field label="Shipping Cost ($ total)" required>
-                  <input type="number" step="0.01" min="0" className="inp" placeholder="0.00"
+                  <input type="number" inputMode="decimal" step="0.01" min="0" className="inp" placeholder="0.00"
                     required value={adjShippingCost} onChange={(e) => setAdjShippingCost(e.target.value)} />
                 </Field>
                 {previewQty > 0 && previewCost > 0 && (

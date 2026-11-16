@@ -28,6 +28,7 @@ import { SplitPanel } from "./SplitPanel";
 import { ConvertPanel } from "./ConvertPanel";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 type ActivePanel =
   | { kind: "none" }
@@ -358,7 +359,7 @@ export function EquipmentScheduleSection({
       {/* ── Planning incomplete alerts ───────────────────────────────────── */}
       {pkgMismatches.map(({ label, detail }) => (
         <div key={label} className="mb-2 px-3 py-2 rounded border border-[var(--cat-amber-bd)] bg-[var(--cat-amber-bg)] text-xs text-[var(--cat-amber-fg)] leading-relaxed">
-          <span className="font-semibold">⚠ {label} — planning incomplete</span>
+          <span className="font-semibold"><WarnIcon /> {label} — planning incomplete</span>
           {" "}— {detail}.
         </div>
       ))}
@@ -488,7 +489,7 @@ export function EquipmentScheduleSection({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-muted mb-1">Volume (BBL)</label>
-              <input type="number" step="0.01" min="0" className="inp text-xs" value={editForm.volume_bbl}
+              <input type="number" inputMode="decimal" step="0.01" min="0" className="inp text-xs" value={editForm.volume_bbl}
                 onChange={e => f("volume_bbl", e.target.value)} placeholder="e.g. 30.00" />
             </div>
             <div>
@@ -499,7 +500,7 @@ export function EquipmentScheduleSection({
           </div>
           {editConflict && (
             <div className="px-3 py-2 rounded border border-danger-border bg-danger-surface/40 text-xs text-danger leading-relaxed">
-              <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(editConflict)} during these dates.
+              <span className="font-semibold"><WarnIcon /> Equipment conflict</span> — already scheduled for {conflictBatchLabel(editConflict)} during these dates.
               {editSuggestion && (
                 <> Try <button type="button" onClick={() => f("equipment_id", editSuggestion.id)} className="underline underline-offset-2 hover:text-danger-emphasis">{editSuggestion.name}</button> instead.</>
               )}

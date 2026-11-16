@@ -11,6 +11,7 @@ import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { useBatchScheduleQuery, useEquipmentQuery, useBatchesQuery, useScheduleConflictsQuery, productionKeys, type ScheduleEntry, type ScheduleConflict } from "../hooks/queries";
 import { BATCH_PALETTE, CATEGORY_FALLBACK_HEX, EQUIPMENT_TYPE_ACCENT_HEX as TYPE_ACCENT } from "../lib/categoryColors";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 const EQUIPMENT_STAGE_ORDER = ["brewhouse", "fermenter", "brite", "canning", "kegging"];
 const STAGE_LABELS: Record<string, string> = {
@@ -416,7 +417,7 @@ export default function GanttTab() {
         <div className="mb-4 rounded-lg border border-danger-border bg-danger-surface/40 px-4 py-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-danger">
-              ⚠ {conflicts.filter(c => !dismissedConflicts.has(c.id)).length} Schedule Conflict{conflicts.filter(c => !dismissedConflicts.has(c.id)).length > 1 ? "s" : ""} Detected
+              <WarnIcon /> {conflicts.filter(c => !dismissedConflicts.has(c.id)).length} Schedule Conflict{conflicts.filter(c => !dismissedConflicts.has(c.id)).length > 1 ? "s" : ""} Detected
             </span>
           </div>
           <div className="space-y-2">

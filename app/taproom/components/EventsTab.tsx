@@ -1,5 +1,6 @@
 "use client";
 
+import ListTable from "@/app/components/ui/ListTable";
 import { useState } from "react";
 import { formatCurrencyCents } from "@/lib/format";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -221,42 +222,24 @@ function PourTable({ eventId }: { eventId: string }) {
       </div>
 
       {/* Variation breakdown table */}
-      <div className="overflow-x-auto rounded-lg border border-line">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-line bg-surface/60">
-              <th className="text-left px-3 py-2.5 text-muted font-medium">Item</th>
-              <th className="text-right px-3 py-2.5 text-muted font-medium">Qty</th>
-              <th className="text-right px-3 py-2.5 text-muted font-medium">Gross</th>
-              <th className="text-right px-3 py-2.5 text-muted font-medium">Discounts</th>
-              <th className="text-right px-3 py-2.5 text-muted font-medium">Net</th>
-              <th className="text-right px-3 py-2.5 text-muted font-medium">Tax</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line/60">
-            {rows.map((r) => (
-              <tr key={r.variation_id} className="hover:bg-surface-mid/30 transition-colors">
-                <td className="px-3 py-2.5 text-strong">{r.variation_name}</td>
-                <td className="px-3 py-2.5 text-right text-body">{r.quantity}</td>
-                <td className="px-3 py-2.5 text-right text-body">{fmtUsd(r.gross_cents)}</td>
-                <td className="px-3 py-2.5 text-right text-muted">{r.discount_cents ? `(${fmtUsd(r.discount_cents)})` : "—"}</td>
-                <td className="px-3 py-2.5 text-right text-strong font-medium">{fmtUsd(r.gross_cents - r.discount_cents)}</td>
-                <td className="px-3 py-2.5 text-right text-muted">{fmtUsd(r.tax_cents)}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t border-line-strong bg-surface/60 font-semibold">
-              <td className="px-3 py-2.5 text-body">Total</td>
-              <td className="px-3 py-2.5 text-right text-body">{totals.quantity}</td>
-              <td className="px-3 py-2.5 text-right text-strong">{fmtUsd(totals.gross_cents)}</td>
-              <td className="px-3 py-2.5 text-right text-secondary">{totals.discount_cents ? `(${fmtUsd(totals.discount_cents)})` : "—"}</td>
-              <td className="px-3 py-2.5 text-right text-accent">{fmtUsd(netSales)}</td>
-              <td className="px-3 py-2.5 text-right text-secondary">{fmtUsd(totals.tax_cents)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      {/* The totals ride as a last row so they stay under their columns on a
+          desktop and fold like every other row on a phone. */}
+      <ListTable<(typeof rows)[number] & { total?: boolean }>
+        className="text-xs"
+        dense
+        zebra={false}
+        rows={[...rows, { ...rows[0], ...totals, variation_id: "__total", variation_name: "Total", total: true }]}
+        rowKey={(r) => r.variation_id}
+        rowClassName={(r) => (r.total ? "bg-surface/60 font-semibold border-t border-line-strong" : "")}
+        cols={[
+          { key: "item", header: "Item", role: "label", className: "!font-normal !text-strong text-xs", cell: (r) => r.variation_name },
+          { key: "qty", header: "Qty", align: "right", foldLabel: "Qty", className: "text-body text-xs tabular-nums", cell: (r) => r.quantity },
+          { key: "gross", header: "Gross", align: "right", foldLabel: "Gross", className: "text-body text-xs tabular-nums", cell: (r) => fmtUsd(r.gross_cents) },
+          { key: "disc", header: "Discounts", align: "right", foldLabel: "Discounts", className: "text-muted text-xs tabular-nums", cell: (r) => (r.discount_cents ? `(${fmtUsd(r.discount_cents)})` : null) },
+          { key: "net", header: "Net", role: "headline", align: "right", className: "text-xs tabular-nums font-medium", cell: (r) => <span className={r.total ? "text-accent" : "text-strong"}>{fmtUsd(r.gross_cents - r.discount_cents)}</span> },
+          { key: "tax", header: "Tax", align: "right", foldLabel: "Tax", className: "text-muted text-xs tabular-nums", cell: (r) => fmtUsd(r.tax_cents) },
+        ]}
+      />
     </div>
   );
 }
@@ -307,30 +290,20 @@ function KegsUsed({ eventId, closed, ended, onRecord }: { eventId: string; close
           {ended ? "No kegs recorded yet. Press Close out to record the kegs this event tapped." : "Kegs are recorded after the event ends."}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-line">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-line bg-surface/60">
-                <th className="text-left px-3 py-2 text-muted font-medium">Beer</th>
-                <th className="text-left px-3 py-2 text-muted font-medium">Keg</th>
-                <th className="text-right px-3 py-2 text-muted font-medium">Kegs</th>
-                <th className="text-left px-3 py-2 text-muted font-medium">Recorded</th>
-                <th className="text-left px-3 py-2 text-muted font-medium">Note</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line/60">
-              {lines.map((l) => (
-                <tr key={l.source_ref}>
-                  <td className="px-3 py-2 text-strong">{l.recipe_name}</td>
-                  <td className="px-3 py-2 text-body">{l.variation_name}</td>
-                  <td className="px-3 py-2 text-right text-body">{l.quantity}</td>
-                  <td className="px-3 py-2 text-muted whitespace-nowrap">{fmtDisplay(l.shipped_at)}</td>
-                  <td className="px-3 py-2 text-muted">{l.notes ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ListTable<(typeof lines)[number]>
+          className="text-xs"
+          dense
+          zebra={false}
+          rows={lines}
+          rowKey={(l) => l.source_ref}
+          cols={[
+            { key: "beer", header: "Beer", role: "label", className: "!font-normal !text-strong text-xs", cell: (l) => l.recipe_name },
+            { key: "keg", header: "Keg", className: "text-body text-xs", cell: (l) => l.variation_name },
+            { key: "kegs", header: "Kegs", role: "headline", align: "right", className: "text-body text-xs tabular-nums", cell: (l) => l.quantity },
+            { key: "recorded", header: "Recorded", className: "text-muted text-xs whitespace-nowrap", cell: (l) => fmtDisplay(l.shipped_at) },
+            { key: "note", header: "Note", foldBlock: true, className: "text-muted text-xs", cell: (l) => l.notes },
+          ]}
+        />
       )}
       {closed && (
         <p className="text-xs text-faint">A keg recorded by mistake is reversed in Production, not here.</p>

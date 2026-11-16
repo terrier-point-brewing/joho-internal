@@ -5,6 +5,7 @@ import type { Employee, PayrollEntryMerged } from "@/lib/payroll/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fmtCents, fmtUsd } from "@/lib/utils/formatting";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 interface Props {
   entry: PayrollEntryMerged;
@@ -40,7 +41,7 @@ function ValueCell({
       <div className="flex flex-col items-end">
         <span className="text-muted text-xs">{effectiveVal}</span>
         <input
-          type="number"
+          type="number" inputMode="decimal"
           step={step}
           min="0"
           value={adjState}
@@ -132,7 +133,7 @@ export function PayrollEntryRow({ entry, employee, periodId, editable, overrideM
             className="ml-1.5 text-danger text-xs"
             title="A period-level override masks a day override on the Shifts tab for this employee"
           >
-            ⚠
+            <WarnIcon />
           </span>
         )}
       </td>

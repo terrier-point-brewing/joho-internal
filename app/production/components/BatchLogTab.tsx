@@ -1,5 +1,8 @@
 "use client";
 
+import EditGrid from "@/app/components/ui/EditGrid";
+import ListTable from "@/app/components/ui/ListTable";
+import { ChevronRight } from "lucide-react";
 import React, { useState } from "react";
 import dynamic from "next/dynamic";
 import { addDays, parseISO } from "date-fns";
@@ -33,6 +36,7 @@ import DepositCoverageLine from "./DepositCoverageLine";
 import { useDepositInvoiceActions } from "./useDepositInvoiceActions";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig, SortState } from "@/lib/table/types";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 const EquipmentScheduleSection = dynamic(
   () => import("./EquipmentSchedule").then((m) => m.EquipmentScheduleSection),
@@ -276,7 +280,7 @@ export default function BatchLogTab() {
             Deposit invoice sent, unpaid
           </span>
           <span className="flex items-center gap-1">
-            <span className="text-danger">⚠</span>
+            <span className="text-danger"><WarnIcon /></span>
             Ingredient shortfall
           </span>
         </div>
@@ -336,7 +340,7 @@ export default function BatchLogTab() {
             </div>
             {editingBatch?.converted_from_batch_id ? (
               <Field label="Volume (BBL)" required>
-                <input type="number" min="0" step="0.01" className="inp" value={form.volume_override} required
+                <input type="number" inputMode="decimal" min="0" step="0.01" className="inp" value={form.volume_override} required
                   onChange={(e) => setForm((f) => ({ ...f, volume_override: e.target.value }))} />
                 <p className="text-xs text-muted mt-1">
                   This batch was created from a conversion, so its volume is set directly rather than from brewhouse turns.
@@ -344,7 +348,7 @@ export default function BatchLogTab() {
               </Field>
             ) : editingId ? (
               <Field label={`Turns (${BREWHOUSE_BBL} BBL brewhouse)`} required>
-                <input type="number" min="1" step="1" className="inp" value={form.turns} required
+                <input type="number" inputMode="numeric" min="1" step="1" className="inp" value={form.turns} required
                   onChange={(e) => setForm((f) => ({ ...f, turns: e.target.value }))} />
                 <p className="text-xs text-muted mt-1">
                   Brew volume: <span className="text-body font-medium">{computedVolume} BBL</span>
@@ -365,23 +369,23 @@ export default function BatchLogTab() {
                 <p className="text-xs text-secondary mb-2">Brew Stats</p>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <Field label="IBU">
-                    <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 45"
+                    <input type="number" inputMode="decimal" step="0.1" min="0" className="inp" placeholder="e.g. 45"
                       value={form.ibu} onChange={(e) => setForm((f) => ({ ...f, ibu: e.target.value }))} />
                   </Field>
                   <Field label="Color (SRM)">
-                    <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 8"
+                    <input type="number" inputMode="decimal" step="0.1" min="0" className="inp" placeholder="e.g. 8"
                       value={form.color_srm} onChange={(e) => setForm((f) => ({ ...f, color_srm: e.target.value }))} />
                   </Field>
                   <Field label="OG">
-                    <input type="number" step="0.001" min="0" className="inp" placeholder="e.g. 1.065"
+                    <input type="number" inputMode="decimal" step="0.001" min="0" className="inp" placeholder="e.g. 1.065"
                       value={form.original_gravity} onChange={(e) => setForm((f) => ({ ...f, original_gravity: e.target.value }))} />
                   </Field>
                   <Field label="FG">
-                    <input type="number" step="0.001" min="0" className="inp" placeholder="e.g. 1.012"
+                    <input type="number" inputMode="decimal" step="0.001" min="0" className="inp" placeholder="e.g. 1.012"
                       value={form.final_gravity} onChange={(e) => setForm((f) => ({ ...f, final_gravity: e.target.value }))} />
                   </Field>
                   <Field label="DO (ppb)">
-                    <input type="number" step="0.1" min="0" className="inp" placeholder="e.g. 50"
+                    <input type="number" inputMode="decimal" step="0.1" min="0" className="inp" placeholder="e.g. 50"
                       value={form.dissolved_oxygen_ppb} onChange={(e) => setForm((f) => ({ ...f, dissolved_oxygen_ppb: e.target.value }))} />
                   </Field>
                 </div>
@@ -395,7 +399,7 @@ export default function BatchLogTab() {
             )}
             {editingBatch && (
               <p className="text-xs text-muted">
-                Shares and the equipment schedule are managed from the batch row — expand it with ▶ on the Batch Log table.
+                Shares and the equipment schedule are managed from the batch row — expand it with the arrow on the Batch Log table.
               </p>
             )}
 
@@ -750,7 +754,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
             </div>
             <span className={`text-xs tabular-nums whitespace-nowrap ${overAllocated ? "text-danger" : "text-muted"}`}>
               {totalPct.toFixed(1)}% · {((totalPct / 100) * batchVol).toFixed(1)} BBL
-              {overAllocated && <span className="ml-1">⚠ over 100%</span>}
+              {overAllocated && <span className="ml-1"><WarnIcon /> over 100%</span>}
               {!overAllocated && remaining > 0.1 && <span className="ml-1 text-faint">({remaining.toFixed(1)}% open)</span>}
             </span>
           </div>
@@ -760,7 +764,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
       {/* Allocation incomplete banner */}
       {remaining > 0.1 && (
         <div className="px-3 py-2 rounded border border-info-border/50 bg-info-surface/20 text-xs text-info leading-relaxed">
-          <span className="font-semibold">⚠ {remaining.toFixed(1)}% of this batch ({((remaining / 100) * batchVol).toFixed(2)} BBL) has no home yet</span>
+          <span className="font-semibold"><WarnIcon /> {remaining.toFixed(1)}% of this batch ({((remaining / 100) * batchVol).toFixed(2)} BBL) has no home yet</span>
         </div>
       )}
 
@@ -778,7 +782,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
         ].filter(Boolean).join(", ");
         return (
           <div className="px-3 py-2 rounded border border-orange-700/50 bg-orange-950/20 text-orange-400 text-xs leading-relaxed">
-            <span className="font-semibold">⚠ {unpaid.length} unpaid contract {label}</span>
+            <span className="font-semibold"><WarnIcon /> {unpaid.length} unpaid contract {label}</span>
             {detail ? <span> — {detail}</span> : null}
           </div>
         );
@@ -823,7 +827,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
                     {/* Inline % */}
                     <div className="flex items-center gap-1">
                       <input
-                        type="number" step="0.1" min="0" max="100"
+                        type="number" inputMode="decimal" step="0.1" min="0" max="100"
                         className="inp-sm w-16 text-right tabular-nums"
                         value={pctVal}
                         readOnly={!canExportOperate || !!a.invoice_paid_at}
@@ -994,7 +998,7 @@ function AllocationManager({ batch }: { batch: BrewBatch }) {
             <div className="flex-none">
               <label className="block text-xs text-muted mb-1">Allocation %</label>
               <div className="flex items-center gap-1">
-                <input type="number" step="0.1" min="0.1" max="100" className="inp-sm w-24 text-right"
+                <input type="number" inputMode="decimal" step="0.1" min="0.1" max="100" className="inp-sm w-24 text-right"
                   placeholder="0.0" value={newPct} onChange={e => setNewPct(e.target.value)} />
                 <span className="text-xs text-muted">%</span>
               </div>
@@ -1157,7 +1161,7 @@ function BatchTable({
                       aria-label={isExpanded ? "Hide details" : "Show details"}
                       aria-expanded={isExpanded}
                     >
-                      {isExpanded ? "▼" : "▶"}
+                      <ChevronRight aria-hidden className={`size-3.5 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                     </button>
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-secondary whitespace-nowrap min-w-[110px] max-sm:hidden">
@@ -1284,30 +1288,19 @@ function BrewActivityLogDisplay({ entries }: { entries: BrewActivityEntry[] }) {
   return (
     <div>
       <p className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">Brew Activity Log</p>
-      <div className="overflow-x-auto rounded border border-line/60">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-line bg-surface/40 text-left">
-              <th className="px-3 py-2 font-medium text-muted w-8">#</th>
-              <th className="px-3 py-2 font-medium text-muted">Activity</th>
-              <th className="px-3 py-2 font-medium text-muted">Time</th>
-              <th className="px-3 py-2 font-medium text-muted text-right">Temp (°F)</th>
-              <th className="px-3 py-2 font-medium text-muted text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((e, i) => (
-              <tr key={e.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""}`}>
-                <td className="px-3 py-2 text-faint tabular-nums">{i + 1}</td>
-                <td className="px-3 py-2 text-body">{e.activity}</td>
-                <td className="px-3 py-2 text-muted">{e.time_label ?? "—"}</td>
-                <td className="px-3 py-2 text-muted text-right tabular-nums">{e.temp != null ? `${e.temp}` : "—"}</td>
-                <td className="px-3 py-2 text-muted text-right tabular-nums">{e.amount != null ? Number(e.amount).toLocaleString() : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ListTable<BrewActivityEntry>
+        dense
+        className="text-xs"
+        rows={sorted}
+        rowKey={(e) => e.id}
+        cols={[
+          { key: "n", header: "#", fold: false, className: "text-xs text-faint tabular-nums w-8", cell: (_, i) => i + 1 },
+          { key: "activity", header: "Activity", role: "label", className: "!font-normal !text-body text-xs", cell: (e) => e.activity },
+          { key: "time", header: "Time", foldLabel: "Time", className: "text-xs text-muted", cell: (e) => e.time_label },
+          { key: "temp", header: "Temp (°F)", align: "right", className: "text-xs text-muted tabular-nums", cell: (e) => (e.temp != null ? `${e.temp}` : null), fold: (e) => (e.temp != null ? `${e.temp}°F` : null) },
+          { key: "amount", header: "Amount", align: "right", foldLabel: "Amount", className: "text-xs text-muted tabular-nums", cell: (e) => (e.amount != null ? Number(e.amount).toLocaleString() : null) },
+        ]}
+      />
     </div>
   );
 }
@@ -1424,47 +1417,20 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
       </div>
 
       {rows.length > 0 && (
-        <div className="overflow-x-auto rounded border border-line/60 mb-3">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-line bg-surface/40 text-left">
-                <th className="px-3 py-2 font-medium text-muted">#</th>
-                <th className="px-3 py-2 font-medium text-muted">Activity</th>
-                <th className="px-3 py-2 font-medium text-muted">Time</th>
-                <th className="px-3 py-2 font-medium text-muted text-right">Temp (°F)</th>
-                <th className="px-3 py-2 font-medium text-muted text-right">Amount</th>
-                <th className="px-3 py-2 w-6"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.id} className={`border-b border-line/40 ${i % 2 !== 0 ? "bg-surface/20" : ""} ${r.dirty ? "bg-accent-muted/10" : ""}`}>
-                  <td className="px-3 py-1.5 text-faint tabular-nums">{i + 1}</td>
-                  <td className="px-3 py-1.5">
-                    <input className="inp-sm" value={r.activity}
-                      onChange={(e) => markDirty(i, "activity", e.target.value)} />
-                  </td>
-                  <td className="px-3 py-1.5">
-                    <input className="inp-sm" placeholder="e.g. 0:00" value={r.time_label}
-                      onChange={(e) => markDirty(i, "time_label", e.target.value)} />
-                  </td>
-                  <td className="px-3 py-1.5">
-                    <input type="number" step="0.1" className="inp-sm text-right" value={r.temp}
-                      onChange={(e) => markDirty(i, "temp", e.target.value)} />
-                  </td>
-                  <td className="px-3 py-1.5">
-                    <input type="number" step="0.01" className="inp-sm text-right" value={r.amount}
-                      onChange={(e) => markDirty(i, "amount", e.target.value)} />
-                  </td>
-                  <td className="px-3 py-1.5 text-center">
-                    <button type="button" onClick={() => deleteRow(r.id)}
-                      className="btn-danger btn-xxs">×</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <EditGrid<ActivityEditRow>
+          className="mb-3"
+          rows={rows}
+          rowKey={(r) => r.id}
+          itemLabel="Step"
+          onRemove={(i) => deleteRow(rows[i].id)}
+          rowClassName={(r) => (r.dirty ? "bg-accent-muted/10" : "")}
+          cols={[
+            { key: "activity", header: "Activity", wide: true, cell: (r, i) => <input className="inp-sm w-full" value={r.activity} onChange={(e) => markDirty(i, "activity", e.target.value)} /> },
+            { key: "time", header: "Time", width: "sm:w-24", cell: (r, i) => <input className="inp-sm w-full" placeholder="e.g. 0:00" value={r.time_label} onChange={(e) => markDirty(i, "time_label", e.target.value)} /> },
+            { key: "temp", header: "Temp (°F)", align: "right", width: "sm:w-24", cell: (r, i) => <input type="number" inputMode="decimal" step="0.1" className="inp-sm w-full text-right" value={r.temp} onChange={(e) => markDirty(i, "temp", e.target.value)} /> },
+            { key: "amount", header: "Amount", align: "right", width: "sm:w-24", cell: (r, i) => <input type="number" inputMode="decimal" step="0.01" className="inp-sm w-full text-right" value={r.amount} onChange={(e) => markDirty(i, "amount", e.target.value)} /> },
+          ]}
+        />
       )}
 
       {/* Add new row */}
@@ -1481,12 +1447,12 @@ function BrewActivityLogManager({ batch }: { batch: BrewBatch }) {
         </div>
         <div className="w-24">
           <label className="block text-xs text-muted mb-1">Temp (°F)</label>
-          <input type="number" step="0.1" className="inp-sm text-right" placeholder="152" value={newRow.temp}
+          <input type="number" inputMode="decimal" step="0.1" className="inp-sm text-right" placeholder="152" value={newRow.temp}
             onChange={(e) => setNewRow((r) => ({ ...r, temp: e.target.value }))} />
         </div>
         <div className="w-24">
           <label className="block text-xs text-muted mb-1">Amount</label>
-          <input type="number" step="0.01" className="inp-sm text-right" placeholder="0" value={newRow.amount}
+          <input type="number" inputMode="decimal" step="0.01" className="inp-sm text-right" placeholder="0" value={newRow.amount}
             onChange={(e) => setNewRow((r) => ({ ...r, amount: e.target.value }))} />
         </div>
         <button type="button" onClick={addRow} disabled={saving || !newRow.activity.trim()}
@@ -1542,7 +1508,7 @@ function BatchVolumeBreakdown({
             <span className="text-sm font-semibold text-success tabular-nums">{fmtBbl2(available)}</span>
           )}
           <span className="text-xs text-muted">
-            {batch.status !== "planning" ? "available of " : ""}{fmtBbl2(originalVol)} total{!balanced && <span className="text-danger ml-1">⚠ unbalanced</span>}
+            {batch.status !== "planning" ? "available of " : ""}{fmtBbl2(originalVol)} total{!balanced && <span className="text-danger ml-1"><WarnIcon /> unbalanced</span>}
           </span>
           {bd.converted > 0 && <span className="text-xs text-violet-400/80 ml-auto">{fmtBbl2(bd.converted)} converted</span>}
           {bd.exported > 0 && <span className="text-xs text-muted">{fmtBbl2(bd.exported)} exported</span>}
@@ -1649,7 +1615,7 @@ function ShortfallBadge({ batchId, status, batchLabel }: { batchId: string; stat
         title="View what's missing"
         className="btn-danger btn-xxs ml-1.5 whitespace-nowrap"
       >
-        ⚠ {shortfalls.length} ingredient{shortfalls.length > 1 ? "s" : ""} short
+        <WarnIcon /> {shortfalls.length} ingredient{shortfalls.length > 1 ? "s" : ""} short
       </button>
       {open && (
         <IngredientShortfallModal

@@ -1,5 +1,6 @@
 "use client";
 
+import { Undo2 } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Modal } from "./shared";
@@ -61,7 +62,7 @@ export default function UndoTransferActions({ onUndone }: { onUndone: () => Prom
 
   return (
     <>
-      <button onClick={() => setOpen(true)} className="btn-secondary">↩ Undo</button>
+      <button onClick={() => setOpen(true)} className="btn-secondary"><Undo2 aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Undo</button>
 
       {open && (
         <Modal title="Undo a floorplan action" onClose={() => setOpen(false)}>

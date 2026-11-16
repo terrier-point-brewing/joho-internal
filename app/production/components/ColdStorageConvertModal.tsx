@@ -139,7 +139,7 @@ export default function ColdStorageConvertModal({
 
         <Field label="Units" required hint={lot ? `${lot.quantity_on_hand} on hand` : undefined}>
           <input
-            type="number"
+            type="number" inputMode="numeric"
             min="1"
             step="1"
             className="inp w-full"

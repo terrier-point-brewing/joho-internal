@@ -8,6 +8,7 @@ import {
   STAGE_LABELS, STAGE_CARD_STYLE, SPLITTABLE_STAGES, CONVERTIBLE_STAGES, IN_PACKAGE_STAGES,
   stageDuration, fmtShort,
 } from "./constants";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 // ── Shared handle style ───────────────────────────────────────────────────
 const HS: React.CSSProperties = {
@@ -190,7 +191,7 @@ export function GhostNode({ data }: NodeProps) {
           {isRequired ? "Not scheduled" : `+ Add ${(label as string).toLowerCase()}`}
         </span>
         {isRequired && (
-          <span className="text-[10px] text-[var(--cat-amber-fg)] mt-0.5">⚠ Schedule needed</span>
+          <span className="text-[10px] text-[var(--cat-amber-fg)] mt-0.5"><WarnIcon /> Schedule needed</span>
         )}
       </div>
     </div>

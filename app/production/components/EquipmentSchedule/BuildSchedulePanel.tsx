@@ -12,6 +12,7 @@ import {
 } from "./constants";
 import type { Equipment as EquipmentType } from "../../types";
 import FieldGrid from "@/app/components/ui/FieldGrid";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 function PackagingDaysSummary({
   stage,
@@ -362,14 +363,14 @@ export function BuildSchedulePanel({
               </div>
               <div>
                 <label className="block text-[10px] mb-0.5 opacity-70">Planned BBL</label>
-                <input type="number" step="0.01" min="0" placeholder="e.g. 3.5" className="inp text-xs w-full"
+                <input type="number" inputMode="decimal" step="0.01" min="0" placeholder="e.g. 3.5" className="inp text-xs w-full"
                   value={slot.volume_bbl ?? ""}
                   onChange={e => setSlots(prev => prev.map((s, i) => i === idx ? { ...s, volume_bbl: e.target.value } : s))} />
               </div>
             </FieldGrid>
             {conflict && (
               <div className="px-2 py-1.5 rounded border border-danger-border/50 bg-danger-surface/30 text-[11px] text-danger leading-relaxed">
-                <span className="font-semibold">⚠ Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.
+                <span className="font-semibold"><WarnIcon /> Equipment conflict</span> — already scheduled for {conflictBatchLabel(conflict)} during these dates.
                 {suggestion && (
                   <> Try <button type="button" onClick={() => setSlots(prev => prev.map((s, i) => i === idx ? { ...s, equipment_id: suggestion.id } : s))} className="underline underline-offset-2 hover:text-danger">{suggestion.name}</button> instead.</>
                 )}

@@ -14,6 +14,7 @@ import { CATEGORY_BADGE_CLASS as CC } from "../../lib/categoryColors";
 import { batchFillBbl } from "@/lib/production/batchVolume";
 import FieldGrid from "@/app/components/ui/FieldGrid";
 import EditGrid from "@/app/components/ui/EditGrid";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 interface PendingAllocation {
   id: string; // local key only
@@ -250,7 +251,7 @@ function EquipmentSection({
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted">Equipment Schedule</span>
         <div className="flex items-center gap-3">
-          {hasConflict && <span className="text-xs text-danger">⚠ Schedule conflicts detected</span>}
+          {hasConflict && <span className="text-xs text-danger"><WarnIcon /> Schedule conflicts detected</span>}
           <button type="button" onClick={autoFillDates} disabled={!row.brew_date}
             className="btn-secondary">
             Auto-fill dates from brew date
@@ -276,7 +277,7 @@ function EquipmentSection({
                   {STAGE_LABELS[stage]}
                 </span>
                 {needsExtraTank && (
-                  <span className="text-xs text-accent">⚠ Volume exceeds single tank — add a second tank below</span>
+                  <span className="text-xs text-accent"><WarnIcon /> Volume exceeds single tank — add a second tank below</span>
                 )}
               </div>
               <button type="button" onClick={() => addTankForStage(stage)}
@@ -296,8 +297,8 @@ function EquipmentSection({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs">
                       {stageSlots.length > 1 && <span className="text-faint">Tank {slotIdx + 1}</span>}
-                      {conflicted && <span className="text-danger">⚠ Conflict</span>}
-                      {!capacityOk && <span className="text-accent">⚠ Exceeds capacity</span>}
+                      {conflicted && <span className="text-danger"><WarnIcon /> Conflict</span>}
+                      {!capacityOk && <span className="text-accent"><WarnIcon /> Exceeds capacity</span>}
                     </div>
                     {stageSlots.length > 1 && (
                       <button type="button" onClick={() => removeSlotAt(stage, slotIdx)}
@@ -554,7 +555,7 @@ function AllocationPlanSection({
           </div>
           <span className={`text-xs whitespace-nowrap tabular-nums ${overAllocated ? "text-danger" : "text-muted"}`}>
             {totalPct.toFixed(1)}% · {((totalPct / 100) * row.volume_bbl).toFixed(1)} BBL allocated
-            {overAllocated && <span className="ml-1 text-danger">⚠ exceeds 100%</span>}
+            {overAllocated && <span className="ml-1 text-danger"><WarnIcon /> exceeds 100%</span>}
             {!overAllocated && remaining > 0.1 && <span className="ml-1 text-faint">({remaining.toFixed(1)}% → taproom)</span>}
           </span>
         </div>
@@ -855,7 +856,7 @@ export default function ScheduleBatchForm({
                 )}
                 <Field label="Turns (max 4)" required>
                   <input
-                    type="number" step="1" min="1" max="4" className="inp"
+                    type="number" inputMode="numeric" step="1" min="1" max="4" className="inp"
                     value={activeRow.turns}
                     onChange={(e) => {
                       const t = Math.min(4, Math.max(1, parseInt(e.target.value) || 1));

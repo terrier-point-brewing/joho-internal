@@ -1,5 +1,6 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { invoiceDisplayStatus } from "@/lib/finance/invoiceStatus";
 import React, { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -334,38 +335,26 @@ function InvoiceExpandedPanel({
       {invoice.shipments.length > 0 && (
         <div className={panelClass}>
           <p className="text-xs font-medium text-secondary uppercase tracking-wide mb-1">Included Shipments</p>
-          <div className="scroll-x"><table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-muted border-b border-line">
-                <th className="pb-1">Date</th>
-                <th className="pb-1">Batch</th>
-                <th className="pb-1">Channel</th>
-                <th className="pb-1">Packaging</th>
-                <th className="pb-1 text-right">Qty</th>
-                <th className="pb-1 text-right">Volume</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoice.shipments.map((s) => (
-                <tr key={s.id} className="border-b border-line/50 last:border-0">
-                  <td className="py-1 text-secondary">{fmt(s.created_at)}</td>
-                  {/* Batchless (draft-recount) lines still name their beer off the
-                      recipe — otherwise a recipe search hit expands into a "—". */}
-                  <td className="py-1 text-strong">
-                    {s.brew_batches
-                      ? `#${s.brew_batches.batch_number} ${s.brew_batches.beer_name}`
-                      : s.recipe_beer_name ?? "—"}
-                  </td>
-                  <td className="py-1 text-secondary">{CHANNEL_LABELS[s.channel] ?? s.channel}</td>
-                  <td className="py-1">
-                    <span className="px-1 py-0.5 rounded bg-surface-mid text-body">{s.variant_label}</span>
-                  </td>
-                  <td className="py-1 text-right text-strong">{s.quantity}</td>
-                  <td className="py-1 text-right text-secondary">{s.volume_bbl.toFixed(3)} bbl</td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div>
+          <ListTable<(typeof invoice.shipments)[number]>
+            dense
+            zebra={false}
+            className="text-xs"
+            rows={invoice.shipments}
+            rowKey={(s) => s.id}
+            cols={[
+              { key: "date", header: "Date", className: "text-xs text-secondary whitespace-nowrap", cell: (s) => fmt(s.created_at) },
+              {
+                // Batchless (draft-recount) lines still name their beer off the
+                // recipe — otherwise a recipe search hit expands into a "—".
+                key: "batch", header: "Batch", role: "label", className: "!font-normal !text-strong text-xs",
+                cell: (s) => (s.brew_batches ? `#${s.brew_batches.batch_number} ${s.brew_batches.beer_name}` : s.recipe_beer_name ?? "—"),
+              },
+              { key: "channel", header: "Channel", className: "text-xs text-secondary", cell: (s) => CHANNEL_LABELS[s.channel] ?? s.channel },
+              { key: "packaging", header: "Packaging", foldBlock: true, className: "text-xs", cell: (s) => <span className="px-1 py-0.5 rounded bg-surface-mid text-body">{s.variant_label}</span> },
+              { key: "qty", header: "Qty", role: "headline", align: "right", className: "text-xs text-strong tabular-nums", cell: (s) => s.quantity },
+              { key: "volume", header: "Volume", align: "right", className: "text-xs text-secondary tabular-nums whitespace-nowrap", cell: (s) => `${s.volume_bbl.toFixed(3)} bbl` },
+            ]}
+          />
         </div>
       )}
 
@@ -418,7 +407,7 @@ function InvoiceExpandedPanel({
                     </td>
                     <td className="py-1 text-right">
                       <input
-                        type="number" min="1"
+                        type="number" inputMode="decimal" min="1"
                         value={editQty}
                         onChange={(e) => setEditQty(e.target.value)}
                         className={`${inpCls} w-14 text-right`}
@@ -427,7 +416,7 @@ function InvoiceExpandedPanel({
                     </td>
                     <td className="py-1 text-right">
                       <input
-                        type="number" min="0" step="0.01"
+                        type="number" inputMode="decimal" min="0" step="0.01"
                         value={editPrice}
                         onChange={(e) => setEditPrice(e.target.value)}
                         className={`${inpCls} w-20 text-right`}
@@ -483,7 +472,7 @@ function InvoiceExpandedPanel({
                         className="btn-secondary btn-xxs mr-1.5"
                         aria-label="Edit line item"
                       >
-                        ✎
+                        <Pencil aria-hidden className="size-3" />
                       </button>
                       <button
                         onClick={() => removeLineItem(li.id)}
@@ -565,7 +554,7 @@ function InvoiceExpandedPanel({
                   <label htmlFor="add-qty" className="sr-only">Quantity</label>
                   <input
                     id="add-qty"
-                    type="number"
+                    type="number" inputMode="decimal"
                     placeholder="Qty"
                     value={addQty}
                     min="1"
@@ -575,7 +564,7 @@ function InvoiceExpandedPanel({
                   <label htmlFor="add-price" className="sr-only">Unit price</label>
                   <input
                     id="add-price"
-                    type="number"
+                    type="number" inputMode="decimal"
                     placeholder="Unit price ($)"
                     value={addPrice}
                     min="0"

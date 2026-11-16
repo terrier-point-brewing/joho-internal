@@ -15,6 +15,7 @@
  * date + the recipe's brite time until the operator edits it by hand.
  */
 
+import { Lock } from "lucide-react";
 import React, { useRef } from "react";
 import type { BrewBatch, Recipe } from "../types";
 import ToggleChip from "@/app/components/ui/ToggleChip";
@@ -35,7 +36,6 @@ export interface ConversionTargetValue {
 
 /** Marks targets not based on the source recipe: the conversion goes through,
  *  but no added ingredients are reserved or charged to a partner. */
-const UNLINKED_LOCK = "🔒";
 const UNLINKED_TITLE = "Not based on the source recipe — added ingredients will not be reserved or charged.";
 
 export function emptyConversionTarget(conversionDate: string): ConversionTargetValue {
@@ -157,7 +157,7 @@ export default function ConversionTargetFields({
               </optgroup>
             )}
             {unlinkedBatches.length > 0 && (
-              <optgroup label={linkedBatches.length > 0 ? `${UNLINKED_LOCK} Other batches` : "All batches"} title={UNLINKED_TITLE}>
+              <optgroup label={linkedBatches.length > 0 ? "Other batches (not linked)" : "All batches"} title={UNLINKED_TITLE}>
                 {unlinkedBatches.map(b => (
                   <option key={b.id} value={b.id}>
                     {b.batch_number ? `#${b.batch_number} ` : ""}{b.beer_name}
@@ -180,7 +180,7 @@ export default function ConversionTargetFields({
               </optgroup>
             )}
             {unlinkedRecipes.length > 0 && (
-              <optgroup label={linkedRecipes.length > 0 ? `${UNLINKED_LOCK} Other recipes` : "All recipes"} title={UNLINKED_TITLE}>
+              <optgroup label={linkedRecipes.length > 0 ? "Other recipes (not linked)" : "All recipes"} title={UNLINKED_TITLE}>
                 {unlinkedRecipes.map(r => (
                   <option key={r.id} value={r.id}>{r.beer_name}</option>
                 ))}
@@ -195,7 +195,7 @@ export default function ConversionTargetFields({
         * thing to do — it just cannot be costed, so say so plainly. */}
       {unlinked && (
         <p className="text-xs text-[var(--cat-amber-fg)]" title="Set “Based On” under Recipes to change this.">
-          {UNLINKED_LOCK} Not based on {sourceBeerName} — added ingredients will not be reserved or charged.
+          <Lock aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Not based on {sourceBeerName} — added ingredients will not be reserved or charged.
         </p>
       )}
 
@@ -209,7 +209,7 @@ export default function ConversionTargetFields({
               <p className="text-[10px] text-faint mt-0.5">Whole tank</p>
             </>
           ) : (
-            <input type="number" step="0.001" min="0.001" {...(volumeMax != null ? { max: volumeMax } : {})}
+            <input type="number" inputMode="decimal" step="0.001" min="0.001" {...(volumeMax != null ? { max: volumeMax } : {})}
               className="inp text-xs w-full" placeholder="0.000"
               value={value.volumeBbl} onChange={e => update({ volumeBbl: e.target.value })} />
           )}

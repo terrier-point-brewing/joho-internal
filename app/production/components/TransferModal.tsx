@@ -1,5 +1,6 @@
 "use client";
 
+import { ClipboardList } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { Equipment, BrewBatch, PackagingVariation, Recipe, RecipePackagingVariation, UNCONSTRAINED_EQUIPMENT_TYPES } from "../types";
 import { Modal, Field, ModalActions } from "./shared";
@@ -15,6 +16,7 @@ import ConversionAllocationPanel, { type ConversionAllocationPlanState } from ".
 import { classifySourceEdit, DEFAULT_CONVERSION_ALLOCATION_NOTE } from "@/lib/production/conversionAllocationPlan";
 import { fmtUsd } from "@/lib/utils/formatting";
 import ConfirmDialog from "@/app/components/ui/ConfirmDialog";
+import WarnIcon from "@/app/components/ui/WarnIcon";
 
 /**
  * Execute the reconciliation the operator defined in the allocation panel,
@@ -611,7 +613,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               {/* Planned booking pill (stage-move transfers only — not packaging) */}
               {showPlannedEntry && (
                 <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded bg-surface-mid/60 border border-line-strong text-xs text-secondary">
-                  <span>📋 Planned:</span>
+                  <span><ClipboardList aria-hidden className="inline size-[1.1em] align-[-0.15em]" /> Planned:</span>
                   <span className="text-strong font-medium">{plannedEntry.equipment?.name ?? "Unknown"}</span>
                   <span className="text-muted">
                     {format(parseISO(plannedEntry.planned_start), "MMM d")}–{format(parseISO(plannedEntry.planned_end), "MMM d")}
@@ -652,7 +654,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 />
                 <Field label="Shrinkage (BBL)">
                   <div className="flex items-center gap-2">
-                    <input type="number" step="0.001" min="0" className="inp w-40"
+                    <input type="number" inputMode="decimal" step="0.001" min="0" className="inp w-40"
                       value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
                     <span className="text-muted text-sm">lost from {fromTank.name}</span>
                   </div>
@@ -673,7 +675,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                 </div>
                 {volumeMode === "partial" && (
                   <div className="flex items-center gap-2">
-                    <input type="number" step="0.001" min="0" max={batchVol} className="inp w-40" placeholder="0.000"
+                    <input type="number" inputMode="decimal" step="0.001" min="0" max={batchVol} className="inp w-40" placeholder="0.000"
                       value={partialBbl} onChange={(e) => setPartialBbl(e.target.value)} />
                     <span className="text-muted text-sm">BBL</span>
                     {destCapacity != null && (
@@ -695,7 +697,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             {mode === "transfer" && !isPackagingForm && (
               <Field label="Shrinkage (BBL)">
                 <div className="flex items-center gap-2">
-                  <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
+                  <input type="number" inputMode="decimal" step="0.001" min="0" className="inp w-40" placeholder="0.000"
                     value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
                   <span className="text-muted text-sm">BBL lost</span>
                 </div>
@@ -708,7 +710,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
              column heights stay in sync regardless of which warnings show ── */}
         {showPlannedEntry && effectiveDestId && effectiveDestId !== plannedEntry.equipment_id && (
           <div className="px-3 py-2 rounded border border-accent-border/60 bg-accent-muted/40 text-xs text-accent-soft">
-            ⚠ Planned for <span className="font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span> — proceeding cancels that booking.
+            <WarnIcon /> Planned for <span className="font-medium">{plannedEntry.equipment?.name ?? "another tank"}</span> — proceeding cancels that booking.
           </div>
         )}
         {inPlaceConvert && (
@@ -800,7 +802,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
                       <option key={v.id} value={v.id}>{v.name}</option>
                     ))}
                   </select>
-                  <input type="number" min="0" className="inp" placeholder="qty"
+                  <input type="number" inputMode="decimal" min="0" className="inp" placeholder="qty"
                     value={line.quantity}
                     onChange={(e) => setPackagingLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
                   {packagingLines.length > 1
@@ -816,7 +818,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
             <div className="mt-3 pt-3 border-t border-line">
               <Field label="Packaging loss / heel (BBL)">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <input type="number" step="0.001" min="0" className="inp w-40" placeholder="0.000"
+                  <input type="number" inputMode="decimal" step="0.001" min="0" className="inp w-40" placeholder="0.000"
                     value={shrinkage} onChange={(e) => setShrinkage(e.target.value)} />
                   <span className="text-muted text-sm">BBL lost</span>
                   <button
@@ -833,7 +835,7 @@ export default function TransferModal({ batch, fromTank, allTanks, occupiedTankI
               <div className="mt-3 pt-3 border-t border-line">
                 <Field label="Material loss (%)">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <input type="number" step="0.1" min="0" max="100" className="inp w-40" placeholder="5"
+                    <input type="number" inputMode="decimal" step="0.1" min="0" max="100" className="inp w-40" placeholder="5"
                       value={packagingLossPct} onChange={(e) => setPackagingLossPct(e.target.value)} />
                     <span className="text-muted text-sm">of cans, lids &amp; labels</span>
                   </div>
