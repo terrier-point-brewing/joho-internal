@@ -23,6 +23,8 @@ import ListTable from "@/app/components/ui/ListTable";
 import SearchInput from "@/app/components/ui/SearchInput";
 import ToggleChip from "@/app/components/ui/ToggleChip";
 import type { ControlsConfig } from "@/lib/table/types";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 
 // The stage is DERIVED from the deal's allocations (lib/production/
 // commitmentStage) — where it actually is, not what status was last written.
@@ -161,7 +163,7 @@ function InvoiceStatusBadge({ a }: { a: CommitmentAllocationSummary }) {
 // ─── Invoicing controls for a commitment's linked contract_brewing allocation(s) ──
 
 function InvoicingCell({
-  commitment, onPreview, onViewInSquare, actionLoading, onSend, onDelete,
+  commitment, onPreview, onViewInSquare, actionLoading, onSend, onDelete, canInvoice,
 }: {
   commitment: ContractBrewingRequest;
   onPreview: (a: CommitmentAllocationSummary) => void;
@@ -169,6 +171,8 @@ function InvoicingCell({
   actionLoading: string | null;
   onSend: (id: string) => void;
   onDelete: (id: string, sent: boolean) => void;
+  /** POST /allocations/[id]/invoice requires exportOperate. */
+  canInvoice: boolean;
 }) {
   if (commitment.channel !== "contract_brewing") return <span className="text-faint text-xs">—</span>;
   const allocs = commitment.batch_allocations ?? [];
@@ -196,7 +200,7 @@ function InvoicingCell({
               is being collected on an export invoice, so a NEW deposit invoice
               must not be raised — but a standing one can still be deleted to
               avoid double-billing. */}
-          {!a.invoice_paid_at && (
+          {canInvoice && !a.invoice_paid_at && (
             <>
               {!a.invoice_generated_at && !a.deposit_backcharged_invoice_id && (
                 <button type="button"
@@ -449,6 +453,12 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
 
   // ── Invoicing actions (shared with Batch Log > Allocations) ──────────────
   const invoice = useDepositInvoiceActions(load);
+  const { can } = usePermissions();
+  // PATCH/DELETE /contract-requests → partnersOperate; deposit invoicing → exportOperate;
+  // Schedule opens the batch form (POST /batches) → brewingOperate.
+  const canPartnersOperate = can(CAP.partnersOperate);
+  const canExportOperate = can(CAP.exportOperate);
+  const canBrewingOperate = can(CAP.brewingOperate);
 
   async function handleDelete(q: ContractBrewingRequest) {
     const batches = q.batch_numbers ?? [];
@@ -517,7 +527,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
             options={uniquePartners.map(([id, name]) => ({ value: id, label: name }))}
             value={filters.partner ?? []} onChange={(v) => setFilter("partner", v)} />
         </FilterBar>
-        <button onClick={() => setShowModal(true)} className="btn-primary ml-auto shrink-0">+ New</button>
+        {canPartnersOperate && <button onClick={() => setShowModal(true)} className="btn-primary ml-auto shrink-0">+ New</button>}
       </div>
 
       {loadError ? (
@@ -576,7 +586,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                   {uncoveredBbl(q) >= 0.1 && (
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <span className="text-xs text-accent-soft">{uncoveredBbl(q).toFixed(1)} bbl needs a batch</span>
-                      {onSchedule && q.recipe_id && (
+                      {canBrewingOperate && onSchedule && q.recipe_id && (
                         <button onClick={() => onSchedule(q.recipe_id!)} className="btn-primary btn-xxs">Schedule</button>
                       )}
                     </div>
@@ -606,6 +616,7 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                   actionLoading={invoice.actionLoading}
                   onSend={invoice.send}
                   onDelete={invoice.remove}
+                  canInvoice={canExportOperate}
                 />
               ),
             },
@@ -615,9 +626,9 @@ export default function CommitmentsTab({ recipes, partners, onSchedule }: {
                 <>
                   {/* Every drop, invoice and share for this deal lives in the ledger — linked, not rebuilt here. */}
                   {q.partner_id && <Link href={`/production/export?commitment=${q.id}`} className="btn-secondary btn-xxs">History</Link>}
-                  {q.review_needed_at && <button onClick={() => handleConfirm(q)} className="btn-primary btn-xxs">Confirm</button>}
-                  <button onClick={() => setEditing(q)} className="btn-secondary btn-xxs">Edit</button>
-                  <button onClick={() => handleDelete(q)} className="btn-danger btn-xxs">Delete</button>
+                  {canPartnersOperate && q.review_needed_at && <button onClick={() => handleConfirm(q)} className="btn-primary btn-xxs">Confirm</button>}
+                  {canPartnersOperate && <button onClick={() => setEditing(q)} className="btn-secondary btn-xxs">Edit</button>}
+                  {canPartnersOperate && <button onClick={() => handleDelete(q)} className="btn-danger btn-xxs">Delete</button>}
                 </>
               ),
             },

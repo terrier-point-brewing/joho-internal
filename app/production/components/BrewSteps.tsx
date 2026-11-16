@@ -47,7 +47,7 @@ export function BrewStepsEditor<T extends BrewStepDraft>({
 }: {
   steps: T[];
   onChange: (index: number, step: T) => void;
-  onRemove: (index: number) => void;
+  onRemove?: (index: number) => void;
 }) {
   const num = (field: "time_label" | "temp" | "amount" | "vsp", step: string, placeholder: string) => ({
     cell: (s: T, i: number) => (

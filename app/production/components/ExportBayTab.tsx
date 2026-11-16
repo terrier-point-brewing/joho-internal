@@ -23,6 +23,8 @@ import ReceiveBeerModal from "./ReceiveBeerModal";
 import DepositCoverageLine from "./DepositCoverageLine";
 import HomeSourcePicker, { EMPTY_DRAWS, planPickerDraws, type PickerDraws } from "./HomeSourcePicker";
 import { SearchCombobox, type SearchComboboxItem } from "@/components/ui/SearchCombobox";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 
 function formatShipmentWarning(w: ShipmentWarning): string {
   switch (w.type) {
@@ -228,6 +230,8 @@ function PhantomAlertRow({
   onDismiss,
   resolving,
   dismissing,
+  canOperate,
+  canExportOperate,
 }: {
   alert: PhantomAlert;
   selectedLotKey: string;
@@ -236,6 +240,10 @@ function PhantomAlertRow({
   onDismiss: () => void;
   resolving: boolean;
   dismissing: boolean;
+  /** taproom.performance:operate — what reconcile-phantom and dismiss-phantom require. */
+  canOperate: boolean;
+  /** production.export:operate — a transform-backed resolve also breaks stock, and the route re-checks this. */
+  canExportOperate: boolean;
 }) {
   const hasLots = alert.eligibleLots.length > 0;
   const hasTransforms = alert.transforms.length > 0;
@@ -303,23 +311,27 @@ function PhantomAlertRow({
             as broken; a disabled one with the reason attached teaches the rule —
             reconciliation demands exact matching stock, so the fix is to put the
             right stock in cold storage, not to loosen the match. */}
-        <button
-          type="button"
-          onClick={onResolve}
-          disabled={!hasOptions || !selectedLotKey || resolving}
-          title={blockedReason ?? undefined}
-          className="btn-primary"
-        >
-          {resolving ? "…" : transformSelected ? "Break down & resolve" : "Resolve"}
-        </button>
-        <button
-          type="button"
-          onClick={onDismiss}
-          disabled={dismissing}
-          className="btn-secondary"
-        >
-          {dismissing ? "…" : "Dismiss"}
-        </button>
+        {canOperate && (
+          <>
+            <button
+              type="button"
+              onClick={onResolve}
+              disabled={!hasOptions || !selectedLotKey || resolving || (transformSelected && !canExportOperate)}
+              title={blockedReason ?? (transformSelected && !canExportOperate ? "Breaking down stock needs export operate access" : undefined)}
+              className="btn-primary"
+            >
+              {resolving ? "…" : transformSelected ? "Break down & resolve" : "Resolve"}
+            </button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              disabled={dismissing}
+              className="btn-secondary"
+            >
+              {dismissing ? "…" : "Dismiss"}
+            </button>
+          </>
+        )}
       </div>
     </Card>
   );
@@ -329,10 +341,14 @@ function PhantomAlertsPanel({
   alerts,
   status,
   loadError,
+  canOperate,
+  canExportOperate,
 }: {
   alerts: PhantomAlert[];
   status: "pending" | "error" | "success";
   loadError: string | null;
+  canOperate: boolean;
+  canExportOperate: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [selectedLotByAlert, setSelectedLotByAlert] = useState<Record<string, string>>({});
@@ -413,6 +429,8 @@ function PhantomAlertsPanel({
         onDismiss={() => handleDismiss(alert)}
         resolving={reconcile.isPending}
         dismissing={dismiss.isPending}
+        canOperate={canOperate}
+        canExportOperate={canExportOperate}
       />
     ));
   }
@@ -466,6 +484,14 @@ function PhantomAlertsPanel({
 
 export default function ExportBayTab() {
   const qc = useQueryClient();
+  const { can } = usePermissions();
+  // Mirrors the routes: ship / ad-hoc / transform / convert / write-off are
+  // production.export:operate; Sync Taproom and Receive Beer are
+  // production.brewing:operate; phantom resolve/dismiss are
+  // taproom.performance:operate. Readers get the list only.
+  const canOperate = can(CAP.exportOperate);
+  const canBrew = can(CAP.brewingOperate);
+  const canPhantomOperate = can(CAP.taproomPerformanceOperate);
 
   // isPending, not isLoading: isLoading is `isPending && isFetching`, so a retry
   // React Query has paused reads as false while there is still no data — the
@@ -693,16 +719,18 @@ export default function ExportBayTab() {
     );
   }
 
+  // Each action is gated on the capability its route enforces: Sync/Receive
+  // are brewing writes, Transform/Convert are export writes.
   const stockActions = [
-    { label: "Sync Taproom", Icon: RefreshCw, run: () => setShowSync(true),
+    { label: "Sync Taproom", Icon: RefreshCw, run: () => setShowSync(true), allowed: canBrew,
       title: "Reconcile taproom pours from Square into cold-storage draws" },
-    { label: "Transform Stock", Icon: ArrowLeftRight, run: () => setShowTransform(true),
+    { label: "Transform Stock", Icon: ArrowLeftRight, run: () => setShowTransform(true), allowed: canOperate,
       title: "Repackage cold-storage stock into a different size — a 1/2 keg into sixtels, or sixtels into a 1/2 keg" },
-    { label: "Convert Recipe", Icon: FlaskConical, run: () => setShowConvert(true),
+    { label: "Convert Recipe", Icon: FlaskConical, run: () => setShowConvert(true), allowed: canOperate,
       title: "Re-dose kegs already in cold storage into a different beer — the stock moves to a conversion batch of that recipe" },
-    { label: "Receive Beer", Icon: Download, run: () => setShowReceive(true),
+    { label: "Receive Beer", Icon: Download, run: () => setShowReceive(true), allowed: canBrew,
       title: "Book beer bought from another brewery as on hand — never a brew, never on the excise record" },
-  ];
+  ].filter((a) => a.allowed);
 
   function afterShip() {
     qc.invalidateQueries({ queryKey: queryKeys.production.exportBayInventory() });
@@ -734,6 +762,8 @@ export default function ExportBayTab() {
             alerts={phantomAlerts}
             status={phantomAlertsStatus}
             loadError={phantomAlertsError instanceof Error ? phantomAlertsError.message : null}
+            canOperate={canPhantomOperate}
+            canExportOperate={canOperate}
           />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 max-sm:hidden">
@@ -743,6 +773,7 @@ export default function ExportBayTab() {
             </button>
           ))}
         </div>
+        {stockActions.length > 0 && (
         <Popover label={<>More <ChevronDown aria-hidden className="inline size-[1.1em] align-[-0.15em]" /></>} align="right" className="sm:hidden max-sm:order-last">
           <div className="-m-1 flex flex-col">
             {stockActions.map((a) => (
@@ -756,6 +787,8 @@ export default function ExportBayTab() {
             ))}
           </div>
         </Popover>
+        )}
+        {canOperate && (
         <button
           onClick={() => setShowAdHoc(true)}
           disabled={inventory.length === 0}
@@ -764,6 +797,7 @@ export default function ExportBayTab() {
         >
           <Plus aria-hidden className="size-3.5" /> Ad-Hoc Export
         </button>
+        )}
       </div>
 
       {/* Search + filter + sort */}
@@ -945,14 +979,16 @@ export default function ExportBayTab() {
                             <div key={g.partnerId}>
                               <div className="flex items-center justify-between px-3 py-1.5 bg-surface/30">
                                 <span className="text-xs font-medium text-secondary">{g.partnerName}</span>
-                                <button
-                                  onClick={() => setShipGroup(g)}
-                                  disabled={!hasInventory}
-                                  title={hasInventory ? undefined : "No packaged inventory available for this recipe"}
-                                  className="btn-primary"
-                                >
-                                  Ship
-                                </button>
+                                {canOperate && (
+                                  <button
+                                    onClick={() => setShipGroup(g)}
+                                    disabled={!hasInventory}
+                                    title={hasInventory ? undefined : "No packaged inventory available for this recipe"}
+                                    className="btn-primary"
+                                  >
+                                    Ship
+                                  </button>
+                                )}
                               </div>
                               <div className="divide-y divide-line">
                                 {g.allocations.map((a) => (
@@ -996,13 +1032,15 @@ export default function ExportBayTab() {
                                           <span className="text-xs text-secondary">
                                             Written off{a.written_off_bbl && a.written_off_bbl > 0.001 ? ` · ${a.written_off_bbl.toFixed(2)} BBL` : ""}
                                           </span>
-                                          <button
-                                            type="button"
-                                            onClick={() => undoWriteOff(a)}
-                                            className="btn-secondary btn-xxs"
-                                          >
-                                            Undo
-                                          </button>
+                                          {canOperate && (
+                                            <button
+                                              type="button"
+                                              onClick={() => undoWriteOff(a)}
+                                              className="btn-secondary btn-xxs"
+                                            >
+                                              Undo
+                                            </button>
+                                          )}
                                         </div>
                                       ) : allocDenomBbl(a) == null ? (
                                         <span className="text-xs text-faint">Pending production</span>
@@ -1013,14 +1051,16 @@ export default function ExportBayTab() {
                                           <span className="text-xs text-accent">
                                             {`${Math.min(100, (a.exported_bbl / allocDenomBbl(a)!) * 100).toFixed(0)}%`}
                                           </span>
-                                          <button
-                                            type="button"
-                                            onClick={() => setWriteOffAlloc(a)}
-                                            title="Mark the remaining owed volume as delivered — no refund"
-                                            className="btn-secondary btn-xxs"
-                                          >
-                                            Write off
-                                          </button>
+                                          {canOperate && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setWriteOffAlloc(a)}
+                                              title="Mark the remaining owed volume as delivered — no refund"
+                                              className="btn-secondary btn-xxs"
+                                            >
+                                              Write off
+                                            </button>
+                                          )}
                                         </div>
                                       )}
                                     </div>

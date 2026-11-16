@@ -21,6 +21,8 @@ import {
   sortVariationsForDisplay,
 } from "@/lib/production/packagingVariations";
 import BulkCanVariationModal from "./BulkCanVariationModal";
+import { usePermissions } from "@/lib/hooks/useUserRole";
+import { CAP } from "@/lib/auth/capabilities";
 
 const EMPTY_FORM = {
   container_id: "",
@@ -54,6 +56,10 @@ function ComponentPill({ name, type }: { name: string; type: keyof typeof COMPON
 }
 
 export default function PackagingVariationsPanel() {
+  const { can } = usePermissions();
+  // Every packaging-variations write (create, bulk create, edit, delete) is a
+  // recipesOperate route.
+  const canOperate = can(CAP.recipesOperate);
   const qc = useQueryClient();
   const { data: packaging = [] } = usePackagingQuery();
   const { data: variations = [] } = usePackagingVariationsQuery();
@@ -210,10 +216,12 @@ export default function PackagingVariationsPanel() {
         <p className="text-xs text-muted">
           Strictly-defined packaging combinations — container + format + specific components. Used by Recipes to declare which variations they&apos;re packaged as.
         </p>
-        <div className="flex gap-2 shrink-0">
-          <button onClick={() => setShowBulkModal(true)} className="btn-secondary">Bulk Create</button>
-          <button onClick={openNew} className="btn-primary">+ Add Variation</button>
-        </div>
+        {canOperate && (
+          <div className="flex gap-2 shrink-0">
+            <button onClick={() => setShowBulkModal(true)} className="btn-secondary">Bulk Create</button>
+            <button onClick={openNew} className="btn-primary">+ Add Variation</button>
+          </div>
+        )}
       </div>
 
       {/* Search + filters */}
@@ -296,7 +304,7 @@ export default function PackagingVariationsPanel() {
             { key: "partner", header: "Partner", className: "text-secondary text-xs", cell: (v) => v.contract_brewing_partners?.company_name ?? "Generic" },
             {
               key: "actions", role: "action",
-              cell: (v) => (
+              cell: (v) => canOperate && (
                 <>
                   <button onClick={() => openEdit(v)} className="btn-secondary btn-xxs">Edit</button>
                   <button onClick={() => handleDelete(v)} aria-label="Delete variation" className="btn-danger btn-xxs">Delete</button>
