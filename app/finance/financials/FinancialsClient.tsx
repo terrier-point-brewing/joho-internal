@@ -39,6 +39,7 @@ import FinanceNav from "../FinanceNav";
 import CloseTasksBanner from "../CloseTasksBanner";
 import FinancialsTable from "./FinancialsTable";
 import DataQualityPanel from "./DataQualityPanel";
+import ExportButton from "./ExportButton";
 import { buildTree } from "./buildTree";
 import { buildFinancialsControls, retainAncestors, CHANNEL_OPTIONS, QUALITY_OPTIONS, SECTION_LABEL } from "./controls";
 import { totalModeFor } from "@/lib/finance/financials/statementTotal";
@@ -289,6 +290,7 @@ export default function FinancialsClient({
               >
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
+              <ExportButton year={year} />
               <button onClick={() => void refetch()} className="btn-primary">Refresh</button>
             </>}
           />
