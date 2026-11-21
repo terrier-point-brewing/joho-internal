@@ -1,7 +1,7 @@
 "use client";
 import type { MappingFilterValue } from "@/lib/finance/mappingStatus";
 
-/** Shared "All / Fully / Partially / Unmapped" GL-mapping filter select. */
+/** Shared "All / Fully / Partially / Unmapped / Accepted / Not fully mapped" GL-mapping filter select. */
 export default function MappingFilter({
   value,
   onChange,
@@ -19,6 +19,7 @@ export default function MappingFilter({
       <option value="partial">Partially mapped</option>
       <option value="unmapped">Unmapped</option>
       <option value="accepted">Accepted</option>
+      <option value="open">Not fully mapped</option>
     </select>
   );
 }

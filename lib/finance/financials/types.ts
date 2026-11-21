@@ -56,6 +56,13 @@ export interface FinancialsRow {
 // cash-flow statement mode).
 export interface DataQualitySummary {
   unmapped: { count: number; cents: number; href: string };
+  /**
+   * `unmapped` again, split by the Transactions tab each line lives on, so
+   * every figure sits next to a link that opens exactly those lines. The
+   * parts add up to `unmapped.cents`. One link for the whole bucket could
+   * only ever open one tab, and showed $83 of a $13,220 flag.
+   */
+  unmappedByPlace: { place: string; label: string; count: number; cents: number; href: string }[];
   uncategorized: { count: number; cents: number; href: string };
   unknownVolume: { count: number; cents: number; href: string };
   exciseCoverage: { shipmentsMissingExcise: number; href: string };

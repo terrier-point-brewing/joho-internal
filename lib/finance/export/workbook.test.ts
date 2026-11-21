@@ -38,6 +38,7 @@ function response(rows: FinancialsRow[]): FinancialsResponse {
     coaAccounts: COA.map((c) => ({ id: c.id, parentId: c.parentId, accountName: c.accountName, accountNumber: c.accountNumber, statementSection: c.accountType === "Income" ? "revenue" : c.accountType === "Expenses" ? "expenses" : c.accountType === "Bank" ? "bank" : "ap" })),
     dataQuality: {
       unmapped: { count: 0, cents: 0, href: "" },
+      unmappedByPlace: [],
       uncategorized: { count: 0, cents: 0, href: "" },
       unknownVolume: { count: 0, cents: 0, href: "" },
       exciseCoverage: { shipmentsMissingExcise: 0, href: "" },

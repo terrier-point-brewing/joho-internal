@@ -18,6 +18,8 @@ import SearchInput from "@/app/components/ui/SearchInput";
 import FilterBar from "@/app/components/ui/FilterBar";
 import FilterSelect from "@/app/components/ui/FilterSelect";
 import GlAccountFilter from "../components/GlAccountFilter";
+import MappingFilter from "../components/MappingFilter";
+import { matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
 import RunJobButton from "@/app/components/RunJobButton";
 import QbSyncBadge, { qbSyncFilterValue, QB_SYNC_FILTER_OPTIONS } from "../components/QbSyncBadge";
 import { normalizeQbSyncStatus } from "@/lib/finance/qbSyncStatus";
@@ -57,6 +59,16 @@ function glAccountsOf(r: BankRow): (string | null)[] {
   return r.gl_splits.length > 0 ? r.gl_splits.map((s) => s.chart_of_accounts_id) : [r.chart_of_accounts_id];
 }
 
+/**
+ * A bank line is missing an account only when it counts on the P&L and posts
+ * nowhere. A transfer or settlement has no account by design, so it is not
+ * "unmapped" -- the same rule the statement applies (fetchBank reads only
+ * `affects_pl` lines into the P&L).
+ */
+function needsAccount(r: BankRow): boolean {
+  return r.affects_pl && glAccountsOf(r).every((id) => !id);
+}
+
 // ── Search/filter/sort config ────────────────────────────────────────────────
 
 const BANK_CONTROLS: ControlsConfig<BankRow> = {
@@ -70,6 +82,7 @@ const BANK_CONTROLS: ControlsConfig<BankRow> = {
     // null, so filtering by an account the allocation funds would hide the very
     // line that funds it.
     { param: "gl", matches: (r, sel) => matchesGlFilter(glAccountsOf(r), sel) },
+    { param: "mapping", matches: (r, sel) => matchesMappingFilter(sel[0] as MappingFilterValue, needsAccount(r) ? 0 : 1, 1, r.unmapped_accepted) },
   ],
   sort: {
     columns: [
@@ -285,6 +298,8 @@ export default function BankLedgerPage() {
             onChange={(v) => setFilter("flow", v)} />
           <FilterSelect label="QB Sync" options={QB_SYNC_FILTER_OPTIONS} value={filters.qbsync ?? []}
             onChange={(v) => setFilter("qbsync", v)} />
+          <MappingFilter value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
+            onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
           <GlAccountFilter accounts={accounts} value={filters.gl?.[0] ?? null}
             onChange={(id) => setFilter("gl", id ? [id] : [])} />
           {/* Two feeds land in this ledger and neither can refresh the other, so
