@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import Banner from "@/app/components/ui/Banner";
+import { SearchCombobox, type SearchComboboxItem } from "@/components/ui/SearchCombobox";
 import { useColdStorageQuery, useRecipesQuery, usePackagingVariationsQuery, type ColdStorageLot } from "../hooks/queries";
 import { baseMapOf, lineageDescendants } from "@/lib/production/recipeLineage";
 import { unitsToBbl, validateUnits } from "@/lib/production/coldStorageRecipeConversion";
@@ -44,6 +45,16 @@ export default function ColdStorageConvertModal({
         .sort((a, b) => (a.beer_name ?? "").localeCompare(b.beer_name ?? "")),
     [lots],
   );
+  const lotItems = useMemo<SearchComboboxItem[]>(
+    () =>
+      eligibleLots.map((l) => ({
+        id: l.id,
+        label: l.beer_name ?? "Unknown",
+        sub: `${l.batch_number ?? "—"} · ${l.variation_name ?? "—"}`,
+        hint: `${l.quantity_on_hand} on hand`,
+      })),
+    [eligibleLots],
+  );
   const lot: ColdStorageLot | undefined = eligibleLots.find((l) => l.id === lotId);
 
   const recipeById = useMemo(() => new Map(recipes.map((r) => [r.id, r])), [recipes]);
@@ -55,6 +66,7 @@ export default function ColdStorageConvertModal({
       .filter((r): r is NonNullable<typeof r> => !!r)
       .sort((a, b) => a.beer_name.localeCompare(b.beer_name));
   }, [lot, baseMap, recipeById]);
+  const targetItems = useMemo<SearchComboboxItem[]>(() => targets.map((r) => ({ id: r.id, label: r.beer_name })), [targets]);
   const target = targets.find((r) => r.id === targetRecipeId);
 
   const variation = lot ? variations.find((v) => v.id === lot.variation_id) : undefined;
@@ -99,22 +111,18 @@ export default function ColdStorageConvertModal({
         </p>
 
         <Field label="Source lot" required>
-          <select
-            className="inp w-full"
+          <SearchCombobox
             value={lotId}
-            onChange={(e) => {
-              setLotId(e.target.value);
+            onChange={(id) => {
+              setLotId(id);
               setTargetRecipeId("");
               setUnits("");
             }}
-          >
-            <option value="">{lotsLoading ? "Loading…" : "Select a lot…"}</option>
-            {eligibleLots.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.beer_name ?? "Unknown"} · {l.batch_number ?? "—"} · {l.variation_name ?? "—"} ({l.quantity_on_hand} on hand)
-              </option>
-            ))}
-          </select>
+            items={lotItems}
+            placeholder={lotsLoading ? "Loading…" : "Search by beer, batch or packaging…"}
+            emptyLabel="No lots match"
+            required
+          />
         </Field>
 
         <Field
@@ -122,19 +130,15 @@ export default function ColdStorageConvertModal({
           required
           hint={lot && targets.length === 0 ? "no recipe is based on this beer — link one under Recipes → Based On" : undefined}
         >
-          <select
-            className="inp w-full"
+          <SearchCombobox
             value={targetRecipeId}
-            onChange={(e) => setTargetRecipeId(e.target.value)}
+            onChange={setTargetRecipeId}
+            items={targetItems}
+            placeholder={lot ? "Search beers…" : "—"}
+            emptyLabel="No beers match"
             disabled={!lot || targets.length === 0}
-          >
-            <option value="">{lot ? "Select a beer…" : "—"}</option>
-            {targets.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.beer_name}
-              </option>
-            ))}
-          </select>
+            required
+          />
         </Field>
 
         <Field label="Units" required hint={lot ? `${lot.quantity_on_hand} on hand` : undefined}>

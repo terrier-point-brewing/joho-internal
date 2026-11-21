@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
 import Banner from "@/app/components/ui/Banner";
+import { SearchCombobox, type SearchComboboxItem } from "@/components/ui/SearchCombobox";
 import { useColdStorageQuery, usePackagingVariationsQuery, type ColdStorageLot } from "../hooks/queries";
 import { previewTransform } from "@/lib/production/coldStorageTransform";
 
@@ -61,6 +62,17 @@ export default function ColdStorageTransformModal({
     [lots],
   );
 
+  const lotItems = useMemo<SearchComboboxItem[]>(
+    () =>
+      eligibleLots.map((l) => ({
+        id: l.id,
+        label: l.beer_name ?? "Unknown",
+        sub: `${l.is_purchased ? "guest" : (l.batch_number ?? "—")} · ${l.variation_name ?? "—"}`,
+        hint: `${l.quantity_on_hand} on hand`,
+      })),
+    [eligibleLots],
+  );
+
   const lot: ColdStorageLot | undefined = eligibleLots.find((l) => l.id === lotId);
   const variationById = useMemo(() => new Map(variations.map((v) => [v.id, v])), [variations]);
   const sourceVariation = lot ? variationById.get(lot.variation_id) : undefined;
@@ -79,6 +91,8 @@ export default function ColdStorageTransformModal({
       )
       .sort((a, b) => Number(b.total_volume_fl_oz) - Number(a.total_volume_fl_oz));
   }, [variations, lot]);
+
+  const targetItems = useMemo<SearchComboboxItem[]>(() => targets.map((v) => ({ id: v.id, label: v.name })), [targets]);
 
   const target = targets.find((v) => v.id === toVariationId);
 
@@ -137,38 +151,30 @@ export default function ColdStorageTransformModal({
         </p>
 
         <Field label="Source lot" required>
-          <select
-            className="inp w-full"
+          <SearchCombobox
             value={lotId}
-            onChange={(e) => {
-              setLotId(e.target.value);
+            onChange={(id) => {
+              setLotId(id);
               setToVariationId("");
               setToUnits("");
             }}
-          >
-            <option value="">{lotsLoading ? "Loading…" : "Select a lot…"}</option>
-            {eligibleLots.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.beer_name ?? "Unknown"} · {l.is_purchased ? "guest" : (l.batch_number ?? "—")} · {l.variation_name ?? "—"} ({l.quantity_on_hand} on hand)
-              </option>
-            ))}
-          </select>
+            items={lotItems}
+            placeholder={lotsLoading ? "Loading…" : "Search by beer, batch or packaging…"}
+            emptyLabel="No lots match"
+            required
+          />
         </Field>
 
         <Field label="Transform into" required hint={lot ? undefined : "pick a source lot first"}>
-          <select
-            className="inp w-full"
+          <SearchCombobox
             value={toVariationId}
-            onChange={(e) => setToVariationId(e.target.value)}
+            onChange={setToVariationId}
+            items={targetItems}
+            placeholder={lot ? "Search packaging…" : "—"}
+            emptyLabel="No packaging matches"
             disabled={!lot}
-          >
-            <option value="">{lot ? "Select packaging…" : "—"}</option>
-            {targets.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
+            required
+          />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
