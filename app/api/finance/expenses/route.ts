@@ -11,8 +11,23 @@ import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveExpenseMapping, type CounterpartyRuleRef, type MappingSource } from "@/lib/finance/expenses";
 import { resolveExpenseGlLines } from "@/lib/finance/expenseGlLines";
+import { chunk } from "@/lib/utils/chunk";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Runs one `.in()` query per 200 ids and joins the results, reporting the
+ * first error in the same `{ data, error }` shape a single query returns.
+ */
+async function inChunks<Row>(
+  ids: string[],
+  run: (part: string[]) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<{ data: Row[]; error: { message: string } | null }> {
+  const results = await Promise.all(chunk(ids, 200).map((part) => run(part)));
+  const failed = results.find((r) => r.error);
+  if (failed?.error) return { data: [], error: failed.error };
+  return { data: results.flatMap((r) => (r.data ?? []) as Row[]), error: null };
+}
 
 export async function GET(req: NextRequest) {
   try { await requirePermission(CAP.financeTransactionsRead); } catch (res) { return res as Response; }
@@ -85,12 +100,20 @@ export async function GET(req: NextRequest) {
   const externalAccountIds = Array.from(
     new Set(rows.map((r) => r.external_account_id).filter((v): v is string => v !== null)),
   );
+  // Both id lists are chunked. A full year is over a thousand expense ids, and
+  // one `.in()` carrying them all builds a URL past the ~16 KB the API accepts:
+  // the request dies with a bare "fetch failed" and the tab reads "No
+  // expenses" for the default Full-year range while a single month loads fine.
   const [matchesResult, splitsResult, accountsResult] = await Promise.all([
-    supabase.from("payroll_period_expense_matches").select("expense_id, pay_period_id, matched_component").in("expense_id", ids),
-    supabase
-      .from("expense_gl_splits")
-      .select("expense_id, chart_of_accounts_id, amount_cents, split_source, memo")
-      .in("expense_id", ids),
+    inChunks(ids, (part) =>
+      supabase.from("payroll_period_expense_matches").select("expense_id, pay_period_id, matched_component").in("expense_id", part),
+    ),
+    inChunks(ids, (part) =>
+      supabase
+        .from("expense_gl_splits")
+        .select("expense_id, chart_of_accounts_id, amount_cents, split_source, memo")
+        .in("expense_id", part),
+    ),
     externalAccountIds.length > 0
       ? supabase
           .from("expense_account_mappings")

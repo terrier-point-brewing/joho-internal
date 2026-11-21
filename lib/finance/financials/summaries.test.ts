@@ -174,6 +174,69 @@ describe("buildDataQuality", () => {
     expect(dq.uncategorized).toEqual({ count: 1, cents: 3000, href: HREFS.uncategorized });
   });
 
+  // A refund is coded to a revenue account and bank interest to other income,
+  // so both pass the section gate -- but neither has a channel anyone could
+  // set. Live, these two were the whole of a $2,975 flag.
+  it("does not flag a refund or a bank line as uncategorized, whatever section it lands in", () => {
+    const rows: FinancialsRow[] = [
+      row({ statementSection: "revenue", channel: "unknown", amountCentsByMonth: { "2026-01": -275215 }, sourceRef: { table: "square_refunds", ids: ["r-1"] } }),
+      row({ statementSection: "other_income", channel: "unknown", amountCentsByMonth: { "2026-01": 22301 }, sourceRef: { table: "bank_ledger", ids: ["b-1"] } }),
+      row({ statementSection: "revenue", channel: "unknown", amountCentsByMonth: { "2026-01": 4000 }, sourceRef: { table: "invoice_line_items", ids: ["i-1"] } }),
+    ];
+
+    const dq = buildDataQuality(rows, { hrefs: HREFS, exciseCoverage: { shipmentsMissingExcise: 0 }, unmappedTaxes: { count: 0, cents: 0 } });
+
+    expect(dq.uncategorized).toEqual({ count: 1, cents: 4000, href: HREFS.uncategorized });
+  });
+
+  describe("unmappedByPlace", () => {
+    const PLACES = {
+      pos_line_items: { label: "Orders", href: "/orders" },
+      invoice_line_items: { label: "Invoices", href: "/invoices" },
+      expenses: { label: "Expenses", href: "/expenses" },
+      bank_ledger: { label: "Bank ledger", href: "/bank" },
+    };
+    const unmapped = (table: string, months: Record<string, number>) =>
+      row({ coaId: null, statementSection: "unmapped", amountCentsByMonth: months, sourceRef: { table, ids: [] } });
+
+    it("splits the bucket by tab, each with its own link, adding up to the whole", () => {
+      const rows = [
+        unmapped("pos_line_items", { "2026-01": 3847, "2026-02": 4500 }),
+        unmapped("invoice_line_items", { "2026-01": 1013020 }),
+        unmapped("expenses", { "2026-01": -121016, "2026-02": -129644 }),
+        unmapped("bank_ledger", { "2026-02": 50000 }),
+        row({ amountCentsByMonth: { "2026-01": 999 } }),
+      ];
+
+      const dq = buildDataQuality(rows, { hrefs: { ...HREFS, unmappedPlaces: PLACES }, exciseCoverage: { shipmentsMissingExcise: 0 }, unmappedTaxes: { count: 0, cents: 0 } });
+
+      expect(dq.unmappedByPlace).toEqual([
+        { place: "pos_line_items", label: "Orders", count: 1, cents: 8347, href: "/orders" },
+        { place: "invoice_line_items", label: "Invoices", count: 1, cents: 1013020, href: "/invoices" },
+        { place: "expenses", label: "Expenses", count: 1, cents: 250660, href: "/expenses" },
+        { place: "bank_ledger", label: "Bank ledger", count: 1, cents: 50000, href: "/bank" },
+      ]);
+      expect(dq.unmappedByPlace.reduce((s, p) => s + p.cents, 0)).toBe(dq.unmapped.cents);
+    });
+
+    it("keeps a table with no declared tab under Other rather than dropping it", () => {
+      const rows = [unmapped("square_refunds", { "2026-01": -600 }), unmapped("expenses", { "2026-01": -400 })];
+
+      const dq = buildDataQuality(rows, { hrefs: { ...HREFS, unmappedPlaces: PLACES }, exciseCoverage: { shipmentsMissingExcise: 0 }, unmappedTaxes: { count: 0, cents: 0 } });
+
+      expect(dq.unmappedByPlace).toEqual([
+        { place: "expenses", label: "Expenses", count: 1, cents: 400, href: "/expenses" },
+        { place: "other", label: "Other", count: 1, cents: 600, href: HREFS.unmapped },
+      ]);
+      expect(dq.unmappedByPlace.reduce((s, p) => s + p.cents, 0)).toBe(dq.unmapped.cents);
+    });
+
+    it("is empty when nothing is unmapped", () => {
+      const dq = buildDataQuality([row({})], { hrefs: { ...HREFS, unmappedPlaces: PLACES }, exciseCoverage: { shipmentsMissingExcise: 0 }, unmappedTaxes: { count: 0, cents: 0 } });
+      expect(dq.unmappedByPlace).toEqual([]);
+    });
+  });
+
   it("buckets unknownVolume rows (bblCoverage !== 'full') by count + summed abs cents", () => {
     const rows: FinancialsRow[] = [
       row({ bblCoverage: "unknown", amountCentsByMonth: { "2026-01": 2500, "2026-02": 0 } }),

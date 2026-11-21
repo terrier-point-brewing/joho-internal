@@ -44,6 +44,16 @@ describe("matchesMappingFilter", () => {
     expect(matchesMappingFilter("unmapped", 0, 3)).toBe(true);
     expect(matchesMappingFilter("mapped", 1, 3)).toBe(false);
   });
+  it("'open' is everything not fully mapped: partial, unmapped and accepted", () => {
+    expect(matchesMappingFilter("open", 1, 3)).toBe(true);
+    expect(matchesMappingFilter("open", 0, 3)).toBe(true);
+    expect(matchesMappingFilter("open", 0, 1, true)).toBe(true);
+    expect(matchesMappingFilter("open", 3, 3)).toBe(false);
+    // A stale accepted flag on a fully mapped record does not reopen it.
+    expect(matchesMappingFilter("open", 3, 3, true)).toBe(false);
+    expect(matchesMappingFilter("open", 0, 0)).toBe(false);
+  });
+
   it("matches the 'accepted' bucket, and excludes accepted rows from 'unmapped'", () => {
     expect(matchesMappingFilter("accepted", 1, 3, true)).toBe(true);
     expect(matchesMappingFilter("unmapped", 1, 3, true)).toBe(false);

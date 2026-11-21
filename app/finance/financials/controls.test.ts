@@ -40,6 +40,8 @@ describe("qualityBucket", () => {
       coaId: "rev-1", accountName: "Draft Sales", statementSection: "revenue",
       channel: "unknown", bblCoverage: "full",
       amountCentsByMonth: { "2026-01": 100 },
+      // A channel is only expected on a sale -- an order or invoice line.
+      sourceRef: { table: "pos_line_items", ids: [] },
     });
     expect(qualityBucket(r)).toBe("uncategorized");
   });
@@ -85,6 +87,8 @@ describe("qualityBucket", () => {
       coaId: "rev-3", accountName: "Mystery Sales", statementSection: "revenue",
       channel: "unknown", bblCoverage: "full",
       amountCentsByMonth: { "2026-01": 250 },
+      // A channel is only expected on a sale -- an order or invoice line.
+      sourceRef: { table: "pos_line_items", ids: [] },
     });
     expect(qualityBucket(r)).toBe("uncategorized");
   });

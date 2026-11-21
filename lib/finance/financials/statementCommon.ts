@@ -16,7 +16,20 @@ import type { CoaAccountRef } from "./types";
 // Exact filter-param wiring may be refined by the panel task; these are
 // reasonable defaults pointing at the right subtab + intent.
 export const HREFS = {
-  unmapped: "/finance/transactions/orders?mapping=unmapped",
+  // `mapping=open` is "not fully mapped" (mappingStatus.ts): it includes a
+  // part-mapped record's stray line and a line accepted as-is, both of which
+  // the statement counts as unmapped. `mapping=unmapped` showed neither.
+  unmapped: "/finance/transactions/orders?mapping=open",
+  // Keyed by FinancialsRow.sourceRef.table -- where a line without an account
+  // can actually be given one.
+  unmappedPlaces: {
+    pos_line_items: { label: "Orders", href: "/finance/transactions/orders?mapping=open" },
+    invoice_line_items: { label: "Invoices", href: "/finance/transactions/invoices?mapping=open" },
+    // `excluded=active`: an excluded expense stays on the tab but is dropped
+    // from the statements, so it is not part of this figure.
+    expenses: { label: "Expenses", href: "/finance/transactions/expenses?mapping=open&excluded=active" },
+    bank_ledger: { label: "Bank ledger", href: "/finance/transactions/bank-ledger?mapping=open" },
+  } as Record<string, { label: string; href: string }>,
   uncategorized: "/finance/transactions/orders?filter=uncategorized",
   unknownVolume: "/finance/transactions/orders?filter=unknown-volume",
   exciseCoverage: "/finance/transactions/invoices?filter=excise-coverage",

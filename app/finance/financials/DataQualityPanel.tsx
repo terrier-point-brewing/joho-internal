@@ -64,6 +64,40 @@ function BucketRow({
   );
 }
 
+/**
+ * Unmapped, one line per Transactions tab. The lines without an account are
+ * spread over Orders, Invoices, Expenses and the bank ledger, and each can
+ * only be fixed on its own tab -- so each amount gets its own link, and the
+ * amounts add up to the total above them.
+ */
+function UnmappedCard({ summary, onShowInTable }: { summary: DataQualitySummary; onShowInTable: () => void }) {
+  if (summary.unmapped.count === 0) return null;
+  return (
+    <Card padding="p-3" className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-1 min-w-0">
+          <span className="text-sm font-medium text-primary">Unmapped</span>
+          <Badge tone="danger" className="w-fit">{formatCurrencyCents(summary.unmapped.cents)}</Badge>
+        </div>
+        <button type="button" onClick={onShowInTable} className="btn-secondary shrink-0">
+          Show in table
+        </button>
+      </div>
+      <ul className="flex flex-col divide-y divide-line">
+        {summary.unmappedByPlace.map((p) => (
+          <li key={p.place} className="flex items-center justify-between gap-3 py-1.5">
+            <span className="text-sm text-secondary min-w-0 truncate">{p.label}</span>
+            <span className="flex items-center gap-3 shrink-0">
+              <span className="text-sm tabular-nums text-primary">{formatCurrencyCents(p.cents)}</span>
+              <a href={p.href} className="btn-secondary">Review</a>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export default function DataQualityPanel({
   summary,
   onFilterQuality,
@@ -92,7 +126,8 @@ export default function DataQualityPanel({
       {open && (
         <Modal title="Data quality" onClose={() => setOpen(false)}>
           <div className="flex flex-col gap-2">
-            {ROW_BUCKETS.map(({ key, label }) => (
+            <UnmappedCard summary={summary} onShowInTable={() => { onFilterQuality("unmapped"); setOpen(false); }} />
+            {ROW_BUCKETS.filter(({ key }) => key !== "unmapped").map(({ key, label }) => (
               <BucketRow
                 key={key}
                 label={label}

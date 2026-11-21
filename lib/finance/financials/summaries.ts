@@ -38,6 +38,13 @@ const COGS_SECTIONS: ReadonlySet<string> = new Set(["cogs"]);
 // channel -- gate the "uncategorized" signal on that.
 const CHANNEL_EXPECTED_SECTIONS: ReadonlySet<string> = new Set(["revenue", "other_income"]);
 
+// ...and, within those sections, only the tables a sale is recorded in. The
+// section gate alone was not enough: a refund is coded to a revenue account
+// and bank interest to other income, so both passed it, and neither has a
+// channel field anyone could fill in. They made up the whole of a $2,975
+// "Uncategorized" flag with nothing behind it to fix.
+const CHANNEL_BEARING_TABLES: ReadonlySet<string> = new Set(["pos_line_items", "invoice_line_items"]);
+
 /**
  * "Uncategorized" = a row where a sales channel is expected but missing.
  * Shared by buildDataQuality (this file) and controls.ts's qualityBucket so
@@ -51,7 +58,11 @@ const CHANNEL_EXPECTED_SECTIONS: ReadonlySet<string> = new Set(["revenue", "othe
  */
 export function isUncategorized(row: FinancialsRow): boolean {
   if (isManualAdjustmentRow(row)) return false;
-  return row.channel === "unknown" && CHANNEL_EXPECTED_SECTIONS.has(row.statementSection);
+  return (
+    row.channel === "unknown" &&
+    CHANNEL_EXPECTED_SECTIONS.has(row.statementSection) &&
+    CHANNEL_BEARING_TABLES.has(row.sourceRef.table)
+  );
 }
 
 /**
@@ -142,11 +153,34 @@ function bucket(rows: FinancialsRow[], href: string): { count: number; cents: nu
   };
 }
 
+/**
+ * The unmapped bucket split by the tab its lines live on, in the order the
+ * tabs are declared. A table with no declared place (a refund, say) is kept
+ * under "Other" on the bucket's general link rather than dropped, so the
+ * parts always add up to the whole.
+ */
+function unmappedByPlace(
+  rows: FinancialsRow[],
+  places: Record<string, { label: string; href: string }>,
+  fallbackHref: string,
+): DataQualitySummary["unmappedByPlace"] {
+  const out: DataQualitySummary["unmappedByPlace"] = [];
+  for (const [place, { label, href }] of Object.entries(places)) {
+    const own = rows.filter((r) => r.sourceRef.table === place);
+    if (own.length > 0) out.push({ place, label, ...bucket(own, href) });
+  }
+  const other = rows.filter((r) => !(r.sourceRef.table in places));
+  if (other.length > 0) out.push({ place: "other", label: "Other", ...bucket(other, fallbackHref) });
+  return out;
+}
+
 export function buildDataQuality(
   rows: FinancialsRow[],
   opts: {
     hrefs: {
       unmapped: string;
+      /** Where each source table's lines are reviewed; omitted = everything under "Other". */
+      unmappedPlaces?: Record<string, { label: string; href: string }>;
       uncategorized: string;
       unknownVolume: string;
       exciseCoverage: string;
@@ -172,6 +206,7 @@ export function buildDataQuality(
 
   return {
     unmapped: bucket(unmappedRows, opts.hrefs.unmapped),
+    unmappedByPlace: unmappedByPlace(unmappedRows, opts.hrefs.unmappedPlaces ?? {}, opts.hrefs.unmapped),
     uncategorized: bucket(uncategorizedRows, opts.hrefs.uncategorized),
     unknownVolume: bucket(unknownVolumeRows, opts.hrefs.unknownVolume),
     exciseCoverage: { ...opts.exciseCoverage, href: opts.hrefs.exciseCoverage },

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { formatCurrencyCents } from "@/lib/format";
 import { mappingState, matchesMappingFilter, type MappingFilterValue } from "@/lib/finance/mappingStatus";
 import { defaultYearRange } from "@/lib/finance/dateRange";
@@ -376,11 +377,16 @@ export default function SquareTransactionsPage() {
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
   const pageSize = 50;
+  // "Not fully mapped" is the one mapping filter the server applies, so it
+  // covers every order in the range rather than the page on screen. Read from
+  // the URL (where useTableControls keeps it) because the load below runs
+  // before that hook's state is in scope.
+  const openOnly = useSearchParams().get("mapping") === "open";
 
-  const loadTransactions = useCallback(async (rangeFrom: string, rangeTo: string, pg: number) => {
+  const loadTransactions = useCallback(async (rangeFrom: string, rangeTo: string, pg: number, openOnly: boolean) => {
     setLoading(true); setError(null);
     try {
-      const res  = await fetch(`/api/finance/transactions?from=${rangeFrom}&to=${rangeTo}&page=${pg}&pageSize=${pageSize}`);
+      const res  = await fetch(`/api/finance/transactions?from=${rangeFrom}&to=${rangeTo}&page=${pg}&pageSize=${pageSize}${openOnly ? "&mapping=open" : ""}`);
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? "Load failed"); return; }
       setTransactions(json.transactions ?? []);
@@ -401,14 +407,14 @@ export default function SquareTransactionsPage() {
   }, []);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTransactions(from, to, page); }, [from, to, page, loadTransactions]);
+  useEffect(() => { loadTransactions(from, to, page, openOnly); }, [from, to, page, openOnly, loadTransactions]);
 
   function handleRangeChange(f: string, t: string) { setRange({ from: f, to: t }); setPage(1); }
 
   async function handleAutoMap(): Promise<{ mapped: number }> {
     const res = await fetch(`/api/finance/transactions/auto-map?year=${new Date(to).getFullYear()}`, { method: "POST" });
     const json = await res.json();
-    if (json.mapped > 0) loadTransactions(from, to, page);
+    if (json.mapped > 0) loadTransactions(from, to, page, openOnly);
     return json;
   }
 
@@ -468,7 +474,7 @@ export default function SquareTransactionsPage() {
           <SearchInput value={search.q ?? ""} onChange={(v) => setSearch("q", v)} placeholder="Search orders…" />
           <DateRangeFilter from={from} to={to} onChange={handleRangeChange} />
           <MappingFilter value={(filters.mapping?.[0] as MappingFilterValue) ?? "all"}
-            onChange={(v) => setFilter("mapping", v === "all" ? [] : [v])} />
+            onChange={(v) => { setPage(1); setFilter("mapping", v === "all" ? [] : [v]); }} />
           <GlAccountFilter accounts={accounts} value={filters.gl?.[0] ?? null}
             onChange={(id) => setFilter("gl", id ? [id] : [])} />
           <AutoMapButton key={`${from}_${to}`} onRun={handleAutoMap} />
@@ -478,7 +484,7 @@ export default function SquareTransactionsPage() {
             label="from Square"
             showMonthPicker
             buildEndpoint={({ year, month }) => `/api/finance/transactions/sync?year=${year}&month=${month}`}
-            onSynced={() => loadTransactions(from, to, 1)}
+            onSynced={() => loadTransactions(from, to, 1, openOnly)}
             renderResult={(r) => (
               <>
                 {r.synced > 0 && <span className="text-success mr-2">{r.synced} orders</span>}

@@ -19,7 +19,14 @@ export function mappingState(mapped: number, total: number, accepted = false): M
   return "unmapped";
 }
 
-export type MappingFilterValue = "all" | "mapped" | "partial" | "unmapped" | "accepted";
+/**
+ * `open` is "anything not fully mapped": partial, unmapped, or accepted as-is.
+ * It is the filter the Financials tab's Unmapped flag links to, because that
+ * flag counts every line without an account -- a part-mapped order's stray
+ * line and a line someone accepted on purpose included -- and a link that
+ * showed only wholly-unmapped records would not add up to the flag.
+ */
+export type MappingFilterValue = "all" | "mapped" | "partial" | "unmapped" | "accepted" | "open";
 
 /** Does a record with `mapped`/`total` children (and `accepted` flag) satisfy the active filter? */
 export function matchesMappingFilter(
@@ -32,5 +39,6 @@ export function matchesMappingFilter(
   const state = mappingState(mapped, total, accepted);
   // A record with no children only ever satisfies the "unmapped" bucket.
   if (state === "empty") return filter === "unmapped";
+  if (filter === "open") return state !== "mapped";
   return state === filter;
 }

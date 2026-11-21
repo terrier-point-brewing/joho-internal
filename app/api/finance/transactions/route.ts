@@ -4,6 +4,9 @@
  * Returns paginated square_orders (POS only) joined with their pos_line_items
  * (including prefilled CoA from account mapping when no manual override exists).
  *
+ * `&mapping=open` narrows the whole range -- not just one page -- to orders that
+ * still have a line without an account. See lib/finance/openOrders.ts.
+ *
  * PATCH /api/finance/transactions — { id, unmapped_accepted } to mark an
  * order's unmapped line items as reviewed/dismissed without mapping them.
  */
@@ -11,11 +14,51 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, CAP } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { defaultYearRange } from "@/lib/finance/dateRange";
+import { fetchAllRows } from "@/lib/supabase/paginate";
+import { pickOpenOrderIds } from "@/lib/finance/openOrders";
 import { dayRangeUtc } from "@/lib/utils/datetime";
 import { getBreweryTimezone } from "@/lib/settings/breweryTimezone.server";
 import { extractVoidedLineItems, type VoidedLineItem } from "@/lib/finance/voidedLineItems";
 
 export const dynamic = "force-dynamic";
+
+/** A `.in()` list is chunked: a URL over ~16 KB fails with a bare "fetch failed". */
+const IN_CHUNK = 200;
+
+/** Every order in the range that still has a line without an account, newest first. */
+async function openOrderIds(supabase: ReturnType<typeof createSupabaseAdminClient>, startUtc: string, endUtc: string): Promise<string[]> {
+  const lines = await fetchAllRows<{
+    order_id: string;
+    square_variation_id: string | null;
+    square_orders: { transaction_date: string };
+  }>(() =>
+    supabase
+      .from("pos_line_items")
+      .select("id, order_id, square_variation_id, square_orders!inner ( transaction_date, invoice_id )")
+      .is("chart_of_accounts_id", null)
+      .is("square_orders.invoice_id", null)
+      .gte("square_orders.transaction_date", startUtc)
+      .lte("square_orders.transaction_date", endUtc)
+      .order("id", { ascending: true }),
+  );
+
+  const variationIds = [...new Set(lines.map((l) => l.square_variation_id).filter((v): v is string => !!v))];
+  const resolved = new Set<string>();
+  for (let i = 0; i < variationIds.length; i += IN_CHUNK) {
+    const { data, error } = await supabase
+      .from("square_catalog_variations")
+      .select("square_variation_id")
+      .in("square_variation_id", variationIds.slice(i, i + IN_CHUNK))
+      .or("chart_of_accounts_id.not.is.null,chart_of_accounts_id_pos.not.is.null,excluded.eq.true");
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) if (row.square_variation_id) resolved.add(row.square_variation_id);
+  }
+
+  return pickOpenOrderIds(
+    lines.map((l) => ({ orderId: l.order_id, transactionDate: l.square_orders.transaction_date, variationId: l.square_variation_id })),
+    resolved,
+  );
+}
 
 export async function GET(req: NextRequest) {
   try { await requirePermission(CAP.financeTransactionsRead); } catch (res) { return res as Response; }
@@ -40,7 +83,19 @@ export async function GET(req: NextRequest) {
 
   const supabase = createSupabaseAdminClient();
 
-  const { data, error, count } = await supabase
+  // The one mapping filter that has to see the whole range (see openOrders.ts).
+  let openIds: string[] | null = null;
+  if (searchParams.get("mapping") === "open") {
+    try {
+      openIds = await openOrderIds(supabase, startUtc, endUtc);
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Load failed" }, { status: 500 });
+    }
+    if (openIds.length === 0) return NextResponse.json({ transactions: [], total: 0, page, pageSize });
+  }
+  const pageIds = openIds?.slice(from, to + 1) ?? null;
+
+  let query = supabase
     .from("square_orders")
     .select(`
       id,
@@ -77,7 +132,11 @@ export async function GET(req: NextRequest) {
     .gte("transaction_date", startUtc)
     .lte("transaction_date", endUtc)
     .order("transaction_date", { ascending: false })
-    .range(from, to);
+    .order("id", { ascending: true });
+  // pageIds is at most one page (<= 200 ids), already the right slice.
+  query = pageIds ? query.in("id", pageIds) : query.range(from, to);
+  const { data, error, count: rangeCount } = await query;
+  const count = openIds ? openIds.length : rangeCount;
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
