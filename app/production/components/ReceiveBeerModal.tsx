@@ -65,6 +65,7 @@ export default function ReceiveBeerModal({
       .filter((v) => v.container?.type === "keg" || v.container?.type === "can")
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [recipeId, recipeVariations, variations]);
+  const targetItems = useMemo<SearchComboboxItem[]>(() => targets.map((v) => ({ id: v.id, label: v.name })), [targets]);
 
   function selectRecipe(id: string) {
     setRecipeId(id);
@@ -127,19 +128,15 @@ export default function ReceiveBeerModal({
         </Field>
 
         <Field label="Packaging" required hint={recipeId ? undefined : "pick the beer first"}>
-          <select
-            className="inp w-full"
+          <SearchCombobox
             value={variationId}
-            onChange={(e) => setVariationId(e.target.value)}
+            onChange={setVariationId}
+            items={targetItems}
+            placeholder={!recipeId ? "Select a beer first…" : targets.length === 0 ? "No packaging declared for this beer" : "Search packaging…"}
+            emptyLabel="No packaging matches"
             disabled={!recipeId || targets.length === 0}
-          >
-            <option value="">
-              {!recipeId ? "Select a beer first…" : targets.length === 0 ? "No packaging declared for this beer" : "Select packaging…"}
-            </option>
-            {targets.map((v) => (
-              <option key={v.id} value={v.id}>{v.name}</option>
-            ))}
-          </select>
+            required
+          />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">

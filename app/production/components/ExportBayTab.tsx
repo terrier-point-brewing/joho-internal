@@ -251,6 +251,22 @@ function PhantomAlertRow({
   // A transform is selected — the button has to say so, because clicking it
   // breaks stock apart irreversibly before it resolves anything.
   const transformSelected = selectedLotKey.startsWith("t|");
+  // Break-downs sit below the exact matches and always name the loss, so a
+  // wrong-shape option is never mistaken for a free one.
+  const lotItems: SearchComboboxItem[] = [
+    ...alert.eligibleLots.map((lot) => ({
+      id: `${lot.variationId}|${lot.batchId}`,
+      label: lot.variationName,
+      sub: lot.batchCode,
+      hint: `${lot.onHand} on hand`,
+    })),
+    ...alert.transforms.map((t) => ({
+      id: `t|${t.lotId}`,
+      label: `Break ${t.fromUnits} × ${t.fromVariationName} → ${t.toUnits} × ${t.toVariationName}`,
+      sub: t.batchCode || null,
+      hint: t.lossless ? "no loss" : `loses ${t.shrinkageFlOz.toFixed(0)} fl oz`,
+    })),
+  ];
 
   // Why Resolve is unavailable, in the operator's terms. An empty picker said
   // nothing at all — "no matching stock" and "no stock of any kind" look the
@@ -285,27 +301,15 @@ function PhantomAlertRow({
           // and a break-down option names two variations, two counts, a batch
           // and its loss — long enough to eat the whole row and wrap the alert's
           // own text to one word per line. The browser elides the overflow.
-          <select
-            className="inp-sm w-56 shrink-0"
+          <SearchCombobox
+            className="w-56 shrink-0"
+            size="sm"
             value={selectedLotKey}
-            onChange={(e) => onSelectLot(e.target.value)}
-          >
-            <option value="">— pick lot —</option>
-            {alert.eligibleLots.map((lot) => (
-              <option key={`${lot.variationId}|${lot.batchId}`} value={`${lot.variationId}|${lot.batchId}`}>
-                {lot.variationName} · {lot.batchCode} ({lot.onHand} on hand)
-              </option>
-            ))}
-            {/* Break-downs sit below the exact matches and always name the loss,
-                so a wrong-shape option is never mistaken for a free one. */}
-            {alert.transforms.map((t) => (
-              <option key={`t|${t.lotId}`} value={`t|${t.lotId}`}>
-                Break {t.fromUnits} × {t.fromVariationName} → {t.toUnits} × {t.toVariationName}
-                {t.batchCode ? ` · ${t.batchCode}` : ""}
-                {t.lossless ? " (no loss)" : ` (loses ${t.shrinkageFlOz.toFixed(0)} fl oz)`}
-              </option>
-            ))}
-          </select>
+            onChange={onSelectLot}
+            items={lotItems}
+            placeholder="Pick lot…"
+            emptyLabel="No lots match"
+          />
         )}
         {/* Always rendered, disabled when nothing matches. A hidden button reads
             as broken; a disabled one with the reason attached teaches the rule —
@@ -1468,6 +1472,11 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
 }) {
   // Several packaging variations of the same recipe can ship together against
   // one allocation — e.g. 2× 1/2 keg and 3× 1/6 keg of the same beer.
+  const variationItems: SearchComboboxItem[] = inventoryLines.map((l) => ({
+    id: l.variation_id,
+    label: l.variation_name,
+    hint: `${l.quantity_on_hand} available`,
+  }));
   const [shipLines, setShipLines] = useState<{ variation_id: string; quantity: string }[]>(
     [{ variation_id: inventoryLines[0]?.variation_id ?? "", quantity: "" }]
   );
@@ -1623,15 +1632,14 @@ function ShipModal({ group, inventoryLines, onClose, onDone }: {
                 return (
                   <div key={i}>
                     <div className="grid items-center gap-2" style={{ gridTemplateColumns: "1fr 72px auto" }}>
-                      <select className="inp-sm" value={line.variation_id}
-                        onChange={(e) => setShipLines((ls) => ls.map((l, idx) => idx === i ? { ...l, variation_id: e.target.value } : l))}>
-                        <option value="">— select —</option>
-                        {inventoryLines.map((l) => (
-                          <option key={l.variation_id} value={l.variation_id}>
-                            {l.variation_name} ({l.quantity_on_hand} available)
-                          </option>
-                        ))}
-                      </select>
+                      <SearchCombobox
+                        size="sm"
+                        value={line.variation_id}
+                        onChange={(id) => setShipLines((ls) => ls.map((l, idx) => idx === i ? { ...l, variation_id: id } : l))}
+                        items={variationItems}
+                        placeholder="Search packaging…"
+                        emptyLabel="No packaging matches"
+                      />
                       <input type="number" inputMode="numeric" min="0" step="1" className="inp-sm" placeholder="qty"
                         value={line.quantity}
                         onChange={(e) => setShipLines((ls) => ls.map((l, idx) => idx === i ? { ...l, quantity: e.target.value } : l))} />
@@ -1880,13 +1888,15 @@ function AdHocExportModal({ inventoryByRecipe, recipeNameById, onClose, onDone }
           {channel === "taproom" && (<>
           <div>
             <label className="text-xs text-secondary block mb-1">Packaging</label>
-            <select className="inp w-full" value={variationId} onChange={(e) => setVariationId(e.target.value)}>
-              {linesForRecipe.map((l) => (
-                <option key={l.variation_id} value={l.variation_id}>
-                  {l.variation_name} ({l.quantity_on_hand} available)
-                </option>
-              ))}
-            </select>
+            <SearchCombobox
+              value={variationId}
+              onChange={setVariationId}
+              items={linesForRecipe.map((l) => ({ id: l.variation_id, label: l.variation_name, hint: `${l.quantity_on_hand} available` }))}
+              placeholder="Search packaging…"
+              emptyLabel="No packaging matches"
+              clearable={false}
+              required
+            />
           </div>
           <div>
             <label className="text-xs text-secondary block mb-1">Quantity</label>

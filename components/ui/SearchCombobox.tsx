@@ -22,6 +22,9 @@ type Props = {
   /** Hide the × clear control (for required pickers that must always hold a value). */
   clearable?: boolean;
   required?: boolean;
+  disabled?: boolean;
+  /** "sm" is the dense `.inp-sm` control, for a picker inside a row of other dense inputs. */
+  size?: "md" | "sm";
   className?: string;
 };
 
@@ -47,6 +50,8 @@ export function SearchCombobox({
   emptyLabel = "No matches",
   clearable = true,
   required,
+  disabled,
+  size = "md",
   className,
 }: Props) {
   const [query, setQuery] = useState("");
@@ -125,17 +130,18 @@ export function SearchCombobox({
           role="combobox"
           aria-expanded={open}
           aria-autocomplete="list"
-          className={`inp w-full pl-6${clearable && value ? " pr-7" : ""}`}
+          className={`${size === "sm" ? "inp-sm" : "inp"} w-full pl-6${clearable && value ? " pr-7" : ""}${disabled ? " opacity-60 cursor-not-allowed" : ""}`}
           value={open ? query : displayName}
           placeholder={placeholder}
           required={required && !value}
+          disabled={disabled}
           aria-controls={listId}
           onChange={(e) => openWith(e.target.value)}
           onFocus={() => openWith("")}
           onClick={() => { if (!open) openWith(""); }}
           onKeyDown={onKeyDown}
         />
-        {clearable && value && (
+        {clearable && value && !disabled && (
           <button
             type="button"
             aria-label="Clear"
