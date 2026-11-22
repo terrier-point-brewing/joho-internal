@@ -25,7 +25,7 @@
 import { formatCurrencyCents } from "@/lib/format";
 import { monthEnd } from "@/lib/finance/manualEntries";
 
-export type DuplicateKind = "bill_vs_card" | "bill_vs_ramp_debit" | "bill_vs_bank_line" | "manual_vs_feed";
+export type DuplicateKind = "bill_vs_card" | "bill_vs_ramp_debit" | "bill_vs_bank_line" | "manual_vs_feed" | "bill_vs_bill";
 
 /** How far either side of a bill's own dates its payment may sit and still be the same money. */
 export const DEFAULT_WINDOW_DAYS = 7;
@@ -36,6 +36,16 @@ export const DEFAULT_WINDOW_DAYS = 7;
  * extra day in the pool multiplies the combinations that can sum to it by luck.
  */
 export const MANUAL_WINDOW_DAYS = 1;
+
+/**
+ * How far apart two identical bills from one vendor may be and still look like
+ * one order billed twice. Deliberately short: rent is the same bill every
+ * month, 26 to 32 days apart, and must never be proposed.
+ */
+export const BILL_REPEAT_WINDOW_DAYS = 14;
+
+/** How long after a card charge a refund of it may land and still be read as its reversal. */
+export const REFUND_WINDOW_DAYS = 60;
 
 /** A manual entry spanning longer than this is an accrual or a proration, not one movement. */
 const MANUAL_MAX_SPAN_DAYS = 7;
@@ -112,6 +122,16 @@ export interface DuplicateCandidate {
   reason: string;
   /** Month end of the duplicate's date: the month whose expense is doubled. */
   periodEnd: string;
+  /**
+   * A refund that already undid the duplicate, when there is one.
+   *
+   * October 2026: a $295.83 card charge matched a bill and was proposed as a
+   * duplicate, with nothing on the screen to say the vendor had refunded that
+   * charge ten days later. Setting the charge aside would have left the refund
+   * counted alone and the expense $295.83 too LOW. A candidate that carries
+   * this is already corrected by the vendor, so it must not be set aside.
+   */
+  reversal?: DuplicateSide;
 }
 
 export interface DuplicateInputs {
@@ -144,6 +164,8 @@ function distanceToRange(date: string, from: string, to: string): number {
 interface Bill {
   billId: string;
   lineIds: string[];
+  /** Each remaining line's amount, for telling an identical bill from a same-total one. */
+  lineAmounts: number[];
   merchantName: string;
   /** The day it was incurred. */
   date: string;
@@ -167,6 +189,7 @@ export function groupBills(lines: BillLineInput[]): Bill[] {
       byBill.set(billId, {
         billId,
         lineIds: [line.id],
+        lineAmounts: [line.amountCents],
         merchantName: line.merchantName ?? "Unnamed vendor",
         date: line.accountingDate,
         settledDate: line.settledAt ? line.settledAt.slice(0, 10) : null,
@@ -175,6 +198,7 @@ export function groupBills(lines: BillLineInput[]): Bill[] {
       continue;
     }
     bill.lineIds.push(line.id);
+    bill.lineAmounts.push(line.amountCents);
     bill.amountCents += line.amountCents;
     if (line.accountingDate < bill.date) bill.date = line.accountingDate;
   }
@@ -195,8 +219,41 @@ function billSide(bill: Bill): DuplicateSide {
 // ── the other side of a bill ────────────────────────────────────────────────
 
 interface Counterpart {
-  kind: Exclude<DuplicateKind, "manual_vs_feed">;
+  kind: Exclude<DuplicateKind, "manual_vs_feed" | "bill_vs_bill">;
   side: DuplicateSide;
+  /** The refund that undid this charge, when the vendor has already given the money back. */
+  reversal?: DuplicateSide;
+}
+
+/**
+ * Card refunds matched to the charge each one undoes: same merchant, the exact
+ * opposite amount, on or after the charge and within REFUND_WINDOW_DAYS. The
+ * nearest refund claims a charge, and each refund answers to one charge.
+ */
+function refundsByChargeId(expenses: ExpenseInput[]): Map<string, ExpenseInput> {
+  const live = expenses.filter((e) => e.rampObject === "card" && !e.excluded && e.accountingDate && e.state !== "DECLINED");
+  const charges = live.filter((e) => e.amountCents < 0);
+  const refunds = live
+    .filter((e) => e.amountCents > 0)
+    .sort((a, b) => (a.accountingDate as string).localeCompare(b.accountingDate as string) || a.id.localeCompare(b.id));
+
+  const out = new Map<string, ExpenseInput>();
+  for (const refund of refunds) {
+    const day = dayNumber(refund.accountingDate as string);
+    const charge = charges
+      .filter(
+        (c) =>
+          !out.has(c.id) &&
+          c.amountCents === -refund.amountCents &&
+          (c.merchantName ?? "") === (refund.merchantName ?? "") &&
+          dayNumber(c.accountingDate as string) <= day &&
+          day - dayNumber(c.accountingDate as string) <= REFUND_WINDOW_DAYS,
+      )
+      // The most recent charge before the refund is the one it most plausibly undoes.
+      .sort((a, b) => (b.accountingDate as string).localeCompare(a.accountingDate as string) || a.id.localeCompare(b.id))[0];
+    if (charge) out.set(charge.id, refund);
+  }
+  return out;
 }
 
 /**
@@ -214,9 +271,19 @@ interface Counterpart {
  */
 function counterparts(inputs: DuplicateInputs): Counterpart[] {
   const out: Counterpart[] = [];
+  const refunds = refundsByChargeId(inputs.expenses);
   for (const e of inputs.expenses) {
     if (e.excluded || !e.accountingDate || e.state === "DECLINED") continue;
+    const refund = refunds.get(e.id);
     out.push({
+      reversal: refund && {
+        table: "expenses",
+        ids: [refund.id],
+        what: "Card refund",
+        name: refund.merchantName ?? "Unnamed merchant",
+        date: refund.accountingDate as string,
+        amountCents: refund.amountCents,
+      },
       kind: e.rampObject === "card" ? "bill_vs_card" : "bill_vs_ramp_debit",
       side: {
         table: "expenses",
@@ -297,9 +364,62 @@ function pairBills(bills: Bill[], others: Counterpart[], windowDays: number): Du
       reason:
         `${other.side.what} "${other.side.name}" on ${other.side.date} is the same ${amount} as the ` +
         `${bill.merchantName} bill of ${bill.date}` +
-        (daysApart === 0 ? ", on the same day." : `, ${daysApart} day${daysApart === 1 ? "" : "s"} apart.`),
+        (daysApart === 0 ? ", on the same day." : `, ${daysApart} day${daysApart === 1 ? "" : "s"} apart.`) +
+        (other.reversal ? ` The charge was refunded on ${other.reversal.date}, so it has already been undone.` : ""),
       periodEnd: monthEnd(other.side.date),
+      ...(other.reversal ? { reversal: other.reversal } : {}),
     });
+  }
+  return out;
+}
+
+/**
+ * One order billed twice: two bills from the same vendor with the same line
+ * items, a few days apart.
+ *
+ * Every other check here compares a bill with its PAYMENT, so two copies of the
+ * bill itself went unseen. October 2026 had two RahrBSG bills of $295.83 with
+ * identical lines eight days apart, and nothing asked about them.
+ *
+ * Same vendor, identical lines and a short window, all three: a same-total bill
+ * with different lines is a different order, and an identical bill a month
+ * later is rent. It still only asks. Two real orders of the same hops a week
+ * apart is a perfectly good answer.
+ */
+function pairRepeatedBills(bills: Bill[]): DuplicateCandidate[] {
+  const signature = (b: Bill) => `${b.merchantName}|${[...b.lineAmounts].sort((x, y) => x - y).join(",")}`;
+  const groups = new Map<string, Bill[]>();
+  for (const b of bills) {
+    const list = groups.get(signature(b)) ?? [];
+    list.push(b);
+    groups.set(signature(b), list);
+  }
+
+  const out: DuplicateCandidate[] = [];
+  for (const group of groups.values()) {
+    const sorted = [...group].sort((a, b) => a.date.localeCompare(b.date) || a.billId.localeCompare(b.billId));
+    // Each bill is asked about once, against the one before it. Three copies
+    // make two questions, not three.
+    for (let i = 1; i < sorted.length; i++) {
+      const earlier = sorted[i - 1];
+      const later = sorted[i];
+      const daysApart = daysBetween(earlier.date, later.date);
+      if (daysApart > BILL_REPEAT_WINDOW_DAYS) continue;
+      const amount = formatCurrencyCents(Math.abs(later.amountCents));
+      out.push({
+        key: `bill_vs_bill:${earlier.billId}:${later.billId}`,
+        kind: "bill_vs_bill",
+        amountCents: later.amountCents,
+        matched: [billSide(earlier)],
+        duplicate: billSide(later),
+        daysApart,
+        reason:
+          `Two ${later.merchantName} bills for ${amount} with the same line items, dated ${earlier.date} and ${later.date}` +
+          (daysApart === 0 ? ", the same day." : `, ${daysApart} day${daysApart === 1 ? "" : "s"} apart.`) +
+          ` If this was one order billed twice, the second is a duplicate. Two separate orders is not.`,
+        periodEnd: monthEnd(later.date),
+      });
+    }
   }
   return out;
 }
@@ -406,5 +526,6 @@ export function findDuplicateCandidates(
   return [
     ...pairBills(bills, counterparts(inputs), opts.windowDays ?? DEFAULT_WINDOW_DAYS),
     ...pairManualEntries(inputs, bills),
+    ...pairRepeatedBills(bills),
   ].sort((a, b) => a.duplicate.date.localeCompare(b.duplicate.date) || a.key.localeCompare(b.key));
 }

@@ -46,6 +46,9 @@ const RESOLUTION_LABEL: Record<DuplicateResolution, string> = {
 
 /** What "set it aside" will actually do to this pair's extra record, in the reader's terms. */
 function setAsideEffect(candidate: DuplicateCandidate): string {
+  if (candidate.kind === "bill_vs_bill") {
+    return "The later bill is excluded from every statement, every line of it. The earlier bill stays as the expense. It can be restored on the Expenses tab.";
+  }
   return candidate.duplicate.table === "bank_ledger"
     ? "The bank line is marked as a bill settlement, so it stays off the P&L. The bill stays as the expense."
     : `The ${candidate.duplicate.what.toLowerCase()} is excluded from every statement. The bill stays as the expense. It can be restored on the Expenses tab.`;
@@ -271,7 +274,17 @@ export default function DuplicatesPage() {
                     {formatCurrencyCents(Math.abs(c.amountCents))}
                   </td>
                   <td className="px-4 py-2"><MatchedCell candidate={c} /></td>
-                  <td className="px-4 py-2"><SideCell side={c.duplicate} /></td>
+                  <td className="px-4 py-2">
+                    <SideCell side={c.duplicate} />
+                    {/* Already undone by the vendor. Said in the list, because
+                        the natural answer to "is this a duplicate?" is wrong
+                        once the charge has been refunded. */}
+                    {c.reversal && (
+                      <Badge tone="info" className="mt-1" title="The charge and its refund already cancel out, so there is nothing to set aside">
+                        Refunded {fmtDateLong(c.reversal.date)}
+                      </Badge>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-right text-muted whitespace-nowrap">
                     {c.daysApart === 0 ? "Same day" : `${c.daysApart} day${c.daysApart === 1 ? "" : "s"}`}
                   </td>

@@ -82,9 +82,14 @@ describe("recalculationTrouble", () => {
     expect(recalculationTrouble([bad("gift cards"), ok, ok])).toEqual({ failed: 1, of: 3, latestError: "gift cards" });
   });
 
-  it("reports an intermittent failure even after a clean night", () => {
-    // October 2026: 8 failures in 22, never two nights the same.
-    expect(recalculationTrouble([ok, bad("newest"), ok, bad("older"), ok, ok, ok])).toEqual({ failed: 2, of: 7, latestError: "newest" });
+  it("goes quiet as soon as the most recent run is clean", () => {
+    // After the gift-card fix a clean check was run, and the alert kept saying
+    // "failing" for days because two of the last seven nights had failed.
+    expect(recalculationTrouble([ok, bad("newest"), ok, bad("older"), ok, ok, ok])).toBeNull();
+  });
+
+  it("says how many recent tries failed when the latest one did", () => {
+    expect(recalculationTrouble([bad("newest"), ok, bad("older"), ok])).toEqual({ failed: 2, of: 4, latestError: "newest" });
   });
 });
 

@@ -1,7 +1,8 @@
 /**
- * Closes the most recently ENDED month (i.e. the month before the one the run
- * date falls in -- the current month is still in progress and shouldn't be
- * snapshotted yet). In order:
+ * Refreshes the most recently ENDED month (i.e. the month before the one the
+ * run date falls in -- the current month is still in progress and shouldn't be
+ * snapshotted yet), then every OLDER month nobody has closed (steps 1-3 only;
+ * see refreshOlderOpenMonth). In order:
  *
  *   1. ensureTasksForPeriod  -- create a close task for every active account
  *      whose method needs a hand-entered figure and is still missing one for
@@ -54,6 +55,58 @@ import { todayLocalDate } from "@/lib/utils/datetime";
 // Shared with the integration connect-time check, which must validate the SAME
 // period this job reads. It previously had its own copy resolved in UTC.
 import { mostRecentlyEndedMonthEnd } from "@/lib/finance/balances/periods";
+import { listOpenPeriodEnds } from "@/lib/finance/balances/openPeriods";
+import { recordRecalculation } from "@/lib/finance/balances/recalculationLog";
+
+/**
+ * How many OLDER open months one run also refreshes. Each is a full
+ * recalculation with live reads against Ramp, Plaid and Square (about 20s), so
+ * a long backlog is worked newest-first across nights rather than all at once.
+ */
+const MAX_OLDER_MONTHS_PER_RUN = 3;
+
+/**
+ * Refresh a month that ended before the latest one and is still open.
+ *
+ * The job used to look only at the most recently ended month, so on 1 December
+ * an unclosed October stopped being recalculated and its checklist stopped
+ * being reconciled -- at exactly the point it had been waiting longest. A close
+ * has no deadline, so a month sitting open past the next month end is ordinary
+ * and has to keep getting the same care.
+ *
+ * Isolated per month: one that throws is recorded as failed and the run goes
+ * on, because the latest month's result has already been computed and must not
+ * be lost to an older month's problem.
+ */
+async function refreshOlderOpenMonth(supabase: SupabaseClient, periodEnd: string) {
+  const startedAt = new Date();
+  try {
+    const tasksCreated = await ensureTasksForPeriod(supabase, periodEnd);
+    const snapshot = await snapshotPeriod(supabase, periodEnd);
+    const reconciled = await reconcileCloseTasks(supabase, periodEnd);
+    await recordRecalculation(supabase, {
+      periodEnd,
+      errors: snapshot.errors,
+      balancingDifferenceCents: snapshot.balancingDifferenceCents,
+      trigger: "schedule",
+      startedAt,
+      source: "nightly",
+    });
+    return { periodEnd, tasksCreated, tasksClosed: reconciled.completed, tasksReopened: reconciled.reopened, errors: snapshot.errors };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[balance-close] could not refresh an older open month", { periodEnd, err });
+    await recordRecalculation(supabase, {
+      periodEnd,
+      errors: [message],
+      balancingDifferenceCents: null,
+      trigger: "schedule",
+      startedAt,
+      source: "nightly",
+    });
+    return { periodEnd, tasksCreated: 0, tasksClosed: 0, tasksReopened: 0, errors: [message] };
+  }
+}
 
 export async function runBalanceClose(supabase: SupabaseClient) {
   const todayIso = todayLocalDate();
@@ -91,6 +144,16 @@ export async function runBalanceClose(supabase: SupabaseClient) {
   const closeState = await readPeriodClose(supabase, periodEnd);
   const closed = closeState?.closed ?? false;
 
+  // Every other month still open, newest first. After the latest month on
+  // purpose: its result is the one this job has always reported, and nothing
+  // an older month does may cost it.
+  const olderOpen = (await listOpenPeriodEnds(supabase, todayIso))
+    .filter((p) => p !== periodEnd)
+    .reverse()
+    .slice(0, MAX_OLDER_MONTHS_PER_RUN);
+  const olderOpenMonths = [];
+  for (const older of olderOpen) olderOpenMonths.push(await refreshOlderOpenMonth(supabase, older));
+
   return {
     periodEnd,
     tasksCreated,
@@ -104,5 +167,6 @@ export async function runBalanceClose(supabase: SupabaseClient) {
     // vacuous truth and froze the month on day one.
     pastDue: todayIso > dueDateForPeriod(periodEnd, dueDay),
     snapshot,
+    olderOpenMonths,
   };
 }

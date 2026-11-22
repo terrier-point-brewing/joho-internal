@@ -37,7 +37,7 @@ import {
   type CloseTask,
 } from "@/lib/finance/balances/closeTasks";
 import { reopenPeriod, readPeriodClose, readPeriodCoverage } from "@/lib/finance/balances/periodClose";
-import { readLastRecalculation } from "@/lib/finance/balances/lastRecalculation";
+import { readLastRecalculation } from "@/lib/finance/balances/recalculationLog";
 import { countUnreviewedDuplicates } from "@/lib/finance/duplicateReview";
 import { addDaysStr } from "@/lib/utils/datetime";
 
@@ -191,9 +191,10 @@ export async function GET(req: NextRequest) {
       // What closing would be asserting: how many configured accounts actually
       // produced a figure this month, and which ones did not.
       coverage,
-      // Last night's recalculation of this month, so a failing step is on the
-      // page as something to look at rather than a refusal waiting behind the
-      // Close button. Null for a month the nightly job no longer runs on.
+      // The most recent recalculation of this month, whoever ran it: the
+      // nightly job, "Check again", or a close attempt. A failing account is on
+      // the page as something to look at rather than a refusal waiting behind
+      // the Close button. Null when none is on record.
       recalculation,
       // The month before's balancing difference, so this month's can be read
       // as a movement rather than as a bare figure.

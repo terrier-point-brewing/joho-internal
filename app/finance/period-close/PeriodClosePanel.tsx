@@ -173,9 +173,16 @@ function OutstandingRow({
         {/* Where the pre-filled figure came from, and what was entered last
             time, as chips: a reader compares two numbers, not two sentences. */}
         {task.computedCents !== null && (
-          <Badge tone="info" title="The feed's own figure — save to confirm it, or correct it first">
-            Suggested {formatBalanceCents(task.computedCents)}
-            {task.computedAt ? ` · ${fmtDate(task.computedAt.slice(0, 10))}` : ""}
+          // The date it was worked out stays in the hover. On the chip it read
+          // as the date of the balance ("Suggested $15,726.78 · Nov 22" for an
+          // October 31 figure).
+          <Badge
+            tone="info"
+            title={`What the app worked out for ${fmtDate(periodEnd)} from the feed${
+              task.computedAt ? ` (calculated ${fmtDate(task.computedAt.slice(0, 10))})` : ""
+            }. Save to confirm it, or correct it first.`}
+          >
+            Suggested for {fmtDate(periodEnd)}: {formatBalanceCents(task.computedCents)}
           </Badge>
         )}
         {task.previousBalance ? (
@@ -220,6 +227,9 @@ export default function PeriodClosePanel({
     // refetched six periods' checklists at once — a real part of why the
     // screen felt slow to save.
     await qc.invalidateQueries({ queryKey: queryKeys.finance.balanceClose(periodEnd) });
+    // Closing or reopening changes which months are open, which the periods
+    // list and the Financials banner both read.
+    await qc.invalidateQueries({ queryKey: queryKeys.finance.balanceClosePeriods() });
     await qc.invalidateQueries({ queryKey: ["finance", "manual-entries"] });
   }
 

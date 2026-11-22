@@ -203,7 +203,9 @@ describe("findDuplicateCandidates — a bill and a bank line", () => {
         ],
       }),
     );
-    expect(found.map((c) => c.key).sort()).toEqual([
+    // The two bills here sit six days apart to exercise the pairing, which the
+    // repeated-bill check also (rightly) asks about; real rent is a month apart.
+    expect(found.filter((c) => c.kind === "bill_vs_bank_line").map((c) => c.key).sort()).toEqual([
       "bill_vs_bank_line:cdp-june:check-0604",
       "bill_vs_bank_line:cdp-may:check-0601",
     ]);
@@ -301,5 +303,92 @@ describe("findDuplicateCandidates — stability", () => {
     const reversed = findDuplicateCandidates({ ...base, billLines: [...base.billLines].reverse(), expenses: [...base.expenses].reverse() }).map((c) => c.key);
     expect(forward).toEqual(["bill_vs_card:pm-june:a"]);
     expect(reversed).toEqual(forward);
+  });
+});
+
+describe("findDuplicateCandidates — a charge the vendor already refunded", () => {
+  // October 2026: RahrBSG billed $295.83 on 10/22, the card was also charged
+  // $295.83 on 10/23, and Brewers Supply Group refunded the card on 11/2.
+  const refunded = () =>
+    inputs({
+      billLines: [
+        billLine({ sourceTransactionId: "bill-oct:0", amountCents: -26378, accountingDate: "2026-10-22", merchantName: "RahrBSG" }),
+        billLine({ sourceTransactionId: "bill-oct:1", amountCents: -3205, accountingDate: "2026-10-22", merchantName: "RahrBSG" }),
+      ],
+      expenses: [
+        expense({ id: "charge", amountCents: -29583, accountingDate: "2026-10-23", merchantName: "Brewers Supply Group" }),
+        expense({ id: "refund", amountCents: 29583, accountingDate: "2026-11-02", merchantName: "Brewers Supply Group" }),
+      ],
+    });
+
+  it("still proposes the pair, and says the charge was refunded", () => {
+    const [c] = findDuplicateCandidates(refunded());
+    expect(c.kind).toBe("bill_vs_card");
+    expect(c.reversal).toMatchObject({ ids: ["refund"], date: "2026-11-02", amountCents: 29583 });
+    expect(c.reason).toContain("refunded on 2026-11-02");
+  });
+
+  it("keeps the same key, so an answer already recorded is not asked again", () => {
+    const withRefund = findDuplicateCandidates(refunded())[0].key;
+    const before = refunded();
+    before.expenses = before.expenses.filter((e) => e.id !== "refund");
+    expect(findDuplicateCandidates(before)[0].key).toBe(withRefund);
+  });
+
+  it("does not read a refund from a different merchant as this charge's", () => {
+    const i = refunded();
+    i.expenses[1] = { ...i.expenses[1], merchantName: "Someone Else" };
+    expect(findDuplicateCandidates(i)[0].reversal).toBeUndefined();
+  });
+
+  it("does not read an EARLIER credit as the refund", () => {
+    const i = refunded();
+    i.expenses[1] = { ...i.expenses[1], accountingDate: "2026-10-20" };
+    expect(findDuplicateCandidates(i)[0].reversal).toBeUndefined();
+  });
+
+  it("ignores a refund that has itself been set aside", () => {
+    const i = refunded();
+    i.expenses[1] = { ...i.expenses[1], excluded: true };
+    expect(findDuplicateCandidates(i)[0].reversal).toBeUndefined();
+  });
+});
+
+describe("findDuplicateCandidates — one order billed twice", () => {
+  const twoBills = (secondDate: string, secondLines: number[] = [-26378, -3205]) =>
+    inputs({
+      billLines: [
+        billLine({ sourceTransactionId: "bill-a:0", amountCents: -26378, accountingDate: "2026-10-14", merchantName: "RahrBSG" }),
+        billLine({ sourceTransactionId: "bill-a:1", amountCents: -3205, accountingDate: "2026-10-14", merchantName: "RahrBSG" }),
+        ...secondLines.map((amountCents, n) =>
+          billLine({ sourceTransactionId: `bill-b:${n}`, amountCents, accountingDate: secondDate, merchantName: "RahrBSG" }),
+        ),
+      ],
+    });
+
+  it("asks about two identical RahrBSG bills eight days apart", () => {
+    const [c] = findDuplicateCandidates(twoBills("2026-10-22"));
+    expect(c.kind).toBe("bill_vs_bill");
+    expect(c.key).toBe("bill_vs_bill:bill-a:bill-b");
+    expect(c.amountCents).toBe(-29583);
+    expect(c.daysApart).toBe(8);
+    // The LATER bill is the one that would be set aside, every line of it.
+    expect(c.duplicate.date).toBe("2026-10-22");
+    expect(c.duplicate.ids).toHaveLength(2);
+    expect(c.periodEnd).toBe("2026-10-31");
+  });
+
+  it("leaves a monthly bill alone — rent is the same bill every month", () => {
+    expect(findDuplicateCandidates(twoBills("2026-11-13"))).toEqual([]);
+  });
+
+  it("leaves a same-total bill with different lines alone", () => {
+    expect(findDuplicateCandidates(twoBills("2026-10-22", [-29583]))).toEqual([]);
+  });
+
+  it("leaves another vendor's identical bill alone", () => {
+    const i = twoBills("2026-10-22");
+    i.billLines = i.billLines.map((l) => (l.sourceTransactionId.startsWith("bill-b") ? { ...l, merchantName: "Prairie Malt" } : l));
+    expect(findDuplicateCandidates(i)).toEqual([]);
   });
 });

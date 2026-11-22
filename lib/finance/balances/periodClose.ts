@@ -322,19 +322,32 @@ export async function closedPeriodRefusal(supabase: AdminClient, asOfDate: strin
 /**
  * What the person closing is actually putting their name to.
  *
- * Not a blocker and not a warning -- a statement of coverage. An account with a
- * source that produced nothing this month is the interesting case: it is
- * configured, so somebody expected a figure, and none arrived. Accounts with no
- * source at all are counted but not listed; that backlog belongs to the
- * unsourced-accounts tile on the balance sheet, not to one month's close.
+ * Not a blocker -- a statement of coverage. The interesting case is an account
+ * that carried a balance in an earlier month and produced nothing in this one:
+ * a figure was there and has gone. An account that has never carried anything
+ * is counted and nothing more. Accounts with no source at all are not counted
+ * here; that backlog belongs to the unsourced-accounts tile on the balance
+ * sheet, not to one month's close.
  */
 export interface PeriodCoverage {
   /** Accounts with an active source declared. */
   configured: number;
   /** Of those, how many produced a stored balance for this period. */
   withBalance: number;
-  /** Labels of configured accounts that produced nothing. */
+  /**
+   * Labels of configured accounts that carried a balance in an EARLIER month
+   * and produced nothing in this one. These are the ones worth a look: a
+   * figure was there and has gone.
+   */
   missing: string[];
+  /**
+   * How many configured accounts have never carried a balance, in this month or
+   * any before it: Buildings & Land, Vehicles, a line of credit never drawn.
+   * Counted, never listed and never a warning. The page used to report all of
+   * them every month as "13 produced nothing", which read as thirteen things
+   * wrong when it was thirteen empty accounts.
+   */
+  neverUsed: number;
   /**
    * Total Assets − (Liabilities + Equity) for this period, from the stored
    * snapshot. The internal convention keeps liabilities and equity negative,
@@ -347,12 +360,16 @@ export interface PeriodCoverage {
 }
 
 export async function readPeriodCoverage(supabase: AdminClient, periodEnd: string): Promise<PeriodCoverage> {
-  const [sourcesRes, balancesRes] = await Promise.all([
+  const [sourcesRes, balancesRes, earlierRes] = await Promise.all([
     supabase.from("balance_sheet_account_sources").select("chart_of_accounts_id").eq("active", true),
     supabase.from("gl_account_balances").select("chart_of_accounts_id, balance_cents").eq("period_end", periodEnd),
+    // Which accounts had a figure in any month before this one. Only earlier
+    // months: an account first used in November is not "missing" from October.
+    supabase.from("gl_account_balances").select("chart_of_accounts_id").lt("period_end", periodEnd).limit(5000),
   ]);
   if (sourcesRes.error) throw new Error(sourcesRes.error.message);
   if (balancesRes.error) throw new Error(balancesRes.error.message);
+  if (earlierRes.error) throw new Error(earlierRes.error.message);
 
   const configured = new Set(
     ((sourcesRes.data ?? []) as { chart_of_accounts_id: string }[]).map((r) => r.chart_of_accounts_id),
@@ -360,12 +377,17 @@ export async function readPeriodCoverage(supabase: AdminClient, periodEnd: strin
   const balanceRows = (balancesRes.data ?? []) as { chart_of_accounts_id: string; balance_cents: number | null }[];
   const withBalance = new Set(balanceRows.map((r) => r.chart_of_accounts_id));
 
-  const missingIds = Array.from(configured).filter((id) => !withBalance.has(id));
+  const hadBalanceBefore = new Set(
+    ((earlierRes.data ?? []) as { chart_of_accounts_id: string }[]).map((r) => r.chart_of_accounts_id),
+  );
+  const withoutBalance = Array.from(configured).filter((id) => !withBalance.has(id));
+  const missingIds = withoutBalance.filter((id) => hadBalanceBefore.has(id));
 
   return {
     configured: configured.size,
     withBalance: Array.from(configured).filter((id) => withBalance.has(id)).length,
     missing: await labelAccounts(supabase, missingIds),
+    neverUsed: withoutBalance.length - missingIds.length,
     balancingDifferenceCents:
       balanceRows.length === 0 ? null : balanceRows.reduce((sum, r) => sum + (r.balance_cents ?? 0), 0),
   };

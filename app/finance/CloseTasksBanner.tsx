@@ -17,13 +17,23 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/app/production/hooks/queries";
 import { queryKeys } from "@/lib/query-keys";
 import Banner from "@/app/components/ui/Banner";
-import { priorMonthEnd, formatPeriodLabel, type CloseTasksResponse } from "./closeTasks";
+import { closeBlockersFor, priorMonthEnd, formatPeriodLabel, type CloseTasksResponse } from "./closeTasks";
 
 const ENTRY_PATH = "/finance/period-close";
 
 export default function CloseTasksBanner() {
   const pathname = usePathname();
-  const periodEnd = useMemo(() => priorMonthEnd(), []);
+  const fallback = useMemo(() => priorMonthEnd(), []);
+
+  // The OLDEST month still open, not simply last month. A close has no
+  // deadline, so in December an unclosed October is the one to point at; this
+  // banner used to move on to November and never mention it again.
+  const { data: openList } = useQuery({
+    queryKey: queryKeys.finance.balanceClosePeriods(),
+    queryFn: () => fetchJson<{ open: string[] }>("/api/finance/balance-close/periods"),
+    retry: false,
+  });
+  const periodEnd = openList?.open[0] ?? fallback;
 
   const { data } = useQuery({
     queryKey: queryKeys.finance.balanceClose(periodEnd),
@@ -35,6 +45,9 @@ export default function CloseTasksBanner() {
   });
 
   const open = data?.tasks.filter((t) => t.status === "open") ?? [];
+  // Everything the close would refuse on, not only balances: duplicates and a
+  // failing recalculation block it just the same.
+  const left = data ? closeBlockersFor(data).length : 0;
 
   // A finished month nobody has closed. This is the state the change to a human
   // close deliberately made visible: the cron used to freeze such a month on the
@@ -45,7 +58,7 @@ export default function CloseTasksBanner() {
   const readyAndDue =
     open.length === 0 && (data?.readyToClose ?? false) && !!data && todayIso() >= data.dueDate;
 
-  if (open.length === 0 && !readyAndDue) return null;
+  if (left === 0 && !readyAndDue) return null;
 
   // Silent on Period Close itself (index and per-period alike), where the full
   // checklist is already on display. A banner telling you to go where you are
@@ -67,7 +80,7 @@ export default function CloseTasksBanner() {
 
   return (
     <Banner tone="info" className="mx-4 sm:mx-6 mb-4 mt-4">
-      {label} close: {open.length} balance{open.length === 1 ? "" : "s"} outstanding →{" "}
+      {label} is not closed: {left} thing{left === 1 ? "" : "s"} to clear →{" "}
       <a href={`${ENTRY_PATH}/${periodEnd}`} className="underline">
         Period Close
       </a>

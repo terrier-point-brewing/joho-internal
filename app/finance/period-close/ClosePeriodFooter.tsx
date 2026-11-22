@@ -29,15 +29,15 @@
 import { useState } from "react";
 import Banner from "@/app/components/ui/Banner";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
-import { closeBlockersLeft, formatPeriodLabel, recalculationCheck, type CloseTasksResponse } from "../closeTasks";
+import {
+  balancingDifferenceFor,
+  closeBlockersLeft,
+  formatPeriodLabel,
+  recalculationCheck,
+  type CloseTasksResponse,
+} from "../closeTasks";
 import CloseStep from "./CloseStep";
 import { formatBalanceCents } from "@/lib/format";
-
-/** What the dry-run recalculation came back with — see the preview button below. */
-interface PreviewResult {
-  wouldCloseAtCents: number | null;
-  errors: string[];
-}
 
 async function post(body: unknown): Promise<void> {
   const res = await fetch("/api/finance/balance-close", {
@@ -74,7 +74,7 @@ export default function ClosePeriodFooter({
   const [reopening, setReopening] = useState(false);
   const [closing, setClosing] = useState(false);
   const [previewing, setPreviewing] = useState(false);
-  const [preview, setPreview] = useState<PreviewResult | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
 
   if (!data) return null;
 
@@ -84,27 +84,30 @@ export default function ClosePeriodFooter({
   const coverage = data.coverage;
 
   /**
-   * The close's own recalculation, run dry. Answers "what would this month
-   * land at?" without freezing anything, so checking the figure stops costing
-   * a close-check-reopen loop. The figure is a moment-in-time answer — data
-   * entered after it renders is not in it, which is why it names itself
-   * a preview rather than pretending to be live.
+   * The close's own recalculation, run dry: it computes every account and the
+   * balancing difference without storing or freezing anything.
+   *
+   * The server records the result (recalculationLog.ts), so this only has to
+   * refetch. That is what makes a clean check stick: the page reads the most
+   * recent recalculation on record, and this one is now it.
    */
   async function previewClose() {
     setPreviewing(true);
-    setPreview(null);
+    setCheckError(null);
     try {
       const res = await fetch("/api/finance/balance-close/recompute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "preview", periodEnd }),
       });
-      const json = (await res.json().catch(() => ({}))) as Partial<PreviewResult> & { error?: string };
       if (!res.ok) {
-        setPreview({ wouldCloseAtCents: null, errors: [json.error ?? "The preview did not go through."] });
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        setCheckError(json.error ?? "The check did not go through. Try it again.");
         return;
       }
-      setPreview({ wouldCloseAtCents: json.wouldCloseAtCents ?? null, errors: json.errors ?? [] });
+      await onDone();
+    } catch {
+      setCheckError("The check did not go through. Try it again.");
     } finally {
       setPreviewing(false);
     }
@@ -114,7 +117,6 @@ export default function ClosePeriodFooter({
     setClosing(false);
     setBusy(true);
     setBlockers([]);
-    setPreview(null);
     try {
       const res = await fetch("/api/finance/balance-close/recompute", {
         method: "POST",
@@ -126,6 +128,8 @@ export default function ClosePeriodFooter({
         // Prefer the itemised list so each reason gets its own line; fall back
         // to the joined sentence for any error that is not a refusal.
         setBlockers(json.blockers?.length ? json.blockers : [json.error ?? "That did not go through."]);
+        // The refused close ran a recalculation and recorded it; show it.
+        await onDone();
         return;
       }
       await onDone();
@@ -135,12 +139,13 @@ export default function ClosePeriodFooter({
   }
 
   const actor = close?.actorEmail ?? "(removed user)";
-  // A dry run's figure while one is in hand; otherwise the stored snapshot's,
-  // which is what the periods index shows for a closed month.
-  const balancing = preview ? preview.wouldCloseAtCents : coverage.balancingDifferenceCents;
+  const { cents: balancing, basis: balancingBasis } = balancingDifferenceFor(data);
 
-  const check = recalculationCheck(isClosed ? null : data.recalculation, preview);
+  const check = recalculationCheck(isClosed ? null : data.recalculation);
   const left = isClosed ? [] : closeBlockersLeft({ openTasks: openCount, duplicates, recalculation: check.state });
+  // "Last night's run" for the job, "Checked" for a person: who ran it changes
+  // how much weight a reader gives it.
+  const checkedWhen = check.at ? `${check.trigger === "manual" ? "Checked" : "Nightly run,"} ${fmtMoment(check.at)}` : "";
   const previous = data.previousClose;
   const movement = balancing !== null && previous ? balancing - previous.balancingDifferenceCents : null;
   const failed = check.errors.length;
@@ -162,22 +167,17 @@ export default function ClosePeriodFooter({
         {!isClosed && (
           <div className="flex flex-col gap-2">
             {check.state === "clean" && (
-              <p className="text-2xs text-muted">
-                {check.source === "preview"
-                  ? "Checked just now: every account recalculated."
-                  : `Last night's run (${fmtMoment(check.at ?? "")}) recalculated every account.`}
-              </p>
+              <p className="text-2xs text-muted">{checkedWhen}: every account recalculated.</p>
             )}
             {check.state === "unknown" && (
               <p className="text-2xs text-muted">
-                No nightly run is on record for this month.{canManage ? " Press Check now to run it." : ""}
+                No recalculation is on record for this month yet.{canManage ? " Press Check now to run one." : ""}
               </p>
             )}
             {check.state === "failing" && (
               <Banner>
                 <span className="block mb-1">
-                  {check.source === "preview" ? "Checked just now:" : `Last night's run (${fmtMoment(check.at ?? "")}):`}{" "}
-                  {failed} account{failed === 1 ? "" : "s"} could not be recalculated.
+                  {checkedWhen}: {failed} account{failed === 1 ? "" : "s"} failed.
                 </span>
                 <ul className="list-disc pl-4 flex flex-col gap-0.5">
                   {check.errors.map((e) => (
@@ -185,11 +185,13 @@ export default function ClosePeriodFooter({
                   ))}
                 </ul>
                 <span className="block mt-1">
-                  This is a fault in the app, not something for you to answer. Press Check again, because a timeout can
-                  clear on a second try. If it keeps failing, it needs fixing before {label} can close.
+                  This is a fault in the app, not something for you to answer. Press Check again: a timeout often clears
+                  on a second try, and a clean check is remembered. If it keeps failing, it needs fixing before {label}{" "}
+                  can close.
                 </span>
               </Banner>
             )}
+            {checkError && <p className="text-xs text-danger">{checkError}</p>}
             {canManage && (
               <button type="button" className="btn-secondary self-start" disabled={busy || previewing} onClick={previewClose}>
                 {previewing ? "Recalculating…" : check.state === "unknown" ? "Check now" : "Check again"}
@@ -218,42 +220,44 @@ export default function ClosePeriodFooter({
           <Stat
             label="Balancing difference"
             value={balancing === null ? "—" : formatBalanceCents(balancing)}
-            tone={balancing === null ? undefined : balancing === 0 ? "success" : "danger"}
+            // Red is for something wrong. A difference on a month that is still
+            // open is a figure to read, and on a closed month it is a figure
+            // somebody already put their name to; neither is an error.
+            tone={balancing === null ? undefined : balancing === 0 ? "success" : isClosed ? undefined : "accent"}
             detail={
               balancing === null
-                ? preview
-                  ? "Nothing would be computed."
-                  : canManage && !isClosed
-                    ? "Not computed yet. Use the check in step 3."
-                    : undefined
-                : preview
-                  ? "As just recalculated"
-                  : isClosed
-                    ? "As closed"
-                    : "As last recalculated"
+                ? canManage && !isClosed
+                  ? "Not computed yet. Use the check in step 3."
+                  : undefined
+                : balancingBasis === "closed"
+                  ? "As closed"
+                  : balancingBasis === "recalculated" && check.at
+                    ? `As of ${fmtMoment(check.at)}`
+                    : "As last stored"
             }
           />
           <Stat
-            label="Coverage"
-            value={coverage.configured === 0 ? "—" : `${coverage.withBalance} / ${coverage.configured}`}
-            title={coverage.configured === 0 ? "No account has a balance source configured." : "Configured accounts that produced a balance"}
+            label="Accounts with a balance"
+            value={coverage.configured === 0 ? "—" : String(coverage.withBalance)}
+            tone={coverage.missing.length > 0 ? "accent" : undefined}
+            title={coverage.configured === 0 ? "No account has a balance source configured." : undefined}
             detail={
               coverage.configured === 0 ? undefined : coverage.missing.length > 0 ? (
-                <details>
+                <details open>
                   <summary className="cursor-pointer hover:text-secondary select-none">
-                    {coverage.missing.length} set-up account{coverage.missing.length === 1 ? "" : "s"} produced no figure
+                    {coverage.missing.length} had a balance in an earlier month and {coverage.missing.length === 1 ? "has" : "have"} none now
                   </summary>
-                  <p className="mt-1">
-                    Normal for an account with nothing in it this month. Check the list for one you expected a figure from.
-                  </p>
+                  <p className="mt-1">Worth a look before closing: a figure was there and has gone.</p>
                   <ul className="mt-1 flex flex-col gap-0.5">
                     {coverage.missing.map((m) => (
                       <li key={m}>{m}</li>
                     ))}
                   </ul>
                 </details>
+              ) : coverage.neverUsed > 0 ? (
+                `Every account that has had a balance before has one. ${coverage.neverUsed} set-up account${coverage.neverUsed === 1 ? " has" : "s have"} never been used.`
               ) : (
-                "Every set-up account produced a figure."
+                "Every set-up account has a balance."
               )
             }
           />
@@ -349,6 +353,7 @@ export default function ClosePeriodFooter({
       {closing && (
         <CloseModal
           label={label}
+          balancingCents={balancing}
           onClose={() => setClosing(false)}
           onSubmit={closeMonth}
         />
@@ -409,10 +414,13 @@ function Stat({
  */
 function CloseModal({
   label,
+  balancingCents,
   onClose,
   onSubmit,
 }: {
   label: string;
+  /** The difference the month is about to be closed at, so the note is written against the figure. */
+  balancingCents: number | null;
   onClose: () => void;
   onSubmit: (reason: string) => Promise<void>;
 }) {
@@ -432,6 +440,13 @@ function CloseModal({
           {label}&apos;s balances stop recomputing. The month reads as final with your name on it; reopening needs a
           reason.
         </p>
+        {balancingCents !== null && balancingCents !== 0 && (
+          <p className="text-xs text-secondary">
+            It closes with a balancing difference of{" "}
+            <span className="font-mono tabular-nums text-strong">{formatBalanceCents(balancingCents)}</span>. If you know
+            what that is, say so below; the note is kept with the close.
+          </p>
+        )}
         <Field label="Note for the record (optional)">
           <textarea
             value={note}

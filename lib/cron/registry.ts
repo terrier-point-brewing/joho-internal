@@ -146,7 +146,7 @@ export const CRON_JOBS: CronJobMeta[] = [
     path:          "/api/cron/balance-close",
     schedule:      "0 9 * * *",
     scheduleLabel: "Daily · 09:00 UTC",
-    description:   "Closes the most recently ended month: opens close tasks for manual-balance accounts, re-snapshots GL account balances, and reports whether the period is ready to close. Balances still missing are listed in the morning alert digest rather than emailed on their own.",
+    description:   "Refreshes every month that has ended and is not closed yet: opens close tasks for manual-balance accounts, re-snapshots GL account balances, and reports whether the latest month is ready to close. Balances still missing are listed in the morning alert digest rather than emailed on their own.",
     maxAgeHours:   25,
     manualRun:     "wait",
     manualNote:    "This sends no email and freezes nothing. It refreshes the month's figures and checklist; a month that is already closed is left alone.",

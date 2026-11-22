@@ -47,7 +47,10 @@ export interface PeriodCloseState {
 export interface PeriodCoverage {
   configured: number;
   withBalance: number;
+  /** Accounts that carried a balance in an earlier month and produced none in this one. */
   missing: string[];
+  /** Configured accounts that have never carried a balance. Counted, not a warning. */
+  neverUsed: number;
   /** The period's Balancing Difference from its stored snapshot; null when never snapshotted. */
   balancingDifferenceCents: number | null;
 }
@@ -67,7 +70,7 @@ export interface CloseTasksResponse {
   /** Possible duplicates dated in this month or earlier still waiting for an answer. Always 0 once closed. */
   unreviewedDuplicates: number;
   coverage: PeriodCoverage;
-  /** Last night's recalculation of this month. Null when the nightly job has no run on record for it. */
+  /** The most recent recalculation of this month, whoever ran it. Null when none is on record. */
   recalculation: LastRecalculation | null;
   /** The month before's balancing difference, when it has one. */
   previousClose: { periodEnd: string; balancingDifferenceCents: number } | null;
@@ -75,17 +78,24 @@ export interface CloseTasksResponse {
   dueDate: string;
 }
 
-/** One recalculation's outcome: the nightly job's, or a preview just run from the page. */
+/** One recalculation of a month: the nightly job's, a check run from the page, or a close attempt's. */
 export interface LastRecalculation {
   at: string;
+  trigger: "schedule" | "manual";
+  /** One plain sentence per account that failed. Empty when clean. */
   errors: string[];
+  /** The same failures as the provider reported them. */
+  rawErrors: string[];
+  /** The balancing difference that run arrived at. Null when it could not say. */
+  balancingDifferenceCents: number | null;
 }
 
 // ── The close, as steps ──────────────────────────────────────────────────────
 // The page used to state its three blockers in three different shapes — a
 // subtitle, a banner and a row — and the third (a failing recalculation) not
 // at all until Close was pressed. These derive one answer per step so the page,
-// its summary line and the Close button cannot disagree about what is left.
+// its summary line, the periods index and the Close button cannot disagree
+// about what is left.
 
 export type CloseStepStatus = "done" | "todo" | "attention" | "review";
 
@@ -93,34 +103,28 @@ export interface RecalculationCheck {
   /** `unknown` — nothing on record. Not clean; the close will find out when it reruns. */
   state: "clean" | "failing" | "unknown";
   errors: string[];
-  /** When the figure being reported was computed. Null for a preview (just now) or unknown. */
   at: string | null;
-  source: "preview" | "nightly" | null;
+  trigger: "schedule" | "manual" | null;
 }
 
 /**
- * Where the recalculation stands. A preview run from the page wins over last
- * night's run because it is newer: after a fix, pressing "Check again" is how
- * a failing step is shown to have cleared without waiting a night.
+ * Where the recalculation stands, read off the MOST RECENT one on record.
+ *
+ * That may be last night's job, a "Check again" from the page, or a close
+ * attempt: all three are recorded (lib/finance/balances/recalculationLog.ts),
+ * so a check that came back clean a minute ago outranks a failure from 4am and
+ * is still what the page says after a reload.
  */
-export function recalculationCheck(
-  nightly: LastRecalculation | null | undefined,
-  preview: { errors: string[] } | null,
-): RecalculationCheck {
-  if (preview) {
-    return { state: preview.errors.length > 0 ? "failing" : "clean", errors: preview.errors, at: null, source: "preview" };
-  }
-  if (!nightly) return { state: "unknown", errors: [], at: null, source: null };
-  return { state: nightly.errors.length > 0 ? "failing" : "clean", errors: nightly.errors, at: nightly.at, source: "nightly" };
+export function recalculationCheck(last: LastRecalculation | null | undefined): RecalculationCheck {
+  if (!last) return { state: "unknown", errors: [], at: null, trigger: null };
+  return { state: last.errors.length > 0 ? "failing" : "clean", errors: last.errors, at: last.at, trigger: last.trigger };
 }
 
 /**
  * Every reason the Close button is not available, as short sentences naming
  * the step. Empty means it can be pressed.
  *
- * An `unknown` recalculation does not block: the close reruns it regardless,
- * and a month the nightly job no longer covers would otherwise never be
- * closable from here.
+ * An `unknown` recalculation does not block: the close reruns it regardless.
  */
 export function closeBlockersLeft(input: { openTasks: number; duplicates: number; recalculation: RecalculationCheck["state"] }): string[] {
   const left: string[] = [];
@@ -131,9 +135,34 @@ export function closeBlockersLeft(input: { openTasks: number; duplicates: number
     left.push(`Step 2: ${input.duplicates} possible duplicate${input.duplicates === 1 ? "" : "s"} to review.`);
   }
   if (input.recalculation === "failing") {
-    left.push("Step 3: the recalculation is failing.");
+    left.push("Step 3: the last recalculation failed. Press Check again.");
   }
   return left;
+}
+
+/** The same list, straight from a period's response. Empty for a closed month. */
+export function closeBlockersFor(data: CloseTasksResponse): string[] {
+  if (data.close?.closed) return [];
+  return closeBlockersLeft({
+    openTasks: data.tasks.filter((t) => t.status === "open").length,
+    duplicates: data.unreviewedDuplicates,
+    recalculation: recalculationCheck(data.recalculation).state,
+  });
+}
+
+/**
+ * The balancing difference to show for a month, and where it came from.
+ *
+ * A closed month shows what it was closed at. An open month shows the most
+ * recent recalculation's figure when there is one, because a check run from the
+ * page is a dry run: it computes the figure without storing it, and the stored
+ * one would otherwise go on showing last night's.
+ */
+export function balancingDifferenceFor(data: CloseTasksResponse): { cents: number | null; basis: "closed" | "recalculated" | "stored" } {
+  if (data.close?.closed) return { cents: data.coverage.balancingDifferenceCents, basis: "closed" };
+  const recalculated = data.recalculation?.balancingDifferenceCents ?? null;
+  if (recalculated !== null) return { cents: recalculated, basis: "recalculated" };
+  return { cents: data.coverage.balancingDifferenceCents, basis: "stored" };
 }
 
 /**

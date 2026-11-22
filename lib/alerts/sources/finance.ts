@@ -11,20 +11,19 @@ import {
   readCloseConfig,
 } from "@/lib/finance/balances/closeTasks";
 import { listConnections } from "@/lib/finance/balances/connections";
-import { formatPeriodLabel, mostRecentlyEndedMonthEnd } from "@/lib/finance/balances/periods";
+import { formatPeriodLabel } from "@/lib/finance/balances/periods";
 import { listDuplicateReview } from "@/lib/finance/duplicateReview";
 import { getParty } from "@/lib/tax/registry";
 import { listSchedules } from "@/lib/tax/schedules";
 import { taskDueStatus } from "@/lib/tax/taskDueStatus";
 import { listTasks } from "@/lib/tax/tasks";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { readRecentRecalculations } from "@/lib/finance/balances/recalculationLog";
 import type { AlertItem, AlertSource } from "../types";
 import {
   duplicatesByBlockedPeriod,
   recalculationTrouble,
   unclosedPeriodEnds,
   type CloseEvent,
-  type RecalculationRun,
 } from "./closeReadiness";
 import { plural } from "./helpers";
 
@@ -35,34 +34,8 @@ import { plural } from "./helpers";
 // is left but pressing Close. See closeReadiness.ts for why all three and why
 // every open month.
 
-/** How many nightly runs the recalculation check looks back over. */
+/** How many recalculations of a month the alert looks back over. */
 const RECALCULATION_WINDOW = 7;
-
-interface BalanceCloseRunRow {
-  status: string;
-  error: string | null;
-  detail: { periodEnd?: string; snapshot?: { errors?: string[] } } | null;
-}
-
-/** The latest ended month's recent nightly runs, newest first. */
-async function recentRecalculations(admin: SupabaseClient, periodEnd: string): Promise<RecalculationRun[]> {
-  const { data, error } = await admin
-    .from("cron_runs")
-    .select("status, error, detail")
-    .eq("job", "balance-close")
-    // A run for this month can only have started after the month ended, which
-    // is what keeps a crashed run (no detail, so no periodEnd) to this month.
-    .gt("started_at", `${periodEnd}T23:59:59Z`)
-    .order("started_at", { ascending: false })
-    .limit(RECALCULATION_WINDOW);
-  if (error) throw new Error(error.message);
-
-  return ((data ?? []) as BalanceCloseRunRow[])
-    .filter((r) => r.status !== "success" || r.detail?.periodEnd === periodEnd)
-    .map((r) => ({
-      errors: r.status !== "success" ? [r.error ?? "The nightly job did not finish."] : r.detail?.snapshot?.errors ?? [],
-    }));
-}
 
 export const balanceClose: AlertSource = {
   key: "balance-close",
@@ -79,15 +52,15 @@ export const balanceClose: AlertSource = {
     const periods = unclosedPeriodEnds((events ?? []) as CloseEvent[], today);
     if (periods.length === 0) return [];
 
-    const latestEnded = mostRecentlyEndedMonthEnd(today);
-    const [config, review, runs, tasksByPeriod] = await Promise.all([
+    const [config, review, runsByPeriod, tasksByPeriod] = await Promise.all([
       readCloseConfig(admin),
       listDuplicateReview(admin),
-      recentRecalculations(admin, latestEnded),
+      // Every open month has its own record now: the nightly job recalculates
+      // each one, and a check or a close run from the page is recorded too.
+      Promise.all(periods.map((p) => readRecentRecalculations(admin, p, RECALCULATION_WINDOW))),
       Promise.all(periods.map((p) => listTasksForPeriod(admin, p))),
     ]);
     const duplicates = duplicatesByBlockedPeriod(review.pending.map((c) => c.periodEnd), periods);
-    const trouble = recalculationTrouble(runs);
 
     const openCoaIds = tasksByPeriod.flat().filter((t) => t.status === "open").map((t) => t.coaId);
     const name = new Map<string, string>();
@@ -134,13 +107,15 @@ export const balanceClose: AlertSource = {
         });
       }
 
-      // Only the latest ended month is recalculated nightly, so it is the only
-      // one the runs say anything about.
-      if (trouble && periodEnd === latestEnded) {
+      const trouble = recalculationTrouble(runsByPeriod[i]);
+      if (trouble) {
         items.push({
           key: `close-recalculation:${periodEnd}`,
-          title: `${month}'s figures failed to recalculate on ${trouble.failed} of the last ${plural(trouble.of, "night")}`,
-          detail: `Closing reruns this and will refuse when it fails; pressing Close again may get through. This one needs a fix, not an answer: ${trouble.latestError.slice(0, 200)}`,
+          title: `${month}'s figures did not fully recalculate`,
+          detail:
+            `${trouble.latestError} ` +
+            (trouble.failed > 1 ? `That is ${trouble.failed} of the last ${trouble.of} tries. ` : "") +
+            `This is a fault in the app, not something to answer. Open the month and press Check again; if it still fails it needs a fix before ${month} can close.`,
           href,
           severity: "danger",
           when: dueDate,
