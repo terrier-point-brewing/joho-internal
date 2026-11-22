@@ -29,6 +29,7 @@ import { formatBalanceCents } from "@/lib/format";
 import { formatAmountInput, parseAmountInputCents } from "@/lib/finance/manualEntryAmount";
 import { formatPeriodLabel, type CloseTaskDetail, type CloseTasksResponse } from "../closeTasks";
 import ClosePeriodFooter from "./ClosePeriodFooter";
+import CloseStep from "./CloseStep";
 import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
@@ -258,94 +259,127 @@ export default function PeriodClosePanel({
       <div className="flex flex-col">
         {error && <Banner className="mb-2">{error}</Banner>}
 
+        <CloseStep
+          n={1}
+          title="Confirm month-end balances"
+          status={open.length > 0 ? "todo" : "done"}
+          statusLabel={open.length > 0 ? `${open.length} to do` : undefined}
+          how={
+            tasks.length === 0 ? (
+              <>No account is set to need a hand-entered balance for this month, so there is nothing to enter.</>
+            ) : (
+              <>
+                For each account, check the figure against that account&apos;s own statement or dashboard as of{" "}
+                {fmtDate(periodEnd)}, then save it. &ldquo;Suggested&rdquo; is what the app worked out from the feed:
+                saving it confirms it, or type the right figure first. If an account had no balance this month, say so
+                with a reason.
+              </>
+            )
+          }
+        >
+          {open.length > 0 && (
+            <div className="flex flex-col">
+              {open.map((task) => (
+                <OutstandingRow
+                  key={task.id}
+                  task={task}
+                  periodEnd={periodEnd}
+                  todayIso={todayIso}
+                  onSaved={refresh}
+                  onSkip={() => setSkipTarget(task)}
+                  onError={setError}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Answered accounts, kept visible rather than disappearing. A checklist
+              that empties as you work gives no way to check what you entered, and
+              a skipped account's reason is the only record of why a month has a
+              gap in it. */}
+          {(completed.length > 0 || skipped.length > 0) && (
+            <div className="flex flex-col gap-1">
+              {/* The amount sits in its own column rather than after a dash. It
+                  previously read "Entered 1010 · Cash on Hand — —": one em dash
+                  was the separator and the other was formatCurrencyCents
+                  rendering a stored zero, and nothing on screen distinguished
+                  them. Separating the figure from the name removes the ambiguity
+                  whatever the figure turns out to be. */}
+              {completed.map((t) => (
+                <p key={t.id} className="text-2xs text-muted flex items-baseline gap-1.5">
+                  <span className="text-success">Entered</span>
+                  <span className="truncate">
+                    {t.accountNumber ? `${t.accountNumber} · ` : ""}
+                    {t.accountName}
+                  </span>
+                  {t.enteredCents !== null && (
+                    <span className="ml-auto font-mono tabular-nums text-body shrink-0">
+                      {formatBalanceCents(t.enteredCents)}
+                    </span>
+                  )}
+                </p>
+              ))}
+              {skipped.map((t) => (
+                <p key={t.id} className="text-2xs text-muted flex items-center gap-1.5 flex-wrap">
+                  <span className="text-faint">Skipped</span>
+                  <span>
+                    {t.accountNumber ? `${t.accountNumber} · ` : ""}
+                    {t.accountName}
+                    {t.notes ? ` — “${t.notes}”` : ""}
+                  </span>
+                  {canManage && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-xxs"
+                      onClick={() =>
+                        postJson("/api/finance/balance-close", { action: "reopen", taskId: t.id })
+                          .then(refresh)
+                          .catch((err: Error) => setError(err.message))
+                      }
+                    >
+                      Reopen
+                    </button>
+                  )}
+                </p>
+              ))}
+            </div>
+          )}
+        </CloseStep>
+
         {/* The same payment recorded from two feeds doubles an expense while
             every row looks valid, so the close refuses over an unanswered pair
-            (periodClose.ts). Said here, ahead of the button, with the way out. */}
-        {duplicates > 0 && (
-          <Banner tone="info" className="mb-2">
-            {duplicates} possible duplicate{duplicates === 1 ? "" : "s"} dated in or before {formatPeriodLabel(periodEnd)}{" "}
-            {duplicates === 1 ? "needs" : "need"} an answer before this month can close.{" "}
-            <Link href="/finance/transactions/duplicates" className="underline hover:text-accent">
-              Review {duplicates === 1 ? "it" : "them"}
+            (periodClose.ts). A step of its own, ahead of the button, with the
+            way out. */}
+        <CloseStep
+          n={2}
+          title="Review possible duplicates"
+          status={duplicates > 0 ? "todo" : "done"}
+          statusLabel={duplicates > 0 ? `${duplicates} to do` : undefined}
+          how={
+            <>
+              The same payment can arrive from two feeds, for example a Ramp bill and the card charge that paid it, which
+              counts the expense twice. Open each pair and say whether it is one payment or two. &ldquo;Not a
+              duplicate&rdquo; is an answer.
+            </>
+          }
+        >
+          {duplicates > 0 ? (
+            <Link href="/finance/transactions/duplicates" className="btn-secondary self-start">
+              Review {duplicates} possible duplicate{duplicates === 1 ? "" : "s"}
             </Link>
-          </Banner>
-        )}
+          ) : (
+            <p className="text-2xs text-muted">Nothing dated in or before {formatPeriodLabel(periodEnd)} is waiting for an answer.</p>
+          )}
+        </CloseStep>
 
-        {open.length > 0 && (
-          <div className="flex flex-col">
-            {open.map((task) => (
-              <OutstandingRow
-                key={task.id}
-                task={task}
-                periodEnd={periodEnd}
-                todayIso={todayIso}
-                onSaved={refresh}
-                onSkip={() => setSkipTarget(task)}
-                onError={setError}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Answered accounts, kept visible rather than disappearing. A checklist
-            that empties as you work gives no way to check what you entered, and
-            a skipped account's reason is the only record of why a month has a
-            gap in it. */}
-        {(completed.length > 0 || skipped.length > 0) && (
-          <div className="mt-3 pt-3 border-t border-line/40 flex flex-col gap-1">
-            {/* The amount sits in its own column rather than after a dash. It
-                previously read "Entered 1010 · Cash on Hand — —": one em dash
-                was the separator and the other was formatCurrencyCents
-                rendering a stored zero, and nothing on screen distinguished
-                them. Separating the figure from the name removes the ambiguity
-                whatever the figure turns out to be. */}
-            {completed.map((t) => (
-              <p key={t.id} className="text-2xs text-muted flex items-baseline gap-1.5">
-                <span className="text-success">Entered</span>
-                <span className="truncate">
-                  {t.accountNumber ? `${t.accountNumber} · ` : ""}
-                  {t.accountName}
-                </span>
-                {t.enteredCents !== null && (
-                  <span className="ml-auto font-mono tabular-nums text-body shrink-0">
-                    {formatBalanceCents(t.enteredCents)}
-                  </span>
-                )}
-              </p>
-            ))}
-            {skipped.map((t) => (
-              <p key={t.id} className="text-2xs text-muted flex items-center gap-1.5 flex-wrap">
-                <span className="text-faint">Skipped</span>
-                <span>
-                  {t.accountNumber ? `${t.accountNumber} · ` : ""}
-                  {t.accountName}
-                  {t.notes ? ` — “${t.notes}”` : ""}
-                </span>
-                {canManage && (
-                  <button
-                    type="button"
-                    className="btn-secondary btn-xxs"
-                    onClick={() =>
-                      postJson("/api/finance/balance-close", { action: "reopen", taskId: t.id })
-                        .then(refresh)
-                        .catch((err: Error) => setError(err.message))
-                    }
-                  >
-                    Reopen
-                  </button>
-                )}
-              </p>
-            ))}
-          </div>
-        )}
-
-        {/* The act itself. Deliberately the last thing on the page: the
-            checklist above is what makes it possible, and a close button above
-            the outstanding work would invite pressing it without reading. */}
+        {/* Steps 3 to 5: the recalculation, the figure being signed, and the act
+            itself. Deliberately last: a close button above the outstanding work
+            would invite pressing it without reading. */}
         <ClosePeriodFooter
           periodEnd={periodEnd}
           data={data}
           openCount={open.length}
+          duplicates={duplicates}
           canManage={canManage}
           fmtMoment={fmtMoment}
           onDone={refresh}

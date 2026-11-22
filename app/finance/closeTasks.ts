@@ -67,8 +67,73 @@ export interface CloseTasksResponse {
   /** Possible duplicates dated in this month or earlier still waiting for an answer. Always 0 once closed. */
   unreviewedDuplicates: number;
   coverage: PeriodCoverage;
+  /** Last night's recalculation of this month. Null when the nightly job has no run on record for it. */
+  recalculation: LastRecalculation | null;
+  /** The month before's balancing difference, when it has one. */
+  previousClose: { periodEnd: string; balancingDifferenceCents: number } | null;
   /** The period's own deadline, from the business-wide close setting. */
   dueDate: string;
+}
+
+/** One recalculation's outcome: the nightly job's, or a preview just run from the page. */
+export interface LastRecalculation {
+  at: string;
+  errors: string[];
+}
+
+// ── The close, as steps ──────────────────────────────────────────────────────
+// The page used to state its three blockers in three different shapes — a
+// subtitle, a banner and a row — and the third (a failing recalculation) not
+// at all until Close was pressed. These derive one answer per step so the page,
+// its summary line and the Close button cannot disagree about what is left.
+
+export type CloseStepStatus = "done" | "todo" | "attention" | "review";
+
+export interface RecalculationCheck {
+  /** `unknown` — nothing on record. Not clean; the close will find out when it reruns. */
+  state: "clean" | "failing" | "unknown";
+  errors: string[];
+  /** When the figure being reported was computed. Null for a preview (just now) or unknown. */
+  at: string | null;
+  source: "preview" | "nightly" | null;
+}
+
+/**
+ * Where the recalculation stands. A preview run from the page wins over last
+ * night's run because it is newer: after a fix, pressing "Check again" is how
+ * a failing step is shown to have cleared without waiting a night.
+ */
+export function recalculationCheck(
+  nightly: LastRecalculation | null | undefined,
+  preview: { errors: string[] } | null,
+): RecalculationCheck {
+  if (preview) {
+    return { state: preview.errors.length > 0 ? "failing" : "clean", errors: preview.errors, at: null, source: "preview" };
+  }
+  if (!nightly) return { state: "unknown", errors: [], at: null, source: null };
+  return { state: nightly.errors.length > 0 ? "failing" : "clean", errors: nightly.errors, at: nightly.at, source: "nightly" };
+}
+
+/**
+ * Every reason the Close button is not available, as short sentences naming
+ * the step. Empty means it can be pressed.
+ *
+ * An `unknown` recalculation does not block: the close reruns it regardless,
+ * and a month the nightly job no longer covers would otherwise never be
+ * closable from here.
+ */
+export function closeBlockersLeft(input: { openTasks: number; duplicates: number; recalculation: RecalculationCheck["state"] }): string[] {
+  const left: string[] = [];
+  if (input.openTasks > 0) {
+    left.push(`Step 1: ${input.openTasks} account${input.openTasks === 1 ? "" : "s"} still need${input.openTasks === 1 ? "s" : ""} a balance.`);
+  }
+  if (input.duplicates > 0) {
+    left.push(`Step 2: ${input.duplicates} possible duplicate${input.duplicates === 1 ? "" : "s"} to review.`);
+  }
+  if (input.recalculation === "failing") {
+    left.push("Step 3: the recalculation is failing.");
+  }
+  return left;
 }
 
 /**

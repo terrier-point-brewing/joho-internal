@@ -51,10 +51,11 @@ export default function PeriodCloseDetailPage() {
 
   const tasks = data?.tasks ?? [];
   const open = tasks.filter((t) => t.status === "open");
-  // Nothing was ever asked for in this period. Saying so beats an empty box,
-  // because "no tasks" and "all done" are different states and only one of
-  // them is worth feeling good about.
-  const nothingAsked = tasks.length === 0;
+  const closed = data?.close?.closed ?? false;
+  // The steps a person has to do themselves: balances and duplicates. The
+  // recalculation is the app's to get right, and its own step says where it
+  // stands, so it is not counted as work for the reader here.
+  const left = (open.length > 0 ? 1 : 0) + ((data?.unreviewedDuplicates ?? 0) > 0 ? 1 : 0);
   const label = formatPeriodLabel(periodEnd);
 
   return (
@@ -65,13 +66,13 @@ export default function PeriodCloseDetailPage() {
 
       <div>
         <h2 className="text-sm text-strong">{label}</h2>
-        <p className="text-2xs text-faint mt-0.5">
-          {nothingAsked
-            ? "No account is set to need a hand-entered balance for this month."
-            : open.length > 0
-              ? `${open.length} account${open.length === 1 ? "" : "s"} still need${open.length === 1 ? "s" : ""} a balance.`
-              : "Every account has been answered."}
-          {data?.dueDate && !nothingAsked ? ` The period is due ${fmtDate(data.dueDate)}.` : ""}
+        <p className="text-xs text-secondary mt-0.5">
+          {closed
+            ? "Closed."
+            : left > 0
+              ? `${left} step${left === 1 ? "" : "s"} below need${left === 1 ? "s" : ""} you before this month can close.`
+              : "Nothing below is waiting on you. Read steps 3 and 4, then close the month."}
+          {data?.dueDate && !closed ? ` Due ${fmtDate(data.dueDate)}.` : ""}
         </p>
       </div>
 
