@@ -18,6 +18,7 @@ function txn(over: Partial<RampTransaction> = {}): RampTransaction {
     sync_status: "SYNCED",
     qb_synced_at: "2026-06-16T02:00:00Z",
     gl_account: { id: "gl-1", external_id: "6000", name: "Meals & Entertainment" },
+    original_transaction_id: null,
     card_holder: { first_name: "Sam", last_name: "Doe", department_name: "Ops", user_id: "u1" },
     ...over,
   };
@@ -33,6 +34,7 @@ function bill(over: Partial<RampBill> = {}): RampBill {
     status: "PAID", issued_at: "2026-05-19T00:00:00Z", accounting_date: "2026-05-19T00:00:00Z",
     due_at: "2026-06-18T00:00:00Z", paid_at: "2026-07-08T16:20:00Z", memo: "malt", invoice_number: "INV-1",
     sync_status: "BILL_SYNCED", remote_id: "qb-bill-9",
+    payment_method: "CHECK", payment_transaction_ids: [],
     line_items: [
       { amount: 100.00, memo: "malt", accounting_field_selections: [glSelection("COGS:Raw Materials", "5110")] },
       { amount: 30.44,  memo: "freight", accounting_field_selections: [glSelection("COGS:Freight", "5120")] },
@@ -110,6 +112,32 @@ describe("bill settlement", () => {
   });
 });
 
+/** Ramp's own record of what paid what, carried through untouched. See duplicateCandidates.ts. */
+describe("Ramp payment links", () => {
+  it("puts the paying card transaction ids on every line of a card-paid bill", () => {
+    const recs = rampBillToExpenseRecords(bill({ payment_method: "CARD", payment_transaction_ids: ["card-txn-1"] }));
+
+    expect(recs).toHaveLength(2);
+    for (const r of recs) {
+      expect(r).toMatchObject({ ramp_payment_method: "CARD", ramp_payment_transaction_ids: ["card-txn-1"] });
+    }
+  });
+
+  it("records the method but no ids for a bank-paid bill, and nulls for an unpaid one", () => {
+    expect(rampBillToExpenseRecords(bill({ payment_method: "RTP" }))[0]).toMatchObject({
+      ramp_payment_method: "RTP", ramp_payment_transaction_ids: null,
+    });
+    expect(rampBillToExpenseRecords(bill({ payment_method: null }))[0]).toMatchObject({
+      ramp_payment_method: null, ramp_payment_transaction_ids: null,
+    });
+  });
+
+  it("records which charge a card refund reverses, and null on an ordinary charge", () => {
+    expect(rampTxnToExpenseRecord(txn({ amount: -12.34, original_transaction_id: "t0" })).ramp_original_transaction_id).toBe("t0");
+    expect(rampTxnToExpenseRecord(txn())).toHaveProperty("ramp_original_transaction_id", null);
+  });
+});
+
 describe("refreshBillSettlement", () => {
   function fakeClient() {
     const updates: { patch: Record<string, unknown>; eq: [string, unknown][]; like: [string, string][] }[] = [];
@@ -141,9 +169,26 @@ describe("refreshBillSettlement", () => {
     ]);
 
     expect(updates.map((u) => u.patch)).toEqual([
-      { state: "PAID", settled_at: "2026-08-07T10:00:00Z" },
-      { state: "OPEN", settled_at: null },
+      { state: "PAID", settled_at: "2026-08-07T10:00:00Z", ramp_payment_method: "CHECK", ramp_payment_transaction_ids: null },
+      { state: "OPEN", settled_at: null, ramp_payment_method: "CHECK", ramp_payment_transaction_ids: null },
     ]);
+  });
+
+  /**
+   * A bill is stored when it is issued and paid by card days later, so the link
+   * to the paying charge only exists on a later sync than the one that created
+   * the row. This is the pass that reaches it.
+   */
+  it("writes Ramp's link to the card charge that paid a bill", async () => {
+    const { supabase, updates } = fakeClient();
+
+    await refreshBillSettlement(supabase, [
+      bill({ id: "b1", payment_method: "CARD", payment_transaction_ids: ["card-txn-1"] }),
+      bill({ id: "b2", status: "OPEN", paid_at: null, payment_method: null, payment_transaction_ids: [] }),
+    ]);
+
+    expect(updates[0].patch).toMatchObject({ ramp_payment_method: "CARD", ramp_payment_transaction_ids: ["card-txn-1"] });
+    expect(updates[1].patch).toMatchObject({ ramp_payment_method: null, ramp_payment_transaction_ids: null });
   });
 
   /**

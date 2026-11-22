@@ -392,3 +392,156 @@ describe("findDuplicateCandidates — one order billed twice", () => {
     expect(findDuplicateCandidates(i)).toEqual([]);
   });
 });
+
+describe("findDuplicateCandidates — Ramp's own record of what paid what", () => {
+  // October 2026, with the real dates. One RahrBSG order was entered as two
+  // bills of $295.83 (10/14 and 10/22). The card paid the FIRST on 10/14 but
+  // only settled on 10/23, nine days from the bill it paid and one day from the
+  // other; the second bill was paid from the bank. Brewers Supply Group
+  // refunded the card on 11/2.
+  const rahrBill = (id: string, date: string, link: string[] | null) => [
+    billLine({ sourceTransactionId: `${id}:0`, amountCents: -26378, accountingDate: date, merchantName: "RahrBSG", paymentMethod: link ? "CARD" : "RTP", paymentTransactionIds: link }),
+    billLine({ sourceTransactionId: `${id}:1`, amountCents: -3205, accountingDate: date, merchantName: "RahrBSG", paymentMethod: link ? "CARD" : "RTP", paymentTransactionIds: link }),
+  ];
+  const october = () =>
+    inputs({
+      billLines: [...rahrBill("bill-1014", "2026-10-14", ["ramp-txn-charge"]), ...rahrBill("bill-1022", "2026-10-22", null)],
+      expenses: [
+        expense({ id: "charge", sourceTransactionId: "ramp-txn-charge", amountCents: -29583, accountingDate: "2026-10-23", merchantName: "Brewers Supply Group" }),
+        expense({ id: "refund", sourceTransactionId: "ramp-txn-refund", originalTransactionId: "ramp-txn-charge", amountCents: 29583, accountingDate: "2026-11-02", merchantName: "Brewers Supply Group" }),
+      ],
+    });
+  const cardPairs = (i: DuplicateInputs) => findDuplicateCandidates(i).filter((c) => c.kind === "bill_vs_card");
+
+  it("pairs a bill with the charge Ramp says paid it, outside the date window", () => {
+    const found = cardPairs(october());
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      key: "bill_vs_card:bill-1014:charge",
+      evidence: "ramp_link",
+      amountCents: -29583,
+      daysApart: 9,
+      periodEnd: "2026-10-31",
+    });
+    expect(found[0].reason).toContain("Ramp records this charge as the payment for this bill");
+    expect(found[0].matched[0].ids).toHaveLength(2);
+  });
+
+  it("without the link, amount and date pick the WRONG bill — the case this exists for", () => {
+    const i = october();
+    i.billLines = i.billLines.map((l) => ({ ...l, paymentTransactionIds: null }));
+    expect(cardPairs(i).map((c) => c.key)).toEqual(["bill_vs_card:bill-1022:charge"]);
+  });
+
+  it("never offers a linked charge to a same-amount stranger", () => {
+    // The 10/22 bill is one day from the charge and would win on dates alone.
+    expect(cardPairs(october()).some((c) => c.key.includes("bill-1022"))).toBe(false);
+  });
+
+  it("never offers a linked bill to a different same-amount charge", () => {
+    const i = october();
+    // Ramp's charge has been set aside; a stranger of the same amount sits a day from the linked bill.
+    i.expenses[0] = { ...i.expenses[0], excluded: true };
+    i.billLines = i.billLines.filter((l) => l.sourceTransactionId.startsWith("bill-1014"));
+    i.expenses.push(expense({ id: "stranger", sourceTransactionId: "ramp-txn-other", amountCents: -29583, accountingDate: "2026-10-15", merchantName: "Somebody Else" }));
+    expect(cardPairs(i)).toEqual([]);
+  });
+
+  it("does not hand a charge to a stranger because the bill it paid was set aside", () => {
+    const i = october();
+    i.billLines = i.billLines.map((l) => (l.sourceTransactionId.startsWith("bill-1014") ? { ...l, excluded: true } : l));
+    expect(cardPairs(i)).toEqual([]);
+  });
+
+  it("asks nothing once the linked charge is set aside, declined or still pending", () => {
+    for (const patch of [{ excluded: true }, { state: "DECLINED" }, { accountingDate: null, state: "PENDING" }]) {
+      const i = october();
+      i.expenses[0] = { ...i.expenses[0], ...patch };
+      expect(cardPairs(i)).toEqual([]);
+    }
+  });
+
+  it("still lets a linked bill meet a bank line — a second, separate way to pay it twice", () => {
+    const i = october();
+    i.bankLines = [bankLine({ id: "chase", amountCents: -29583, transactionDate: "2026-10-15" })];
+    expect(findDuplicateCandidates(i).map((c) => c.kind).sort()).toEqual(["bill_vs_bank_line", "bill_vs_bill", "bill_vs_card"]);
+  });
+
+  it("keeps the key a pair already had, so a recorded answer is not asked again", () => {
+    // In window and equal in amount: found before the link existed, and after.
+    const withLink = inputs({
+      billLines: [billLine({ sourceTransactionId: "pm-nov:0", amountCents: -118335, accountingDate: "2026-11-13", paymentMethod: "CARD", paymentTransactionIds: ["t-nov"] })],
+      expenses: [expense({ id: "card-nov", sourceTransactionId: "t-nov", amountCents: -118335, accountingDate: "2026-11-16" })],
+    });
+    const without = { ...withLink, billLines: withLink.billLines.map((l) => ({ ...l, paymentTransactionIds: null })) };
+    const [a] = findDuplicateCandidates(withLink);
+    const [b] = findDuplicateCandidates(without);
+    expect(a.key).toBe("bill_vs_card:pm-nov:card-nov");
+    expect(b.key).toBe(a.key);
+    expect(a.evidence).toBe("ramp_link");
+    expect(b.evidence).toBeUndefined();
+  });
+
+  describe("the refund link", () => {
+    it("reads the refund from Ramp's link, and says the charge was undone", () => {
+      const [c] = cardPairs(october());
+      expect(c.reversal).toMatchObject({ ids: ["refund"], date: "2026-11-02", amountCents: 29583 });
+      expect(c.reason).toContain("refunded on 2026-11-02");
+    });
+
+    it("follows the link where the old inference could not: another merchant name, past 60 days", () => {
+      const i = october();
+      i.expenses[1] = { ...i.expenses[1], merchantName: "BSG Refunds", accountingDate: "2027-01-20" };
+      expect(cardPairs(i)[0].reversal).toMatchObject({ ids: ["refund"] });
+    });
+
+    it("prefers the link over a nearer same-merchant charge of the same amount", () => {
+      const i = october();
+      // A later identical charge, which "most recent before the refund" would have picked.
+      i.expenses.push(expense({ id: "later-charge", sourceTransactionId: "ramp-txn-later", amountCents: -29583, accountingDate: "2026-10-30", merchantName: "Brewers Supply Group" }));
+      expect(cardPairs(i).find((c) => c.duplicate.ids[0] === "charge")?.reversal).toMatchObject({ ids: ["refund"] });
+    });
+
+    it("does not guess for a refund whose linked charge is somewhere else", () => {
+      const i = october();
+      i.expenses[1] = { ...i.expenses[1], originalTransactionId: "a-charge-not-in-the-table" };
+      expect(cardPairs(i)[0].reversal).toBeUndefined();
+    });
+
+    it("does not call a partial refund an undoing", () => {
+      const i = october();
+      i.expenses[1] = { ...i.expenses[1], amountCents: 10000 };
+      expect(cardPairs(i)[0].reversal).toBeUndefined();
+    });
+  });
+
+  describe("the fallback, where Ramp has no link", () => {
+    it("pairs a manually paid bill with a card charge on amount and date, as before", () => {
+      const found = findDuplicateCandidates(
+        inputs({
+          billLines: PRAIRIE_JUNE.map((l) => ({ ...l, paymentMethod: "PAID_MANUALLY", paymentTransactionIds: null })),
+          expenses: [expense({ id: "card-boortmalt-0617", sourceTransactionId: "t-1", amountCents: -56455 })],
+        }),
+      );
+      expect(found).toHaveLength(1);
+      expect(found[0].key).toBe("bill_vs_card:pm-june:card-boortmalt-0617");
+      expect(found[0].evidence).toBeUndefined();
+      expect(found[0].reason).toBe(
+        'Card charge "Boortmalt" on 2026-06-17 is the same $564.55 as the Prairie Malt bill of 2026-06-16, 1 day apart.',
+      );
+    });
+
+    it("still holds an unlinked pair to the date window", () => {
+      const found = findDuplicateCandidates(
+        inputs({ billLines: PRAIRIE_JUNE, expenses: [expense({ id: "c", sourceTransactionId: "t-1", amountCents: -56455, accountingDate: "2026-06-24" })] }),
+      );
+      expect(found).toEqual([]);
+    });
+
+    it("still infers a refund with no link from merchant, amount and date", () => {
+      const i = october();
+      i.expenses[1] = { ...i.expenses[1], originalTransactionId: null };
+      expect(cardPairs(i)[0].reversal).toMatchObject({ ids: ["refund"] });
+    });
+  });
+});

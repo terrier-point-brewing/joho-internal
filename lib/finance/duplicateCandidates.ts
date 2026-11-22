@@ -15,6 +15,18 @@
  * whole ledger at the time of writing that rule produced eleven pairs and every
  * one was real, so it is deliberately not loosened with a tolerance.
  *
+ * ── Ramp's own links come first ──────────────────────────────────────────────
+ * For a bill paid by card, Ramp records WHICH card transaction paid it, and for
+ * a refund, which charge it reverses. Where a link exists it is the evidence:
+ * the pair is made on it alone, whatever the dates, and neither side is offered
+ * to anything else. October 2026 is why. Two RahrBSG bills were both $295.83;
+ * the card charge that paid the first settled nine days later, one day from the
+ * second, and amount-and-date tied it to the wrong bill.
+ *
+ * Amount-and-date is still the rule everywhere Ramp has no link: a bill paid
+ * from the bank or marked paid by hand, every bank line, every manual entry.
+ * Both September duplicates that were not card payments were found that way.
+ *
  * ── What this does not do ────────────────────────────────────────────────────
  * It proposes; it never sets anything aside. A candidate is a question for a
  * person ("is this one payment?"), and the answer is recorded elsewhere so the
@@ -64,12 +76,20 @@ export interface BillLineInput {
   settledAt: string | null;
   amountCents: number;
   excluded: boolean;
+  /** How Ramp paid the bill (CARD, RTP, CHECK, ...). Informational; the ids below are the link. */
+  paymentMethod?: string | null;
+  /** Ramp card transaction ids that paid this bill: each a card row's `sourceTransactionId`. */
+  paymentTransactionIds?: string[] | null;
 }
 
 /** One `expenses` row with ramp_object = 'card' or 'bank'. */
 export interface ExpenseInput {
   id: string;
   rampObject: "card" | "bank";
+  /** Ramp's id for the transaction: what a bill's payment link and a refund's link point at. */
+  sourceTransactionId?: string | null;
+  /** On a card refund, the Ramp id of the charge it reverses. */
+  originalTransactionId?: string | null;
   merchantName: string | null;
   /** Null while a card charge is still pending — it is not on any statement yet. */
   accountingDate: string | null;
@@ -120,6 +140,12 @@ export interface DuplicateCandidate {
   daysApart: number;
   /** One sentence, shown to a bookkeeper verbatim. */
   reason: string;
+  /**
+   * Set when the pair rests on Ramp's own record that this charge paid this
+   * bill, instead of on a matching amount and date. Absent means "possible":
+   * the matcher inferred it. Present means Ramp says so.
+   */
+  evidence?: "ramp_link";
   /** Month end of the duplicate's date: the month whose expense is doubled. */
   periodEnd: string;
   /**
@@ -172,6 +198,8 @@ interface Bill {
   /** The UTC day it was paid, the same boundary the cash-flow statement uses. */
   settledDate: string | null;
   amountCents: number;
+  /** Ramp card transaction ids recorded as this bill's payment; empty when Ramp has no link. */
+  paymentTransactionIds: string[];
 }
 
 /**
@@ -194,8 +222,12 @@ export function groupBills(lines: BillLineInput[]): Bill[] {
         date: line.accountingDate,
         settledDate: line.settledAt ? line.settledAt.slice(0, 10) : null,
         amountCents: line.amountCents,
+        paymentTransactionIds: [...(line.paymentTransactionIds ?? [])],
       });
       continue;
+    }
+    for (const id of line.paymentTransactionIds ?? []) {
+      if (!bill.paymentTransactionIds.includes(id)) bill.paymentTransactionIds.push(id);
     }
     bill.lineIds.push(line.id);
     bill.lineAmounts.push(line.amountCents);
@@ -226,9 +258,19 @@ interface Counterpart {
 }
 
 /**
- * Card refunds matched to the charge each one undoes: same merchant, the exact
- * opposite amount, on or after the charge and within REFUND_WINDOW_DAYS. The
- * nearest refund claims a charge, and each refund answers to one charge.
+ * Card refunds matched to the charge each one undoes.
+ *
+ * Ramp's link first: a refund that names its `originalTransactionId` undoes
+ * that charge and no other, however far apart they are and whatever the
+ * merchant is called on each. It counts as having undone the charge only when
+ * it is for the whole amount; a partial refund leaves part of the charge
+ * standing, so the charge is still a duplicate worth setting aside.
+ *
+ * Then, only for refunds Ramp gave no link for, the old inference: same
+ * merchant, the exact opposite amount, on or after the charge and within
+ * REFUND_WINDOW_DAYS. The nearest refund claims a charge, and each refund
+ * answers to one charge. A refund that HAS a link is never guessed at, even if
+ * the charge it names is not in the table.
  */
 function refundsByChargeId(expenses: ExpenseInput[]): Map<string, ExpenseInput> {
   const live = expenses.filter((e) => e.rampObject === "card" && !e.excluded && e.accountingDate && e.state !== "DECLINED");
@@ -238,7 +280,17 @@ function refundsByChargeId(expenses: ExpenseInput[]): Map<string, ExpenseInput> 
     .sort((a, b) => (a.accountingDate as string).localeCompare(b.accountingDate as string) || a.id.localeCompare(b.id));
 
   const out = new Map<string, ExpenseInput>();
+
+  const chargeBySourceId = new Map<string, ExpenseInput>();
+  for (const c of charges) if (c.sourceTransactionId) chargeBySourceId.set(c.sourceTransactionId, c);
   for (const refund of refunds) {
+    if (!refund.originalTransactionId) continue;
+    const charge = chargeBySourceId.get(refund.originalTransactionId);
+    if (charge && !out.has(charge.id) && charge.amountCents === -refund.amountCents) out.set(charge.id, refund);
+  }
+
+  for (const refund of refunds) {
+    if (refund.originalTransactionId) continue;
     const day = dayNumber(refund.accountingDate as string);
     const charge = charges
       .filter(
@@ -312,9 +364,95 @@ function counterparts(inputs: DuplicateInputs): Counterpart[] {
   return out;
 }
 
-function pairBills(bills: Bill[], others: Counterpart[], windowDays: number): DuplicateCandidate[] {
+/**
+ * What Ramp's bill-to-card links say, before any amount-and-date pairing.
+ *
+ * `candidates` are the pairs Ramp itself records: a bill and the card charge
+ * that paid it, both still counted. Made whatever the dates and whatever the
+ * amounts, because the link is the evidence and the dates were what got
+ * October 2026 wrong.
+ *
+ * `billIds` and `chargeIds` are everything a link SPEAKS FOR, a wider set than
+ * the pairs: they are read from every bill line, set-aside ones included, and
+ * cover a charge that is set aside, declined, still pending or not stored at
+ * all. A bill Ramp says was paid by one charge is not offered to another just
+ * because that charge has been set aside, and a charge Ramp ties to a
+ * set-aside bill is not handed to a same-amount stranger. That would re-open,
+ * against the wrong record, a question a person has already answered.
+ */
+function rampLinkedPairs(
+  inputs: DuplicateInputs,
+  bills: Bill[],
+  others: Counterpart[],
+): { candidates: DuplicateCandidate[]; billIds: Set<string>; chargeIds: Set<string> } {
+  const cardBySourceId = new Map<string, ExpenseInput>();
+  for (const e of inputs.expenses) {
+    if (e.rampObject === "card" && e.sourceTransactionId) cardBySourceId.set(e.sourceTransactionId, e);
+  }
+
+  const billIds = new Set<string>();
+  const chargeIds = new Set<string>();
+  for (const line of inputs.billLines) {
+    const ids = line.paymentTransactionIds ?? [];
+    if (ids.length === 0) continue;
+    billIds.add(line.sourceTransactionId.split(":")[0]);
+    for (const id of ids) {
+      const card = cardBySourceId.get(id);
+      if (card) chargeIds.add(card.id);
+    }
+  }
+
+  // `others` already holds only what is still counted, with its refund attached.
+  const counted = new Map<string, Counterpart>();
+  for (const o of others) if (o.kind === "bill_vs_card") counted.set(o.side.ids[0], o);
+
+  const candidates: DuplicateCandidate[] = [];
+  for (const bill of bills) {
+    for (const txnId of bill.paymentTransactionIds) {
+      const card = cardBySourceId.get(txnId);
+      const other = card && counted.get(card.id);
+      if (!other) continue;
+      const amount = formatCurrencyCents(Math.abs(other.side.amountCents));
+      candidates.push({
+        // The same shape of key the amount-and-date rule gives this pair, so an
+        // answer recorded before the link was known still stands.
+        key: `bill_vs_card:${bill.billId}:${other.side.ids[0]}`,
+        kind: "bill_vs_card",
+        amountCents: other.side.amountCents,
+        matched: [billSide(bill)],
+        duplicate: other.side,
+        daysApart: daysBetween(other.side.date, bill.date),
+        reason:
+          `Ramp records this charge as the payment for this bill: the card charge "${other.side.name}" of ${amount} ` +
+          `on ${other.side.date} paid the ${bill.merchantName} bill of ${bill.date}. ` +
+          `The bill is the expense, so counting the charge as well counts it twice.` +
+          (other.reversal ? ` The charge was refunded on ${other.reversal.date}, so it has already been undone.` : ""),
+        periodEnd: monthEnd(other.side.date),
+        evidence: "ramp_link",
+        ...(other.reversal ? { reversal: other.reversal } : {}),
+      });
+    }
+  }
+  return { candidates, billIds, chargeIds };
+}
+
+/**
+ * The amount-and-date rule, for everything Ramp has no link for.
+ *
+ * `linked` fences off what Ramp has already spoken for: a bill with a link is
+ * never offered a card charge here, and a linked charge is never offered to a
+ * bill. A linked bill can still meet a bank line or an account debit, which
+ * would be a second, separate way of paying it twice.
+ */
+function pairBills(
+  bills: Bill[],
+  others: Counterpart[],
+  windowDays: number,
+  linked: { billIds: Set<string>; chargeIds: Set<string> },
+): DuplicateCandidate[] {
   const byCents = new Map<number, Counterpart[]>();
   for (const o of others) {
+    if (o.kind === "bill_vs_card" && linked.chargeIds.has(o.side.ids[0])) continue;
     const list = byCents.get(o.side.amountCents) ?? [];
     list.push(o);
     byCents.set(o.side.amountCents, list);
@@ -330,6 +468,7 @@ function pairBills(bills: Bill[], others: Counterpart[], windowDays: number): Du
     // Signed equality: a bill is money out, and a deposit of the same size is
     // not its payment.
     for (const other of byCents.get(bill.amountCents) ?? []) {
+      if (other.kind === "bill_vs_card" && linked.billIds.has(bill.billId)) continue;
       if (distanceToRange(other.side.date, from, to) > windowDays) continue;
       feasible.push({ bill, other, daysApart: daysBetween(other.side.date, bill.date) });
     }
@@ -523,8 +662,11 @@ export function findDuplicateCandidates(
   opts: { windowDays?: number } = {},
 ): DuplicateCandidate[] {
   const bills = groupBills(inputs.billLines);
+  const others = counterparts(inputs);
+  const linked = rampLinkedPairs(inputs, bills, others);
   return [
-    ...pairBills(bills, counterparts(inputs), opts.windowDays ?? DEFAULT_WINDOW_DAYS),
+    ...linked.candidates,
+    ...pairBills(bills, others, opts.windowDays ?? DEFAULT_WINDOW_DAYS, linked),
     ...pairManualEntries(inputs, bills),
     ...pairRepeatedBills(bills),
   ].sort((a, b) => a.duplicate.date.localeCompare(b.duplicate.date) || a.key.localeCompare(b.key));

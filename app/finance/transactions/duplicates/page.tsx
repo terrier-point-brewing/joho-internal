@@ -6,8 +6,12 @@
 // feeds, and expensing both doubles the cost. Nothing on the Expenses or Bank
 // Ledger grids can show that, because each row is right on its own; it only
 // shows when the rows are put side by side. lib/finance/duplicateCandidates.ts
-// does the pairing (exact amount, a few days apart, names ignored) and this
-// page is where a person answers each pair.
+// does the pairing and this page is where a person answers each pair.
+//
+// Two strengths of evidence, and the page says which. Where Ramp itself records
+// that a card charge paid a bill, the pair is marked "Confirmed by Ramp". Every
+// other pair is the matcher's inference (exact amount, a few days apart, names
+// ignored) and is only a possibility.
 //
 // Nothing is set aside until someone says so here, and a month cannot be
 // closed while a pair dated in or before it is still unanswered — see
@@ -52,6 +56,19 @@ function setAsideEffect(candidate: DuplicateCandidate): string {
   return candidate.duplicate.table === "bank_ledger"
     ? "The bank line is marked as a bill settlement, so it stays off the P&L. The bill stays as the expense."
     : `The ${candidate.duplicate.what.toLowerCase()} is excluded from every statement. The bill stays as the expense. It can be restored on the Expenses tab.`;
+}
+
+/**
+ * Ramp's own record that this charge paid this bill. Shown wherever the pair
+ * is, so "possible duplicate" is not the strongest thing the page can say.
+ */
+function RampConfirmed({ candidate }: { candidate: DuplicateCandidate }) {
+  if (candidate.evidence !== "ramp_link") return null;
+  return (
+    <Badge tone="success" className="mt-1 mr-1" title="Ramp records this charge as the payment for this bill, so this is not a guess from the amount and date">
+      Confirmed by Ramp
+    </Badge>
+  );
 }
 
 function SideCell({ side }: { side: DuplicateSide }) {
@@ -124,7 +141,10 @@ function ReviewModal({
   }
 
   return (
-    <Modal title="Is this one transaction, recorded twice?" onClose={onClose}>
+    <Modal
+      title={candidate.evidence === "ramp_link" ? "One payment, recorded twice" : "Is this one transaction, recorded twice?"}
+      onClose={onClose}
+    >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <p className="text-sm text-body leading-relaxed">{candidate.reason}</p>
 
@@ -276,6 +296,7 @@ export default function DuplicatesPage() {
                   <td className="px-4 py-2"><MatchedCell candidate={c} /></td>
                   <td className="px-4 py-2">
                     <SideCell side={c.duplicate} />
+                    <RampConfirmed candidate={c} />
                     {/* Already undone by the vendor. Said in the list, because
                         the natural answer to "is this a duplicate?" is wrong
                         once the charge has been refunded. */}
@@ -327,7 +348,10 @@ export default function DuplicatesPage() {
                   {formatCurrencyCents(Math.abs(r.candidate.amountCents))}
                 </td>
                 <td className="px-4 py-2"><MatchedCell candidate={r.candidate} /></td>
-                <td className="px-4 py-2"><SideCell side={r.candidate.duplicate} /></td>
+                <td className="px-4 py-2">
+                  <SideCell side={r.candidate.duplicate} />
+                  <RampConfirmed candidate={r.candidate} />
+                </td>
                 <td className="px-4 py-2">
                   <Badge tone={r.resolution === "not_duplicate" ? "neutral" : "success"}>{RESOLUTION_LABEL[r.resolution]}</Badge>
                   {r.note && <p className="text-2xs text-muted mt-1 max-w-xs">“{r.note}”</p>}
