@@ -37,7 +37,9 @@ import {
   type CloseTask,
 } from "@/lib/finance/balances/closeTasks";
 import { reopenPeriod, readPeriodClose, readPeriodCoverage } from "@/lib/finance/balances/periodClose";
+import { readLastRecalculation } from "@/lib/finance/balances/lastRecalculation";
 import { countUnreviewedDuplicates } from "@/lib/finance/duplicateReview";
+import { addDaysStr } from "@/lib/utils/datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -158,9 +160,13 @@ export async function GET(req: NextRequest) {
     const supabase = createSupabaseAdminClient();
     const tasks = await listTasksForPeriod(supabase, periodEnd);
     const { dueDay } = await readCloseConfig(supabase);
-    const [close, coverage] = await Promise.all([
+    // The month before, for "how far has the balancing difference moved?".
+    const previousPeriodEnd = addDaysStr(`${periodEnd.slice(0, 7)}-01`, -1);
+    const [close, coverage, recalculation, previousCoverage] = await Promise.all([
       readPeriodClose(supabase, periodEnd),
       readPeriodCoverage(supabase, periodEnd),
+      readLastRecalculation(supabase, periodEnd),
+      readPeriodCoverage(supabase, previousPeriodEnd),
     ]);
 
     // Asked only of a month that can still be closed. A closed month's answer
@@ -185,6 +191,16 @@ export async function GET(req: NextRequest) {
       // What closing would be asserting: how many configured accounts actually
       // produced a figure this month, and which ones did not.
       coverage,
+      // Last night's recalculation of this month, so a failing step is on the
+      // page as something to look at rather than a refusal waiting behind the
+      // Close button. Null for a month the nightly job no longer runs on.
+      recalculation,
+      // The month before's balancing difference, so this month's can be read
+      // as a movement rather than as a bare figure.
+      previousClose:
+        previousCoverage.balancingDifferenceCents === null
+          ? null
+          : { periodEnd: previousPeriodEnd, balancingDifferenceCents: previousCoverage.balancingDifferenceCents },
       // The period's own deadline, which is not necessarily any one task's: an
       // account may carry its own allowance. Shown so the screen can say when
       // the period as a whole is expected to be done. Passing it no longer

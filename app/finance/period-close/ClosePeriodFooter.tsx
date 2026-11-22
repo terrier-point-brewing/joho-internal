@@ -27,10 +27,10 @@
 // as final with nothing behind it, only this time with a name attached.
 
 import { useState } from "react";
-import Badge from "@/app/components/ui/Badge";
 import Banner from "@/app/components/ui/Banner";
 import { Modal, Field, ModalActions } from "@/app/components/ui/Modal";
-import { formatPeriodLabel, type CloseTasksResponse } from "../closeTasks";
+import { closeBlockersLeft, formatPeriodLabel, recalculationCheck, type CloseTasksResponse } from "../closeTasks";
+import CloseStep from "./CloseStep";
 import { formatBalanceCents } from "@/lib/format";
 
 /** What the dry-run recalculation came back with — see the preview button below. */
@@ -55,6 +55,7 @@ export default function ClosePeriodFooter({
   periodEnd,
   data,
   openCount,
+  duplicates,
   canManage,
   fmtMoment,
   onDone,
@@ -62,6 +63,8 @@ export default function ClosePeriodFooter({
   periodEnd: string;
   data: CloseTasksResponse | undefined;
   openCount: number;
+  /** Unreviewed possible duplicates the close would refuse over. */
+  duplicates: number;
   canManage: boolean;
   fmtMoment: (iso: string) => string;
   onDone: () => Promise<unknown>;
@@ -136,55 +139,184 @@ export default function ClosePeriodFooter({
   // which is what the periods index shows for a closed month.
   const balancing = preview ? preview.wouldCloseAtCents : coverage.balancingDifferenceCents;
 
+  const check = recalculationCheck(isClosed ? null : data.recalculation, preview);
+  const left = isClosed ? [] : closeBlockersLeft({ openTasks: openCount, duplicates, recalculation: check.state });
+  const previous = data.previousClose;
+  const movement = balancing !== null && previous ? balancing - previous.balancingDifferenceCents : null;
+  const failed = check.errors.length;
+
   return (
-    <div className="mt-3 pt-3 border-t border-line/40 flex flex-col gap-3">
-      {/* The three figures the close asserts. Shown whether or not the button
-          is available, because "is this month actually finished?" is not only
-          a question for the person allowed to press it. */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Stat label="Outstanding" value={String(openCount)} tone={openCount > 0 ? "accent" : undefined} />
-        <Stat
-          label="Coverage"
-          value={coverage.configured === 0 ? "—" : `${coverage.withBalance} / ${coverage.configured}`}
-          title={coverage.configured === 0 ? "No account has a balance source configured." : "Configured accounts that produced a balance"}
-          detail={
-            coverage.missing.length > 0 ? (
-              <details>
-                <summary className="cursor-pointer hover:text-secondary select-none">
-                  {coverage.missing.length} produced nothing
-                </summary>
-                <ul className="mt-1 flex flex-col gap-0.5">
-                  {coverage.missing.map((m) => (
-                    <li key={m}>{m}</li>
+    <>
+      <CloseStep
+        n={3}
+        title="Check the recalculation"
+        status={isClosed || check.state === "clean" ? "done" : check.state === "failing" ? "attention" : "review"}
+        statusLabel={!isClosed && check.state === "unknown" ? "Not checked" : undefined}
+        how={
+          <>
+            Every night the app recalculates this month&apos;s balances from its feeds. Closing runs it once more and
+            refuses if any account fails, so a failure is shown here first.
+          </>
+        }
+      >
+        {!isClosed && (
+          <div className="flex flex-col gap-2">
+            {check.state === "clean" && (
+              <p className="text-2xs text-muted">
+                {check.source === "preview"
+                  ? "Checked just now: every account recalculated."
+                  : `Last night's run (${fmtMoment(check.at ?? "")}) recalculated every account.`}
+              </p>
+            )}
+            {check.state === "unknown" && (
+              <p className="text-2xs text-muted">
+                No nightly run is on record for this month.{canManage ? " Press Check now to run it." : ""}
+              </p>
+            )}
+            {check.state === "failing" && (
+              <Banner>
+                <span className="block mb-1">
+                  {check.source === "preview" ? "Checked just now:" : `Last night's run (${fmtMoment(check.at ?? "")}):`}{" "}
+                  {failed} account{failed === 1 ? "" : "s"} could not be recalculated.
+                </span>
+                <ul className="list-disc pl-4 flex flex-col gap-0.5">
+                  {check.errors.map((e) => (
+                    <li key={e}>{e}</li>
                   ))}
                 </ul>
-              </details>
-            ) : undefined
-          }
-        />
-        <Stat
-          label="Balancing difference"
-          value={balancing === null ? "—" : formatBalanceCents(balancing)}
-          tone={balancing === null ? undefined : balancing === 0 ? "success" : "danger"}
-          detail={
-            balancing === null
-              ? preview
-                ? "Nothing would be computed."
-                : canManage && !isClosed
-                  ? "Preview to compute"
-                  : undefined
-              : balancing === 0
-                ? "Balanced"
-                : preview
-                  ? "Still unaccounted for"
-                  : "As closed"
-          }
-        />
-      </div>
+                <span className="block mt-1">
+                  This is a fault in the app, not something for you to answer. Press Check again, because a timeout can
+                  clear on a second try. If it keeps failing, it needs fixing before {label} can close.
+                </span>
+              </Banner>
+            )}
+            {canManage && (
+              <button type="button" className="btn-secondary self-start" disabled={busy || previewing} onClick={previewClose}>
+                {previewing ? "Recalculating…" : check.state === "unknown" ? "Check now" : "Check again"}
+              </button>
+            )}
+          </div>
+        )}
+      </CloseStep>
 
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Badge tone={isClosed ? "success" : "neutral"}>{isClosed ? "Closed" : "Open"}</Badge>
+      {/* The figures the close asserts. Shown whether or not the button is
+          available, because "is this month actually finished?" is not only a
+          question for the person allowed to press it. */}
+      <CloseStep
+        n={4}
+        title="Look at the balancing difference"
+        status={balancing === 0 ? "done" : "review"}
+        statusLabel={balancing === 0 ? "Balanced" : undefined}
+        how={
+          <>
+            Total assets minus liabilities and equity. $0.00 means the books balance. A difference does not stop the
+            close, but closing puts your name to it, so say what it is in the close note if you know.
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Stat
+            label="Balancing difference"
+            value={balancing === null ? "—" : formatBalanceCents(balancing)}
+            tone={balancing === null ? undefined : balancing === 0 ? "success" : "danger"}
+            detail={
+              balancing === null
+                ? preview
+                  ? "Nothing would be computed."
+                  : canManage && !isClosed
+                    ? "Not computed yet. Use the check in step 3."
+                    : undefined
+                : preview
+                  ? "As just recalculated"
+                  : isClosed
+                    ? "As closed"
+                    : "As last recalculated"
+            }
+          />
+          <Stat
+            label="Coverage"
+            value={coverage.configured === 0 ? "—" : `${coverage.withBalance} / ${coverage.configured}`}
+            title={coverage.configured === 0 ? "No account has a balance source configured." : "Configured accounts that produced a balance"}
+            detail={
+              coverage.configured === 0 ? undefined : coverage.missing.length > 0 ? (
+                <details>
+                  <summary className="cursor-pointer hover:text-secondary select-none">
+                    {coverage.missing.length} set-up account{coverage.missing.length === 1 ? "" : "s"} produced no figure
+                  </summary>
+                  <p className="mt-1">
+                    Normal for an account with nothing in it this month. Check the list for one you expected a figure from.
+                  </p>
+                  <ul className="mt-1 flex flex-col gap-0.5">
+                    {coverage.missing.map((m) => (
+                      <li key={m}>{m}</li>
+                    ))}
+                  </ul>
+                </details>
+              ) : (
+                "Every set-up account produced a figure."
+              )
+            }
+          />
+        </div>
+        {movement !== null && previous && (
+          <p className="text-xs text-secondary">
+            {formatPeriodLabel(previous.periodEnd)} stood at {formatBalanceCents(previous.balancingDifferenceCents)}.{" "}
+            {movement === 0
+              ? "This month is unchanged."
+              : `This month is ${formatBalanceCents(Math.abs(movement))} ${movement < 0 ? "lower" : "higher"}.`}
+          </p>
+        )}
+        {balancing !== null && balancing !== 0 && (
+          <p className="text-2xs text-faint max-w-prose">
+            The app cannot yet break this figure into its causes. In past months it has mostly been timing: a bill paid
+            from the Ramp wallet before month-end that settled after it, wages for a pay period that straddles
+            month-end, and taproom cash.
+          </p>
+        )}
+      </CloseStep>
+
+      <CloseStep
+        n={5}
+        title={`Close ${label}`}
+        status={isClosed ? "done" : left.length === 0 ? "todo" : "review"}
+        statusLabel={isClosed ? "Closed" : left.length === 0 ? "Ready" : "Not yet"}
+        how={
+          isClosed ? (
+            <>{label}&apos;s figures no longer change. Reopening it needs a reason.</>
+          ) : (
+            <>
+              Closing stops {label}&apos;s figures from changing and records your name against them. It can be reopened
+              later with a reason.
+            </>
+          )
+        }
+      >
+        {/* Said on the page rather than only on refusal or in a hover: a
+            disabled button with no explanation is a dead end. */}
+        {left.length > 0 && (
+          <ul className="text-xs text-secondary list-disc pl-4 flex flex-col gap-0.5">
+            {left.map((l) => (
+              <li key={l}>{l}</li>
+            ))}
+          </ul>
+        )}
+
+        <div className="flex items-center gap-3 flex-wrap">
+          {canManage &&
+            (isClosed ? (
+              <button type="button" className="btn-secondary" disabled={busy} onClick={() => setReopening(true)}>
+                Reopen {label}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={busy || previewing || left.length > 0}
+                onClick={() => setClosing(true)}
+              >
+                {busy ? "Closing…" : `Close ${label}`}
+              </button>
+            ))}
           {isClosed && close && (
             <span className="text-2xs text-muted">
               Closed by {actor} on {fmtMoment(close.at)}
@@ -202,48 +334,17 @@ export default function ClosePeriodFooter({
           )}
         </div>
 
-        {canManage &&
-          (isClosed ? (
-            <button type="button" className="btn-secondary" disabled={busy} onClick={() => setReopening(true)}>
-              Reopen {label}
-            </button>
-          ) : (
-            <span className="flex items-center gap-2">
-              <button type="button" className="btn-secondary" disabled={busy || previewing} onClick={previewClose}>
-                {previewing ? "Recalculating…" : "Preview close"}
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={busy || previewing || openCount > 0}
-                onClick={() => setClosing(true)}
-                // Said here rather than only on refusal: a disabled button with
-                // no explanation is the same dead end as a silent one.
-                title={openCount > 0 ? "Every account needs a balance or a recorded reason first." : undefined}
-              >
-                {busy ? "Closing…" : `Close ${label}`}
-              </button>
-            </span>
-          ))}
-      </div>
-
-      {preview && preview.errors.length > 0 && (
-        <p className="text-xs text-danger">
-          The recalculation did not finish cleanly, so the balancing difference is partial:{" "}
-          {preview.errors.join("; ")}
-        </p>
-      )}
-
-      {blockers.length > 0 && (
-        <Banner className="mt-1">
-          <span className="block mb-1">{label} cannot be closed yet:</span>
-          <ul className="list-disc pl-4 flex flex-col gap-0.5">
-            {blockers.map((b) => (
-              <li key={b}>{b}</li>
-            ))}
-          </ul>
-        </Banner>
-      )}
+        {blockers.length > 0 && (
+          <Banner>
+            <span className="block mb-1">{label} cannot be closed yet:</span>
+            <ul className="list-disc pl-4 flex flex-col gap-0.5">
+              {blockers.map((b) => (
+                <li key={b}>{b}</li>
+              ))}
+            </ul>
+          </Banner>
+        )}
+      </CloseStep>
 
       {closing && (
         <CloseModal
@@ -269,11 +370,11 @@ export default function ClosePeriodFooter({
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
-/** One figure in the strip above the close button. */
+/** One figure in step 4. */
 function Stat({
   label,
   value,
