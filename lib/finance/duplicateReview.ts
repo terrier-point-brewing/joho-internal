@@ -195,6 +195,13 @@ async function closedPeriods(supabase: AdminClient, periodEnds: string[]): Promi
 
 /** Pure. Why this pair cannot be set aside from the review, or null when it can. */
 export function setAsideBlocker(candidate: DuplicateCandidate, periodClosed: boolean): string | null {
+  if (candidate.reversal) {
+    return (
+      `This charge was refunded on ${candidate.reversal.date}, so the vendor has already undone it. ` +
+      `Setting it aside would leave the refund counted without its charge. ` +
+      `Record it as not a duplicate: nothing needs setting aside.`
+    );
+  }
   if (candidate.duplicate.table === "manual_entries") {
     return "A manual entry is edited or deleted on the Manual Entries tab. Once it is fixed there, record that here.";
   }
@@ -284,8 +291,13 @@ export async function resolveDuplicate(
     const id = candidate.duplicate.ids[0];
 
     if (candidate.duplicate.table === "expenses") {
-      const excluded = await excludeExpense(supabase, { id, reason, userId: input.userId });
-      if (!excluded.ok) return excluded;
+      // Every row of the duplicate. A card charge is one row; a bill billed
+      // twice is one row per line item, and setting aside only its first line
+      // would leave the rest of the second bill expensed.
+      for (const expenseId of candidate.duplicate.ids) {
+        const excluded = await excludeExpense(supabase, { id: expenseId, reason, userId: input.userId });
+        if (!excluded.ok) return excluded;
+      }
     } else {
       // The bank line becomes what it is: a bill being paid. Mirrors the Bank
       // Ledger grid's own reclassification (app/api/finance/bank-ledger PATCH):

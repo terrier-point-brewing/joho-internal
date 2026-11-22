@@ -27,6 +27,7 @@ import { apiError } from "@/lib/utils/api";
 import { todayLocalDate } from "@/lib/utils/datetime";
 import { closePeriod } from "@/lib/finance/balances/periodClose";
 import { snapshotPeriod } from "@/lib/finance/balances/snapshot";
+import { recordRecalculation } from "@/lib/finance/balances/recalculationLog";
 
 export const dynamic = "force-dynamic";
 /** Closing/previewing runs a full recalculation, including live reads against Ramp, Plaid and Square. */
@@ -54,7 +55,20 @@ export async function POST(req: NextRequest) {
     const supabase = createSupabaseAdminClient();
 
     if (body.action === "preview") {
+      const startedAt = new Date();
       const snapshot = await snapshotPeriod(supabase, body.periodEnd, { dryRun: true });
+      // Remembered, so the close page can say "checked just now, clean" after
+      // a reload instead of going back to whatever last night's run found.
+      const checker = await getSessionUser();
+      await recordRecalculation(supabase, {
+        periodEnd: body.periodEnd,
+        errors: snapshot.errors,
+        balancingDifferenceCents: snapshot.balancingDifferenceCents,
+        trigger: "manual",
+        actorId: checker?.user.id ?? null,
+        startedAt,
+        source: "check",
+      });
       return NextResponse.json({
         ok: true,
         wouldCloseAtCents: snapshot.balancingDifferenceCents,
@@ -70,12 +84,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Sign in again before closing a month." }, { status: 401 });
     }
 
+    const closeStartedAt = new Date();
     const result = await closePeriod(supabase, {
       periodEnd: body.periodEnd,
       actorId: session.user.id,
       todayIso: todayLocalDate(),
       reason: typeof body.reason === "string" ? body.reason : null,
     });
+    // The close ran its own recalculation. Recorded whether or not the close
+    // went through, so a refusal over a failing account is still on the page
+    // afterwards rather than only in the banner that reported it.
+    if (result.snapshot) {
+      await recordRecalculation(supabase, {
+        periodEnd: body.periodEnd,
+        errors: result.snapshot.errors,
+        balancingDifferenceCents: result.snapshot.balancingDifferenceCents,
+        trigger: "manual",
+        actorId: session.user.id,
+        startedAt: closeStartedAt,
+        source: "close",
+      });
+    }
     // 409, not 400: the request was well formed and the answer is about the
     // state of the books. The blockers are full sentences meant to be shown.
     return result.ok

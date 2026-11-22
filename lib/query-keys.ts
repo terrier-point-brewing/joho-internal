@@ -126,6 +126,8 @@ export const queryKeys = {
     duplicates: () => ["finance", "duplicates"] as const,
     /** Month-end close tasks + closed status for one period_end. */
     balanceClose: (periodEnd: string) => ["finance", "balance-close", periodEnd] as const,
+    /** Which ended months are still open. Shares the balance-close prefix so anything that refreshes a close refreshes this. */
+    balanceClosePeriods: () => ["finance", "balance-close", "periods"] as const,
     // The three per-integration screens these keyed (Ramp Connection, Square
     // Connection, Bank Connections) were folded into Balance Sheet Accounts.
     // Setup now runs inside that screen's own panel and refetches

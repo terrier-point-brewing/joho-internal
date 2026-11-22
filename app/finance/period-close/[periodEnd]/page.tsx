@@ -15,7 +15,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { usePermissions } from "@/lib/hooks/useUserRole";
 import { CAP } from "@/lib/auth/capabilities";
 import { monthEnd } from "@/lib/finance/manualEntries";
-import { formatPeriodLabel, type CloseTasksResponse } from "../../closeTasks";
+import { closeBlockersFor, formatPeriodLabel, type CloseTasksResponse } from "../../closeTasks";
 import PeriodClosePanel from "../PeriodClosePanel";
 
 function fmtDate(iso: string): string {
@@ -49,13 +49,10 @@ export default function PeriodCloseDetailPage() {
   // Bouncing on an invalid param; render nothing while that redirect lands.
   if (!valid) return null;
 
-  const tasks = data?.tasks ?? [];
-  const open = tasks.filter((t) => t.status === "open");
   const closed = data?.close?.closed ?? false;
-  // The steps a person has to do themselves: balances and duplicates. The
-  // recalculation is the app's to get right, and its own step says where it
-  // stands, so it is not counted as work for the reader here.
-  const left = (open.length > 0 ? 1 : 0) + ((data?.unreviewedDuplicates ?? 0) > 0 ? 1 : 0);
+  // The same list step 5 prints, so the count up here and the reasons down
+  // there are one answer.
+  const left = data ? closeBlockersFor(data).length : 0;
   const label = formatPeriodLabel(periodEnd);
 
   return (
@@ -70,8 +67,8 @@ export default function PeriodCloseDetailPage() {
           {closed
             ? "Closed."
             : left > 0
-              ? `${left} step${left === 1 ? "" : "s"} below need${left === 1 ? "s" : ""} you before this month can close.`
-              : "Nothing below is waiting on you. Read steps 3 and 4, then close the month."}
+              ? `${left} thing${left === 1 ? "" : "s"} to clear before this month can close. Work down the steps.`
+              : "Nothing is blocking the close. Read step 4, then close the month."}
           {data?.dueDate && !closed ? ` Due ${fmtDate(data.dueDate)}.` : ""}
         </p>
       </div>

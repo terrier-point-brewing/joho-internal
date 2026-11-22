@@ -90,6 +90,10 @@ function chain(rowsGetter: () => Row[]) {
       filters.push((r) => vals.includes(r[col]));
       return api;
     },
+    lt(col: string, val: string) {
+      filters.push((r) => String(r[col]) < val);
+      return api;
+    },
     select: () => api,
     order(column: string, opts?: { ascending?: boolean }) {
       sort = { column, ascending: opts?.ascending ?? true };
@@ -534,7 +538,7 @@ describe("closedPeriodRefusal", () => {
 // ── What closing asserts ─────────────────────────────────────────────────────
 
 describe("readPeriodCoverage", () => {
-  it("names the configured accounts that produced nothing this month", async () => {
+  it("names an account that had a balance last month and has none this month", async () => {
     const db = emptyDb({
       sources: [
         { chart_of_accounts_id: "coa-a", active: true },
@@ -543,7 +547,10 @@ describe("readPeriodCoverage", () => {
         // must count once.
         { chart_of_accounts_id: "coa-b", active: true },
       ],
-      balances: [{ chart_of_accounts_id: "coa-a", period_end: "2026-06-30", balance_cents: -524074 }],
+      balances: [
+        { chart_of_accounts_id: "coa-a", period_end: "2026-06-30", balance_cents: -524074 },
+        { chart_of_accounts_id: "coa-b", period_end: "2026-05-31", balance_cents: 100 },
+      ],
       accounts: [{ id: "coa-b", account_name: "Ramp Operating", account_number: "1030" }],
     });
 
@@ -553,8 +560,42 @@ describe("readPeriodCoverage", () => {
       configured: 2,
       withBalance: 1,
       missing: ["1030 · Ramp Operating"],
+      neverUsed: 0,
       balancingDifferenceCents: -524074,
     });
+  });
+
+  it("counts an account that has never been used, without calling it missing", async () => {
+    // October 2026 reported "13 produced nothing" every month. All thirteen
+    // were Buildings & Land, Vehicles, a line of credit never drawn.
+    const db = emptyDb({
+      sources: [
+        { chart_of_accounts_id: "coa-a", active: true },
+        { chart_of_accounts_id: "coa-vehicles", active: true },
+      ],
+      balances: [{ chart_of_accounts_id: "coa-a", period_end: "2026-06-30", balance_cents: 5 }],
+      accounts: [{ id: "coa-vehicles", account_name: "Vehicles", account_number: "1540" }],
+    });
+
+    const coverage = await readPeriodCoverage(makeFakeSupabase(db), "2026-06-30");
+
+    expect(coverage.missing).toEqual([]);
+    expect(coverage.neverUsed).toBe(1);
+  });
+
+  it("does not call an account missing from a month before it was first used", async () => {
+    // Measured against earlier months only: May is not short an account that
+    // first carried a balance in August.
+    const db = emptyDb({
+      sources: [{ chart_of_accounts_id: "coa-late", active: true }],
+      balances: [{ chart_of_accounts_id: "coa-late", period_end: "2026-08-31", balance_cents: 5 }],
+      accounts: [{ id: "coa-late", account_name: "Work in Process", account_number: "1250" }],
+    });
+
+    const coverage = await readPeriodCoverage(makeFakeSupabase(db), "2026-05-31");
+
+    expect(coverage.missing).toEqual([]);
+    expect(coverage.neverUsed).toBe(1);
   });
 
   it("reports null, not zero, for a period that was never snapshotted", async () => {
