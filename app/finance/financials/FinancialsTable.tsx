@@ -132,10 +132,56 @@ function ChannelChip({ channel }: { channel: Channel }) {
   );
 }
 
+// ── Forecast columns ────────────────────────────────────────────────────────
+//
+// Projected months sit to the RIGHT of the Total column, behind a rule and a
+// tint, so the Total stays what it has always been — the sum (or closing
+// balance) of months that happened — and nothing projected can be read as an
+// actual. Present only when the page's forecast toggle is on.
+
+/** "Jan ’27" — a forecast usually crosses a year end, so the year is always shown. */
+function forecastMonthLabel(ym: string): string {
+  return `${monthLabel(ym)} ’${ym.slice(2, 4)}`;
+}
+
+/** How a line's forecast was produced, for the cell's hover text. */
+export type ForecastMethodLookup = (row: FinancialsRow) => string | undefined;
+
+const FORECAST_CELL = "px-2 text-right text-sm font-mono tabular-nums bg-accent-muted/20";
+const FORECAST_FIRST = "border-l border-accent-border/50";
+
+function ForecastCells({ row, forecastMonths, measure, methodFor, className = "py-1.5" }: {
+  row: FinancialsRow | null;
+  forecastMonths: string[];
+  measure: Measure;
+  methodFor?: ForecastMethodLookup | null;
+  className?: string;
+}) {
+  const method = row && methodFor ? methodFor(row) : undefined;
+  return (
+    <>
+      {forecastMonths.map((m, i) => (
+        <td
+          key={`f-${m}`}
+          title={method ? `Forecast — ${method}` : "Forecast"}
+          className={`${className} ${FORECAST_CELL} ${i === 0 ? FORECAST_FIRST : ""}`}
+        >
+          {/* Only dollars are forecast; volume measures have no projected figure. */}
+          {measure === "amount" && row
+            ? <MoneyCell cents={row.amountCentsByMonth[m] ?? 0} />
+            : <span className="text-faint">{EM_DASH}</span>}
+        </td>
+      ))}
+    </>
+  );
+}
+
 // ── Row components ──────────────────────────────────────────────────────────
 
 interface RowCommonProps {
   months: string[];
+  forecastMonths: string[];
+  forecastMethodFor: ForecastMethodLookup | null;
   totalMode: TotalMode;
   measure: Measure;
   isExpanded: (key: string, defaultExpanded: boolean) => boolean;
@@ -169,7 +215,7 @@ const EXPAND_SLOT = "inline-flex w-3 shrink-0 items-center justify-center overfl
 
 /** A single account/sub-account/channel-slice row, recursing into its children when expanded. Depth >= 1 (top-level sections/subtotals are rendered separately). Collapsed by default (unlike sections) so opening a statement doesn't dump the entire CoA depth at once -- drilling into an account's sub-accounts/channel slices is opt-in per row. */
 function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; path: string }) {
-  const { months, measure, isExpanded, toggle, glNumberByCoaId, totalMode } = rest;
+  const { months, measure, isExpanded, toggle, glNumberByCoaId, totalMode, forecastMonths, forecastMethodFor } = rest;
   const key = nodeKey(node, path);
   const expanded = isExpanded(key, false);
   const hasChildren = node.children.length > 0;
@@ -216,6 +262,7 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
         <td className="py-1.5 pl-2 pr-4 text-right text-sm font-mono tabular-nums font-semibold">
           <MeasureTotalCell measure={measure} row={node.row} months={months} totalMode={totalMode} />
         </td>
+        <ForecastCells row={node.row} forecastMonths={forecastMonths} measure={measure} methodFor={forecastMethodFor} />
       </tr>
       {expanded && node.children.map((child, i) => (
         <AccountRow key={nodeKey(child, key) + i} node={child} path={key} {...rest} />
@@ -226,14 +273,14 @@ function AccountRow({ node, path, ...rest }: RowCommonProps & { node: TreeNode; 
 
 /** Top-level section band (Revenue, COGS, Bank & Cash, ...): a static, non-interactive header (never a dropdown -- a section is a presentation grouping, not a real account, so it has nothing of its own to expand/collapse) + its account rows (each individually still collapsible via AccountRow) + a "Total {label}" footer computed from the section's own rolled-up row. */
 function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
-  const { months, measure, totalMode } = rest;
+  const { months, measure, totalMode, forecastMonths } = rest;
   const key = nodeKey(node, "root");
   const hasChildren = node.children.length > 0;
 
   return (
     <>
       <tr className="border-t border-line-strong/60 bg-surface">
-        <td colSpan={months.length + 2} className="py-2 bg-surface">
+        <td colSpan={months.length + 2 + forecastMonths.length} className="py-2 bg-surface">
           {/* This cell spans the full table width, so `sticky left-0` on the td
               itself can't pin anything (it already fills its own row). Instead
               pin a content-width (`w-fit`) inner div so the section title stays
@@ -261,6 +308,7 @@ function SectionBlock({ node, ...rest }: RowCommonProps & { node: TreeNode }) {
         <td className="py-1.5 pl-2 pr-4 text-right text-sm font-mono tabular-nums font-bold text-primary">
           <MeasureTotalCell measure={measure} row={node.row} months={months} totalMode={totalMode} />
         </td>
+        <ForecastCells row={node.row} forecastMonths={forecastMonths} measure={measure} className="py-1.5 font-semibold" />
       </tr>
     </>
   );
@@ -272,7 +320,7 @@ function PercentCell({ pct }: { pct: number | null | undefined }) {
   return <span className={pct < 0 ? "text-danger" : "text-strong"}>{pct.toFixed(1)}%</span>;
 }
 
-function SubtotalBar({ node, months, measure, totalMode }: { node: TreeNode; months: string[]; measure: Measure; totalMode: TotalMode }) {
+function SubtotalBar({ node, months, measure, totalMode, forecastMonths }: { node: TreeNode; months: string[]; measure: Measure; totalMode: TotalMode; forecastMonths: string[] }) {
   // A ratio line (Gross Profit %) has no cents figure and no $/BBL reading:
   // render its percentages whatever the measure, styled like a memo line.
   if (node.isRatio) {
@@ -287,6 +335,11 @@ function SubtotalBar({ node, months, measure, totalMode }: { node: TreeNode; mon
         <td className="py-2 pl-2 pr-4 text-right text-sm font-mono tabular-nums font-bold text-primary">
           <PercentCell pct={node.ratioTotal} />
         </td>
+        {forecastMonths.map((m, i) => (
+          <td key={`f-${m}`} title="Forecast" className={`py-2 font-semibold ${FORECAST_CELL} ${i === 0 ? FORECAST_FIRST : ""}`}>
+            <PercentCell pct={node.ratioByMonth?.[m]} />
+          </td>
+        ))}
       </tr>
     );
   }
@@ -305,6 +358,7 @@ function SubtotalBar({ node, months, measure, totalMode }: { node: TreeNode; mon
       <td className="py-2 pl-2 pr-4 text-right text-sm font-mono tabular-nums font-bold text-primary">
         <MeasureTotalCell measure={measure} row={node.row} months={months} totalMode={totalMode} />
       </td>
+      <ForecastCells row={node.row} forecastMonths={forecastMonths} measure={measure} className="py-2 font-semibold" />
     </tr>
   );
 }
@@ -312,7 +366,7 @@ function SubtotalBar({ node, months, measure, totalMode }: { node: TreeNode; mon
 /** Sortable month/Total header cells only render as <SortableTh> when the caller
  * threads `sort`/`onSort` in (Task 11) — otherwise this falls back to the original
  * plain <th> so FinancialsTable stays usable uncontrolled. */
-function TableHead({ months, sort, onSort, totalMode }: { months: string[]; sort?: SortState; onSort?: (key: string) => void; totalMode: TotalMode }) {
+function TableHead({ months, sort, onSort, totalMode, forecastMonths }: { months: string[]; sort?: SortState; onSort?: (key: string) => void; totalMode: TotalMode; forecastMonths: string[] }) {
   return (
     <thead>
       <tr className="bg-surface border-b border-line sticky top-0 z-10">
@@ -346,12 +400,24 @@ function TableHead({ months, sort, onSort, totalMode }: { months: string[]; sort
         ) : (
           <th className="py-2 pl-2 pr-4 text-right text-xs text-secondary uppercase tracking-wide font-semibold w-28">Total</th>
         )}
+        {forecastMonths.map((m, i) => (
+          <th
+            key={`f-${m}`}
+            title="Forecast"
+            className={`py-2 px-2 text-right text-xs text-accent-soft font-medium w-24 tracking-wide whitespace-nowrap ${i === 0 ? FORECAST_FIRST : ""}`}
+          >
+            {forecastMonthLabel(m)}
+            <span className="block text-faint font-normal">forecast</span>
+          </th>
+        ))}
       </tr>
     </thead>
   );
 }
 
 // ── Root component ───────────────────────────────────────────────────────────
+
+const NO_FORECAST: string[] = [];
 
 interface FinancialsTableProps {
   tree: TreeNode[];
@@ -368,11 +434,14 @@ interface FinancialsTableProps {
   /** coaId -> GL account number, for the "Show GL #" toggle. Omit (or pass []) when the toggle is off -- account rows then skip the GL# column entirely rather than rendering an all-blank one. */
   coaAccounts?: CoaAccountRef[];
   showGlNumbers?: boolean;
+  /** Projected months, drawn after the Total column. Every row in `tree` must carry them. Omit for a statement with no forecast on it. */
+  forecastMonths?: string[];
+  forecastMethodFor?: ForecastMethodLookup;
 }
 
 export default function FinancialsTable({
   tree, months, measure, onToggleExpand, expandedKeys, sort, onSort, coaAccounts, showGlNumbers,
-  totalMode = "sum",
+  totalMode = "sum", forecastMonths = NO_FORECAST, forecastMethodFor,
 }: FinancialsTableProps) {
   const glNumberByCoaId = useMemo(
     () => (showGlNumbers ? new Map((coaAccounts ?? []).map((c) => [c.id, c.accountNumber])) : null),
@@ -408,15 +477,15 @@ export default function FinancialsTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-xs" style={{ minWidth: `${months.length * 96 + 280}px` }}>
-        <TableHead months={months} sort={sort} onSort={onSort} totalMode={totalMode} />
+      <table className="w-full border-collapse text-xs" style={{ minWidth: `${(months.length + forecastMonths.length) * 96 + 280}px` }}>
+        <TableHead months={months} sort={sort} onSort={onSort} totalMode={totalMode} forecastMonths={forecastMonths} />
         <tbody>
           {tree.map((node, i) => {
-            const rowProps = { months, measure, isExpanded, toggle, glNumberByCoaId, totalMode };
+            const rowProps = { months, measure, isExpanded, toggle, glNumberByCoaId, totalMode, forecastMonths, forecastMethodFor: forecastMethodFor ?? null };
             return node.isSection ? (
               <SectionBlock key={nodeKey(node, "root") + i} node={node} {...rowProps} />
             ) : (
-              <SubtotalBar key={nodeKey(node, "root") + i} node={node} months={months} measure={measure} totalMode={totalMode} />
+              <SubtotalBar key={nodeKey(node, "root") + i} node={node} months={months} measure={measure} totalMode={totalMode} forecastMonths={forecastMonths} />
             );
           })}
         </tbody>

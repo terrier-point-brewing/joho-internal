@@ -46,6 +46,9 @@ import { totalModeFor } from "@/lib/finance/financials/statementTotal";
 import SpendWatchTab, { type SpendBasis } from "./SpendWatchTab";
 import { defaultFocusMonth } from "@/lib/finance/financials/spendWatch";
 import { todayLocalDate } from "@/lib/utils/datetime";
+import { buildForecast, methodKey } from "@/lib/finance/forecast/forecast";
+import type { ForecastDrivers } from "@/lib/finance/forecast/types";
+import { ForecastAssumptionsModal, ForecastSummary, changedLeverCount, useForecastSettings } from "./ForecastPanel";
 
 /**
  * What the tab bar switches between: the three statements, plus Spend Watch,
@@ -222,6 +225,40 @@ export default function FinancialsClient({
   }
 
   const openMonth = todayLocalDate().slice(0, 7);
+
+  // ── Forecast ───────────────────────────────────────────────────────────────
+  // One switch for the whole page. It appends projected months to the P&L and
+  // the cash flow; the balance sheet has no forecast (a projected balance sheet
+  // has to balance, which is a different piece of work), and neither does a
+  // past year, which has nothing left to project.
+  const forecast = useForecastSettings();
+  const [assumptionsOpen, setAssumptionsOpen] = useState(false);
+  const forecastAvailable = view !== "spend_watch" && statement !== "balance_sheet" && year === initialYear;
+  const forecastActive = forecast.on && forecastAvailable;
+
+  const { data: drivers, error: driversError } = useQuery({
+    queryKey: queryKeys.finance.forecastDrivers(),
+    queryFn: () => fetchJson<ForecastDrivers>("/api/finance/forecast"),
+    enabled: forecastActive,
+    staleTime: 5 * 60_000,
+  });
+
+  // Computed here, from the very rows the statement renders, so a projected
+  // month can never be built on a different set of figures than the actual
+  // months beside it. Null until both halves have arrived.
+  const forecastResult = useMemo(
+    () =>
+      forecastActive && data && drivers
+        ? buildForecast({ rows: data.rows, months: data.months, coaAccounts: data.coaAccounts, statement, drivers, assumptions: forecast.assumptions })
+        : null,
+    [forecastActive, data, drivers, statement, forecast.assumptions],
+  );
+  const statementRows = forecastResult?.rows ?? data?.rows ?? EMPTY_ROWS;
+  const forecastMethodFor = useMemo(() => {
+    const byKey = forecastResult?.methodByKey;
+    if (!byKey) return undefined;
+    return (row: FinancialsRow) => byKey[methodKey(row, row.channel)] ?? byKey[methodKey(row, "*")];
+  }, [forecastResult]);
   const resolvedFocusMonth =
     focusMonth && data?.months.includes(focusMonth)
       ? focusMonth
@@ -242,7 +279,7 @@ export default function FinancialsClient({
 
   const {
     rows: survivorRows, search, filters, sort, setSearch, setFilter, toggleSort, reset, activeCount,
-  } = useTableControls(data?.rows ?? EMPTY_ROWS, financialsControls, { prefix: "fin_" });
+  } = useTableControls(statementRows, financialsControls, { prefix: "fin_" });
 
   const sectionOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -260,12 +297,14 @@ export default function FinancialsClient({
   // retainAncestors adds back any parent account rows a surviving child
   // needs so it never renders orphaned under nothing.
   const treeRows = useMemo(
-    () => retainAncestors(survivorRows, data?.rows ?? EMPTY_ROWS),
-    [survivorRows, data],
+    () => retainAncestors(survivorRows, statementRows),
+    [survivorRows, statementRows],
   );
 
   const tree = useMemo(
-    () => (data ? buildTree(treeRows, statement, data.coaAccounts) : []),
+    // data.months bounds the period ratios: with the forecast on, the rows
+    // carry projected months that must not move a Total.
+    () => (data ? buildTree(treeRows, statement, data.coaAccounts, data.months) : []),
     [data, treeRows, statement],
   );
 
@@ -360,7 +399,40 @@ export default function FinancialsClient({
             onMeasure={setMeasure}
             measureAvailable={statement === "pl"}
           />
+          <div className="flex items-center gap-1.5">
+            <span title={forecastAvailable ? undefined : "The forecast covers the P&L and Cash Flow for the current year"}>
+              <ToggleChip active={forecastActive} disabled={!forecastAvailable} onClick={() => forecast.setOn(!forecast.on)}>
+                Forecast
+              </ToggleChip>
+            </span>
+            {forecastActive && drivers && (
+              <button type="button" className="btn-secondary" onClick={() => setAssumptionsOpen(true)}>
+                Assumptions{changedLeverCount(forecast.assumptions) > 0 ? ` (${changedLeverCount(forecast.assumptions)})` : ""}
+              </button>
+            )}
+          </div>
         </FilterBar>
+
+        {forecastActive && driversError && (
+          <Banner className="mb-4">
+            Forecast unavailable: {driversError instanceof Error ? driversError.message : "failed to load"}
+          </Banner>
+        )}
+        {forecastActive && data && drivers && !forecastResult && (
+          <Banner className="mb-4">No finished month to forecast from yet.</Banner>
+        )}
+        {forecastResult && drivers && statement !== "balance_sheet" && (
+          <ForecastSummary result={forecastResult} drivers={drivers} statement={statement} />
+        )}
+        {assumptionsOpen && drivers && (
+          <ForecastAssumptionsModal
+            assumptions={forecast.assumptions}
+            onChange={forecast.setAssumptions}
+            drivers={drivers}
+            forecastMonths={forecastResult?.forecastMonths ?? []}
+            onClose={() => setAssumptionsOpen(false)}
+          />
+        )}
 
         {isFetching && !data && (
           <div className="flex items-center justify-center h-32">
@@ -379,6 +451,8 @@ export default function FinancialsClient({
               coaAccounts={data.coaAccounts}
               showGlNumbers={showGlNumbers}
               totalMode={totalMode}
+              forecastMonths={forecastResult?.forecastMonths}
+              forecastMethodFor={forecastMethodFor}
             />
           </div>
         )}
