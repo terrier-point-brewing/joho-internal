@@ -24,7 +24,7 @@
 // depth 0 + isSection -> section header; depth 0 + !isSection -> a top-level
 // subtotal (Total Income, Gross Profit, ...); depth > 0 -> account or slice.
 
-import { CREDIT_SIDE_SECTIONS } from "@/lib/finance/financials/statementTotal";
+import { CREDIT_SIDE_SECTIONS, type TotalMode } from "@/lib/finance/financials/statementTotal";
 import { isManualAdjustmentRow } from "@/lib/finance/financials/manualAdjustment";
 import type { BblCoverage, FinancialsRow, StatementKind } from "@/lib/finance/financials/types";
 import { CHANNEL_LABEL } from "./channelColors";
@@ -43,6 +43,10 @@ export interface TreeNode {
   isRatio?: boolean;
   ratioByMonth?: Record<string, number | null>;
   ratioTotal?: number | null;
+  /** The two lines a ratio divides, per month key, so a caller can form the ratio over ANY set of columns (the forecast's "with forecast" total, or the open month plus what is still to come) instead of only the ones precomputed above. */
+  ratioParts?: { numerator: Record<string, number>; denominator: Record<string, number> };
+  /** Overrides the table's own total rule for this one line: a balance drawn on a flow statement (the cash-flow forecast's projected cash) closes rather than sums. */
+  totalMode?: TotalMode;
 }
 
 /** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below), to sort siblings by GL number, and to seed a real-but-currently-unused root account as a $0 line (see seedEmptyRootAccounts). `statementSection` is the SAME derived value aggregateRows.ts's coaSection() would assign this account if it ever got a posting -- computed once server-side (buildFinancials.ts) for every CoA account, not just posted-to ones. */
@@ -561,7 +565,10 @@ function ratio(label: string, numerator: TreeNode, denominator: TreeNode, months
     numTotal += num;
     denTotal += den;
   }
-  return { row: null, label, children: [], depth: 0, isSection: false, isRatio: true, ratioByMonth, ratioTotal: pct(numTotal, denTotal) };
+  return {
+    row: null, label, children: [], depth: 0, isSection: false, isRatio: true, ratioByMonth, ratioTotal: pct(numTotal, denTotal),
+    ratioParts: { numerator: numerator.row?.amountCentsByMonth ?? {}, denominator: denominator.row?.amountCentsByMonth ?? {} },
+  };
 }
 
 /** A memo line: a subtotal-shaped node flagged isMemo (see TreeNode). Summed like any subtotal, but no later subtotal includes it. */

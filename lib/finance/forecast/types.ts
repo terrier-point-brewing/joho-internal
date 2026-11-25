@@ -107,6 +107,16 @@ export const BASE_ASSUMPTIONS: ForecastAssumptions = {
 export interface ForecastResult {
   /** The months the forecast is extrapolated from. */
   trailingMonths: string[];
+  /** The month in progress. */
+  openMonth: string;
+  /**
+   * The key every row carries the REST of the open month under, or null when
+   * the statement does not show the open month. On a flow statement it is an
+   * amount still to come (actual so far + this = the month); on the balance
+   * sheet it is the projected balance at month end.
+   */
+  restKey: string | null;
+  daysLeftInOpenMonth: number;
   forecastMonths: string[];
   /** The statement's rows with the forecast months added, plus any scenario rows. */
   rows: FinancialsRow[];
@@ -116,6 +126,32 @@ export interface ForecastResult {
   netCentsByMonth: Record<string, number>;
   /** Projected shipped bbl, all channels. */
   shippedBblByMonth: Record<string, number>;
-  /** Cash flow only: projected cash at each forecast month end. Null when cash on hand is unknown. */
+  /** Cash flow only: projected cash at the end of the open month and of each forecast month. Null when cash on hand is unknown. */
   cashEndCentsByMonth: Record<string, number> | null;
+  /** Cash flow only: the projected-cash line, shaped like a statement row so the table can draw it. */
+  cashRow: FinancialsRow | null;
+}
+
+/** The headline of a cash projection, for the runway callout. */
+export interface CashOutlook {
+  todayCents: number;
+  endMonth: string;
+  endCents: number;
+  lowMonth: string;
+  lowCents: number;
+  /** First month cash ends below zero, if any inside the horizon. */
+  runsOutMonth: string | null;
+  /** Months the ending cash lasts at the forecast's average monthly burn. Null when not burning. */
+  runwayMonthsAfter: number | null;
+}
+
+/** One saved forecast figure: what was expected for `targetMonth`, as it stood in `madeMonth`. */
+export interface ForecastSnapshot {
+  madeMonth: string;
+  targetMonth: string;
+  statement: "pl" | "cash_flow";
+  revenueCents: number;
+  netCents: number;
+  shippedBbl: number;
+  madeOn: string;
 }

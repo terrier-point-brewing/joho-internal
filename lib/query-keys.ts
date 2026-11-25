@@ -112,6 +112,8 @@ export const queryKeys = {
     financials: (statement: string, year: number) => ["finance", "financials", statement, year] as const,
     /** Production + invoice history behind the Financials forecast toggle. */
     forecastDrivers: () => ["finance", "forecast-drivers"] as const,
+    /** Saved base-case forecasts, for the forecast accuracy panel. */
+    forecastSnapshots: () => ["finance", "forecast-snapshots"] as const,
     /** Manual entries (Finance > Transactions), keyed by kind + year filter. */
     manualEntries: (kind: string, year: number) => ["finance", "manual-entries", kind, year] as const,
     /** Balance-sheet account → provider source declarations (Settings > Finance > Balance Sheet Accounts). */

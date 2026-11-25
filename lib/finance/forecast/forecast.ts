@@ -16,12 +16,25 @@
 // "Recent" is the last three ENDED months — the open month is partial and
 // would read as a collapse.
 //
+// The open month gets its own projection: what is still to come before month
+// end. Lines that flow daily (taproom, card fees) are pro-rated over the days
+// left; beer on invoice follows the shipments still due this month; everything
+// else is a bill, which "catches up" to its expected monthly amount — rent
+// already paid adds nothing, payroll half-paid adds the other half.
+//
 // Pure and client-safe. It only ever ADDS month keys to copies of the rows it
 // is given; a month that has happened is returned exactly as it arrived.
 
 import type { CoaAccountRef, FinancialsRow } from "@/lib/finance/financials/types";
 import { addMonths, daysBetween, monthBounds, projectShipments } from "./drawdown";
-import { DRAWDOWN_CHANNELS, type DrawdownChannel, type ForecastAssumptions, type ForecastDrivers, type ForecastResult } from "./types";
+import {
+  DRAWDOWN_CHANNELS,
+  type CashOutlook,
+  type DrawdownChannel,
+  type ForecastAssumptions,
+  type ForecastDrivers,
+  type ForecastResult,
+} from "./types";
 
 const TRAILING_WINDOW = 3;
 const PL_SECTIONS: ReadonlySet<string> = new Set(["revenue", "other_income", "cogs", "expenses", "other_expense"]);
@@ -38,6 +51,11 @@ const INVOICE_CHANNEL: Partial<Record<FinancialsRow["channel"], DrawdownChannel>
 /** Identity of a line for the "how was this forecast" lookup. `channel` "*" is the whole account. */
 export function methodKey(row: Pick<FinancialsRow, "coaId" | "accountName">, channel: string): string {
   return `${row.coaId ?? `unmapped:${row.accountName}`}|${channel}`;
+}
+
+/** The key a row carries the rest of the open month under. Never a real month, so no actual can collide with it. */
+export function restKeyOf(month: string): string {
+  return `${month}:rest`;
 }
 
 function pct(value: number): number {
@@ -76,8 +94,28 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
 
   const forecastMonths = Array.from({ length: a.horizonMonths }, (_, i) => addMonths(openMonth, i + 1));
 
+  // ── The open month ────────────────────────────────────────────────────────
+  const hasOpen = months.includes(openMonth);
+  const restKey = hasOpen ? restKeyOf(openMonth) : null;
+  const openBounds = monthBounds(openMonth);
+  const daysInOpen = daysBetween(openBounds.start, openBounds.end);
+  // Today's activity is already in the actuals, so today is not a day "left".
+  const daysLeft = hasOpen ? Math.max(0, daysBetween(drivers.asOf, openBounds.end) - 1) : 0;
+  const restShare = daysLeft / daysInOpen;
+  const proRata = (expected: number) => expected * restShare;
+  /** What a bill still owes this month: the gap up to its expected amount, never a reversal. */
+  const catchUp = (row: FinancialsRow, expected: number): number => {
+    if (daysLeft === 0 || expected === 0) return 0;
+    const actual = row.amountCentsByMonth[openMonth] ?? 0;
+    if (actual === 0) return expected;
+    if (Math.sign(actual) !== Math.sign(expected) || Math.abs(actual) >= Math.abs(expected)) return 0;
+    return expected - actual;
+  };
+
   // ── Volume ────────────────────────────────────────────────────────────────
-  const projected = projectShipments(drivers, forecastMonths, a);
+  // The open month is projected alongside the forecast months: for it,
+  // projectShipments only counts what leaves after today.
+  const projected = projectShipments(drivers, [openMonth, ...forecastMonths], a);
   const recentShipped = (c: DrawdownChannel) => mean(trailing.map((m) => drivers.shippedBblByMonth[c][m] ?? 0));
   /** Projected ÷ recent shipments for a channel; 1 where there is no recent volume to compare against. */
   const volumeFactor = (c: DrawdownChannel, m: string): number => {
@@ -86,7 +124,7 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
   };
   const recentShippedAll = DRAWDOWN_CHANNELS.reduce((sum, c) => sum + recentShipped(c), 0);
   const shippedBblByMonth: Record<string, number> = {};
-  for (const m of forecastMonths) shippedBblByMonth[m] = DRAWDOWN_CHANNELS.reduce((sum, c) => sum + projected[c][m], 0);
+  for (const m of [openMonth, ...forecastMonths]) shippedBblByMonth[m] = DRAWDOWN_CHANNELS.reduce((sum, c) => sum + projected[c][m], 0);
   const allVolumeFactor = (m: string) => (recentShippedAll > 0 ? shippedBblByMonth[m] / recentShippedAll : 1);
 
   const pausedShare = (c: DrawdownChannel): number =>
@@ -114,40 +152,59 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
   };
 
   const forecastByRow: number[][] = rows.map(() => forecastMonths.map(() => 0));
+  /** Still to come in the open month, per row. */
+  const restByRow: number[] = rows.map(() => 0);
   const methodByRow: string[] = rows.map(() => "");
   const cogsRows: number[] = [];
 
   // Pass 1: every line that does not depend on total revenue.
   rows.forEach((row, i) => {
     const avg = avgOf(row);
-    const set = (method: string, value: (m: string, monthIndex: number) => number) => {
+    const last = row.amountCentsByMonth[lastTrailing] ?? 0;
+    // `rest` is the open month's remainder. A bill catches up to its UNLEVERED
+    // expected amount: a lever describes the months ahead, and applying it to
+    // a whole month's bill in the last few days would overstate it.
+    const set = (method: string, value: (m: string, monthIndex: number) => number, rest: number) => {
       methodByRow[i] = method;
       forecastByRow[i] = forecastMonths.map((m, k) => value(m, k));
+      restByRow[i] = hasOpen ? rest : 0;
     };
 
-    if (!PL_SECTIONS.has(row.statementSection)) return set("Not forecast", () => 0);
-    if (row.coaId && payroll.has(row.coaId)) return set("Payroll: recent average", () => avg * pct(a.payrollPct));
+    if (!PL_SECTIONS.has(row.statementSection)) return set("Not forecast", () => 0, 0);
+    if (row.coaId && payroll.has(row.coaId)) return set("Payroll: recent average", () => avg * pct(a.payrollPct), catchUp(row, avg));
     if (row.sourceRef.table === "depreciation_schedules") {
-      return set("Depreciation: last month's figure", () => row.amountCentsByMonth[lastTrailing] ?? 0);
+      return set("Depreciation: last month's figure", () => last, catchUp(row, last));
     }
-    if (exciseCoaId && row.coaId === exciseCoaId) return set("Excise: recent average × projected shipments", (m) => avg * allVolumeFactor(m));
-    if (row.sourceRef.table === "square_payment_fees") return set("Card fees: recent average × taproom sales", (_m, k) => avg * taproomFactor(k));
+    if (exciseCoaId && row.coaId === exciseCoaId) {
+      return set(
+        "Excise: recent average × projected shipments",
+        (m) => avg * allVolumeFactor(m),
+        recentShippedAll > 0 ? avg * allVolumeFactor(openMonth) : proRata(avg),
+      );
+    }
+    if (row.sourceRef.table === "square_payment_fees") {
+      return set("Card fees: recent average × taproom sales", (_m, k) => avg * taproomFactor(k), proRata(avg));
+    }
 
     if (row.statementSection === "revenue") {
       const channel = INVOICE_CHANNEL[row.channel];
       if (channel) {
         const lever = priceFactor(channel) * (1 - pausedShare(channel));
-        return set("Drawdown: recent revenue × projected shipments", (m) => avg * volumeFactor(channel, m) * lever);
+        return set(
+          "Drawdown: recent revenue × projected shipments",
+          (m) => avg * volumeFactor(channel, m) * lever,
+          recentShipped(channel) > 0 ? avg * volumeFactor(channel, openMonth) * lever : proRata(avg * lever),
+        );
       }
-      if (row.channel === "taproom") return set("Taproom: recent average", (_m, k) => avg * taproomFactor(k));
+      if (row.channel === "taproom") return set("Taproom: recent average", (_m, k) => avg * taproomFactor(k), proRata(avg));
       // Events are lumpy and refunds/discounts carry no channel: neither has a
       // lever, so both simply repeat their recent average.
-      return set("Recent average", () => avg);
+      return set("Recent average", () => avg, catchUp(row, avg));
     }
 
     if (row.statementSection === "cogs") {
       if (statement === "cash_flow") {
-        return set("Purchases: recent average × brewing pace", () => avg * brewPaceFactor * pct(a.ingredientCostPct));
+        return set("Purchases: recent average × brewing pace", () => avg * brewPaceFactor * pct(a.ingredientCostPct), catchUp(row, avg));
       }
       cogsRows.push(i);
       return;
@@ -155,11 +212,11 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
 
     if (row.statementSection === "expenses") {
       return isSteady(row)
-        ? set("Fixed cost: last month's amount", () => (row.amountCentsByMonth[lastTrailing] ?? 0) * pct(a.otherOpexPct))
-        : set("Recent average", () => avg * pct(a.otherOpexPct));
+        ? set("Fixed cost: last month's amount", () => last * pct(a.otherOpexPct), catchUp(row, last))
+        : set("Recent average", () => avg * pct(a.otherOpexPct), catchUp(row, avg));
     }
 
-    return set("Recent average", () => avg);
+    return set("Recent average", () => avg, catchUp(row, avg));
   });
 
   // Pass 2: P&L cost of goods holds its recent share of revenue.
@@ -173,6 +230,9 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
       const factor = recentRevenue !== 0 ? revenue / recentRevenue : 1;
       return avg * factor * pct(a.ingredientCostPct);
     });
+    // The rest of the open month costs its share of the revenue still to come.
+    const restRevenue = revenueIdx.reduce((sum, r) => sum + restByRow[r], 0);
+    restByRow[i] = hasOpen ? (recentRevenue !== 0 ? avg * (restRevenue / recentRevenue) : proRata(avg)) : 0;
   }
 
   // Cash flow only: slower collection pushes part of each month's invoiced
@@ -188,11 +248,14 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
   }
 
   // ── Assemble ──────────────────────────────────────────────────────────────
-  const zeroBbl = Object.fromEntries(forecastMonths.map((m) => [m, 0]));
+  // Every key the forecast adds to a row, in column order.
+  const addedKeys = [...(restKey ? [restKey] : []), ...forecastMonths];
+  const zeroBbl = Object.fromEntries(addedKeys.map((m) => [m, 0]));
   const merged: FinancialsRow[] = rows.map((row, i) => ({
     ...row,
     amountCentsByMonth: {
       ...row.amountCentsByMonth,
+      ...(restKey ? { [restKey]: Math.round(restByRow[i]) || 0 } : {}),
       ...Object.fromEntries(forecastMonths.map((m, k) => [m, Math.round(forecastByRow[i][k]) || 0])),
     },
     bblByMonth: { ...row.bblByMonth, ...zeroBbl },
@@ -221,6 +284,7 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
       kegSize: null,
       amountCentsByMonth: {
         ...Object.fromEntries(months.map((m) => [m, 0])),
+        ...(restKey ? { [restKey]: 0 } : {}),
         ...Object.fromEntries(
           forecastMonths.map((m) => [m, (item.recurring ? m >= item.startMonth : m === item.startMonth) ? 0 - item.amountCents : 0]),
         ),
@@ -237,7 +301,7 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
 
   const revenueCentsByMonth: Record<string, number> = {};
   const netCentsByMonth: Record<string, number> = {};
-  for (const m of forecastMonths) {
+  for (const m of addedKeys) {
     revenueCentsByMonth[m] = 0;
     netCentsByMonth[m] = 0;
     for (const row of merged) {
@@ -248,20 +312,227 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
     }
   }
 
-  // Projected cash: today's cash, plus the rest of the open month at the first
-  // forecast month's rate, plus each forecast month's net operating cash.
+  // Projected cash: today's cash, plus what is still to come this month, plus
+  // each forecast month's net operating cash.
   let cashEndCentsByMonth: Record<string, number> | null = null;
+  let cashRow: FinancialsRow | null = null;
   if (statement === "cash_flow" && drivers.cashOnHandCents !== null) {
-    const open = monthBounds(openMonth);
-    const daysInOpen = daysBetween(open.start, open.end);
-    const daysLeft = Math.max(0, daysBetween(drivers.asOf, open.end) - 1);
-    let cash = drivers.cashOnHandCents + (netCentsByMonth[forecastMonths[0]] * daysLeft) / daysInOpen;
+    let cash = drivers.cashOnHandCents + (restKey ? netCentsByMonth[restKey] : 0);
     cashEndCentsByMonth = {};
+    if (hasOpen) cashEndCentsByMonth[openMonth] = Math.round(cash);
     for (const m of forecastMonths) {
       cash += netCentsByMonth[m];
       cashEndCentsByMonth[m] = Math.round(cash);
     }
+    // A balance, not a flow: the open month's own cell is today's cash and its
+    // rest-of-month cell is the month-end figure, exactly as on the balance sheet.
+    cashRow = {
+      coaId: null,
+      parentId: null,
+      accountName: "Projected cash",
+      statementSection: "other",
+      channel: "unknown",
+      posCategory: null,
+      kegSize: null,
+      amountCentsByMonth: {
+        ...Object.fromEntries(months.map((m) => [m, m === openMonth ? drivers.cashOnHandCents ?? 0 : 0])),
+        ...(restKey ? { [restKey]: cashEndCentsByMonth[openMonth] } : {}),
+        ...Object.fromEntries(forecastMonths.map((m) => [m, cashEndCentsByMonth![m]])),
+      },
+      bblByMonth: { ...Object.fromEntries(months.map((m) => [m, 0])), ...zeroBbl },
+      bblCoverage: "full",
+      mappingSource: "rule",
+      sourceRef: { table: "forecast_cash" },
+    };
+    note(methodKey(cashRow, cashRow.channel), "Cash today + forecast net operating cash. Loans, owner draws and equipment purchases are not included unless you add them as items.");
   }
 
-  return { trailingMonths: trailing, forecastMonths, rows: merged, methodByKey, revenueCentsByMonth, netCentsByMonth, shippedBblByMonth, cashEndCentsByMonth };
+  return {
+    trailingMonths: trailing,
+    openMonth,
+    restKey,
+    daysLeftInOpenMonth: daysLeft,
+    forecastMonths,
+    rows: merged,
+    methodByKey,
+    revenueCentsByMonth,
+    netCentsByMonth,
+    shippedBblByMonth,
+    cashEndCentsByMonth,
+    cashRow,
+  };
+}
+
+/** Revenue and net (income or operating cash) per actual month, summed exactly as the forecast's own headline figures are. */
+export function actualsByMonth(rows: FinancialsRow[], months: string[]): { revenue: Record<string, number>; net: Record<string, number> } {
+  const revenue: Record<string, number> = {};
+  const net: Record<string, number> = {};
+  for (const m of months) {
+    revenue[m] = 0;
+    net[m] = 0;
+    for (const row of rows) {
+      if (!PL_SECTIONS.has(row.statementSection)) continue;
+      const cents = row.amountCentsByMonth[m] ?? 0;
+      net[m] += cents;
+      if (row.statementSection === "revenue") revenue[m] += cents;
+    }
+  }
+  return { revenue, net };
+}
+
+// ── Cash outlook ────────────────────────────────────────────────────────────
+
+/** The runway headline of a cash-flow forecast. Null when the forecast carries no cash projection. */
+export function cashOutlook(result: ForecastResult, cashOnHandCents: number | null): CashOutlook | null {
+  const cash = result.cashEndCentsByMonth;
+  if (!cash || cashOnHandCents === null || result.forecastMonths.length === 0) return null;
+  const points = [...(result.restKey ? [result.openMonth] : []), ...result.forecastMonths];
+  const endMonth = points[points.length - 1];
+  let lowMonth = points[0];
+  for (const m of points) if (cash[m] < cash[lowMonth]) lowMonth = m;
+  const avgNet = result.forecastMonths.reduce((sum, m) => sum + result.netCentsByMonth[m], 0) / result.forecastMonths.length;
+  return {
+    todayCents: cashOnHandCents,
+    endMonth,
+    endCents: cash[endMonth],
+    lowMonth,
+    lowCents: cash[lowMonth],
+    runsOutMonth: points.find((m) => cash[m] < 0) ?? null,
+    runwayMonthsAfter: avgNet < 0 && cash[endMonth] > 0 ? cash[endMonth] / -avgNet : null,
+  };
+}
+
+// ── Balance sheet ───────────────────────────────────────────────────────────
+
+/** Where forecast activity lands on the balance sheet. */
+const ACCUMULATED_DEPRECIATION_ACCOUNT = "1590";
+const RETAINED_EARNINGS_ACCOUNT = "3300";
+
+export interface BalanceSheetForecastInput {
+  rows: FinancialsRow[];
+  months: string[];
+  coaAccounts: CoaAccountRef[];
+  /** The P&L and cash-flow forecasts for the SAME assumptions. */
+  pl: ForecastResult;
+  cashFlow: ForecastResult;
+}
+
+/**
+ * The balance sheet rolled forward from the other two forecasts, so the three
+ * statements agree by construction:
+ *
+ *   Cash                      + forecast net operating cash  (largest bank account)
+ *   Accumulated depreciation  + forecast depreciation
+ *   Retained earnings         + forecast net income
+ *   Everything else           held at its latest balance
+ *
+ * Profit and cash never move by the same amount — an invoice raised is not an
+ * invoice paid — and that difference has to sit somewhere or the sheet stops
+ * balancing. It is shown as one honest line, "Forecast timing differences",
+ * rather than guessed across receivables, payables and inventory. The
+ * Balancing Difference therefore stays exactly what it is today.
+ *
+ * Rows are in the internal sign convention (assets positive, liabilities and
+ * equity negative), which is what buildTree expects.
+ */
+export function buildBalanceSheetForecast(input: BalanceSheetForecastInput): ForecastResult | null {
+  const { rows, months, coaAccounts, pl, cashFlow } = input;
+  if (rows.length === 0 || months.length === 0) return null;
+  const lastMonth = months[months.length - 1];
+  const restKey = months.includes(pl.openMonth) ? restKeyOf(pl.openMonth) : null;
+  const keys = [...(restKey ? [restKey] : []), ...pl.forecastMonths];
+
+  // Cumulative movement since today, per added key.
+  const running = (by: (key: string) => number): Record<string, number> => {
+    let total = 0;
+    return Object.fromEntries(keys.map((k) => [k, (total += by(k))]));
+  };
+  // Both statements key the rest of the open month the same way, and one that
+  // does not show the open month simply carries no figure for it.
+  const cumCash = running((k) => cashFlow.netCentsByMonth[k] ?? 0);
+  const cumNet = running((k) => pl.netCentsByMonth[k] ?? 0);
+  const cumDepreciation = running((k) =>
+    pl.rows.filter((r) => r.sourceRef.table === "depreciation_schedules").reduce((sum, r) => sum + (r.amountCentsByMonth[k] ?? 0), 0),
+  );
+
+  const coaIdOf = (accountNumber: string) => coaAccounts.find((c) => c.accountNumber === accountNumber)?.id ?? null;
+  const indexOfAccount = (accountNumber: string) => {
+    const id = coaIdOf(accountNumber);
+    return id ? rows.findIndex((r) => r.coaId === id) : -1;
+  };
+  const bankIdx = rows
+    .map((r, i) => ({ i, size: r.statementSection === "bank" ? Math.abs(r.amountCentsByMonth[lastMonth] ?? 0) : -1 }))
+    .filter((x) => x.size >= 0)
+    .sort((x, y) => y.size - x.size)[0]?.i ?? -1;
+  const depreciationIdx = indexOfAccount(ACCUMULATED_DEPRECIATION_ACCOUNT);
+  const earningsIdx = indexOfAccount(RETAINED_EARNINGS_ACCOUNT);
+
+  const movements: { index: number; section: string; label: string; method: string; delta: Record<string, number> }[] = [
+    { index: bankIdx, section: "bank", label: "Forecast: cash movement", method: "Cash: latest balance + forecast net operating cash", delta: cumCash },
+    { index: depreciationIdx, section: "fixed_assets", label: "Forecast: depreciation", method: "Accumulated depreciation: latest balance + forecast depreciation", delta: cumDepreciation },
+    // Equity is stored negative, so a profit makes it more negative.
+    { index: earningsIdx, section: "equity", label: "Forecast: earnings", method: "Retained earnings: latest balance + forecast net income", delta: Object.fromEntries(keys.map((k) => [k, 0 - cumNet[k]])) },
+  ];
+
+  const methodByKey: Record<string, string> = {};
+  const held = (row: FinancialsRow) => Object.fromEntries(keys.map((k) => [k, row.amountCentsByMonth[lastMonth] ?? 0]));
+  const zeroBbl = Object.fromEntries(keys.map((k) => [k, 0]));
+  const merged: FinancialsRow[] = rows.map((row) => {
+    methodByKey[methodKey(row, row.channel)] = methodByKey[methodKey(row, "*")] = "Held at the latest balance";
+    return { ...row, amountCentsByMonth: { ...row.amountCentsByMonth, ...held(row) }, bblByMonth: { ...row.bblByMonth, ...zeroBbl } };
+  });
+
+  const synthetic = (section: string, label: string, method: string, delta: Record<string, number>): void => {
+    const row: FinancialsRow = {
+      coaId: null,
+      parentId: null,
+      accountName: label,
+      statementSection: section,
+      channel: "unknown",
+      posCategory: null,
+      kegSize: null,
+      amountCentsByMonth: { ...Object.fromEntries(months.map((m) => [m, 0])), ...Object.fromEntries(keys.map((k) => [k, Math.round(delta[k]) || 0])) },
+      bblByMonth: { ...Object.fromEntries(months.map((m) => [m, 0])), ...zeroBbl },
+      bblCoverage: "full",
+      mappingSource: "manual",
+      sourceRef: { table: "forecast_scenario" },
+    };
+    merged.push(row);
+    methodByKey[methodKey(row, row.channel)] = methodByKey[methodKey(row, "*")] = method;
+  };
+
+  for (const mv of movements) {
+    if (mv.index < 0) {
+      // The account carries no balance yet, so there is no line to move.
+      synthetic(mv.section, mv.label, mv.method, mv.delta);
+      continue;
+    }
+    const row = merged[mv.index];
+    for (const k of keys) row.amountCentsByMonth[k] += Math.round(mv.delta[k]) || 0;
+    methodByKey[methodKey(row, row.channel)] = methodByKey[methodKey(row, "*")] = mv.method;
+  }
+
+  // Whatever the three movements leave unbalanced: profit earned but not yet
+  // collected (or cash paid for costs not yet expensed). An asset when positive.
+  synthetic(
+    "other_current_assets",
+    "Forecast: timing differences",
+    "Forecast profit not yet collected, less costs not yet paid — the gap between forecast net income and forecast cash",
+    Object.fromEntries(keys.map((k) => [k, 0 - movements.reduce((sum, mv) => sum + (Math.round(mv.delta[k]) || 0), 0)])),
+  );
+
+  return {
+    trailingMonths: pl.trailingMonths,
+    openMonth: pl.openMonth,
+    restKey,
+    daysLeftInOpenMonth: pl.daysLeftInOpenMonth,
+    forecastMonths: pl.forecastMonths,
+    rows: merged,
+    methodByKey,
+    revenueCentsByMonth: {},
+    netCentsByMonth: {},
+    shippedBblByMonth: {},
+    cashEndCentsByMonth: null,
+    cashRow: null,
+  };
 }

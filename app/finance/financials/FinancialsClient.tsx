@@ -15,7 +15,7 @@
 // (as this did) could disagree with the server's on New Year's Eve; deriving the
 // statement from useSearchParams() meant the value only existed after hydration.
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchJson } from "@/app/production/hooks/queries";
@@ -40,15 +40,15 @@ import CloseTasksBanner from "../CloseTasksBanner";
 import FinancialsTable from "./FinancialsTable";
 import DataQualityPanel from "./DataQualityPanel";
 import ExportButton from "./ExportButton";
-import { buildTree } from "./buildTree";
+import { buildTree, type TreeNode } from "./buildTree";
 import { buildFinancialsControls, retainAncestors, CHANNEL_OPTIONS, QUALITY_OPTIONS, SECTION_LABEL } from "./controls";
 import { totalModeFor } from "@/lib/finance/financials/statementTotal";
 import SpendWatchTab, { type SpendBasis } from "./SpendWatchTab";
 import { defaultFocusMonth } from "@/lib/finance/financials/spendWatch";
 import { todayLocalDate } from "@/lib/utils/datetime";
-import { buildForecast, methodKey } from "@/lib/finance/forecast/forecast";
-import type { ForecastDrivers } from "@/lib/finance/forecast/types";
-import { ForecastAssumptionsModal, ForecastSummary, changedLeverCount, useForecastSettings } from "./ForecastPanel";
+import { actualsByMonth, buildBalanceSheetForecast, buildForecast, methodKey } from "@/lib/finance/forecast/forecast";
+import type { ForecastAssumptions, ForecastDrivers } from "@/lib/finance/forecast/types";
+import { ForecastAssumptionsModal, ForecastOverview, changedLeverCount, useForecastSettings, type ScenarioForecast } from "./ForecastPanel";
 
 /**
  * What the tab bar switches between: the three statements, plus Spend Watch,
@@ -227,13 +227,13 @@ export default function FinancialsClient({
   const openMonth = todayLocalDate().slice(0, 7);
 
   // ── Forecast ───────────────────────────────────────────────────────────────
-  // One switch for the whole page. It appends projected months to the P&L and
-  // the cash flow; the balance sheet has no forecast (a projected balance sheet
-  // has to balance, which is a different piece of work), and neither does a
-  // past year, which has nothing left to project.
+  // One switch for the whole page. It projects the P&L and the cash flow from
+  // their own recent months, and rolls the balance sheet forward from those two
+  // — so all three statements are fetched while it is on, whichever tab is
+  // showing. A past year has nothing left to project.
   const forecast = useForecastSettings();
   const [assumptionsOpen, setAssumptionsOpen] = useState(false);
-  const forecastAvailable = view !== "spend_watch" && statement !== "balance_sheet" && year === initialYear;
+  const forecastAvailable = view !== "spend_watch" && year === initialYear;
   const forecastActive = forecast.on && forecastAvailable;
 
   const { data: drivers, error: driversError } = useQuery({
@@ -242,23 +242,60 @@ export default function FinancialsClient({
     enabled: forecastActive,
     staleTime: 5 * 60_000,
   });
+  // Same keys as the statement query above, so the tab on screen is never
+  // fetched twice and its forecast is built from the very rows it renders.
+  const { data: plData } = useQuery({
+    queryKey: queryKeys.finance.financials("pl", year),
+    queryFn: () => fetchJson<FinancialsResponse>(`/api/finance/financials?statement=pl&year=${year}`),
+    enabled: forecastActive,
+  });
+  const { data: cashFlowData } = useQuery({
+    queryKey: queryKeys.finance.financials("cash_flow", year),
+    queryFn: () => fetchJson<FinancialsResponse>(`/api/finance/financials?statement=cash_flow&year=${year}`),
+    enabled: forecastActive,
+  });
 
-  // Computed here, from the very rows the statement renders, so a projected
-  // month can never be built on a different set of figures than the actual
-  // months beside it. Null until both halves have arrived.
-  const forecastResult = useMemo(
-    () =>
-      forecastActive && data && drivers
-        ? buildForecast({ rows: data.rows, months: data.months, coaAccounts: data.coaAccounts, statement, drivers, assumptions: forecast.assumptions })
-        : null,
-    [forecastActive, data, drivers, statement, forecast.assumptions],
+  /** Both flow forecasts for one set of assumptions — the scenario on screen, or one being compared against it. */
+  const runScenario = useCallback(
+    (assumptions: ForecastAssumptions): ScenarioForecast => {
+      const one = (source: FinancialsResponse | undefined, kind: "pl" | "cash_flow") =>
+        source && drivers
+          ? buildForecast({ rows: source.rows, months: source.months, coaAccounts: source.coaAccounts, statement: kind, drivers, assumptions })
+          : null;
+      return { pl: one(plData, "pl"), cashFlow: one(cashFlowData, "cash_flow") };
+    },
+    [plData, cashFlowData, drivers],
   );
+  const scenario = useMemo(
+    () => (forecastActive && drivers ? runScenario(forecast.assumptions) : null),
+    [forecastActive, drivers, runScenario, forecast.assumptions],
+  );
+  const forecastResult = useMemo(() => {
+    if (!scenario || !data) return null;
+    if (statement === "pl") return scenario.pl;
+    if (statement === "cash_flow") return scenario.cashFlow;
+    return scenario.pl && scenario.cashFlow
+      ? buildBalanceSheetForecast({ rows: data.rows, months: data.months, coaAccounts: data.coaAccounts, pl: scenario.pl, cashFlow: scenario.cashFlow })
+      : null;
+  }, [scenario, data, statement]);
   const statementRows = forecastResult?.rows ?? data?.rows ?? EMPTY_ROWS;
-  const forecastMethodFor = useMemo(() => {
-    const byKey = forecastResult?.methodByKey;
-    if (!byKey) return undefined;
-    return (row: FinancialsRow) => byKey[methodKey(row, row.channel)] ?? byKey[methodKey(row, "*")];
+  const forecastColumns = useMemo(() => {
+    if (!forecastResult) return undefined;
+    const byKey = forecastResult.methodByKey;
+    return {
+      months: forecastResult.forecastMonths,
+      openMonth: forecastResult.restKey ? forecastResult.openMonth : null,
+      restKey: forecastResult.restKey,
+      methodFor: (row: FinancialsRow) => byKey[methodKey(row, row.channel)] ?? byKey[methodKey(row, "*")],
+    };
   }, [forecastResult]);
+  // The accuracy check compares saved forecasts with actuals; the balance
+  // sheet has no flow of its own, so there it reads the P&L.
+  const accuracy = useMemo(() => {
+    const kind = statement === "cash_flow" ? "cash_flow" : "pl";
+    const source = kind === "cash_flow" ? cashFlowData : plData;
+    return source ? { statement: kind, actuals: actualsByMonth(source.rows, source.months) } as const : null;
+  }, [statement, plData, cashFlowData]);
   const resolvedFocusMonth =
     focusMonth && data?.months.includes(focusMonth)
       ? focusMonth
@@ -304,8 +341,19 @@ export default function FinancialsClient({
   const tree = useMemo(
     // data.months bounds the period ratios: with the forecast on, the rows
     // carry projected months that must not move a Total.
-    () => (data ? buildTree(treeRows, statement, data.coaAccounts, data.months) : []),
-    [data, treeRows, statement],
+    () => {
+      if (!data) return [];
+      const built = buildTree(treeRows, statement, data.coaAccounts, data.months);
+      // The cash-flow forecast's runway, as a line of its own under Net
+      // Operating. A balance on a flow statement, so it closes rather than sums.
+      const cashRow = statement === "cash_flow" ? forecastResult?.cashRow : null;
+      if (cashRow) {
+        const cashNode: TreeNode = { row: cashRow, label: "Projected cash at month end", children: [], depth: 0, isSection: false, totalMode: "closing" };
+        built.push(cashNode);
+      }
+      return built;
+    },
+    [data, treeRows, statement, forecastResult],
   );
 
   return (
@@ -400,7 +448,7 @@ export default function FinancialsClient({
             measureAvailable={statement === "pl"}
           />
           <div className="flex items-center gap-1.5">
-            <span title={forecastAvailable ? undefined : "The forecast covers the P&L and Cash Flow for the current year"}>
+            <span title={forecastAvailable ? undefined : "The forecast covers the current year"}>
               <ToggleChip active={forecastActive} disabled={!forecastAvailable} onClick={() => forecast.setOn(!forecast.on)}>
                 Forecast
               </ToggleChip>
@@ -418,11 +466,19 @@ export default function FinancialsClient({
             Forecast unavailable: {driversError instanceof Error ? driversError.message : "failed to load"}
           </Banner>
         )}
-        {forecastActive && data && drivers && !forecastResult && (
+        {forecastActive && data && drivers && plData && cashFlowData && !forecastResult && (
           <Banner className="mb-4">No finished month to forecast from yet.</Banner>
         )}
-        {forecastResult && drivers && statement !== "balance_sheet" && (
-          <ForecastSummary result={forecastResult} drivers={drivers} statement={statement} />
+        {forecastResult && scenario && drivers && (
+          <ForecastOverview
+            scenario={scenario}
+            drivers={drivers}
+            statement={statement}
+            assumptions={forecast.assumptions}
+            onUse={forecast.setAssumptions}
+            run={runScenario}
+            accuracy={accuracy}
+          />
         )}
         {assumptionsOpen && drivers && (
           <ForecastAssumptionsModal
@@ -451,8 +507,7 @@ export default function FinancialsClient({
               coaAccounts={data.coaAccounts}
               showGlNumbers={showGlNumbers}
               totalMode={totalMode}
-              forecastMonths={forecastResult?.forecastMonths}
-              forecastMethodFor={forecastMethodFor}
+              forecast={forecastColumns}
             />
           </div>
         )}
