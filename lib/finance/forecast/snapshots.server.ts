@@ -1,5 +1,5 @@
 // Keeping what the forecast said, so it can be checked once the month has
-// happened. See supabase/migrations/20261225090000_forecast_snapshots.sql.
+// happened. See supabase/migrations/20261226090000_forecast_snapshots.sql.
 //
 // The snapshot is always the BASE case and is always computed here, on the
 // server, from the same statement builder and the same pure forecast the page
