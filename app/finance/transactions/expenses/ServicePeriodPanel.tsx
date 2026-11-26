@@ -5,10 +5,20 @@ import SaveHint from "@/app/components/ui/SaveHint";
 import { formatCurrencyCents } from "@/lib/format";
 import {
   fullMonthRateCents,
+  isSpreadableAccountType,
   recognitionByMonth,
   validateServicePeriod,
   type ServicePeriod,
 } from "@/lib/finance/servicePeriod";
+import type { CoARef } from "../../AccountSelect";
+import type { GlLine } from "./PayrollSplitCell";
+
+/** "6210 · Building & Land Rent": the account's own number and the last part of its name. */
+function accountLabel(account: CoARef | undefined): string {
+  if (!account) return "an account that no longer exists";
+  const name = account.account_name.split(":").pop()!.trim();
+  return account.account_number ? `${account.account_number} · ${name}` : name;
+}
 
 function monthLabel(monthKey: string): string {
   const [y, m] = monthKey.split("-").map(Number);
@@ -22,14 +32,17 @@ function monthLabel(monthKey: string): string {
  */
 export function ServicePeriodPanel({
   expenseId,
-  amountCents,
+  glLines,
+  accounts,
   accountingDate,
   servicePeriod,
   onUpdated,
   onCancel,
 }: {
   expenseId: string;
-  amountCents: number;
+  /** How the bill is coded: its split lines, or its one account. Empty while it is unmapped. */
+  glLines: GlLine[];
+  accounts: CoARef[];
   accountingDate: string | null;
   servicePeriod: ServicePeriod | null;
   onUpdated: (next: ServicePeriod | null) => void;
@@ -39,6 +52,19 @@ export function ServicePeriodPanel({
   const [end, setEnd] = useState(servicePeriod?.end ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Which part of the bill the statements will actually spread. There is
+  // nothing to choose here: a line coded to an income or cost account is
+  // spread, and a line coded to a balance-sheet account — the seller's share of
+  // a bill, a deposit — is a movement on that account on the bill's own date.
+  // The panel says so, because a bill split both ways otherwise looks as if
+  // the whole of it is about to be spread.
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const spreadLines = glLines.filter((l) => isSpreadableAccountType(accountById.get(l.chartOfAccountsId)?.account_type));
+  const heldLines = glLines.filter((l) => !spreadLines.includes(l));
+  const amountCents = spreadLines.reduce((sum, l) => sum + l.amountCents, 0);
+  const describe = (lines: GlLine[]) =>
+    lines.map((l) => `${formatCurrencyCents(l.amountCents)} on ${accountLabel(accountById.get(l.chartOfAccountsId))}`).join(", ");
 
   const validation = validateServicePeriod({ start, end });
   const billMonth = accountingDate?.slice(0, 7) ?? null;
@@ -94,6 +120,23 @@ export function ServicePeriodPanel({
         </button>
         <SaveHint saving={saving} />
       </div>
+
+      {glLines.length === 0 && (
+        <div className="text-2xs text-danger">
+          This bill has no GL account yet, so nothing will be spread. Give it an account first.
+        </div>
+      )}
+      {glLines.length > 0 && spreadLines.length === 0 && (
+        <div className="text-2xs text-danger">
+          Nothing here will be spread: {describe(heldLines)} is a balance sheet account, and only income and cost accounts are charged month by month.
+        </div>
+      )}
+      {spreadLines.length > 0 && heldLines.length > 0 && (
+        <div className="text-xs text-secondary">
+          <span className="text-body">Spread: {describe(spreadLines)}.</span>{" "}
+          Not spread: {describe(heldLines)} — a balance sheet account, so it stays on the bill&apos;s own date.
+        </div>
+      )}
 
       {validation.ok && schedule.length > 0 && (
         <div className="text-xs text-secondary">
