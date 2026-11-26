@@ -12,6 +12,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveExpenseMapping, type CounterpartyRuleRef, type MappingSource } from "@/lib/finance/expenses";
 import { resolveExpenseGlLines } from "@/lib/finance/expenseGlLines";
 import { chunk } from "@/lib/utils/chunk";
+import { fetchServicePeriodsByExpenseId } from "@/lib/finance/servicePeriod.server";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +105,15 @@ export async function GET(req: NextRequest) {
   // one `.in()` carrying them all builds a URL past the ~16 KB the API accepts:
   // the request dies with a bare "fetch failed" and the tab reads "No
   // expenses" for the default Full-year range while a single month loads fine.
+  // Whole table rather than another chunked `.in()`: only bills somebody has
+  // marked as covering several months have a row, a handful a year.
+  let servicePeriods: Awaited<ReturnType<typeof fetchServicePeriodsByExpenseId>>;
+  try {
+    servicePeriods = await fetchServicePeriodsByExpenseId(supabase);
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
+
   const [matchesResult, splitsResult, accountsResult] = await Promise.all([
     inChunks(ids, (part) =>
       supabase.from("payroll_period_expense_matches").select("expense_id, pay_period_id, matched_component").in("expense_id", part),
@@ -202,7 +212,7 @@ export async function GET(req: NextRequest) {
     const external_account_name = row.external_account_id
       ? accountNameByKey.get(accountKey(row.source, row.external_account_id)) ?? null
       : null;
-    return { ...row, external_account_name, payrollMatch, glLines };
+    return { ...row, external_account_name, payrollMatch, glLines, servicePeriod: servicePeriods.get(row.id) ?? null };
   });
 
   return NextResponse.json(enriched);

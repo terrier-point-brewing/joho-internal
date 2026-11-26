@@ -8,7 +8,11 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { localDateString } from "@/lib/utils/datetime";
 import { EXCISE_EXPENSE_ACCOUNT_NUMBER } from "@/lib/finance/exciseExpense";
 import { addMonths, buildDrawdownHistory, daysBetween, type HistoryBatch, type HistoryShipment } from "./drawdown";
-import { DRAWDOWN_CHANNELS, type DrawdownChannel, type ForecastDrivers, type ForecastPartner } from "./types";
+import { DRAWDOWN_CHANNELS, type DrawdownChannel, type ForecastDrivers, type ForecastPartner, type ForecastSpreadBill } from "./types";
+import { fetchCoa } from "@/lib/finance/financials/fetchSources";
+import { coaSection, type CoaRecord } from "@/lib/finance/financials/aggregateRows";
+import { fetchSpreadExpenses, type SpreadExpense } from "@/lib/finance/servicePeriod.server";
+import { fullMonthRateCents, isSpreadableSection, recognitionByMonth, servicePeriodMonths } from "@/lib/finance/servicePeriod";
 
 /** Batches older than this have nothing left to ship that the curve would count on. */
 const BATCH_LOOKBACK_DAYS = 270;
@@ -41,6 +45,34 @@ function isDrawdownChannel(value: string | null): value is DrawdownChannel {
 }
 
 /**
+ * Spread bills as the forecast reads them: one entry per income-statement line.
+ * A raw expense amount already carries the statements' sign for a P&L account
+ * (an outflow is negative, a cost is negative), so nothing is flipped here.
+ */
+export function toForecastSpreadBills(bills: SpreadExpense[], coa: CoaRecord[]): ForecastSpreadBill[] {
+  const coaMap = new Map(coa.map((c) => [c.id, c]));
+  const out: ForecastSpreadBill[] = [];
+  for (const bill of bills) {
+    for (const line of bill.lines) {
+      if (!line.chartOfAccountsId || line.amountCents === 0) continue;
+      if (!isSpreadableSection(coaSection(coaMap.get(line.chartOfAccountsId)))) continue;
+      const recognition = recognitionByMonth(line.amountCents, bill.period, bill.accountingDate.slice(0, 7));
+      out.push({
+        coaId: line.chartOfAccountsId,
+        amountCents: line.amountCents,
+        monthlyCents: fullMonthRateCents(line.amountCents, bill.period),
+        periodMonths: servicePeriodMonths(bill.period),
+        periodStartMonth: bill.period.start.slice(0, 7),
+        periodEndMonth: bill.period.end.slice(0, 7),
+        recognitionCentsByMonth: Object.fromEntries(recognition.map((r) => [r.monthKey, r.amountCents])),
+        paidMonth: bill.paidDate ? bill.paidDate.slice(0, 7) : null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * Pure reduction of the raw rows, split out so it can be tested without a
  * database.
  *
@@ -56,6 +88,7 @@ export function reduceDrivers(input: {
   invoices: InvoiceRow[];
   partnerNames: Map<string, string>;
   cashOnHandCents: number | null;
+  spreadBills?: ForecastSpreadBill[];
 }): ForecastDrivers {
   const { asOf } = input;
   const openMonth = asOf.slice(0, 7);
@@ -136,6 +169,7 @@ export function reduceDrivers(input: {
     exciseAccountNumber: EXCISE_EXPENSE_ACCOUNT_NUMBER,
     partners,
     cashOnHandCents: input.cashOnHandCents,
+    spreadBills: input.spreadBills ?? [],
   };
 }
 
@@ -144,7 +178,7 @@ export async function fetchForecastDrivers(
   asOf: string,
   cashOnHandCents: number | null,
 ): Promise<ForecastDrivers> {
-  const [batches, exports, payrollTotals, invoices, partners] = await Promise.all([
+  const [batches, exports, payrollTotals, invoices, partners, spreadExpenses, coa] = await Promise.all([
     fetchAllRows<BatchRow>(() =>
       supabase.from("brew_batches").select("id, planned_brew_date, volume_bbl, source, converted_from_batch_id").order("id"),
     ),
@@ -165,6 +199,8 @@ export async function fetchForecastDrivers(
     fetchAllRows<{ id: string; company_name: string | null }>(() =>
       supabase.from("contract_brewing_partners").select("id, company_name").order("id"),
     ),
+    fetchSpreadExpenses(supabase, asOf),
+    fetchCoa(supabase),
   ]);
 
   return reduceDrivers({
@@ -175,5 +211,6 @@ export async function fetchForecastDrivers(
     invoices,
     partnerNames: new Map(partners.map((p) => [p.id, p.company_name ?? "Unnamed partner"])),
     cashOnHandCents,
+    spreadBills: toForecastSpreadBills(spreadExpenses, coa),
   });
 }

@@ -506,6 +506,39 @@ const accumulatedDepreciationMethod: BalanceMethod = {
   ],
 };
 
+/**
+ * GL 1300 Prepaid Expenses. Transaction postings plus one derived step: the
+ * unrecognised remainder of every bill an operator has spread over the months
+ * it covers (Finance > Transactions > Expenses > "Spread over months").
+ *
+ * The postings step stays, so anything coded straight to the account — a
+ * deposit paid ahead, a hand-typed opening prepaid — still counts exactly as it
+ * did under plain Transaction postings. A bill that is spread is coded to its
+ * EXPENSE account, not here, so the two steps can never count the same dollar.
+ */
+const prepaidExpenses: BalanceMethod = {
+  key: "prepaidExpenses",
+  label: "Prepaid expenses",
+  kind: "calculation",
+  summary: "Everything coded to this account, plus the part of each bill spread over several months that has not reached the P&L yet.",
+  appliesTo: isOtherCurrentAsset,
+  steps: [
+    postingsStep(
+      "Coded here directly",
+      "Every expense, bank line and invoice line assigned to this account, from the beginning of records through this month end — plus anything entered by hand under Finance > Transactions > Manual Entries.",
+      "net",
+    ),
+    {
+      providerKey: "prepaidServicePeriods",
+      label: "Bills paid ahead",
+      description:
+        "Bills marked as covering several months — a yearly property tax bill, an annual insurance premium — are charged to the P&L one month at a time. This is the part of those bills that belongs to months after this month end. It shrinks by one month's share every month until the bill is used up. Months before the bill arrived are charged in the month it arrived, so they are never part of this figure. Mark a bill under Finance > Transactions > Expenses.",
+      source: "Expenses marked with the months they cover",
+      direction: "add",
+    },
+  ],
+};
+
 // ── Integrations ─────────────────────────────────────────────────────────────
 
 /**
@@ -811,6 +844,7 @@ export const BUILT_IN_METHODS: BalanceMethod[] = [
   retainedEarnings,
   inventoryOnHand,
   accumulatedDepreciationMethod,
+  prepaidExpenses,
   rampAccountBalance,
   rampCardBalance,
   squareStoredBalance,

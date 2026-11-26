@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { CoaAccountRef, FinancialsRow } from "@/lib/finance/financials/types";
 import { actualsByMonth, buildBalanceSheetForecast, buildForecast, cashOutlook, methodKey, restKeyOf, trailingMonthsOf } from "./forecast";
-import { BASE_ASSUMPTIONS, type ForecastAssumptions, type ForecastDrivers } from "./types";
+import { BASE_ASSUMPTIONS, type ForecastAssumptions, type ForecastDrivers, type ForecastSpreadBill } from "./types";
+import { SERVICE_PERIOD_TABLE } from "@/lib/finance/servicePeriod";
 
 const MONTHS = ["2026-07", "2026-08", "2026-09", "2026-10", "2026-11"];
 
@@ -56,6 +57,7 @@ const DRIVERS: ForecastDrivers = {
   partners: [{ id: "argus", name: "Argus", shareByChannel: { contract_brewing: 0.9 } }],
   cashOnHandCents: 100_000,
   matureBatchCount: 12,
+  spreadBills: [],
 };
 
 function run(assumptions: Partial<ForecastAssumptions> = {}, statement: "pl" | "cash_flow" = "pl") {
@@ -306,5 +308,90 @@ describe("buildBalanceSheetForecast", () => {
     const { bs } = forecastBs([]);
     expect(bs.rows.map((r) => r.accountName)).toEqual(expect.arrayContaining(["Forecast: depreciation", "Forecast: earnings", "Forecast: timing differences"]));
     for (const k of keys) expect(bs.rows.reduce((sum, r) => sum + r.amountCentsByMonth[k], 0)).toBe(0);
+  });
+});
+
+describe("bills spread over the months they cover", () => {
+  // A 2026 property-tax bill of 12,000 dated in the open month (November):
+  // eleven months catch up in November, December is still to come.
+  const TAX: ForecastSpreadBill = {
+    coaId: "rent",
+    amountCents: -12_000,
+    monthlyCents: -1_000,
+    periodMonths: 12,
+    periodStartMonth: "2026-01",
+    periodEndMonth: "2026-12",
+    recognitionCentsByMonth: { "2026-11": -11_000, "2026-12": -1_000 },
+    paidMonth: "2026-11",
+  };
+  const spreadRow = (amounts: number[]) =>
+    row({ coaId: "rent", accountName: "Rent", amounts, sourceRef: { table: SERVICE_PERIOD_TABLE } });
+  const forecast = (rows: FinancialsRow[], statement: "pl" | "cash_flow", bills: ForecastSpreadBill[], horizonMonths: 3 | 12 = 3) => {
+    const result = buildForecast({
+      rows,
+      months: MONTHS,
+      coaAccounts: COA,
+      statement,
+      drivers: { ...DRIVERS, spreadBills: bills },
+      assumptions: { ...BASE_ASSUMPTIONS, horizonMonths },
+    });
+    if (!result) throw new Error("expected a forecast");
+    return result;
+  };
+
+  it("forecasts one month's share, not the catch-up month smeared forward", () => {
+    const rows = [...ROWS, spreadRow([0, 0, 0, 0, -11_000])];
+    const result = forecast(rows, "pl", [TAX]);
+    const spread = result.rows[rows.length - 1];
+    expect(spread.amountCentsByMonth["2026-12"]).toBe(-1_000); // still on the bill's own schedule
+    expect(spread.amountCentsByMonth["2027-01"]).toBe(-1_000); // assumed to renew at the same price
+    expect(spread.amountCentsByMonth["2027-02"]).toBe(-1_000);
+    expect(spread.amountCentsByMonth[REST]).toBe(0); // November's share is already booked in full
+    // The account's ordinary rent and its spread bill share one line on the
+    // statement, so the line owns up to being forecast two ways.
+    expect(result.methodByKey[methodKey(spread, "unknown")]).toMatch(/Several methods/);
+    const alone = forecast([...ROWS.filter((r) => r.coaId !== "rent"), spreadRow([0, 0, 0, 0, -11_000])], "pl", [TAX]);
+    expect(alone.methodByKey[methodKey(spread, "unknown")]).toMatch(/one month's share/);
+  });
+
+  it("leaves the account's ordinary line forecasting from its own history", () => {
+    const rows = [...ROWS, spreadRow([0, 0, 0, 0, -11_000])];
+    const result = forecast(rows, "pl", [TAX]);
+    const ordinaryRent = result.rows[ROWS.findIndex((r) => r.coaId === "rent")];
+    expect(ordinaryRent.amountCentsByMonth["2027-02"]).toBe(-4_100);
+  });
+
+  it("stops assuming a renewal once a later bill has replaced it", () => {
+    const renewal: ForecastSpreadBill = {
+      ...TAX,
+      amountCents: -18_000,
+      monthlyCents: -1_500,
+      periodStartMonth: "2027-01",
+      periodEndMonth: "2027-12",
+      recognitionCentsByMonth: { "2027-01": -1_500, "2027-02": -1_500 },
+      paidMonth: null,
+    };
+    const rows = [...ROWS, spreadRow([0, 0, 0, 0, -11_000])];
+    const spread = forecast(rows, "pl", [TAX, renewal]).rows[rows.length - 1];
+    expect(spread.amountCentsByMonth["2026-12"]).toBe(-1_000);
+    expect(spread.amountCentsByMonth["2027-01"]).toBe(-1_500); // the new bill alone, not both
+  });
+
+  it("puts the whole bill back on the cash-flow forecast a period after it was paid, and nowhere else", () => {
+    const rows = [...ROWS, spreadRow([0, 0, 0, 0, -12_000])];
+    const result = forecast(rows, "cash_flow", [TAX], 12);
+    const spread = result.rows[rows.length - 1];
+    for (const m of result.forecastMonths) {
+      expect(spread.amountCentsByMonth[m]).toBe(m === "2027-11" ? -12_000 : 0);
+    }
+    expect(spread.amountCentsByMonth[REST]).toBe(0);
+  });
+
+  it("forecasts nothing for a spread row when the drivers predate the field", () => {
+    const rows = [...ROWS, spreadRow([0, 0, 0, 0, -11_000])];
+    const legacy = { ...DRIVERS } as Partial<ForecastDrivers>;
+    delete legacy.spreadBills;
+    const result = buildForecast({ rows, months: MONTHS, coaAccounts: COA, statement: "pl", drivers: legacy as ForecastDrivers, assumptions: BASE_ASSUMPTIONS });
+    expect(result!.rows[rows.length - 1].amountCentsByMonth["2027-01"]).toBe(0);
   });
 });

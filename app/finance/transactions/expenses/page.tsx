@@ -28,6 +28,8 @@ import { matchesGlFilter, narrowToGl } from "@/lib/finance/glLineMatch";
 import GlAccountFilter from "../components/GlAccountFilter";
 import { PayrollSplitSummary, PayrollSplitPanel, type PayrollState, type PayrollMatchInfo, type GlLine } from "./PayrollSplitCell";
 import { ManualSplitPanel } from "./ManualSplitPanel";
+import { ServicePeriodPanel } from "./ServicePeriodPanel";
+import type { ServicePeriod } from "@/lib/finance/servicePeriod";
 import { defaultYearRange } from "@/lib/finance/dateRange";
 
 // ── Types (mirror the API responses) ──────────────────────────────────────────
@@ -70,6 +72,8 @@ interface ExpenseRow {
   // row; only rendered when the counterparty's routing is 'payroll_split'.
   payrollMatch: PayrollMatchInfo | null;
   glLines: GlLine[];
+  /** The days this bill pays for, when someone has spread it over several months. */
+  servicePeriod: ServicePeriod | null;
 }
 
 interface SyncResult {
@@ -145,6 +149,7 @@ function ExpenseRowView({
   onExclude,
   onRestore,
   onSplitUpdated,
+  onServicePeriodUpdated,
   glFilter,
 }: {
   e: ExpenseRow;
@@ -162,6 +167,7 @@ function ExpenseRowView({
   /** Selected GL account ids; empty means no GL filter and no narrowing. */
   glFilter: string[];
   onSplitUpdated: (id: string, next: { glLines: GlLine[]; mapping_source: string }) => void;
+  onServicePeriodUpdated: (id: string, next: ServicePeriod | null) => void;
 }) {
   // Cents attributable to the selected GL account(s). Short-circuits to the row's
   // own total when no filter is active — an unmapped expense has NO glLines at
@@ -174,6 +180,7 @@ function ExpenseRowView({
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingSplit, setEditingSplit] = useState(false);
+  const [editingPeriod, setEditingPeriod] = useState(false);
   const [confirmExclude, setConfirmExclude] = useState(false);
   const [excludeReason, setExcludeReason] = useState("");
   const [excludeError, setExcludeError] = useState<string | null>(null);
@@ -249,6 +256,11 @@ function ExpenseRowView({
               <PayrollSplitSummary payrollMatch={e.payrollMatch} glLines={e.glLines} />
             ) : (
               <CategoryBadges items={glName ? [glName] : []} />
+            )}
+            {e.servicePeriod && (
+              <span title={`Charged to the P&L month by month, ${fmtDate(e.servicePeriod.start)} to ${fmtDate(e.servicePeriod.end)}`}>
+                <Badge tone="info" className="shrink-0">Spread</Badge>
+              </span>
             )}
             {e.excluded_at && (
               <span title={e.excluded_reason ?? undefined}>
@@ -339,10 +351,27 @@ function ExpenseRowView({
                 glAccountRow
               )}
 
+              {(editingPeriod || e.servicePeriod) && !e.payrollMatch && (
+                <ServicePeriodPanel
+                  expenseId={e.id}
+                  amountCents={e.amount_cents}
+                  accountingDate={e.accounting_date}
+                  servicePeriod={e.servicePeriod}
+                  onUpdated={(next) => { onServicePeriodUpdated(e.id, next); setEditingPeriod(false); }}
+                  onCancel={() => setEditingPeriod(false)}
+                />
+              )}
+
               <div className="flex items-center gap-2">
                 {!isPayrollSplit && !hasManualSplit && !e.excluded_at && (
                   <button type="button" className="btn-secondary btn-xxs" onClick={() => setEditingSplit(true)}>
                     Split across accounts
+                  </button>
+                )}
+                {!e.payrollMatch && !e.servicePeriod && !editingPeriod && !e.excluded_at && (
+                  <button type="button" className="btn-secondary btn-xxs" onClick={() => setEditingPeriod(true)}
+                    title="For a bill that pays for more than one month — a yearly tax bill, an annual premium">
+                    Spread over months
                   </button>
                 )}
                 {e.excluded_at ? (
@@ -535,6 +564,10 @@ export default function ExpensesPage() {
       : e)));
   }
 
+  function handleServicePeriodUpdated(id: string, next: ServicePeriod | null) {
+    setExpenses((es) => es.map((e) => (e.id === id ? { ...e, servicePeriod: next } : e)));
+  }
+
   async function handleAutoMap(): Promise<{ mapped: number }> {
     const res = await fetch(`/api/finance/expenses/auto-map?from=${from}&to=${to}`, { method: "POST" });
     const json = await res.json();
@@ -655,6 +688,7 @@ export default function ExpensesPage() {
                 onExclude={handleExclude}
                 onRestore={handleRestore}
                 onSplitUpdated={handleSplitUpdated}
+                onServicePeriodUpdated={handleServicePeriodUpdated}
                 glFilter={filters.gl ?? []}
               />
             ))}
