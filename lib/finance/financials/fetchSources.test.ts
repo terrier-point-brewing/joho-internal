@@ -48,19 +48,45 @@ interface PeriodRow {
  * does; `.in()` on the joined tables records its call count/args so tests
  * can assert each join is a single batched query, not one per expense.
  */
-function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[]; matches?: MatchRow[]; periods?: PeriodRow[] }) {
+function fakeClient(opts: {
+  expenses: ExpensesRow[];
+  splits: SplitRow[];
+  matches?: MatchRow[];
+  periods?: PeriodRow[];
+  servicePeriods?: { expense_id: string; start_date: string; end_date: string }[];
+  /** Rows dated before the window, reachable only by an `.in("id", ...)` lookup. */
+  earlierExpenses?: ExpensesRow[];
+}) {
   const splitsQueryCalls: { table: string; inArgs?: [string, unknown[]] }[] = [];
   const matchesQueryCalls: { table: string; inArgs?: [string, unknown[]] }[] = [];
   const periodsQueryCalls: { table: string; inArgs?: [string, unknown[]] }[] = [];
   const expensesOrCalls: string[] = [];
+  const carriedInLookups: unknown[][] = [];
 
   const client = {
     from(table: string) {
+      if (table === "expense_service_periods") {
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          order: () => chain,
+          range: async (from: number, to: number) => ({ data: (opts.servicePeriods ?? []).slice(from, to + 1), error: null }),
+        };
+        return chain;
+      }
       if (table === "expenses") {
+        // An `.in("id", ...)` query is the carry-in lookup for bills dated
+        // before the window; anything else is the windowed read.
+        let byId: Set<unknown> | null = null;
         const chain: Record<string, unknown> = {
           select: () => chain,
           lte: () => chain,
           gte: () => chain,
+          lt: () => chain,
+          in: (_col: string, vals: unknown[]) => {
+            byId = new Set(vals);
+            carriedInLookups.push(vals);
+            return chain;
+          },
           eq: () => chain,
           or: (filters: string) => {
             expensesOrCalls.push(filters);
@@ -69,7 +95,10 @@ function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[]; matches
           filter: () => chain,
           is: () => chain,
           order: () => chain,
-          range: async (from: number, to: number) => ({ data: opts.expenses.slice(from, to + 1), error: null }),
+          range: async (from: number, to: number) => {
+            const rows = byId ? (opts.earlierExpenses ?? []).filter((e) => byId!.has(e.id)) : opts.expenses;
+            return { data: rows.slice(from, to + 1), error: null };
+          },
         };
         return chain;
       }
@@ -131,12 +160,65 @@ function fakeClient(opts: { expenses: ExpensesRow[]; splits: SplitRow[]; matches
     },
   };
 
-  return { client: client as unknown as SupabaseClient, splitsQueryCalls, matchesQueryCalls, periodsQueryCalls, expensesOrCalls };
+  return { client: client as unknown as SupabaseClient, splitsQueryCalls, matchesQueryCalls, periodsQueryCalls, expensesOrCalls, carriedInLookups };
 }
 
 const RANGE = { startDateStr: "2026-01-01", start: "2026-01-01T00:00:00Z", endDateStr: "2026-01-31", end: "2026-02-01T00:00:00Z" };
 
 describe("fetchExpenses", () => {
+  describe("bills spread over the months they cover", () => {
+    const BILL: ExpensesRow = { id: "tax", chart_of_accounts_id: "coa-a", amount_cents: -120000, accounting_date: "2026-01-02", settled_at: null, mapping_source: "manual", state: "OPEN" };
+    const PERIOD = { expense_id: "tax", start_date: "2026-01-01", end_date: "2026-12-31" };
+
+    it("marks a tagged bill to be spread on the accrual path and charged when paid on the cash path", async () => {
+      const make = () => fakeClient({ expenses: [{ ...BILL, settled_at: "2026-01-20T10:00:00Z" }], splits: [], servicePeriods: [PERIOD] });
+      const [accrual] = await fetchExpenses(make().client, RANGE, false);
+      const [cash] = await fetchExpenses(make().client, RANGE, true);
+      expect(accrual.servicePeriod).toEqual({ start: "2026-01-01", end: "2026-12-31", recognise: "spread" });
+      expect(cash.servicePeriod).toEqual({ start: "2026-01-01", end: "2026-12-31", recognise: "whenPaid" });
+      expect(cash.accountingDate).toBe("2026-01-20");
+    });
+
+    it("leaves an untagged expense with no service period", async () => {
+      const { client } = fakeClient({ expenses: [BILL], splits: [], servicePeriods: [] });
+      expect((await fetchExpenses(client, RANGE, false))[0].servicePeriod).toBeNull();
+    });
+
+    it("carries in a bill dated before the window whose months run into it", async () => {
+      const earlier: ExpensesRow = { ...BILL, id: "premium", accounting_date: "2025-11-03" };
+      const { client, carriedInLookups } = fakeClient({
+        expenses: [],
+        earlierExpenses: [earlier],
+        splits: [],
+        servicePeriods: [{ expense_id: "premium", start_date: "2025-11-01", end_date: "2026-10-31" }],
+      });
+      const result = await fetchExpenses(client, RANGE, false);
+      expect(carriedInLookups).toEqual([["premium"]]);
+      expect(result.map((r) => r.id)).toEqual(["premium"]);
+      expect(result[0].servicePeriod?.recognise).toBe("spread");
+    });
+
+    it("does not carry in a bill whose months ended before the window, one already in it, or anything on the cash path", async () => {
+      const over = fakeClient({ expenses: [], splits: [], servicePeriods: [{ expense_id: "old", start_date: "2025-01-01", end_date: "2025-12-31" }] });
+      await fetchExpenses(over.client, RANGE, false);
+      expect(over.carriedInLookups).toEqual([]);
+
+      const inWindow = fakeClient({ expenses: [BILL], splits: [], servicePeriods: [PERIOD] });
+      expect(await fetchExpenses(inWindow.client, RANGE, false)).toHaveLength(1);
+      expect(inWindow.carriedInLookups).toEqual([]);
+
+      const cash = fakeClient({ expenses: [], splits: [], servicePeriods: [{ expense_id: "premium", start_date: "2025-11-01", end_date: "2026-10-31" }] });
+      await fetchExpenses(cash.client, RANGE, true);
+      expect(cash.carriedInLookups).toEqual([]);
+    });
+
+    it("has nothing to carry in when the range runs from inception", async () => {
+      const { client, carriedInLookups } = fakeClient({ expenses: [BILL], splits: [], servicePeriods: [PERIOD] });
+      await fetchExpenses(client, { ...RANGE, startDateStr: null, start: null }, false);
+      expect(carriedInLookups).toEqual([]);
+    });
+  });
+
   it("dates a paid bill by the day it was paid on the cash path, and by the day it was issued otherwise", async () => {
     const expenses: ExpensesRow[] = [
       { id: "card", chart_of_accounts_id: "coa-a", amount_cents: -1000, accounting_date: "2026-01-05", settled_at: null, mapping_source: "rule", state: "CLEARED" },

@@ -15,6 +15,7 @@ import { deriveChannel, derivePosCategory, deriveKegSize } from "./dimensions";
 import { rowBbl } from "./volume";
 import { ACCOUNT_TYPE_SECTION } from "../accountSections";
 import { prorateAcrossMonths } from "../payrollPeriodProration";
+import { SERVICE_PERIOD_TABLE, isSpreadableSection, recognitionByMonth } from "../servicePeriod";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Input record types — minimal, modeled on the real table columns. Fields
@@ -96,6 +97,18 @@ export interface ExpenseRecord {
    * null/undefined when the expense has no payroll match.
    */
   payrollPeriod?: { start: string; end: string } | null;
+  /**
+   * The days this expense pays for (expense_service_periods), populated by
+   * fetchExpenses. Its income-statement lines post to their own row
+   * (sourceRef.table = SERVICE_PERIOD_TABLE) so a reader — and the forecast —
+   * can tell a yearly bill from the account's ordinary run of spending.
+   *
+   * `recognise` says WHEN: "spread" over the months covered (accrual
+   * statements — see lib/finance/servicePeriod.ts for the catch-up rule), or
+   * "whenPaid" in the one month of accountingDate (the cash-flow statement,
+   * where the money really did leave at once).
+   */
+  servicePeriod?: { start: string; end: string; recognise: "spread" | "whenPaid" } | null;
 }
 
 /** bank_ledger row — same resolved-upstream shape as expenses. */
@@ -416,6 +429,23 @@ export function aggregateRows(input: AggregateRowsInput): FinancialsRow[] {
         const allocations = prorateAcrossMonths(line.amountCents, row.payrollPeriod.start, row.payrollPeriod.end);
         for (const alloc of allocations) {
           const r = resolveExpenseLike("expenses", row.id, line.coaId, line.mappingSource, alloc.amountCents, `${alloc.monthKey}-01`, coaMap, "expense");
+          if (r && monthSet.has(r.monthKey)) resolved.push(r);
+        }
+      } else if (
+        row.servicePeriod &&
+        row.accountingDate &&
+        isSpreadableSection(coaSection(line.coaId ? coaMap.get(line.coaId) : undefined))
+      ) {
+        // A bill that pays for several months. Only its income-statement lines
+        // qualify: a split line coded to a balance-sheet account is a movement
+        // on that account on the bill's date, and an unmapped line has no
+        // account to say what it is.
+        const allocations =
+          row.servicePeriod.recognise === "spread"
+            ? recognitionByMonth(line.amountCents, row.servicePeriod, row.accountingDate.slice(0, 7))
+            : [{ monthKey: row.accountingDate.slice(0, 7), amountCents: line.amountCents }];
+        for (const alloc of allocations) {
+          const r = resolveExpenseLike(SERVICE_PERIOD_TABLE, row.id, line.coaId, line.mappingSource, alloc.amountCents, `${alloc.monthKey}-01`, coaMap, "expense");
           if (r && monthSet.has(r.monthKey)) resolved.push(r);
         }
       } else {

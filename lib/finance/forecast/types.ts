@@ -27,6 +27,27 @@ export interface ForecastPartner {
   shareByChannel: Partial<Record<DrawdownChannel, number>>;
 }
 
+/**
+ * One income-statement line of a bill an operator has spread over the months it
+ * covers (lib/finance/servicePeriod.ts). All amounts are in the statements' own
+ * sign: a cost is negative.
+ */
+export interface ForecastSpreadBill {
+  coaId: string;
+  /** The whole line. */
+  amountCents: number;
+  /** What one fully covered month costs. */
+  monthlyCents: number;
+  /** How long the bill covers, in whole months — the interval it is assumed to renew at. */
+  periodMonths: number;
+  periodStartMonth: string; // YYYY-MM
+  periodEndMonth: string; // YYYY-MM
+  /** When each cent reaches the P&L, "YYYY-MM" → cents, months still to come included. */
+  recognitionCentsByMonth: Record<string, number>;
+  /** The month the money left, or null while the bill is unpaid. */
+  paidMonth: string | null;
+}
+
 /** What the server knows that the statement rows do not. Built by drivers.server.ts. */
 export interface ForecastDrivers {
   asOf: string; // today, brewery-local YYYY-MM-DD
@@ -55,6 +76,12 @@ export interface ForecastDrivers {
   cashOnHandCents: number | null;
   /** How many batches the drawdown curve was measured on. */
   matureBatchCount: number;
+  /**
+   * Bills spread over the months they cover. Forecast from their own schedule
+   * rather than from the account's recent history, where a yearly bill is one
+   * large month that an average would smear across every month after it.
+   */
+  spreadBills: ForecastSpreadBill[];
 }
 
 export interface ScenarioItem {

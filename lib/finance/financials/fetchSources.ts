@@ -21,6 +21,7 @@ import { fetchAllRows, PAGE_SIZE } from "@/lib/supabase/paginate";
 import { chunk } from "@/lib/utils/chunk";
 import { buildInvoiceSalesReport } from "@/lib/finance/invoiceSalesReport";
 import { applyExpenseStatementFilters } from "./expenseFilters";
+import { fetchServicePeriodsByExpenseId } from "@/lib/finance/servicePeriod.server";
 import { loadBankLedgerInclusion, INCLUSION_COLUMNS } from "@/lib/finance/bankLedgerInclusion";
 import type { InclusionFacts } from "@/lib/finance/bankLedgerInclusion";
 import type { StatementKind, Channel } from "./types";
@@ -495,35 +496,75 @@ function cashDateOf(r: { accounting_date: string; settled_at: string | null }): 
   return r.settled_at ? r.settled_at.slice(0, 10) : r.accounting_date;
 }
 
+interface ExpenseStatementRow {
+  id: string;
+  chart_of_accounts_id: string | null;
+  amount_cents: number | null;
+  accounting_date: string;
+  settled_at: string | null;
+  mapping_source: string | null;
+  state: string | null;
+}
+
+const EXPENSE_STATEMENT_COLUMNS = "id, chart_of_accounts_id, amount_cents, accounting_date, settled_at, mapping_source, state";
+
 export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, cashOnly: boolean): Promise<ExpenseRecord[]> {
-  const data = await fetchAllRows<{
-    id: string;
-    chart_of_accounts_id: string | null;
-    amount_cents: number | null;
-    accounting_date: string;
-    settled_at: string | null;
-    mapping_source: string | null;
-    state: string | null;
-  }>(() => {
-    let q = supabase
-      .from("expenses")
-      .select("id, chart_of_accounts_id, amount_cents, accounting_date, settled_at, mapping_source, state")
-      .order("id", { ascending: true });
-    if (cashOnly) {
-      // Windowed on the cash date (see cashDateOf): a bill issued in July and
-      // paid in August belongs to August, and one issued before the window
-      // but paid inside it must still be fetched.
-      const incurred = ["settled_at.is.null", `accounting_date.lte.${range.endDateStr}`];
-      const paid = [`settled_at.lt.${range.end}`];
-      if (range.startDateStr) incurred.push(`accounting_date.gte.${range.startDateStr}`);
-      if (range.start) paid.push(`settled_at.gte.${range.start}`);
-      q = q.or(`and(${incurred.join(",")}),and(${paid.join(",")})`);
-    } else {
-      q = q.lte("accounting_date", range.endDateStr);
-      if (range.startDateStr) q = q.gte("accounting_date", range.startDateStr);
+  const [windowed, servicePeriods] = await Promise.all([
+    fetchAllRows<ExpenseStatementRow>(() => {
+      let q = supabase
+        .from("expenses")
+        .select(EXPENSE_STATEMENT_COLUMNS)
+        .order("id", { ascending: true });
+      if (cashOnly) {
+        // Windowed on the cash date (see cashDateOf): a bill issued in July and
+        // paid in August belongs to August, and one issued before the window
+        // but paid inside it must still be fetched.
+        const incurred = ["settled_at.is.null", `accounting_date.lte.${range.endDateStr}`];
+        const paid = [`settled_at.lt.${range.end}`];
+        if (range.startDateStr) incurred.push(`accounting_date.gte.${range.startDateStr}`);
+        if (range.start) paid.push(`settled_at.gte.${range.start}`);
+        q = q.or(`and(${incurred.join(",")}),and(${paid.join(",")})`);
+      } else {
+        q = q.lte("accounting_date", range.endDateStr);
+        if (range.startDateStr) q = q.gte("accounting_date", range.startDateStr);
+      }
+      return applyExpenseStatementFilters(q, cashOnly);
+    }),
+    fetchServicePeriodsByExpenseId(supabase),
+  ]);
+
+  // A bill dated BEFORE the window whose service period runs into it: an
+  // annual premium paid last November is still being recognised this March,
+  // and a fetch windowed on accounting_date would never see it. Accrual
+  // statements only -- on the cash-flow statement a bill belongs to the one
+  // month it was paid, which the window above already decides. A from-inception
+  // range (retained earnings) has no lower bound and so nothing to carry in.
+  let data = windowed;
+  const windowStart = range.startDateStr;
+  if (!cashOnly && windowStart) {
+    const have = new Set(windowed.map((r) => r.id));
+    const carriedIds = [...servicePeriods.entries()]
+      .filter(([id, period]) => period.end >= windowStart && !have.has(id))
+      .map(([id]) => id);
+    if (carriedIds.length > 0) {
+      const pages = await Promise.all(
+        chunk(carriedIds, IN_FILTER_CHUNK).map((ids) =>
+          fetchAllRows<ExpenseStatementRow>(() =>
+            applyExpenseStatementFilters(
+              supabase
+                .from("expenses")
+                .select(EXPENSE_STATEMENT_COLUMNS)
+                .in("id", ids)
+                .lt("accounting_date", windowStart)
+                .order("id", { ascending: true }),
+              false,
+            ),
+          ),
+        ),
+      );
+      data = [...windowed, ...pages.flat()];
     }
-    return applyExpenseStatementFilters(q, cashOnly);
-  });
+  }
 
   const expenseIds = data.map((r) => r.id);
   const [splitsByExpenseId, payrollPeriodByExpenseId] = await Promise.all([
@@ -531,15 +572,22 @@ export async function fetchExpenses(supabase: SupabaseClient, range: DateRange, 
     fetchPayrollPeriodsByExpenseId(supabase, expenseIds),
   ]);
 
-  return data.map((r) => ({
-    id: r.id,
-    chartOfAccountsId: r.chart_of_accounts_id,
-    amountCents: r.amount_cents ?? 0,
-    accountingDate: cashOnly ? cashDateOf(r) : r.accounting_date,
-    mappingSource: (r.mapping_source ?? "unmapped") as ExpenseRecord["mappingSource"],
-    splitLines: splitsByExpenseId.get(r.id),
-    payrollPeriod: payrollPeriodByExpenseId.get(r.id) ?? null,
-  }));
+  return data.map((r) => {
+    const servicePeriod = servicePeriods.get(r.id);
+    return {
+      id: r.id,
+      chartOfAccountsId: r.chart_of_accounts_id,
+      amountCents: r.amount_cents ?? 0,
+      accountingDate: cashOnly ? cashDateOf(r) : r.accounting_date,
+      mappingSource: (r.mapping_source ?? "unmapped") as ExpenseRecord["mappingSource"],
+      splitLines: splitsByExpenseId.get(r.id),
+      payrollPeriod: payrollPeriodByExpenseId.get(r.id) ?? null,
+      // Spread over the months covered on the accrual statements; on the
+      // cash-flow statement the money left in one go, so it stays in the month
+      // it was paid -- on its own row either way (see ExpenseRecord).
+      servicePeriod: servicePeriod ? { ...servicePeriod, recognise: cashOnly ? ("whenPaid" as const) : ("spread" as const) } : null,
+    };
+  });
 }
 
 export async function fetchBank(supabase: SupabaseClient, range: DateRange, statement: StatementKind): Promise<BankLedgerRecord[]> {

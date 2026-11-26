@@ -11,6 +11,9 @@
 //   Depreciation           last month's figure (straight-line)
 //   Excise                 recent average × shipments
 //   Card fees              recent average × taproom sales
+//   Bills spread over      P&L: their own monthly schedule, then the same
+//   several months         monthly share, assuming the bill renews
+//                          cash flow: the whole bill, when it next falls due
 //   Everything else        last month if it barely moves, else the recent average
 //
 // "Recent" is the last three ENDED months — the open month is partial and
@@ -27,6 +30,7 @@
 
 import type { CoaAccountRef, FinancialsRow } from "@/lib/finance/financials/types";
 import { addMonths, daysBetween, monthBounds, projectShipments } from "./drawdown";
+import { SERVICE_PERIOD_TABLE } from "@/lib/finance/servicePeriod";
 import {
   DRAWDOWN_CHANNELS,
   type CashOutlook,
@@ -151,6 +155,40 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
     return Math.max(...values) - Math.min(...values) <= avg * STEADY_TOLERANCE;
   };
 
+  // ── Bills spread over the months they cover ───────────────────────────────
+  // Read from their schedule, never from history: a yearly bill is one large
+  // month (its catch-up, or the month it was paid), and an average would smear
+  // that across every month after it. `?? []` because a browser can hold a
+  // drivers payload cached from before the field existed.
+  const spreadBills = drivers.spreadBills ?? [];
+  const monthIndex = (m: string) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7));
+  /**
+   * A bill is assumed to renew at the same price unless a later bill on the
+   * same account has already replaced it. Two unrelated bills on one account
+   * read as a renewal of each other once either is replaced, which understates
+   * that account until the second is replaced too — the cautious direction for
+   * a guess about a bill that does not exist yet.
+   */
+  const renews = (bill: (typeof spreadBills)[number]) =>
+    !spreadBills.some((other) => other.coaId === bill.coaId && other.periodStartMonth > bill.periodEndMonth);
+  /** P&L: the scheduled share while the bill runs, then one month's share for as long as it is assumed to renew. */
+  const spreadAccrual = (coaId: string | null, m: string): number =>
+    spreadBills
+      .filter((b) => b.coaId === coaId)
+      .reduce((sum, b) => {
+        const scheduled = b.recognitionCentsByMonth[m];
+        if (scheduled !== undefined) return sum + scheduled;
+        return m > b.periodEndMonth && renews(b) ? sum + b.monthlyCents : sum;
+      }, 0);
+  /** Cash flow: the whole bill again, one period after it was last paid. */
+  const spreadCash = (coaId: string | null, m: string): number =>
+    spreadBills
+      .filter((b) => b.coaId === coaId && b.paidMonth !== null && renews(b))
+      .reduce((sum, b) => {
+        const gap = monthIndex(m) - monthIndex(b.paidMonth!);
+        return gap > 0 && gap % b.periodMonths === 0 ? sum + b.amountCents : sum;
+      }, 0);
+
   const forecastByRow: number[][] = rows.map(() => forecastMonths.map(() => 0));
   /** Still to come in the open month, per row. */
   const restByRow: number[] = rows.map(() => 0);
@@ -174,6 +212,13 @@ export function buildForecast(input: BuildForecastInput): ForecastResult | null 
     if (row.coaId && payroll.has(row.coaId)) return set("Payroll: recent average", () => avg * pct(a.payrollPct), catchUp(row, avg));
     if (row.sourceRef.table === "depreciation_schedules") {
       return set("Depreciation: last month's figure", () => last, catchUp(row, last));
+    }
+    // Nothing more this month either way: the open month's share is booked in
+    // full the day the month starts, and a paid bill is not paid twice.
+    if (row.sourceRef.table === SERVICE_PERIOD_TABLE) {
+      return statement === "cash_flow"
+        ? set("Bill covering several months: the whole bill, when it next falls due", (m) => spreadCash(row.coaId, m), 0)
+        : set("Bill covering several months: one month's share, assuming it renews at the same price", (m) => spreadAccrual(row.coaId, m), 0);
     }
     if (exciseCoaId && row.coaId === exciseCoaId) {
       return set(

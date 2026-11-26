@@ -25,3 +25,4 @@ import "./inventoryOnHand";
 import "./giftCards";
 import "./manualCorrections";
 import "./accumulatedDepreciation";
+import "./prepaidServicePeriods";
