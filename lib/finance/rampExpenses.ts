@@ -77,6 +77,19 @@ export function rampTxnToExpenseRecord(txn: RampTransaction): ExpenseRecord {
     qb_sync_status:        txn.sync_status,
     qb_synced_at:          txn.qb_synced_at,
     qb_remote_id:          null,
+    ramp_original_transaction_id: txn.original_transaction_id || null,
+  };
+}
+
+/**
+ * How Ramp says a bill was paid, in the shape of the two `expenses` columns.
+ * One function because two writers need it to agree: the adapter below (new
+ * and in-window bills) and refreshBillSettlement (every stored bill).
+ */
+export function billPaymentLink(bill: RampBill): { ramp_payment_method: string | null; ramp_payment_transaction_ids: string[] | null } {
+  return {
+    ramp_payment_method:          bill.payment_method || null,
+    ramp_payment_transaction_ids: bill.payment_transaction_ids.length > 0 ? bill.payment_transaction_ids : null,
   };
 }
 
@@ -113,6 +126,7 @@ export function rampBillToExpenseRecords(bill: RampBill): ExpenseRecord[] {
     qb_sync_status:     bill.sync_status,
     qb_synced_at:       null,
     qb_remote_id:       bill.remote_id,
+    ...billPaymentLink(bill),
   };
 
   if (bill.line_items.length === 0) {
@@ -266,7 +280,7 @@ export function toExpenseRow(rec: ExpenseRecord): Omit<ExpenseRecord, "external_
  * The obvious alternative is to hand every bill to syncExpenseRecords and let
  * the upsert carry the new state. That would also re-run GL and counterparty
  * resolution over bills nobody asked about, and re-insert rows for bills that
- * were deliberately pruned or set aside. This touches two columns and creates
+ * were deliberately pruned or set aside. This touches a few columns and creates
  * nothing, so a bill's coding, exclusion and splits are all left exactly as they
  * were. Rows for bills that are not stored simply match nothing.
  *
@@ -285,7 +299,10 @@ export async function refreshBillSettlement(
     const { error, count } = await supabase
       .from("expenses")
       .update(
-        { state: normalizeState(bill.status), settled_at: bill.paid_at || null },
+        // The payment link rides along for the same reason settled_at does: it
+        // only exists once the bill is paid, which is usually a later sync
+        // than the one that stored the bill.
+        { state: normalizeState(bill.status), settled_at: bill.paid_at || null, ...billPaymentLink(bill) },
         { count: "exact" },
       )
       .eq("source", SOURCE)

@@ -56,6 +56,12 @@ export interface RampTransaction {
   sync_status:                      string | null;  // raw Ramp QB sync_status: NOT_SYNC_READY | SYNC_READY | SYNCED
   qb_synced_at:                     string | null;  // ISO; when Ramp pushed it to QuickBooks (from the API's synced_at)
   gl_account:                       RampGlAccount | null;
+  /**
+   * On a refund, the id of the card transaction it reverses; null on an
+   * ordinary charge. Ramp's own statement of "this credit undoes that charge",
+   * which the duplicate matcher prefers to guessing from merchant and amount.
+   */
+  original_transaction_id:          string | null;
   card_holder: {
     first_name:      string;
     last_name:       string;
@@ -147,6 +153,20 @@ export interface RampBill {
   sync_status:     string | null;  // raw Ramp QB sync_status: NOT_SYNCED | BILL_SYNCED | BILL_AND_PAYMENT_SYNCED
   remote_id:       string | null;  // the QuickBooks object id Ramp created for this bill
   line_items:      RampBillLineItem[];
+  /**
+   * How Ramp paid the bill, passed through as sent: CARD, RTP, CHECK, ACH and
+   * PAID_MANUALLY have been seen. Null while the bill is unpaid. Not an enum on
+   * purpose -- it is Ramp's vocabulary and Ramp may add to it.
+   */
+  payment_method:  string | null;
+  /**
+   * For a bill paid by CARD, the Ramp card transaction ids that paid it
+   * (`payment.details.transaction_ids`). Each is the `id` of a card
+   * transaction, so it equals `expenses.source_transaction_id` on the card row.
+   * Empty for every other payment method: a bank-paid bill carries no id that
+   * ties it to a bank line.
+   */
+  payment_transaction_ids: string[];
 }
 
 function parseAmount(raw: unknown): number {
@@ -245,6 +265,7 @@ export async function getRampTransactions(from?: string, to?: string): Promise<R
         sync_status:                      t.sync_status ?? null,
         qb_synced_at:                     t.synced_at ?? null,
         gl_account:                       extractGlAccount(t),
+        original_transaction_id:          t.original_transaction_id ?? null,
         card_holder: {
           first_name:      t.card_holder?.first_name      ?? "",
           last_name:       t.card_holder?.last_name       ?? "",
@@ -319,6 +340,10 @@ export async function getRampBills(from?: string, to?: string): Promise<RampBill
           memo:                        (li.memo as string | null) ?? null,
           accounting_field_selections: (li.accounting_field_selections as unknown[]) ?? [],
         })),
+        payment_method:          b.payment?.payment_method ?? null,
+        payment_transaction_ids: Array.isArray(b.payment?.details?.transaction_ids)
+          ? b.payment.details.transaction_ids.filter((id: unknown): id is string => typeof id === "string" && id !== "")
+          : [],
       };
       if (billInWindow(bill, from, to)) results.push(bill);
     }

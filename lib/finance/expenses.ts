@@ -57,6 +57,22 @@ export interface ExpenseRecord {
    * balances/providers/openBillAp.ts.
    */
   settled_at?:           string | null;
+  /**
+   * Ramp's own links between records, passed through untouched. Optional in the
+   * type because only two adapters have them, but each of those writes its
+   * fields explicitly (a value or null) so a link Ramp later adds or withdraws
+   * is carried through the upsert.
+   *
+   *   bill rows: how the bill was paid, and for a card payment the card
+   *              transaction ids that paid it;
+   *   card rows: on a refund, the charge it reverses.
+   *
+   * The duplicate review reads these first and only falls back to matching on
+   * amount and date where Ramp gave no link -- see duplicateCandidates.ts.
+   */
+  ramp_payment_method?:          string | null;
+  ramp_payment_transaction_ids?: string[] | null;
+  ramp_original_transaction_id?: string | null;
   // The account this expense is coded against in the source system. When the
   // source mirrors the chart of accounts (as Ramp does), this drives auto-map.
   //

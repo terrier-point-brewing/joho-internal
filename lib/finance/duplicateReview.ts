@@ -86,10 +86,16 @@ export async function loadDuplicateInputs(supabase: AdminClient): Promise<Duplic
       amount_cents: number | null;
       state: string | null;
       excluded_at: string | null;
+      ramp_payment_method: string | null;
+      ramp_payment_transaction_ids: string[] | null;
+      ramp_original_transaction_id: string | null;
     }>(() =>
       supabase
         .from("expenses")
-        .select("id, source_transaction_id, ramp_object, merchant_name, accounting_date, settled_at, amount_cents, state, excluded_at")
+        .select(
+          "id, source_transaction_id, ramp_object, merchant_name, accounting_date, settled_at, amount_cents, state, excluded_at, " +
+            "ramp_payment_method, ramp_payment_transaction_ids, ramp_original_transaction_id",
+        )
         .in("ramp_object", ["bill", "card", "bank"])
         .order("id", { ascending: true }),
     ),
@@ -133,11 +139,15 @@ export async function loadDuplicateInputs(supabase: AdminClient): Promise<Duplic
         settledAt: r.settled_at,
         amountCents: r.amount_cents ?? 0,
         excluded: r.excluded_at !== null,
+        paymentMethod: r.ramp_payment_method,
+        paymentTransactionIds: r.ramp_payment_transaction_ids,
       });
     } else if (r.ramp_object === "card" || r.ramp_object === "bank") {
       inputs.expenses.push({
         id: r.id,
         rampObject: r.ramp_object,
+        sourceTransactionId: r.source_transaction_id,
+        originalTransactionId: r.ramp_original_transaction_id,
         merchantName: r.merchant_name,
         accountingDate: r.accounting_date,
         amountCents: r.amount_cents ?? 0,
@@ -199,7 +209,9 @@ export function setAsideBlocker(candidate: DuplicateCandidate, periodClosed: boo
     return (
       `This charge was refunded on ${candidate.reversal.date}, so the vendor has already undone it. ` +
       `Setting it aside would leave the refund counted without its charge. ` +
-      `Record it as not a duplicate: nothing needs setting aside.`
+      (candidate.evidence === "ramp_link"
+        ? `Nothing needs setting aside: the charge and its refund already cancel out. Record it as already corrected, and note the refund.`
+        : `Record it as not a duplicate: nothing needs setting aside.`)
     );
   }
   if (candidate.duplicate.table === "manual_entries") {
