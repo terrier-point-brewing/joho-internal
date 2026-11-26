@@ -24,7 +24,7 @@
 // depth 0 + isSection -> section header; depth 0 + !isSection -> a top-level
 // subtotal (Total Income, Gross Profit, ...); depth > 0 -> account or slice.
 
-import { CREDIT_SIDE_SECTIONS } from "@/lib/finance/financials/statementTotal";
+import { CREDIT_SIDE_SECTIONS, type TotalMode } from "@/lib/finance/financials/statementTotal";
 import { isManualAdjustmentRow } from "@/lib/finance/financials/manualAdjustment";
 import type { BblCoverage, FinancialsRow, StatementKind } from "@/lib/finance/financials/types";
 import { CHANNEL_LABEL } from "./channelColors";
@@ -43,6 +43,10 @@ export interface TreeNode {
   isRatio?: boolean;
   ratioByMonth?: Record<string, number | null>;
   ratioTotal?: number | null;
+  /** The two lines a ratio divides, per month key, so a caller can form the ratio over ANY set of columns (the forecast's "with forecast" total, or the open month plus what is still to come) instead of only the ones precomputed above. */
+  ratioParts?: { numerator: Record<string, number>; denominator: Record<string, number> };
+  /** Overrides the table's own total rule for this one line: a balance drawn on a flow statement (the cash-flow forecast's projected cash) closes rather than sums. */
+  totalMode?: TotalMode;
 }
 
 /** Minimal chart_of_accounts reference shape buildTree needs to nest an account under an ancestor that itself carries no direct postings (see CoaLookup below), to sort siblings by GL number, and to seed a real-but-currently-unused root account as a $0 line (see seedEmptyRootAccounts). `statementSection` is the SAME derived value aggregateRows.ts's coaSection() would assign this account if it ever got a posting -- computed once server-side (buildFinancials.ts) for every CoA account, not just posted-to ones. */
@@ -490,7 +494,7 @@ const BS_KNOWN_SECTIONS: ReadonlySet<string> = new Set([
   "ap", "credit_card", "other_current_liabilities", "long_term_liabilities", "equity",
 ]);
 
-function buildPl(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): TreeNode[] {
+function buildPl(rows: FinancialsRow[], months: string[], coaMap: CoaLookup, periodMonths: string[] = months): TreeNode[] {
   const revenue = buildSection(rows, "revenue", "Revenue", months, coaMap);
   const otherIncome = buildSection(rows, "other_income", "Other Income", months, coaMap);
   const totalIncome = subtotal("Total Income", [revenue, otherIncome], months);
@@ -505,7 +509,7 @@ function buildPl(rows: FinancialsRow[], months: string[], coaMap: CoaLookup): Tr
   const grossProfit = subtotal("Gross Profit", [revenue, cogs], months);
   // Gross Profit % = Gross Profit / Revenue, from the two lines just above it
   // so the statement and the grossMarginPct KPI can never disagree.
-  const grossMargin = ratio("Gross Profit %", grossProfit, revenue, months);
+  const grossMargin = ratio("Gross Profit %", grossProfit, revenue, months, periodMonths);
 
   const opEx = buildSection(rows, "expenses", "Operating Expenses", months, coaMap);
   // Operating Income = Gross Profit - Operating Expenses. Other Income sits
@@ -546,7 +550,7 @@ function depreciationAddBack(sections: TreeNode[], months: string[]): TreeNode {
 }
 
 /** A ratio line: numerator / denominator per month and over the whole period, in percent. Null where the denominator is zero rather than 0, so a month with no revenue reads as "no figure" instead of "0% margin". */
-function ratio(label: string, numerator: TreeNode, denominator: TreeNode, months: string[]): TreeNode {
+function ratio(label: string, numerator: TreeNode, denominator: TreeNode, months: string[], periodMonths: string[] = months): TreeNode {
   const pct = (num: number, den: number): number | null => (den === 0 ? null : (num / den) * 100);
   const ratioByMonth: Record<string, number | null> = {};
   let numTotal = 0;
@@ -555,10 +559,16 @@ function ratio(label: string, numerator: TreeNode, denominator: TreeNode, months
     const num = numerator.row?.amountCentsByMonth[m] ?? 0;
     const den = denominator.row?.amountCentsByMonth[m] ?? 0;
     ratioByMonth[m] = pct(num, den);
+    // The period ratio covers `periodMonths` only: forecast months carried on
+    // the rows get their own per-month ratio but never move the Total.
+    if (!periodMonths.includes(m)) continue;
     numTotal += num;
     denTotal += den;
   }
-  return { row: null, label, children: [], depth: 0, isSection: false, isRatio: true, ratioByMonth, ratioTotal: pct(numTotal, denTotal) };
+  return {
+    row: null, label, children: [], depth: 0, isSection: false, isRatio: true, ratioByMonth, ratioTotal: pct(numTotal, denTotal),
+    ratioParts: { numerator: numerator.row?.amountCentsByMonth ?? {}, denominator: denominator.row?.amountCentsByMonth ?? {} },
+  };
 }
 
 /** A memo line: a subtotal-shaped node flagged isMemo (see TreeNode). Summed like any subtotal, but no later subtotal includes it. */
@@ -708,10 +718,21 @@ function buildBalanceSheet(rows: FinancialsRow[], months: string[], coaMap: CoaL
   ];
 }
 
-export function buildTree(rows: FinancialsRow[], statement: StatementKind, coaAccounts: CoaAccountRef[] = []): TreeNode[] {
+/**
+ * `periodMonths` is the statement's own period when the rows carry MORE months
+ * than that -- the forecast toggle appends projected months to every row. It
+ * only bounds period-wide ratios (Gross Profit %); omitted, the period is every
+ * month on the rows, which is the statement with no forecast on it.
+ */
+export function buildTree(
+  rows: FinancialsRow[],
+  statement: StatementKind,
+  coaAccounts: CoaAccountRef[] = [],
+  periodMonths?: string[],
+): TreeNode[] {
   const months = monthsOf(rows);
   const coaMap = buildCoaLookup(coaAccounts);
   if (statement === "balance_sheet") return buildBalanceSheet(rows, months, coaMap);
   if (statement === "cash_flow") return buildCashFlow(rows, months, coaMap);
-  return buildPl(rows, months, coaMap);
+  return buildPl(rows, months, coaMap, periodMonths ?? months);
 }

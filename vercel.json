@@ -45,6 +45,10 @@
       "schedule": "0 9 * * *"
     },
     {
+      "path": "/api/cron/forecast-snapshot",
+      "schedule": "30 9 * * *"
+    },
+    {
       "path": "/api/cron/marketing-deliveries",
       "schedule": "0 10 * * *"
     },

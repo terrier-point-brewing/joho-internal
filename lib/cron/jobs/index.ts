@@ -19,6 +19,7 @@ import { runBalanceClose } from "./balanceClose";
 import { runBankTransactionsSync } from "./bankTransactionsSync";
 import { runFinanceGapScan } from "./financeGapScan";
 import { runFinanceSync } from "./financeSync";
+import { runForecastSnapshot } from "./forecastSnapshot";
 // The marketing worker is reached through this wrapper rather than imported
 // here directly: lib/cron/jobs/marketingDeliveries.ts is the one file the
 // marketing boundary guard lets touch @/lib/marketing/**, and keeping the seam
@@ -52,6 +53,7 @@ const WORK_BY_JOB: Record<string, CronJobWork> = {
   "bank-transactions-sync":   runBankTransactionsSync,
   "finance-gap-scan":         runFinanceGapScan,
   "finance-sync":             runFinanceSync,
+  "forecast-snapshot":        runForecastSnapshot,
   "marketing-deliveries":     runMarketingDeliveriesJob,
   "square-catalog-sync":      runSquareCatalogSync,
   "square-inventory-push":    runSquareInventoryPushJob,

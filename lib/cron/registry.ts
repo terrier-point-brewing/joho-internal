@@ -152,6 +152,16 @@ export const CRON_JOBS: CronJobMeta[] = [
     manualNote:    "This sends no email and freezes nothing. It refreshes the month's figures and checklist; a month that is already closed is left alone.",
   },
   {
+    job:           "forecast-snapshot",
+    path:          "/api/cron/forecast-snapshot",
+    schedule:      "30 9 * * *",
+    scheduleLabel: "Daily · 09:30 UTC",
+    description:   "Saves today's base-case Financials forecast for the months ahead, so that once a month has happened the Financials page can show what was expected against what it came to.",
+    maxAgeHours:   25,
+    manualRun:     "wait",
+    manualNote:    "This changes no statement. It replaces the forecast saved earlier this month; forecasts saved in past months are left alone.",
+  },
+  {
     job:           "marketing-deliveries",
     path:          "/api/cron/marketing-deliveries",
     // Daily, and deliberately so — the Vercel Hobby plan this project runs on
