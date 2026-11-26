@@ -37,6 +37,8 @@
  * (statement isolation — aggregateRows imports this).
  */
 
+import { ACCOUNT_TYPE_SECTION } from "./accountSections";
+
 /** `FinancialsRow.sourceRef.table` for a row made of spread bills. Also the table name. */
 export const SERVICE_PERIOD_TABLE = "expense_service_periods";
 
@@ -56,6 +58,18 @@ const PL_SECTIONS: ReadonlySet<string> = new Set(["revenue", "cogs", "expenses",
 
 export function isSpreadableSection(section: string): boolean {
   return PL_SECTIONS.has(section);
+}
+
+/**
+ * The same test from an account's type alone, for the browser, which holds the
+ * chart of accounts without its statement-section override. Every account in
+ * the chart takes its section from its type today; an override that moved an
+ * account across the income-statement line would make this preview disagree
+ * with the statements, which decide from the section (aggregateRows).
+ */
+export function isSpreadableAccountType(accountType: string | null | undefined): boolean {
+  const section = accountType ? ACCOUNT_TYPE_SECTION[accountType] : undefined;
+  return section !== undefined && PL_SECTIONS.has(section);
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

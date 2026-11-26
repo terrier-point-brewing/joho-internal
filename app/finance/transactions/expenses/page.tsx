@@ -354,7 +354,8 @@ function ExpenseRowView({
               {(editingPeriod || e.servicePeriod) && !e.payrollMatch && (
                 <ServicePeriodPanel
                   expenseId={e.id}
-                  amountCents={e.amount_cents}
+                  glLines={e.glLines}
+                  accounts={accounts}
                   accountingDate={e.accounting_date}
                   servicePeriod={e.servicePeriod}
                   onUpdated={(next) => { onServicePeriodUpdated(e.id, next); setEditingPeriod(false); }}

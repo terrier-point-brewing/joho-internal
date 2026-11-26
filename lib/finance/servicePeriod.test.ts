@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deferredAfter,
   fullMonthRateCents,
+  isSpreadableAccountType,
   recognitionByMonth,
   serviceMonthWeights,
   servicePeriodMonths,
@@ -119,5 +120,16 @@ describe("validateServicePeriod", () => {
     [{ start: 20260101, end: null }],
   ])("refuses %j", (period) => {
     expect(validateServicePeriod(period).ok).toBe(false);
+  });
+});
+
+describe("isSpreadableAccountType", () => {
+  it("spreads income and cost accounts and nothing on the balance sheet", () => {
+    for (const type of ["Expenses", "Cost of Goods Sold", "Income", "Other Income", "Other Expense"]) {
+      expect(isSpreadableAccountType(type)).toBe(true);
+    }
+    for (const type of ["Fixed Assets", "Other Current Assets", "Accounts payable (A/P)", "Equity", "Not A Type", null, undefined]) {
+      expect(isSpreadableAccountType(type)).toBe(false);
+    }
   });
 });
