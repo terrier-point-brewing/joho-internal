@@ -34,7 +34,7 @@ function bill(over: Partial<RampBill> = {}): RampBill {
     status: "PAID", issued_at: "2026-05-19T00:00:00Z", accounting_date: "2026-05-19T00:00:00Z",
     due_at: "2026-06-18T00:00:00Z", paid_at: "2026-07-08T16:20:00Z", memo: "malt", invoice_number: "INV-1",
     sync_status: "BILL_SYNCED", remote_id: "qb-bill-9",
-    payment_method: "CHECK", payment_transaction_ids: [],
+    payment_method: "CHECK", payment_transaction_ids: [], payment_sent_on: null,
     line_items: [
       { amount: 100.00, memo: "malt", accounting_field_selections: [glSelection("COGS:Raw Materials", "5110")] },
       { amount: 30.44,  memo: "freight", accounting_field_selections: [glSelection("COGS:Freight", "5120")] },
@@ -169,9 +169,26 @@ describe("refreshBillSettlement", () => {
     ]);
 
     expect(updates.map((u) => u.patch)).toEqual([
-      { state: "PAID", settled_at: "2026-08-07T10:00:00Z", ramp_payment_method: "CHECK", ramp_payment_transaction_ids: null },
-      { state: "OPEN", settled_at: null, ramp_payment_method: "CHECK", ramp_payment_transaction_ids: null },
+      { state: "PAID", settled_at: "2026-08-07T10:00:00Z", ramp_payment_method: "CHECK", ramp_payment_transaction_ids: null, payment_sent_on: null },
+      { state: "OPEN", settled_at: null, ramp_payment_method: "CHECK", ramp_payment_transaction_ids: null, payment_sent_on: null },
     ]);
+  });
+
+  /**
+   * CDP's September rent for real: Ramp mailed the check and debited the wallet
+   * on 18 September, and the landlord cashed it on 6 October. The bill is still
+   * OPEN on 30 September, and the day the money left is the only thing that
+   * says it is no longer owed.
+   */
+  it("carries the day the payment was sent, even while the bill still reads open", async () => {
+    const { supabase, updates } = fakeClient();
+
+    await refreshBillSettlement(supabase, [
+      bill({ id: "b1", status: "OPEN", paid_at: null, payment_sent_on: "2026-09-18" }),
+    ]);
+
+    expect(updates[0].patch).toMatchObject({ state: "OPEN", settled_at: null, payment_sent_on: "2026-09-18" });
+    expect(rampBillToExpenseRecords(bill({ payment_sent_on: "2026-09-18" }))[0].payment_sent_on).toBe("2026-09-18");
   });
 
   /**

@@ -53,7 +53,11 @@ describe("openInvoiceAr", () => {
     // Invoice #000067: raised 15 September, paid 1 October. `status = 'open'`
     // alone dropped it from September the day it was paid.
     expect(invoiceQuery.lte).toEqual([["invoice_date", "2026-09-30"]]);
-    expect(invoiceQuery.or).toEqual(["status.eq.open,and(status.eq.paid,paid_on.gt.2026-09-30)"]);
+    // Dated by when the money reached Square, falling back to when the customer
+    // paid only where that is unknown -- see ../owedAt.test.ts.
+    expect(invoiceQuery.or).toEqual([
+      "status.eq.open,and(status.eq.paid,funds_received_on.gt.2026-09-30),and(status.eq.paid,funds_received_on.is.null,paid_on.gt.2026-09-30)",
+    ]);
   });
 
   it("sums total_cents of open invoices dated on or before periodEnd", async () => {
@@ -134,7 +138,11 @@ describe("openBillAp", () => {
     expect(seen.lte).toContainEqual(["accounting_date", "2026-01-31"]);
     // Exclusive upper bound: a bill paid at 14:46 on the 31st was paid IN
     // January, so only settlements from February onwards leave it outstanding.
-    expect(seen.or).toContain("settled_at.is.null,settled_at.gte.2026-02-01T00:00:00.000Z");
+    // A payment Ramp has already sent clears the bill on the day it was sent,
+    // whenever the vendor cashes it -- see ../owedAt.test.ts.
+    expect(seen.or).toContain(
+      "payment_sent_on.gt.2026-01-31,and(payment_sent_on.is.null,settled_at.is.null),and(payment_sent_on.is.null,settled_at.gte.2026-02-01T00:00:00.000Z)",
+    );
   });
 
   /**

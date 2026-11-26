@@ -332,6 +332,7 @@ describe("reconcileInvoiceStatus — the day an invoice was paid", () => {
     });
     getOrderPayment.mockResolvedValueOnce({
       paymentId: "pay-6", amountPaidCents: 241_568, tenders: [{ created_at: "2026-05-29T14:41:23Z" }],
+      closedAt: "2026-06-02T12:05:36Z",
     });
     const updates: UpdateSpy[] = [];
 
@@ -339,6 +340,9 @@ describe("reconcileInvoiceStatus — the day an invoice was paid", () => {
 
     expect(getOrderPayment).toHaveBeenCalledWith("order-6");
     expect(updates.find((u) => u.table === "invoices")?.payload.paid_on).toBe("2026-05-29");
+    // ...and the money itself is dated from when the transfer completed, which
+    // is what keeps it in receivables until Square actually holds it.
+    expect(updates.find((u) => u.table === "invoices")?.payload.funds_received_on).toBe("2026-06-02");
   });
 
   it("clears the date when the invoice is no longer paid", async () => {

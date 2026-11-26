@@ -58,3 +58,38 @@ export function invoicePaidOn(
   const latest = stamps[stamps.length - 1] ?? fallback ?? null;
   return latest ? localDateString(latest) : null;
 }
+
+/**
+ * The brewery-local day the customer's money actually reached Square, or null
+ * when the invoice is not paid.
+ *
+ * ── Why a second date ────────────────────────────────────────────────────────
+ * `invoicePaidOn` answers "when did the customer pay", and for a bank transfer
+ * that is three or four days before the money exists anywhere this business can
+ * see it. Receivables dated from it are right about the customer and wrong
+ * about the balance sheet: the invoice leaves GL 1100 on the 30th while the
+ * Square balance (GL 1040) does not gain it until the 3rd, and the month end
+ * between them is out of balance by the whole invoice. October 2026 closed
+ * $8,669.76 short on exactly this -- five transfers started on 29 and 30
+ * October that landed on 2 and 3 November.
+ *
+ * So the two questions get two dates. The invoice, the partner portal and
+ * anything that asks "has this customer paid" keep `paid_on`. The balance sheet
+ * asks "has the asset moved from receivables to cash", and that is this.
+ *
+ * ── Where it comes from ──────────────────────────────────────────────────────
+ * The order's `closed_at`: Square completes the order when the payment
+ * completes, and never moves it afterwards. The invoice's own `updated_at` is
+ * the same instant on the day it flips to PAID but moves again on a later
+ * partial refund, so it is only the fallback. For a card payment the two dates
+ * are the same day and nothing changes.
+ */
+export function invoiceFundsReceivedOn(
+  ledgerStatus: InvoiceStatus,
+  orderClosedAt: string | null | undefined,
+  fallback?: string | null,
+): string | null {
+  if (ledgerStatus !== "paid") return null;
+  const stamp = orderClosedAt || fallback || null;
+  return stamp ? localDateString(stamp) : null;
+}

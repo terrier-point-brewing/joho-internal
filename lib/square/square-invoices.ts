@@ -116,7 +116,7 @@ interface SquareOrderTender {
   created_at?: string;
 }
 interface SquareOrderGetResponse {
-  order: { id: string; tenders?: SquareOrderTender[] };
+  order: { id: string; closed_at?: string; tenders?: SquareOrderTender[] };
 }
 
 // ── Deposit calculation (pure math, no Square calls) ───────────────────────────
@@ -528,7 +528,7 @@ export async function getInvoiceStatus(
  */
 export async function getOrderPayment(
   orderId: string
-): Promise<{ paymentId: string | null; amountPaidCents: number | null; tenders: { created_at?: string }[] }> {
+): Promise<{ paymentId: string | null; amountPaidCents: number | null; tenders: { created_at?: string }[]; closedAt: string | null }> {
   const { order } = await squareGet<SquareOrderGetResponse>(`/orders/${orderId}`);
   const tender = order.tenders?.[0];
   return {
@@ -536,5 +536,7 @@ export async function getOrderPayment(
     amountPaidCents: tender?.amount_money?.amount ?? null,
     // Every tender's time, for dating when the invoice was paid.
     tenders: (order.tenders ?? []).map((t) => ({ created_at: t.created_at })),
+    // When the payment completed -- for a bank transfer, days after the tender.
+    closedAt: order.closed_at ?? null,
   };
 }

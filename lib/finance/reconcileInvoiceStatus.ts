@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getInvoiceStatus, getOrderPayment } from "@/lib/square/square-invoices";
 import { isSquareNotFound } from "@/lib/square/client";
 import { mapSquareInvoiceStatus } from "@/lib/finance/invoiceStatus";
-import { invoicePaidOn } from "@/lib/finance/invoicePaidOn";
+import { invoicePaidOn, invoiceFundsReceivedOn } from "@/lib/finance/invoicePaidOn";
 import type { InvoiceStatus } from "@/types/finance";
 import { stampCommitmentLockedOn } from "@/lib/production/commitmentFulfillment";
 import { isFullyDelivered, loadAllocationDelivery } from "@/lib/production/allocationDelivery";
@@ -189,26 +189,35 @@ export async function settleBackchargedDeposits(
 }
 
 /**
- * The day an invoice was paid, for the reconcile path.
+ * The two days a paid invoice carries, for the reconcile path: when the
+ * customer paid (`paid_on`) and when the money reached Square
+ * (`funds_received_on`) -- see lib/finance/invoicePaidOn for why they differ.
  *
- * The Square invoice sync has the order in hand and dates the payment from it
+ * The Square invoice sync has the order in hand and dates both from it
  * directly; this path only has the invoice, so it fetches the order for a paid
  * invoice and nothing else. A failed order read falls back to the invoice's own
  * time rather than failing the reconcile: the status write is what the webhook
- * is for, and the next invoice sync corrects the date from the tender anyway.
+ * is for, and the next invoice sync corrects both dates from the order anyway.
  */
-async function resolvePaidOn(
+async function resolvePaymentDates(
   ledgerStatus: InvoiceStatus,
   squareOrderId: unknown,
   fallback: string | null,
-): Promise<string | null> {
-  if (ledgerStatus !== "paid") return null;
-  if (typeof squareOrderId !== "string" || squareOrderId.length === 0) return invoicePaidOn(ledgerStatus, [], fallback);
+): Promise<{ paid_on: string | null; funds_received_on: string | null }> {
+  if (ledgerStatus !== "paid") return { paid_on: null, funds_received_on: null };
+  const undated = {
+    paid_on: invoicePaidOn(ledgerStatus, [], fallback),
+    funds_received_on: invoiceFundsReceivedOn(ledgerStatus, null, fallback),
+  };
+  if (typeof squareOrderId !== "string" || squareOrderId.length === 0) return undated;
   try {
-    const { tenders } = await getOrderPayment(squareOrderId);
-    return invoicePaidOn(ledgerStatus, tenders, fallback);
+    const { tenders, closedAt } = await getOrderPayment(squareOrderId);
+    return {
+      paid_on: invoicePaidOn(ledgerStatus, tenders, fallback),
+      funds_received_on: invoiceFundsReceivedOn(ledgerStatus, closedAt, fallback),
+    };
   } catch {
-    return invoicePaidOn(ledgerStatus, [], fallback);
+    return undated;
   }
 }
 
@@ -339,7 +348,7 @@ export async function reconcileInvoiceStatus(
     .update({
       status: ledgerStatus,
       ...(sq.invoiceNumber ? { invoice_number: sq.invoiceNumber } : {}),
-      paid_on: await resolvePaidOn(ledgerStatus, (rawData as Record<string, unknown>).square_order_id, sq.paidAt),
+      ...(await resolvePaymentDates(ledgerStatus, (rawData as Record<string, unknown>).square_order_id, sq.paidAt)),
       raw_data: rawData,
     })
     .eq("id", inv.id);
@@ -445,7 +454,7 @@ async function voidMissingInvoice(
   const rawData = { ...((inv.raw_data as Record<string, unknown> | null) ?? {}), square_status: MISSING_SQUARE_STATUS, deleted_at: now };
   const { error: ledgerErr } = await supabase
     .from("invoices")
-    .update({ status: "voided", paid_on: null, raw_data: rawData })
+    .update({ status: "voided", paid_on: null, funds_received_on: null, raw_data: rawData })
     .eq("id", inv.id);
   if (ledgerErr) throw new Error(`ledger void failed: ${ledgerErr.message}`);
   base.updatedLedger = true;

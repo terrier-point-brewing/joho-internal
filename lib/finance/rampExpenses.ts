@@ -86,8 +86,16 @@ export function rampTxnToExpenseRecord(txn: RampTransaction): ExpenseRecord {
  * One function because two writers need it to agree: the adapter below (new
  * and in-window bills) and refreshBillSettlement (every stored bill).
  */
-export function billPaymentLink(bill: RampBill): { ramp_payment_method: string | null; ramp_payment_transaction_ids: string[] | null } {
+export function billPaymentLink(bill: RampBill): {
+  ramp_payment_method: string | null;
+  ramp_payment_transaction_ids: string[] | null;
+  payment_sent_on: string | null;
+} {
   return {
+    // The day the money left the wallet -- what accounts payable is dated from
+    // (lib/finance/balances/owedAt.ts). Written as null too, so a payment Ramp
+    // pulls back stops clearing the bill.
+    payment_sent_on:              bill.payment_sent_on || null,
     ramp_payment_method:          bill.payment_method || null,
     ramp_payment_transaction_ids: bill.payment_transaction_ids.length > 0 ? bill.payment_transaction_ids : null,
   };

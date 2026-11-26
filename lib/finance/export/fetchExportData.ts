@@ -19,6 +19,7 @@ import { fetchAllRows, PAGE_CONCURRENCY, PAGE_SIZE } from "@/lib/supabase/pagina
 import { buildFinancials } from "@/lib/finance/financials";
 import { fetchFinancialsSources } from "@/lib/finance/financials/fetchSources";
 import { applyExpenseStatementFilters } from "@/lib/finance/financials/expenseFilters";
+import { billOwedAtFilter, invoiceOwedAtFilter } from "@/lib/finance/balances/owedAt";
 import { derivedLines, reconcileToStatement, resolvePostings } from "./postings";
 import { monthEndDate } from "./workbook";
 import type { CoaDetail, ExportData, ManualEntryRow, OpenBill, OpenInvoice, PostingDetail } from "./workbook";
@@ -33,12 +34,6 @@ function nextMonthStart(month: string): string {
   return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
 }
 
-/** The first instant after a calendar day, UTC -- the same bound accruals.ts uses for "paid after the period end". */
-function dayAfter(date: string): string {
-  const d = new Date(`${date}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString();
-}
 
 async function fetchCoaDetail(supabase: SupabaseClient): Promise<CoaDetail[]> {
   const rows = await fetchAllRows<{
@@ -218,7 +213,7 @@ async function fetchOpenInvoices(supabase: SupabaseClient, periodEnd: string): P
       .from("invoices")
       .select("invoice_number, invoice_date, due_date, customer_name, status, total_cents")
       .lte("invoice_date", periodEnd)
-      .or(`status.eq.open,and(status.eq.paid,paid_on.gt.${periodEnd})`)
+      .or(invoiceOwedAtFilter(periodEnd))
       .order("id", { ascending: true }),
   );
   return rows.map((r) => ({
@@ -248,7 +243,7 @@ async function fetchOpenBills(supabase: SupabaseClient, periodEnd: string): Prom
         .select("merchant_name, counterparty_label, accounting_date, memo, chart_of_accounts_id, amount_cents")
         .eq("ramp_object", "bill")
         .lte("accounting_date", periodEnd)
-        .or(`settled_at.is.null,settled_at.gte.${dayAfter(periodEnd)}`)
+        .or(billOwedAtFilter(periodEnd))
         .order("id", { ascending: true }),
       false,
     ),
