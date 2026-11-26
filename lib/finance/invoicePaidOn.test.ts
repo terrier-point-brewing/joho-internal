@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { invoicePaidOn } from "./invoicePaidOn";
+import { invoicePaidOn, invoiceFundsReceivedOn } from "./invoicePaidOn";
 
 describe("invoicePaidOn", () => {
   it("dates a paid invoice by when the customer paid, not when the transfer settled", () => {
@@ -33,5 +33,26 @@ describe("invoicePaidOn", () => {
   it("never dates a voided or draft invoice", () => {
     expect(invoicePaidOn("voided", [{ created_at: "2026-08-20T12:05:10Z" }])).toBeNull();
     expect(invoicePaidOn("draft", [])).toBeNull();
+  });
+});
+
+describe("invoiceFundsReceivedOn", () => {
+  it("dates the money by when the transfer completed, not when the customer started it", () => {
+    // Invoice #000076: the partner paid on 30 October, the order closed on
+    // 3 November. At 31 October the money was in neither bank nor Square.
+    expect(invoiceFundsReceivedOn("paid", "2026-11-03T12:06:13.946Z", "2026-11-03T12:06:13Z")).toBe("2026-11-03");
+  });
+
+  it("uses the brewery's calendar day, not UTC's", () => {
+    expect(invoiceFundsReceivedOn("paid", "2026-11-01T01:00:00Z")).toBe("2026-10-31");
+  });
+
+  it("records nothing until the invoice is paid", () => {
+    expect(invoiceFundsReceivedOn("open", "2026-11-03T12:06:13Z")).toBeNull();
+  });
+
+  it("falls back to the invoice's own time when the order has no close time", () => {
+    expect(invoiceFundsReceivedOn("paid", null, "2026-08-20T12:05:10Z")).toBe("2026-08-20");
+    expect(invoiceFundsReceivedOn("paid", undefined, null)).toBeNull();
   });
 });

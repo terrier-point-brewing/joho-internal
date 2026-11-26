@@ -27,6 +27,7 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { applyExpenseStatementFilters } from "../../financials/expenseFilters";
 import { registerProvider, sharedRead } from "../registry";
 import type { BalanceContext, BalanceProvider } from "../registry";
+import { billOwedAtFilter, invoiceOwedAtFilter } from "../owedAt";
 
 /** Exclusive upper bound: the first instant after periodEnd's calendar day, UTC. Mirrors fetchSources.ts's own range.end construction. */
 function exclusiveEnd(periodEnd: string): string {
@@ -45,13 +46,16 @@ function exclusiveEnd(periodEnd: string): string {
 // and paid on the 5th simply vanished from the 30th -- and every close since
 // May 2026 was rescued by an owner typing the true figure in by hand.
 //
-// `invoices.paid_on` (the day the customer paid, see lib/finance/invoicePaidOn)
-// is what makes the question answerable. An invoice counts when it is still
-// unpaid, OR when it has since been paid but only after the month end.
+// A stored payment date is what makes the question answerable, and the date
+// that counts is the day the MONEY ARRIVED (`invoices.funds_received_on`), not
+// the day the customer paid (`paid_on`). A bank transfer sits between the two
+// for three or four days, and an invoice that leaves receivables before its
+// money reaches the Square balance unbalances the month end between them --
+// see ../owedAt.ts, which holds the rule for this and for openBillAp below.
 //
-// A paid invoice with NO paid_on is treated as paid before the month end and
-// not counted. Only the Square sync writes the column, so that is every
-// imported QuickBooks invoice and anything predating the column -- settled
+// A paid invoice with NEITHER date is treated as collected before the month
+// end and not counted. Only the Square sync writes the columns, so that is
+// every imported QuickBooks invoice and anything predating them -- settled
 // history, where assuming "still owed" would resurrect receivables long since
 // collected.
 //
@@ -64,7 +68,7 @@ async function fetchOpenInvoiceArCents(supabase: SupabaseClient, periodEnd: stri
       .from("invoices")
       .select("total_cents")
       .lte("invoice_date", periodEnd)
-      .or(`status.eq.open,and(status.eq.paid,paid_on.gt.${periodEnd})`)
+      .or(invoiceOwedAtFilter(periodEnd))
       .order("id", { ascending: true }),
   );
   return rows.reduce((s, inv) => s + (inv.total_cents ?? 0), 0);
@@ -120,9 +124,12 @@ export const openInvoiceAr: BalanceProvider = {
  *   accounting_date <= periodEnd  -- the bill had been received by then. A bill
  *     Ramp dates into next month is not yet a debt, however early it was keyed.
  *
- *   settled_at is null OR settled_at > periodEnd -- it had not been paid by
- *     then. The second half is what makes a past month answerable; without it
- *     this would report every bill ever issued and never shrink.
+ *   not paid OUT by periodEnd -- the money had not left by then. Dated from
+ *     `payment_sent_on` (the day Ramp released the payment and debited the
+ *     wallet) when there is one, else from `settled_at` (the day the bill read
+ *     PAID). A mailed check sits between those two for weeks, and a bill still
+ *     in payables after the wallet has paid it is the "rent in flight" that
+ *     unbalanced every month end it straddled. See ../owedAt.ts.
  *
  * The eligibility filter is the shared one every statement uses, on its accrual
  * setting: a DECLINED or manually excluded row is not a debt.
@@ -135,10 +142,7 @@ async function fetchOpenBillApCents(supabase: SupabaseClient, periodEnd: string)
         .select("amount_cents")
         .eq("ramp_object", "bill")
         .lte("accounting_date", periodEnd)
-        // `settled_at` is a timestamptz and `periodEnd` a calendar day, so the
-        // comparison is against the first instant AFTER that day: a bill paid at
-        // 14:46 on the 31st was paid IN the month, not after it.
-        .or(`settled_at.is.null,settled_at.gte.${exclusiveEnd(periodEnd)}`)
+        .or(billOwedAtFilter(periodEnd))
         .order("id", { ascending: true }),
       false,
     ),

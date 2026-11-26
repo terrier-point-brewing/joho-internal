@@ -167,6 +167,21 @@ export interface RampBill {
    * ties it to a bank line.
    */
   payment_transaction_ids: string[];
+  /**
+   * The calendar day Ramp released the payment and took the money out of the
+   * wallet (`payment.effective_date`), or null when it has not gone yet.
+   *
+   * NOT `paid_at`, and for a mailed check the two are weeks apart: Ramp debits
+   * the wallet the day it sends the check and only marks the bill PAID the day
+   * the vendor cashes it (CDP rent: sent 18 September, cashed 6 October). Ramp
+   * leaves it null for a payment that is merely scheduled, and for card and
+   * manually-recorded payments, which have no transfer to release -- those are
+   * dated from `paid_at` as before.
+   *
+   * `payment.payment_date` is deliberately not used: it is the SCHEDULED day,
+   * and is filled in for a payment that is still weeks in the future.
+   */
+  payment_sent_on: string | null;
 }
 
 function parseAmount(raw: unknown): number {
@@ -344,6 +359,9 @@ export async function getRampBills(from?: string, to?: string): Promise<RampBill
         payment_transaction_ids: Array.isArray(b.payment?.details?.transaction_ids)
           ? b.payment.details.transaction_ids.filter((id: unknown): id is string => typeof id === "string" && id !== "")
           : [],
+        payment_sent_on: typeof b.payment?.effective_date === "string" && b.payment.effective_date.length >= 10
+          ? b.payment.effective_date.slice(0, 10)
+          : null,
       };
       if (billInWindow(bill, from, to)) results.push(bill);
     }

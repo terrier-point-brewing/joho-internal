@@ -72,6 +72,12 @@ export interface ExpenseRecord {
    */
   ramp_payment_method?:          string | null;
   ramp_payment_transaction_ids?: string[] | null;
+  /**
+   * Bill rows: the day Ramp released the payment and debited the wallet. Can be
+   * weeks before `settled_at` for a mailed check. Accounts payable is dated
+   * from this when it is set -- see lib/finance/balances/owedAt.ts.
+   */
+  payment_sent_on?:              string | null;
   ramp_original_transaction_id?: string | null;
   // The account this expense is coded against in the source system. When the
   // source mirrors the chart of accounts (as Ramp does), this drives auto-map.
